@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<md:Records xmlns:md="urn:eidr:fixture" xmlns:xml="http://www.w3.org/XML/1998/namespace">
+  <md:FullMetadata>
+    <md:BaseObjectData>
+      <md:ID>10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C</md:ID>
+      <md:ReferentType>Movie</md:ReferentType>
+      <md:ResourceName xml:lang="en">Example Movie EIDR</md:ResourceName>
+      <md:AlternateResourceName xml:lang="zh">EIDR 示例电影</md:AlternateResourceName>
+      <md:OriginalLanguage>en</md:OriginalLanguage>
+      <md:ReleaseDate>2020-01-02</md:ReleaseDate>
+      <md:ApproximateLength>PT2H</md:ApproximateLength>
+      <md:CountryOfOrigin>US</md:CountryOfOrigin>
+      <md:AlternateID domain="IMDB">tt0000001</md:AlternateID>
+      <md:LastModificationDate>2026-03-01T00:00:00Z</md:LastModificationDate>
+    </md:BaseObjectData>
+  </md:FullMetadata>
+  <md:FullMetadata>
+    <md:BaseObjectData>
+      <md:ID>10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A</md:ID>
+      <md:ReferentType>Movie</md:ReferentType>
+      <md:ResourceName xml:lang="en">Conflicting exact record</md:ResourceName>
+      <md:AlternateID domain="IMDB">tt9999999</md:AlternateID>
+    </md:BaseObjectData>
+  </md:FullMetadata>
+  <md:FullMetadata>
+    <md:BaseObjectData>
+      <md:ID>10.5240/1111-1111-1111-1111-1111-A</md:ID>
+      <md:ReferentType>TV</md:ReferentType>
+      <md:ResourceName xml:lang="en">Offline Series</md:ResourceName>
+    </md:BaseObjectData>
+    <md:SeriesInfo>
+      <md:Parent>10.5240/0000-0000-0000-0000-0000-A</md:Parent>
+      <md:SequenceNumber>1</md:SequenceNumber>
+    </md:SeriesInfo>
+  </md:FullMetadata>
+  <md:FullMetadata>
+    <md:BaseObjectData>
+      <md:ID>10.5240/2222-2222-2222-2222-2222-A</md:ID>
+      <md:ReferentType>TV</md:ReferentType>
+      <md:ResourceName xml:lang="en">Offline Season</md:ResourceName>
+    </md:BaseObjectData>
+    <md:SeasonInfo>
+      <md:Parent>10.5240/1111-1111-1111-1111-1111-A</md:Parent>
+      <md:SequenceNumber>1</md:SequenceNumber>
+    </md:SeasonInfo>
+  </md:FullMetadata>
+  <md:FullMetadata>
+    <md:BaseObjectData>
+      <md:ID>10.5240/3333-3333-3333-3333-3333-A</md:ID>
+      <md:ReferentType>TV</md:ReferentType>
+      <md:ResourceName xml:lang="en">Offline Episode</md:ResourceName>
+    </md:BaseObjectData>
+    <md:EpisodeInfo>
+      <md:Parent>10.5240/2222-2222-2222-2222-2222-A</md:Parent>
+      <md:SequenceNumber>2</md:SequenceNumber>
+    </md:EpisodeInfo>
+  </md:FullMetadata>
+  <md:FullMetadata>
+    <md:BaseObjectData>
+      <md:ID>10.5240/4444-4444-4444-4444-4444-A</md:ID>
+      <md:ReferentType>Movie</md:ReferentType>
+      <md:ResourceName xml:lang="en">Offline Edit</md:ResourceName>
+    </md:BaseObjectData>
+    <md:EditInfo>
+      <md:Parent>10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C</md:Parent>
+    </md:EditInfo>
+  </md:FullMetadata>
+</md:Records>

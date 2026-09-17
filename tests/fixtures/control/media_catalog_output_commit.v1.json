@@ -1,0 +1,41 @@
+{
+  "commitId": "01a081e8-6420-7000-8000-000000000208",
+  "computeRunId": "01a081e8-6420-7000-8000-000000000202",
+  "jobSpecId": "01a081e8-6420-7000-8000-000000000203",
+  "tenantId": "01a081e8-6420-7000-8000-000000000204",
+  "outputManifest": {
+    "uri": "s3://video-governance-prod/outputs/media-catalog/runs/01a081e8-6420-7000-8000-000000000202/attempt=1/stage=media-catalog-commit/snapshot-set.json",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/vnd.video-governance.snapshot-set+json",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "sizeBytes": "4096",
+    "etag": "media-catalog-snapshot-set-etag",
+    "objectVersion": "media-catalog-snapshot-set-v1",
+    "createdAt": "2026-09-18T06:10:00.000001Z"
+  },
+  "committedAt": "2026-09-18T06:10:01.000001Z",
+  "schemaVersion": "1.0",
+  "outputCount": "2",
+  "totalDurationUs": "0",
+  "producer": "video-media-catalog-spark/1.0.0",
+  "labels": {
+    "stage": "media-catalog-commit",
+    "attempt": "1",
+    "input_manifest_digest": "sha256:hex:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshot_set_id": "01a081e8-6420-7000-8000-000000000207",
+    "algorithm_spec_id": "media-catalog-wikidata-eidr-v1",
+    "algorithm_digest": "sha256:b0fe12dbe3670909f5a54c416a247b503eb49515a9da7d6d22754017bbb57c89",
+    "catalog_source_record_count": "2",
+    "catalog_entity_count": "2",
+    "catalog_name_count": "4",
+    "catalog_external_identifier_count": "2",
+    "catalog_relation_count": "3",
+    "catalog_ingest_error_count": "0",
+    "image_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "config_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+}

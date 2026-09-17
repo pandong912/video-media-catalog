@@ -1,0 +1,89 @@
+{
+  "snapshotSetId": "01a081e8-6420-7000-8000-000000000207",
+  "computeRunId": "01a081e8-6420-7000-8000-000000000202",
+  "jobSpecId": "01a081e8-6420-7000-8000-000000000203",
+  "tenantId": "01a081e8-6420-7000-8000-000000000204",
+  "attempt": 1,
+  "stage": "media-catalog-commit",
+  "inputManifest": {
+    "uri": "s3://video-governance-prod/manifests/media-catalog-input.parquet",
+    "format": "OBJECT_FORMAT_PARQUET",
+    "mediaType": "application/vnd.apache.parquet",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "sizeBytes": "4096",
+    "etag": "media-catalog-input-etag",
+    "objectVersion": "media-catalog-input-v1",
+    "createdAt": "2026-09-18T06:00:00.000001Z"
+  },
+  "tables": [
+    {
+      "tableName": "governance.media_catalog.catalog_source_record",
+      "snapshotId": "101",
+      "parentSnapshotId": null,
+      "committedAt": "2026-09-18T06:09:59.000001Z",
+      "operation": "append",
+      "recordCount": "2"
+    },
+    {
+      "tableName": "governance.media_catalog.catalog_entity",
+      "snapshotId": "102",
+      "parentSnapshotId": null,
+      "committedAt": "2026-09-18T06:09:59.000001Z",
+      "operation": "append",
+      "recordCount": "2"
+    },
+    {
+      "tableName": "governance.media_catalog.catalog_name",
+      "snapshotId": "103",
+      "parentSnapshotId": null,
+      "committedAt": "2026-09-18T06:09:59.000001Z",
+      "operation": "append",
+      "recordCount": "4"
+    },
+    {
+      "tableName": "governance.media_catalog.catalog_external_identifier",
+      "snapshotId": "104",
+      "parentSnapshotId": null,
+      "committedAt": "2026-09-18T06:09:59.000001Z",
+      "operation": "append",
+      "recordCount": "2"
+    },
+    {
+      "tableName": "governance.media_catalog.catalog_relation",
+      "snapshotId": "105",
+      "parentSnapshotId": null,
+      "committedAt": "2026-09-18T06:09:59.000001Z",
+      "operation": "append",
+      "recordCount": "3"
+    },
+    {
+      "tableName": "governance.media_catalog.catalog_ingest_error",
+      "snapshotId": null,
+      "parentSnapshotId": null,
+      "committedAt": "2026-09-18T06:09:59.000001Z",
+      "operation": "empty",
+      "recordCount": "0"
+    }
+  ],
+  "createdAt": "2026-09-18T06:10:00.000001Z",
+  "schemaVersion": "1.0",
+  "outputCount": "2",
+  "producer": "video-media-catalog-spark/1.0.0",
+  "algorithmDigest": "sha256:b0fe12dbe3670909f5a54c416a247b503eb49515a9da7d6d22754017bbb57c89",
+  "imageDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "configDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "metrics": {
+    "algorithm_spec_id": "media-catalog-wikidata-eidr-v1",
+    "algorithm_digest": "sha256:b0fe12dbe3670909f5a54c416a247b503eb49515a9da7d6d22754017bbb57c89",
+    "catalog_source_record_count": "2",
+    "catalog_entity_count": "2",
+    "catalog_name_count": "4",
+    "catalog_external_identifier_count": "2",
+    "catalog_relation_count": "3",
+    "catalog_ingest_error_count": "0"
+  }
+}

@@ -1,0 +1,197 @@
+name: Publish image
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  ECR_REPOSITORY: video-media-catalog
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.7"
+          enable-cache: true
+      - run: uv sync --frozen --extra spark
+      - run: make verify-ci
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: media-catalog-publish
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Verify infrastructure-managed repository
+        run: aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" >/dev/null
+      - id: tags
+        name: Build immutable tags
+        run: |
+          image='${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}'
+          {
+            echo 'values<<EOF'
+            echo "${image}:sha-${GITHUB_SHA}"
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "${image}:${GITHUB_REF_NAME}"
+            fi
+            echo 'EOF'
+          } >>"$GITHUB_OUTPUT"
+      - id: existing
+        name: Resolve existing commit image
+        run: |
+          digest="$(
+            aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=sha-${GITHUB_SHA}" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text 2>/dev/null || true
+          )"
+          if [[ "$digest" == sha256:* ]]; then
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+            echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - id: build
+        name: Build and push immutable image
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.tags.outputs.values }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - id: image
+        name: Resolve image and scannable platform digests
+        env:
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          digest="${EXISTING_DIGEST:-$BUILT_DIGEST}"
+          if [[ "$digest" != sha256:* ]]; then
+            echo "::error::Published image digest is unavailable"
+            exit 1
+          fi
+          image="$(
+            aws ecr batch-get-image \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageDigest=$digest" \
+              --accepted-media-types \
+                application/vnd.oci.image.index.v1+json \
+                application/vnd.docker.distribution.manifest.list.v2+json \
+                application/vnd.oci.image.manifest.v1+json \
+                application/vnd.docker.distribution.manifest.v2+json \
+              --query 'images[0]' \
+              --output json
+          )"
+          media_type="$(jq -r '.imageManifestMediaType' <<<"$image")"
+          scan_digest="$digest"
+          case "$media_type" in
+            application/vnd.oci.image.index.v1+json|\
+            application/vnd.docker.distribution.manifest.list.v2+json)
+              index="$(jq -r '.imageManifest' <<<"$image")"
+              scan_digest="$(
+                jq -r '
+                  first(
+                    .manifests[]
+                    | select(
+                        .platform.os == "linux"
+                        and .platform.architecture == "amd64"
+                      )
+                    | .digest
+                  ) // empty
+                ' <<<"$index"
+              )"
+              ;;
+          esac
+          if [[ "$scan_digest" != sha256:* ]]; then
+            echo "::error::Linux/amd64 platform digest is unavailable"
+            exit 1
+          fi
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          echo "scan-digest=$scan_digest" >>"$GITHUB_OUTPUT"
+      - name: Attach release tag to reused image
+        if: startsWith(github.ref, 'refs/tags/v') && steps.existing.outputs.exists == 'true'
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          image="$(
+            aws ecr batch-get-image \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageDigest=$IMAGE_DIGEST" \
+              --accepted-media-types \
+                application/vnd.oci.image.index.v1+json \
+                application/vnd.docker.distribution.manifest.list.v2+json \
+                application/vnd.oci.image.manifest.v1+json \
+                application/vnd.docker.distribution.manifest.v2+json \
+              --query 'images[0]' \
+              --output json
+          )"
+          aws ecr put-image \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-tag "$GITHUB_REF_NAME" \
+            --image-manifest "$(jq -r '.imageManifest' <<<"$image")" \
+            --image-manifest-media-type "$(
+              jq -r '.imageManifestMediaType' <<<"$image"
+            )" >/dev/null
+      - name: Enforce zero critical findings
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.scan-digest }}
+        run: |
+          status=
+          for _ in $(seq 1 30); do
+            if scan="$(
+              aws ecr describe-image-scan-findings \
+                --repository-name "$ECR_REPOSITORY" \
+                --image-id "imageDigest=$IMAGE_DIGEST" \
+                --output json 2>/dev/null
+            )"; then
+              status="$(jq -r '.imageScanStatus.status' <<<"$scan")"
+              [[ "$status" == COMPLETE ]] && break
+              [[ "$status" == FAILED ]] && exit 1
+            fi
+            sleep 10
+          done
+          [[ "$status" == COMPLETE ]] || exit 1
+          critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' <<<"$scan")"
+          (( critical == 0 )) || {
+            echo "::error::Runtime image has $critical critical findings"
+            exit 1
+          }
+      - name: Record immutable image reference
+        run: |
+          printf '%s/%s@%s\n' \
+            '${{ steps.ecr.outputs.registry }}' \
+            "$ECR_REPOSITORY" \
+            '${{ steps.image.outputs.digest }}' > image-reference.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: media-catalog-image-reference
+          path: image-reference.txt

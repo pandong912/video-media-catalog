@@ -1,0 +1,17 @@
+.DS_Store
+.idea/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+spark-warehouse/
+metastore_db/
+derby.log
+landing-output/
+catalog-output/

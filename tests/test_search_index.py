@@ -254,6 +254,7 @@ def test_bulk_partition_reports_partial_failures() -> None:
         **kwargs: Any,
     ):
         assert kwargs["raise_on_error"] is False
+        assert kwargs["max_chunk_bytes"] == 4096
         seen_actions.extend(actions)
         yield True, {"index": {"_id": "one", "status": 201}}
         yield (
@@ -275,6 +276,7 @@ def test_bulk_partition_reports_partial_failures() -> None:
         client=object(),
         index_name="media-catalog-entities-v1-build",
         chunk_size=100,
+        max_chunk_bytes=4096,
         request_timeout=5,
         streaming_bulk=fake_streaming_bulk,
     )

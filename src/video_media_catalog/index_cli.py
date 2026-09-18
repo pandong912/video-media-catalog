@@ -28,6 +28,7 @@ from video_media_catalog.opensearch_client import (
     create_opensearch_client,
 )
 from video_media_catalog.search_index import (
+    DEFAULT_MAX_BULK_BYTES,
     INDEX_PREFIX,
     MAPPING_DIGEST,
     READ_ALIAS,
@@ -120,7 +121,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--shards", type=int, default=3)
     parser.add_argument("--replicas", type=int, default=1)
-    parser.add_argument("--bulk-chunk-size", type=int, default=500)
+    parser.add_argument("--bulk-chunk-size", type=int, default=100)
+    parser.add_argument(
+        "--bulk-max-chunk-bytes",
+        type=int,
+        default=DEFAULT_MAX_BULK_BYTES,
+    )
     parser.add_argument("--bulk-partitions", type=int)
     parser.add_argument("--request-timeout-seconds", type=float, default=30.0)
     parser.add_argument("--shuffle-partitions", type=int)
@@ -283,6 +289,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         shards=parsed.shards,
         replicas=parsed.replicas,
         bulk_chunk_size=parsed.bulk_chunk_size,
+        bulk_max_chunk_bytes=parsed.bulk_max_chunk_bytes,
     )
     build_id = derive_build_id(
         snapshot_set=snapshot_set,
@@ -431,6 +438,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             connection=connection,
             index_name=index_name,
             chunk_size=parsed.bulk_chunk_size,
+            max_chunk_bytes=parsed.bulk_max_chunk_bytes,
             partitions=parsed.bulk_partitions,
         )
         if bulk_result.error_count or bulk_result.document_count != expected_count:

@@ -26,6 +26,7 @@ READ_ALIAS = "media-catalog-entities-read"
 INDEX_PREFIX = "media-catalog-entities-v1"
 PROJECTION_VERSION = "1"
 MAX_MANIFEST_BYTES = 1024 * 1024
+DEFAULT_MAX_BULK_BYTES = 5 * 1024 * 1024
 
 _SAFE_INDEX_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
 
@@ -176,8 +177,9 @@ def index_config_digest(
     shards: int,
     replicas: int,
     bulk_chunk_size: int,
+    bulk_max_chunk_bytes: int,
 ) -> str:
-    if shards < 1 or replicas < 0 or bulk_chunk_size < 1:
+    if shards < 1 or replicas < 0 or bulk_chunk_size < 1 or bulk_max_chunk_bytes < 1:
         raise ValueError("invalid OpenSearch index build configuration")
     _validate_index_name(read_alias, label="read alias")
     _validate_index_name(index_prefix, label="index prefix")
@@ -189,6 +191,7 @@ def index_config_digest(
         "shards": shards,
         "replicas": replicas,
         "bulkChunkSize": bulk_chunk_size,
+        "bulkMaxChunkBytes": bulk_max_chunk_bytes,
     }
     return "sha256:" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
@@ -331,6 +334,7 @@ def bulk_partition(
     client: Any,
     index_name: str,
     chunk_size: int,
+    max_chunk_bytes: int = DEFAULT_MAX_BULK_BYTES,
     request_timeout: float,
     streaming_bulk: Callable[..., Iterable[tuple[bool, dict[str, Any]]]] | None = None,
 ) -> BulkResult:
@@ -357,6 +361,7 @@ def bulk_partition(
         client,
         actions(),
         chunk_size=chunk_size,
+        max_chunk_bytes=max_chunk_bytes,
         max_retries=3,
         initial_backoff=1,
         max_backoff=8,
@@ -397,6 +402,7 @@ def _index_spark_partition(
     connection: OpenSearchConnection,
     index_name: str,
     chunk_size: int,
+    max_chunk_bytes: int,
 ) -> Iterable[dict[str, Any]]:
     client = create_opensearch_client(connection)
     try:
@@ -405,6 +411,7 @@ def _index_spark_partition(
             client=client,
             index_name=index_name,
             chunk_size=chunk_size,
+            max_chunk_bytes=max_chunk_bytes,
             request_timeout=connection.timeout_seconds,
         ).as_dict()
     finally:
@@ -419,6 +426,7 @@ def distributed_bulk_index(
     connection: OpenSearchConnection,
     index_name: str,
     chunk_size: int,
+    max_chunk_bytes: int = DEFAULT_MAX_BULK_BYTES,
     partitions: int | None = None,
 ) -> BulkResult:
     """Bulk index per Spark partition; only partition summaries reach the driver."""
@@ -433,6 +441,7 @@ def distributed_bulk_index(
             connection=connection,
             index_name=index_name,
             chunk_size=chunk_size,
+            max_chunk_bytes=max_chunk_bytes,
         )
     ).collect()
     result = BulkResult()

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
+import time
 import uuid
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, BinaryIO, Protocol
 from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit
@@ -25,6 +28,9 @@ from video_media_catalog.object_store import S3Location, _etag
 DEFAULT_MAX_DUMP_BYTES = 200 * 1024**3
 DEFAULT_UPLOAD_PART_BYTES = 64 * 1024**2
 DEFAULT_COPY_PART_BYTES = 512 * 1024**2
+DEFAULT_RANGE_ATTEMPTS = 5
+DEFAULT_RETRY_INITIAL_BACKOFF_SECONDS = 1.0
+DEFAULT_RETRY_MAX_BACKOFF_SECONDS = 30.0
 MIN_MULTIPART_PART_BYTES = 5 * 1024**2
 MAX_MULTIPART_PART_BYTES = 5 * 1024**3
 MAX_MULTIPART_PARTS = 10_000
@@ -35,6 +41,11 @@ OFFICIAL_DUMP_HOST = "dumps.wikimedia.org"
 _DUMP_FILENAME = re.compile(r"^wikidata-([0-9]{8})-all\.json\.bz2$")
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_STRONG_ETAG = re.compile(r'^"[\x21\x23-\x7e\x80-\xff]*"$')
+_CONTENT_RANGE = re.compile(
+    r"bytes ([0-9]+)-([0-9]+)/([0-9]+)",
+    flags=re.IGNORECASE,
+)
 
 
 class WikidataSyncError(RuntimeError):
@@ -110,7 +121,13 @@ class HttpResponse(Protocol):
 
 
 class HttpTransport(Protocol):
-    def open(self, method: str, url: str) -> HttpResponse: ...
+    def open(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> HttpResponse: ...
 
 
 @dataclass
@@ -142,14 +159,22 @@ class StdlibHttpTransport:
         self.timeout_seconds = timeout_seconds
         self._opener = build_opener(_NoRedirect)
 
-    def open(self, method: str, url: str) -> StreamingHttpResponse:
+    def open(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> StreamingHttpResponse:
+        request_headers = {
+            "User-Agent": "video-media-catalog-wikidata-sync/1.0",
+        }
+        request_headers.update(headers or {})
+        request_headers["Accept-Encoding"] = "identity"
         request = Request(
             url,
             method=method,
-            headers={
-                "Accept-Encoding": "identity",
-                "User-Agent": "video-media-catalog-wikidata-sync/1.0",
-            },
+            headers=request_headers,
         )
         try:
             response = self._opener.open(request, timeout=self.timeout_seconds)
@@ -176,14 +201,19 @@ def _open_with_redirects(
     *,
     validate: Callable[[str], None],
     max_redirects: int,
+    method: str = "GET",
+    headers: Mapping[str, str] | None = None,
+    expected_status: int | None = 200,
+    require_identity_encoding: bool = True,
 ) -> HttpResponse:
     current = url
     for redirect_count in range(max_redirects + 1):
         validate(current)
-        response = http.open("GET", current)
+        response = http.open(method, current, headers=headers)
         if response.status in {301, 302, 303, 307, 308}:
             location = _header(response.headers, "Location")
-            response.body.close()
+            with suppress(Exception):
+                response.body.close()
             if not location:
                 raise WikidataSyncError(
                     "INVALID_REDIRECT", "official response omitted redirect location"
@@ -201,15 +231,21 @@ def _open_with_redirects(
                     "official response redirected outside the strict allowlist",
                 ) from exc
             continue
-        if response.status != 200:
-            response.body.close()
+        if expected_status is not None and response.status != expected_status:
+            with suppress(Exception):
+                response.body.close()
             raise WikidataSyncError(
                 "UPSTREAM_HTTP_ERROR",
                 f"official server returned HTTP {response.status}",
             )
-        encoding = (_header(response.headers, "Content-Encoding") or "identity").lower()
-        if encoding != "identity":
-            response.body.close()
+        encoding = (
+            (_header(response.headers, "Content-Encoding") or "identity")
+            .strip()
+            .lower()
+        )
+        if require_identity_encoding and encoding != "identity":
+            with suppress(Exception):
+                response.body.close()
             raise WikidataSyncError(
                 "UNEXPECTED_CONTENT_ENCODING",
                 "official response must not apply HTTP content encoding",
@@ -262,6 +298,83 @@ def fetch_official_sha1(
             "official SHA-1 sums file must contain the dump filename exactly once",
         )
     return matches[0]
+
+
+@dataclass(frozen=True)
+class _OfficialDumpMetadata:
+    size: int
+    validator_name: str
+    validator_value: str
+
+
+def _valid_last_modified(value: str) -> bool:
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
+def _head_official_dump(
+    dump: OfficialDump,
+    *,
+    http: HttpTransport,
+    max_bytes: int,
+    max_redirects: int,
+) -> _OfficialDumpMetadata:
+    response = _open_with_redirects(
+        http,
+        dump.source_url,
+        validate=lambda value: validate_official_dump_url(value),
+        max_redirects=max_redirects,
+        method="HEAD",
+    )
+    try:
+        content_length = (_header(response.headers, "Content-Length") or "").strip()
+        if re.fullmatch(r"[0-9]+", content_length) is None:
+            raise WikidataSyncError(
+                "INVALID_CONTENT_LENGTH",
+                "official HEAD Content-Length is missing or invalid",
+            )
+        size = int(content_length)
+        if size < 1:
+            raise WikidataSyncError(
+                "INVALID_CONTENT_LENGTH",
+                "official HEAD Content-Length must be positive",
+            )
+        if size > max_bytes:
+            raise WikidataSyncError(
+                "OBJECT_TOO_LARGE",
+                "official HEAD Content-Length exceeds the configured limit",
+            )
+
+        accept_ranges = {
+            token.strip().lower()
+            for token in (_header(response.headers, "Accept-Ranges") or "").split(",")
+        }
+        if "bytes" not in accept_ranges:
+            raise WikidataSyncError(
+                "UPSTREAM_RANGE_UNSUPPORTED",
+                "official HEAD response does not advertise byte ranges",
+            )
+
+        etag = (_header(response.headers, "ETag") or "").strip()
+        if _STRONG_ETAG.fullmatch(etag):
+            return _OfficialDumpMetadata(size, "ETag", etag)
+
+        last_modified = (_header(response.headers, "Last-Modified") or "").strip()
+        if last_modified and _valid_last_modified(last_modified):
+            return _OfficialDumpMetadata(
+                size,
+                "Last-Modified",
+                last_modified,
+            )
+        raise WikidataSyncError(
+            "MISSING_UPSTREAM_VALIDATOR",
+            "official HEAD requires a strong ETag or valid Last-Modified",
+        )
+    finally:
+        response.body.close()
 
 
 class WikidataSyncResult(BaseModel):
@@ -461,17 +574,200 @@ def _abort(s3: Any, location: S3Location, upload_id: str | None) -> None:
         )
 
 
-def _upload_stream_to_staging(
+class _RetryableRangeError(Exception):
+    """An upstream range failure that is safe to retry from its first byte."""
+
+
+def _validate_range_headers(
+    response: HttpResponse,
+    *,
+    start: int,
+    end: int,
+    metadata: _OfficialDumpMetadata,
+) -> None:
+    encoding = (
+        (_header(response.headers, "Content-Encoding") or "identity").strip().lower()
+    )
+    if encoding != "identity":
+        raise WikidataSyncError(
+            "UNEXPECTED_CONTENT_ENCODING",
+            "official range response must not apply HTTP content encoding",
+        )
+
+    expected_length = end - start + 1
+    content_length = (_header(response.headers, "Content-Length") or "").strip()
+    if re.fullmatch(r"[0-9]+", content_length) is None:
+        raise WikidataSyncError(
+            "INVALID_CONTENT_LENGTH",
+            "official range Content-Length is missing or invalid",
+        )
+    if int(content_length) != expected_length:
+        raise WikidataSyncError(
+            "UPSTREAM_RANGE_PROTOCOL_ERROR",
+            "official range Content-Length does not match the requested bytes",
+        )
+
+    content_range = (_header(response.headers, "Content-Range") or "").strip()
+    match = _CONTENT_RANGE.fullmatch(content_range)
+    if match is None or tuple(map(int, match.groups())) != (
+        start,
+        end,
+        metadata.size,
+    ):
+        raise WikidataSyncError(
+            "UPSTREAM_RANGE_PROTOCOL_ERROR",
+            "official Content-Range does not exactly match the requested bytes",
+        )
+
+    validator = (_header(response.headers, metadata.validator_name) or "").strip()
+    if validator != metadata.validator_value:
+        raise WikidataSyncError(
+            "UPSTREAM_VALIDATOR_CHANGED",
+            "official dump validator changed after HEAD",
+        )
+
+
+def _read_range_once(
+    *,
+    http: HttpTransport,
+    dump: OfficialDump,
+    metadata: _OfficialDumpMetadata,
+    start: int,
+    end: int,
+    max_redirects: int,
+) -> bytearray:
+    request_headers = {
+        "Range": f"bytes={start}-{end}",
+        "If-Range": metadata.validator_value,
+    }
+    try:
+        response = _open_with_redirects(
+            http,
+            dump.source_url,
+            validate=lambda value: validate_official_dump_url(value),
+            max_redirects=max_redirects,
+            headers=request_headers,
+            expected_status=None,
+            require_identity_encoding=False,
+        )
+    except WikidataSyncError:
+        raise
+    except Exception as exc:
+        raise _RetryableRangeError("official range request failed") from exc
+
+    try:
+        if response.status in {408, 429} or 500 <= response.status <= 599:
+            raise _RetryableRangeError(
+                f"official server returned retryable HTTP {response.status}"
+            )
+        if 400 <= response.status <= 499:
+            raise WikidataSyncError(
+                "UPSTREAM_HTTP_ERROR",
+                f"official range request returned HTTP {response.status}",
+            )
+        if response.status != 206:
+            raise WikidataSyncError(
+                "UPSTREAM_RANGE_PROTOCOL_ERROR",
+                f"official range request returned HTTP {response.status}, not 206",
+            )
+
+        _validate_range_headers(
+            response,
+            start=start,
+            end=end,
+            metadata=metadata,
+        )
+        expected_length = end - start + 1
+        buffer = bytearray()
+        while len(buffer) <= expected_length:
+            read_size = min(
+                STREAM_CHUNK_BYTES,
+                expected_length + 1 - len(buffer),
+            )
+            try:
+                chunk = response.body.read(read_size)
+            except Exception as exc:
+                raise _RetryableRangeError(
+                    "official range response read failed"
+                ) from exc
+            if not chunk:
+                break
+            if not isinstance(chunk, bytes):
+                raise WikidataSyncError(
+                    "UPSTREAM_READ_ERROR",
+                    "official response returned non-byte data",
+                )
+            buffer.extend(chunk)
+        if len(buffer) < expected_length:
+            raise _RetryableRangeError("official range response ended early")
+        if len(buffer) > expected_length:
+            raise WikidataSyncError(
+                "UPSTREAM_RANGE_PROTOCOL_ERROR",
+                "official range response exceeded its declared length",
+            )
+        return buffer
+    finally:
+        with suppress(Exception):
+            response.body.close()
+
+
+def _read_range_with_retries(
+    *,
+    http: HttpTransport,
+    dump: OfficialDump,
+    metadata: _OfficialDumpMetadata,
+    start: int,
+    end: int,
+    max_redirects: int,
+    attempts: int,
+    initial_backoff_seconds: float,
+    max_backoff_seconds: float,
+    sleeper: Callable[[float], None],
+) -> bytearray:
+    delay = initial_backoff_seconds
+    last_error: _RetryableRangeError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _read_range_once(
+                http=http,
+                dump=dump,
+                metadata=metadata,
+                start=start,
+                end=end,
+                max_redirects=max_redirects,
+            )
+        except _RetryableRangeError as exc:
+            last_error = exc
+        if attempt < attempts:
+            sleeper(delay)
+            delay = min(max_backoff_seconds, delay * 2)
+    raise WikidataSyncError(
+        "UPSTREAM_RANGE_RETRIES_EXHAUSTED",
+        (f"official byte range {start}-{end} failed after {attempts} attempts"),
+    ) from last_error
+
+
+def _upload_ranges_to_staging(
     *,
     s3: Any,
     location: S3Location,
-    body: BinaryIO,
+    http: HttpTransport,
     dump: OfficialDump,
+    metadata: _OfficialDumpMetadata,
     upstream_sha1: str,
-    max_bytes: int,
     part_bytes: int,
-    declared_size: int | None,
+    max_redirects: int,
+    range_attempts: int,
+    retry_initial_backoff_seconds: float,
+    retry_max_backoff_seconds: float,
+    sleeper: Callable[[float], None],
 ) -> tuple[int, str, Mapping[str, Any]]:
+    part_count = (metadata.size + part_bytes - 1) // part_bytes
+    if part_count > MAX_MULTIPART_PARTS:
+        raise WikidataSyncError(
+            "TOO_MANY_PARTS",
+            "dump exceeds the multipart part-count limit",
+        )
     response = s3.create_multipart_upload(
         Bucket=location.bucket,
         Key=location.key,
@@ -486,69 +782,36 @@ def _upload_stream_to_staging(
     parts: list[dict[str, Any]] = []
     sha1 = hashlib.sha1(usedforsecurity=False)
     sha256 = hashlib.sha256()
-    size = 0
-    buffer = bytearray()
-    prefix = bytearray()
     try:
-        while chunk := body.read(STREAM_CHUNK_BYTES):
-            if not isinstance(chunk, bytes):
+        for start in range(0, metadata.size, part_bytes):
+            end = min(metadata.size, start + part_bytes) - 1
+            part = _read_range_with_retries(
+                http=http,
+                dump=dump,
+                metadata=metadata,
+                start=start,
+                end=end,
+                max_redirects=max_redirects,
+                attempts=range_attempts,
+                initial_backoff_seconds=retry_initial_backoff_seconds,
+                max_backoff_seconds=retry_max_backoff_seconds,
+                sleeper=sleeper,
+            )
+            if start == 0 and not part.startswith(b"BZh"):
                 raise WikidataSyncError(
-                    "UPSTREAM_READ_ERROR", "official response returned non-byte data"
+                    "INVALID_DUMP_CONTENT",
+                    "official dump is not a non-empty bzip2 stream",
                 )
-            size += len(chunk)
-            if size > max_bytes:
-                raise WikidataSyncError(
-                    "OBJECT_TOO_LARGE", "official dump exceeds configured size limit"
-                )
-            if len(prefix) < 3:
-                prefix.extend(chunk[: 3 - len(prefix)])
-            sha1.update(chunk)
-            sha256.update(chunk)
-            buffer.extend(chunk)
-            if len(buffer) >= part_bytes:
-                part_number = len(parts) + 1
-                if part_number > MAX_MULTIPART_PARTS:
-                    raise WikidataSyncError(
-                        "TOO_MANY_PARTS", "dump exceeds the multipart part-count limit"
-                    )
-                uploaded = s3.upload_part(
-                    Bucket=location.bucket,
-                    Key=location.key,
-                    UploadId=upload_id,
-                    PartNumber=part_number,
-                    Body=bytes(buffer),
-                    ContentLength=len(buffer),
-                )
-                raw_etag = uploaded.get("ETag")
-                if _etag(raw_etag) is None:
-                    raise WikidataSyncError(
-                        "S3_MULTIPART_ERROR", "S3 upload_part omitted ETag"
-                    )
-                parts.append({"PartNumber": part_number, "ETag": str(raw_etag)})
-                buffer.clear()
-        if size == 0 or bytes(prefix) != b"BZh":
-            raise WikidataSyncError(
-                "INVALID_DUMP_CONTENT", "official dump is not a non-empty bzip2 stream"
-            )
-        if declared_size is not None and size != declared_size:
-            raise WikidataSyncError(
-                "UPSTREAM_SIZE_MISMATCH",
-                "official response size differs from Content-Length",
-            )
-        if sha1.hexdigest() != upstream_sha1:
-            raise WikidataSyncError(
-                "UPSTREAM_SHA1_MISMATCH",
-                "downloaded dump differs from the official SHA-1",
-            )
-        if buffer:
+            sha1.update(part)
+            sha256.update(part)
             part_number = len(parts) + 1
             uploaded = s3.upload_part(
                 Bucket=location.bucket,
                 Key=location.key,
                 UploadId=upload_id,
                 PartNumber=part_number,
-                Body=bytes(buffer),
-                ContentLength=len(buffer),
+                Body=part,
+                ContentLength=len(part),
             )
             raw_etag = uploaded.get("ETag")
             if _etag(raw_etag) is None:
@@ -556,6 +819,11 @@ def _upload_stream_to_staging(
                     "S3_MULTIPART_ERROR", "S3 upload_part omitted ETag"
                 )
             parts.append({"PartNumber": part_number, "ETag": str(raw_etag)})
+        if sha1.hexdigest() != upstream_sha1:
+            raise WikidataSyncError(
+                "UPSTREAM_SHA1_MISMATCH",
+                "downloaded dump differs from the official SHA-1",
+            )
         completed = s3.complete_multipart_upload(
             Bucket=location.bucket,
             Key=location.key,
@@ -563,7 +831,7 @@ def _upload_stream_to_staging(
             MultipartUpload={"Parts": parts},
         )
         upload_id = None
-        return size, sha256.hexdigest(), completed
+        return metadata.size, sha256.hexdigest(), completed
     finally:
         _abort(s3, location, upload_id)
 
@@ -696,9 +964,13 @@ def sync_official_dump(
     upload_part_bytes: int = DEFAULT_UPLOAD_PART_BYTES,
     copy_part_bytes: int = DEFAULT_COPY_PART_BYTES,
     max_redirects: int = 3,
+    range_attempts: int = DEFAULT_RANGE_ATTEMPTS,
+    retry_initial_backoff_seconds: float = (DEFAULT_RETRY_INITIAL_BACKOFF_SECONDS),
+    retry_max_backoff_seconds: float = DEFAULT_RETRY_MAX_BACKOFF_SECONDS,
+    sleeper: Callable[[float], None] | None = None,
     staging_token_factory: Callable[[], str] | None = None,
 ) -> WikidataSyncResult:
-    """Stream, verify, and immutably publish one official dated dump."""
+    """Range-download, verify, and immutably publish one official dated dump."""
 
     dump = validate_official_dump_url(source_url)
     prefix = S3Location.parse(destination_prefix.rstrip("/") + "/placeholder")
@@ -708,6 +980,19 @@ def sync_official_dump(
     _require_part_size(copy_part_bytes, name="copy_part_bytes")
     if max_redirects < 0:
         raise ValueError("max_redirects must not be negative")
+    if range_attempts < 1:
+        raise ValueError("range_attempts must be at least 1")
+    if (
+        not math.isfinite(retry_initial_backoff_seconds)
+        or retry_initial_backoff_seconds <= 0
+    ):
+        raise ValueError("retry_initial_backoff_seconds must be finite and positive")
+    if not math.isfinite(retry_max_backoff_seconds) or retry_max_backoff_seconds <= 0:
+        raise ValueError("retry_max_backoff_seconds must be finite and positive")
+    if retry_initial_backoff_seconds > retry_max_backoff_seconds:
+        raise ValueError(
+            "retry_initial_backoff_seconds must not exceed retry_max_backoff_seconds"
+        )
 
     upstream_sha1 = fetch_official_sha1(
         dump,
@@ -733,30 +1018,15 @@ def sync_official_dump(
     if existing is not None:
         return existing
 
-    upstream = _open_with_redirects(
-        http,
-        dump.source_url,
-        validate=lambda value: validate_official_dump_url(value),
+    metadata = _head_official_dump(
+        dump,
+        http=http,
+        max_bytes=max_bytes,
         max_redirects=max_redirects,
     )
-    declared_header = _header(upstream.headers, "Content-Length")
-    declared_size: int | None = None
-    if declared_header is not None:
-        try:
-            declared_size = int(declared_header)
-        except ValueError as exc:
-            upstream.body.close()
-            raise WikidataSyncError(
-                "INVALID_CONTENT_LENGTH", "official Content-Length is invalid"
-            ) from exc
-        if declared_size <= 0 or declared_size > max_bytes:
-            upstream.body.close()
-            raise WikidataSyncError(
-                "OBJECT_TOO_LARGE",
-                "official Content-Length is empty or exceeds the configured limit",
-            )
 
     token_factory = staging_token_factory or (lambda: uuid.uuid4().hex)
+    range_sleeper = time.sleep if sleeper is None else sleeper
     staging = S3Location(
         prefix.bucket,
         (
@@ -768,19 +1038,20 @@ def sync_official_dump(
     staging_completed = False
     staging_version: str | None = None
     try:
-        try:
-            size, sha256, completed = _upload_stream_to_staging(
-                s3=s3,
-                location=staging,
-                body=upstream.body,
-                dump=dump,
-                upstream_sha1=upstream_sha1,
-                max_bytes=max_bytes,
-                part_bytes=upload_part_bytes,
-                declared_size=declared_size,
-            )
-        finally:
-            upstream.body.close()
+        size, sha256, completed = _upload_ranges_to_staging(
+            s3=s3,
+            location=staging,
+            http=http,
+            dump=dump,
+            metadata=metadata,
+            upstream_sha1=upstream_sha1,
+            part_bytes=upload_part_bytes,
+            max_redirects=max_redirects,
+            range_attempts=range_attempts,
+            retry_initial_backoff_seconds=retry_initial_backoff_seconds,
+            retry_max_backoff_seconds=retry_max_backoff_seconds,
+            sleeper=range_sleeper,
+        )
         staging_completed = True
         staging_version = completed.get("VersionId")
         return _copy_staging_to_final(

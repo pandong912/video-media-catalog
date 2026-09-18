@@ -64,11 +64,18 @@ video-media-catalog-wikidata-sync \
 
 CLI 拒绝 `latest`、非 HTTPS、非 `dumps.wikimedia.org` host、userinfo、端口、
 query、fragment 和越出 allowlist 的重定向。它先读取同目录官方 SHA-1 校验
-清单 `wikidata-YYYYMMDD-sha1sums.txt`，再把响应流式 multipart 上传到临时
-S3 对象；完整 SHA-1 核对成功后，使用 server-side multipart copy 条件发布
-按日期和上游 SHA-1 寻址的最终对象。
-过程中同时计算 SHA-256，不会把完整 dump 落盘或读入内存。默认硬上限 200 GiB；
-任何下载、摘要或 S3 错误都会 abort 活跃 multipart upload。
+清单 `wikidata-YYYYMMDD-sha1sums.txt`，再以严格 HEAD 固定大小和
+ETag/Last-Modified，并按 `--upload-part-bytes` 顺序执行 HTTP Range GET。每段
+完整读完后才计入 SHA-1/SHA-256 并上传，网络读错误、短读、HTTP 408/429/5xx
+只重试当前段；`--range-attempts` 默认 5，指数退避可用
+`--retry-initial-backoff-seconds` 和 `--retry-max-backoff-seconds` 调整。
+完整 SHA-1 核对成功后，使用 server-side multipart copy 条件发布按日期和上游
+SHA-1 寻址的最终对象。
+
+同步不会把完整 dump 落盘或读入内存，内存约为一个 upload part，默认硬上限
+200 GiB；任何下载、摘要或 S3 错误都会 abort 活跃 multipart upload。当前不支持
+跨 Pod 保留或恢复 multipart 状态；Pod 失败会安全 abort，随后由 Workflow
+重跑整个同步。
 
 目标 bucket 必须启用 S3 Versioning。最终对象 metadata 绑定 source URL、
 上游 SHA-1、日期和 SHA-256；同身份同内容可复用，metadata 或内容冲突会失败。

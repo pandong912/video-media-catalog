@@ -11,7 +11,6 @@ permissions:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  ECR_REPOSITORY: video-media-catalog
 
 jobs:
   verify:
@@ -29,19 +28,29 @@ jobs:
         with:
           version: "0.9.7"
           enable-cache: true
-      - run: uv sync --frozen --extra spark
+      - run: uv sync --frozen --all-extras
       - run: make verify-ci
 
   publish:
     needs: verify
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repository: video-media-catalog
+            dockerfile: Dockerfile
+          - repository: video-media-catalog-api
+            dockerfile: Dockerfile.api
+    env:
+      ECR_REPOSITORY: ${{ matrix.repository }}
     steps:
       - uses: actions/checkout@v5
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: media-catalog-publish
+          role-session-name: media-catalog-publish-${{ strategy.job-index }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@v2
       - name: Verify infrastructure-managed repository
@@ -81,6 +90,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           provenance: mode=max
@@ -190,8 +200,9 @@ jobs:
           printf '%s/%s@%s\n' \
             '${{ steps.ecr.outputs.registry }}' \
             "$ECR_REPOSITORY" \
-            '${{ steps.image.outputs.digest }}' > image-reference.txt
+            '${{ steps.image.outputs.digest }}' \
+            > "image-reference-${ECR_REPOSITORY}.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: media-catalog-image-reference
-          path: image-reference.txt
+          name: ${{ matrix.repository }}-image-reference
+          path: image-reference-${{ matrix.repository }}.txt

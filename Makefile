@@ -1,22 +1,29 @@
-.PHONY: sync lint test test-spark test-iceberg verify verify-ci
+.PHONY: sync lint test test-api test-index test-spark test-iceberg verify verify-ci
 
 sync:
-	uv sync --frozen --extra spark
+	uv sync --frozen --all-extras
 
 lint:
-	uv run --frozen ruff check src tests
-	uv run --frozen ruff format --check src tests
+	uv run --frozen --all-extras ruff check src tests
+	uv run --frozen --all-extras ruff format --check src tests
 
 test:
-	uv run --frozen pytest -m "not spark and not integration"
+	uv run --frozen --all-extras pytest -m "not spark and not integration"
+
+test-api:
+	uv run --frozen --extra api pytest tests/test_api.py tests/test_api_auth.py
+
+test-index:
+	uv run --frozen --extra index pytest \
+		tests/test_search_index.py tests/test_search_projection.py
 
 test-spark:
-	env -u SPARK_HOME uv run --frozen --extra spark pytest \
+	env -u SPARK_HOME uv run --frozen --all-extras pytest \
 		-m "spark and not integration"
 
 test-iceberg:
 	RUN_ICEBERG_INTEGRATION=1 env -u SPARK_HOME \
-		uv run --frozen --extra spark pytest \
+		uv run --frozen --all-extras pytest \
 		-m "spark and integration"
 
 verify: lint test test-spark

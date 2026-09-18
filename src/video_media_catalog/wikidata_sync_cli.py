@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import argparse
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.wikidata_sync import (
     DEFAULT_COPY_PART_BYTES,
     DEFAULT_MAX_DUMP_BYTES,
+    DEFAULT_RANGE_ATTEMPTS,
+    DEFAULT_RETRY_INITIAL_BACKOFF_SECONDS,
+    DEFAULT_RETRY_MAX_BACKOFF_SECONDS,
     DEFAULT_UPLOAD_PART_BYTES,
     HttpTransport,
     StdlibHttpTransport,
@@ -23,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-wikidata-sync",
         description=(
-            "Stream one official dated Wikidata JSON bzip2 dump into an "
+            "Range-download one official dated Wikidata JSON bzip2 dump into an "
             "immutable, versioned S3 object."
         ),
     )
@@ -60,6 +63,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-redirects", type=int, default=3)
     parser.add_argument("--http-timeout-seconds", type=float, default=60.0)
+    parser.add_argument(
+        "--range-attempts",
+        type=int,
+        default=DEFAULT_RANGE_ATTEMPTS,
+        help="attempts per byte range (default: 5)",
+    )
+    parser.add_argument(
+        "--retry-initial-backoff-seconds",
+        type=float,
+        default=DEFAULT_RETRY_INITIAL_BACKOFF_SECONDS,
+        help="initial byte-range retry delay (default: 1 second)",
+    )
+    parser.add_argument(
+        "--retry-max-backoff-seconds",
+        type=float,
+        default=DEFAULT_RETRY_MAX_BACKOFF_SECONDS,
+        help="maximum byte-range retry delay (default: 30 seconds)",
+    )
     parser.add_argument("--aws-region", default=os.environ.get("AWS_REGION"))
     parser.add_argument("--s3-endpoint", default=os.environ.get("S3_ENDPOINT"))
     parser.add_argument(
@@ -95,6 +116,7 @@ def run(
     *,
     s3: Any | None = None,
     http: HttpTransport | None = None,
+    sleeper: Callable[[float], None] | None = None,
 ) -> WikidataSyncResult:
     return sync_official_dump(
         source_url=parsed.source_url,
@@ -105,6 +127,10 @@ def run(
         upload_part_bytes=parsed.upload_part_bytes,
         copy_part_bytes=parsed.copy_part_bytes,
         max_redirects=parsed.max_redirects,
+        range_attempts=parsed.range_attempts,
+        retry_initial_backoff_seconds=parsed.retry_initial_backoff_seconds,
+        retry_max_backoff_seconds=parsed.retry_max_backoff_seconds,
+        sleeper=sleeper,
     )
 
 

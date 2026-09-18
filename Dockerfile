@@ -1,12 +1,4 @@
-FROM amazoncorretto:17-al2023-headless AS java-runtime
-
-RUN cp -a \
-    "$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")" \
-    /opt/java
-
-FROM python:3.12-slim-trixie
-
-COPY --from=java-runtime /opt/java /opt/java
+FROM eclipse-temurin:17-jre-noble
 
 ARG SPARK_VERSION=3.5.5
 ARG ICEBERG_VERSION=1.8.1
@@ -23,16 +15,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_PYTHON=python3.12 \
     SPARK_HOME=/opt/spark \
-    JAVA_HOME=/opt/java \
+    JAVA_HOME=/opt/java/openjdk \
     PYSPARK_PYTHON=/app/.venv/bin/python \
     PYSPARK_DRIVER_PYTHON=/app/.venv/bin/python \
-    PATH="/app/.venv/bin:/opt/spark/bin:/opt/java/bin:$PATH" \
+    PATH="/app/.venv/bin:/opt/spark/bin:/opt/java/openjdk/bin:$PATH" \
     PYTHONPATH="/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip"
 
 RUN apt-get update \
+    && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends -o Acquire::Retries=5 \
-        bash ca-certificates curl procps tini \
+        bash ca-certificates curl procps python3-pip python3.12 \
+        python3.12-venv tini \
     && rm -rf /var/lib/apt/lists/* \
     && curl --fail --location --retry 5 --output /tmp/spark.tgz \
         "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
@@ -59,7 +54,8 @@ RUN apt-get update \
     && echo "${AWS_JAVA_SDK_BUNDLE_SHA1}  $SPARK_HOME/jars/aws-java-sdk-bundle.jar" \
         | sha1sum --check --strict \
     && rm /tmp/spark.tgz \
-    && pip install --no-cache-dir "uv==0.9.7" \
+    && python3.12 -m pip install --break-system-packages \
+        --no-cache-dir "uv==0.9.7" \
     && groupadd --system --gid 10001 catalog \
     && useradd --system --uid 10001 --gid catalog \
         --home-dir /nonexistent --shell /usr/sbin/nologin catalog

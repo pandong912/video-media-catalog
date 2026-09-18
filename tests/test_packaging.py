@@ -8,6 +8,9 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     pyproject = (root / "pyproject.toml").read_text()
     dockerfile = (root / "Dockerfile").read_text()
 
+    assert "FROM amazoncorretto:17-al2023-headless AS java-runtime" in dockerfile
+    assert "FROM python:3.12-slim-trixie" in dockerfile
+    assert "slim-bookworm" not in dockerfile
     assert '"pyspark==3.5.5"' in pyproject
     assert "ARG SPARK_VERSION=3.5.5" in dockerfile
     assert "ARG AWS_JAVA_SDK_BUNDLE_VERSION=1.12.780" in dockerfile

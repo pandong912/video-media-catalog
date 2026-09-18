@@ -35,7 +35,7 @@ jobs:
         with:
           version: "0.9.7"
           enable-cache: true
-      - run: uv sync --frozen --extra spark
+      - run: uv sync --frozen --all-extras
       - run: make verify-ci
 
   iceberg-integration:
@@ -60,12 +60,17 @@ jobs:
   container:
     needs: verify
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile: [Dockerfile, Dockerfile.api]
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: false
           platforms: linux/amd64
           cache-from: type=gha

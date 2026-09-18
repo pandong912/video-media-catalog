@@ -62,12 +62,12 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project --extra index
 
 COPY src ./src
 COPY contracts ./contracts
 COPY stage.py /opt/video-media-catalog/stage.py
-RUN uv sync --frozen --no-dev \
+RUN uv sync --frozen --no-dev --extra index \
     && mkdir --parents \
         "$SPARK_HOME/work-dir" /tmp/spark-local /tmp/spark-warehouse \
     && chown --recursive 10001:10001 \

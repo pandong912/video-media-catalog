@@ -6,14 +6,20 @@
    Parquet source manifest，从 S3/file 有界物化源对象，发布 landing。
 2. `video-media-catalog-spark`：Spark 3.5.5 执行类型闭包、精确合并和六张
    Iceberg 表的 insert-only MERGE，最后发布 SnapshotSet 与 OutputCommit。
+3. `video-media-catalog-index`：从 SnapshotSet 锁定的六表 Iceberg snapshot
+   构建 versioned OpenSearch 索引，校验后原子切换只读 alias。
+4. `video-media-catalog-api`：独立、只读且 OIDC fail-closed 的 FastAPI 服务。
 
 全球目录表不含 tenant。`tenantId` 只用于控制面运行和 commit。
+Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重建的查询投影。
 
 ## 安装
 
 ```bash
 uv sync --frozen
 uv sync --frozen --extra spark
+uv sync --frozen --extra index
+uv sync --frozen --extra api
 ```
 
 要求 Python 3.12；Spark 使用 Java 17。项目由 hatchling 构建，使用 ruff 与
@@ -203,6 +209,131 @@ ObjectRef、六表 metadata、metrics 和 labels。
 
 metrics 与 labels 均绑定 algorithm spec/digest 及六表 count。
 
+## OpenSearch 可重建投影
+
+索引任务只接受已发布的 `snapshot-set.json`，并通过 Iceberg
+`snapshot-id` time travel 读取六表，不读取不受约束的“最新”数据。没有 snapshot
+的零行表按空表读取。示例：
+
+```bash
+video-media-catalog-index \
+  --snapshot-set-uri \
+    s3://catalog-output/runs/<run>/attempt=1/stage=media-catalog-commit/snapshot-set.json \
+  --snapshot-set-hash sha256:hex:<64位hex> \
+  --snapshot-set-version <S3 VersionId> \
+  --snapshot-set-etag <ETag> \
+  --snapshot-set-size <bytes，最大16MiB> \
+  --manifest-prefix s3://catalog-control/index-builds \
+  --catalog-type glue \
+  --catalog-name media \
+  --namespace video_media_catalog \
+  --warehouse s3://catalog-warehouse/warehouse \
+  --opensearch-endpoint https://search-catalog.us-east-1.es.amazonaws.com \
+  --aws-region us-east-1
+```
+
+其余配置也可使用对应环境变量：
+
+```text
+MEDIA_CATALOG_INDEX_MANIFEST_PREFIX
+MEDIA_CATALOG_CATALOG_TYPE
+MEDIA_CATALOG_CATALOG_NAME
+MEDIA_CATALOG_NAMESPACE
+MEDIA_CATALOG_WAREHOUSE_URI
+MEDIA_CATALOG_OPENSEARCH_ENDPOINT
+MEDIA_CATALOG_OPENSEARCH_SERVICE=es
+MEDIA_CATALOG_READ_ALIAS=media-catalog-entities-read
+AWS_REGION
+```
+
+五个 `--snapshot-set-*` 参数全部必填，并与 GitOps WorkflowTemplate 完全一致。
+hash 同时接受 `sha256:hex:<hex>` 和 `sha256:<hex>`。索引器构造固定 JSON
+`ObjectRef`，先通过 `BoundedObjectStore` HEAD 验证 SHA-256 metadata、大小、
+VersionId 和 ETag，再按同一 VersionId 有界下载并核对实际内容；超过 16 MiB
+或任何字段不一致都在解析 SnapshotSet 前失败。
+
+任务使用 `opensearch-py` 的 SigV4 signer 和 AWS 默认凭据链，不接受静态 key
+参数。Spark executor 按 partition 流式 bulk；driver 只收集每个 partition
+的计数摘要，不收集实体文档。文档 `_id` 固定为 `entityKey`。
+
+投影包含展示名及语言、全部名称、描述、sitelink、核心 attributes、外部 ID、
+关系与父实体摘要，以及 source record lineage。展示名按
+`zh-hans → zh → en → mul → 其他语言` 回退；同语言内优先 PRIMARY、TITLE。
+mapping 固定且 `dynamic=strict`。
+
+六表 snapshot identity、mapping/config digest 共同生成安全 build ID 和
+versioned index 名。重复触发会复用同一构建。只有 bulk 成功数、失败数及
+OpenSearch document count 全部核对通过后，才用一次 alias update 把
+`media-catalog-entities-read` 切到新索引；失败时不切 alias，也不删除旧索引。
+
+成功构建会用 S3 `If-None-Match: *` 条件写
+`<manifestPrefix>/index-build-<buildId>.json`。manifest 记录六表 snapshot ID、
+mapping/config digest、document/error count、index、alias、开始/完成时间，以及
+包含 URI、checksum、size、VersionId、ETag 的源 SnapshotSet ObjectRef。
+bulk 或 document count 核对失败的尝试会条件写入
+`<manifestPrefix>/failed/`，且不会占用可重试的成功 manifest 路径。
+该 manifest 仅用于审计与重建，不改变 `media-catalog-commit` 六表及控制对象契约。
+
+## 只读 API
+
+启动命令：
+
+```bash
+video-media-catalog-api --host 0.0.0.0 --port 8080
+```
+
+生产环境必须配置：
+
+```text
+MEDIA_CATALOG_ENVIRONMENT=production
+MEDIA_CATALOG_OPENSEARCH_ENDPOINT=https://search-catalog.us-east-1.es.amazonaws.com
+MEDIA_CATALOG_OPENSEARCH_SERVICE=es
+MEDIA_CATALOG_READ_ALIAS=media-catalog-entities-read
+MEDIA_CATALOG_SEARCH_TIMEOUT_SECONDS=5
+MEDIA_CATALOG_CURSOR_SECRET=<至少 32 bytes，来自 Secret>
+MEDIA_CATALOG_OIDC_ISSUER=https://issuer.example
+MEDIA_CATALOG_OIDC_JWKS_URI=https://issuer.example/.well-known/jwks.json
+MEDIA_CATALOG_OIDC_AUDIENCE=media-catalog-api
+MEDIA_CATALOG_OIDC_REQUIRED_SCOPE=governance.read
+AWS_REGION=us-east-1
+```
+
+应用也接受 GitOps 的固定未加前缀契约：
+`OPENSEARCH_ENDPOINT`、`REGION`、`INDEX_ALIAS`、`OIDC_ISSUER`、
+`OIDC_JWKS_URI`、`OIDC_AUDIENCE`、`OIDC_REQUIRED_SCOPE`。
+issuer 必须为 HTTPS；JWKS 可为 HTTPS，或仅对 hostname 等于
+`svc.cluster.local`/以 `.svc.cluster.local` 结尾的集群服务允许 HTTP。
+所有 OIDC URL 都拒绝 credentials、query 和 fragment。
+
+API Pod 必须使用独立 ServiceAccount/IRSA，仅授予读 alias 所需的 OpenSearch
+`ESHttpGet`/`ESHttpHead` 权限。搜索和外部 ID 查询固定通过编码安全的
+`GET /<alias>/_search` 发送，不需要 POST。除 `/healthz` 外，请求复用同源
+`Authorization: Bearer <JWT>`。
+服务校验 JWT 签名、`iss`、`aud`、`exp`、非空 `sub`，并要求
+`governance.read` scope；不会记录 token。缺少 OIDC 配置时生产服务拒绝启动。
+仅测试可同时设置
+`MEDIA_CATALOG_ENVIRONMENT=test` 与 `MEDIA_CATALOG_AUTH_DISABLED=true`。
+
+HTTP 契约：
+
+- `GET /healthz`：公开 liveness。
+- `GET /api/v1/catalog/search`：`q` 可省略或为空以浏览目录；可选
+  `entityType`、`language`、`pageSize`（1–100）、`cursor`。空查询固定使用
+  `match_all + filters`。响应顶层为 `items`、`nextCursor`、`totalValue`、
+  `totalRelation`；items 是不含 names/relations 的轻量 summary，外部 ID
+  最多五条。
+- `GET /api/v1/catalog/entities/{entityKey}`：按稳定实体键读取。
+- `GET /api/v1/catalog/external-identifiers/{scheme}/{value}`：精确解析并返回
+  单个实体；零条为 404，多条为 409。
+
+分页 cursor 是绑定原查询的 HMAC 签名 opaque `search_after`，篡改或跨查询复用
+返回 Problem Details。所有查询由固定结构构造，不接受 OpenSearch DSL。
+Problem Details 固定包含 `code` 和 `retryable`；401 保留
+`WWW-Authenticate: Bearer`。summary description 按请求语言、展示语言、
+`zh-hans`、`zh`、`en`、`mul`、首个可用值依次回退。
+OpenSearch 超时和 HTTP 超时均有界。FastAPI 生成的 OpenAPI 可由已认证请求从
+`/openapi.json` 获取；默认不公开 Swagger/ReDoc。
+
 ## 数据规则
 
 - Wikidata plain/gzip/bzip2 one-entity-per-line 有界读取，处理数组首尾及行尾逗号。
@@ -219,33 +350,43 @@ metrics 与 labels 均绑定 algorithm spec/digest 及六表 count。
 
 Docker 固定 Python 3.12、Java 17、Spark/PySpark 3.5.5、Iceberg 1.8.1，
 包含 Iceberg AWS bundle、Hadoop AWS 和 AWS SDK bundle 1.12.780。下载对象均
-校验固定摘要。
+校验固定摘要。批处理镜像继续包含 `video-media-catalog-index` 所需的
+`opensearch-py`。
 
 镜像使用 Spark 官方 Kubernetes `/opt/entrypoint.sh`，并内置
 `/opt/video-media-catalog/stage.py` 供 SparkApplication 启动 driver/executor。
 Argo 提取节点通过 container `command` 显式选择 `video-media-catalog`；直接运行
 镜像时默认 CMD 显示 Spark CLI help。
 
-GitHub publish 使用 OIDC 与 immutable ECR digest，需要
+`Dockerfile.api` 基于已更新的 Ubuntu Noble，安装 Python 3.12，使用非 root
+用户，不包含 Java、Spark 或 PySpark，兼容 read-only root filesystem，并内置
+`/healthz` healthcheck。
+
+GitHub publish 使用矩阵分别发布 `video-media-catalog` 和
+`video-media-catalog-api`，均使用 OIDC、immutable ECR digest 以及
+Critical findings 必须为 0 的门禁。需要
 `AWS_MEDIA_CATALOG_CI_ROLE_ARN` 和可选 `AWS_REGION`，不保存静态 AWS key。
 
 ## 测试
 
 ```bash
 make verify
+make test-index
+make test-api
 make test-iceberg
 uv build
 git diff --check
 ```
 
 tests 覆盖 source manifest、S3 metadata/大小/关闭 body/条件写复验、runtime
-路径、UUIDv7、控制仓 fixture、EIDR 真实 TV Episode 结构、Spark 闭包和本地
-Iceberg commit-last。
+路径、UUIDv7、控制仓 fixture、EIDR 真实 TV Episode 结构、Spark 闭包、本地
+Iceberg commit-last、投影/mapping/alias/bulk、cursor/query、OIDC，以及 API
+搜索/详情/外部 ID/健康检查。
 
 ## 非目标与许可
 
 - 不下载真实 Wikidata dump，不提供 EIDR 默认网络 client。
-- 不做标题模糊合并、租户资产 assertion、搜索 API 或 UI。
+- 不做标题模糊合并、租户资产 assertion、写 API 或 UI。
 - v1 curated 表 insert-only，不执行删除或历史覆盖。
 
 代码使用 Apache License 2.0。Wikidata 通常为 CC0；EIDR metadata 权利取决于

@@ -7,6 +7,8 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text()
     dockerfile = (root / "Dockerfile").read_text()
+    api_dockerfile = (root / "Dockerfile.api").read_text()
+    publish_workflow = (root / ".github/workflows/publish.yml").read_text()
 
     assert "FROM eclipse-temurin:17-jre-noble" in dockerfile
     assert "slim-bookworm" not in dockerfile
@@ -22,3 +24,26 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     assert 'ENTRYPOINT ["/opt/entrypoint.sh"]' in dockerfile
     assert "COPY stage.py /opt/video-media-catalog/stage.py" in dockerfile
     assert "WORKDIR /opt/spark/work-dir" in dockerfile
+    assert "--extra index" in dockerfile
+
+    assert api_dockerfile.startswith("FROM ubuntu:noble")
+    assert "apt-get upgrade --yes" in api_dockerfile
+    assert "python3.12" in api_dockerfile
+    assert "SPARK_HOME" not in api_dockerfile
+    assert "JAVA_HOME" not in api_dockerfile
+    assert "--extra api" in api_dockerfile
+    assert "USER 10001:10001" in api_dockerfile
+    assert "HEALTHCHECK" in api_dockerfile
+    assert (
+        'ENTRYPOINT ["/usr/bin/tini", "--", "video-media-catalog-api"]'
+        in api_dockerfile
+    )
+
+    assert (
+        'video-media-catalog-index = "video_media_catalog.index_cli:main"' in pyproject
+    )
+    assert 'video-media-catalog-api = "video_media_catalog.api_cli:main"' in pyproject
+    assert "repository: video-media-catalog\n" in publish_workflow
+    assert "repository: video-media-catalog-api" in publish_workflow
+    assert "dockerfile: Dockerfile.api" in publish_workflow
+    assert "findingSeverityCounts.CRITICAL" in publish_workflow

@@ -16,10 +16,21 @@ dependencies = [
 spark = [
     "pyspark==3.5.5",
 ]
+index = [
+    "opensearch-py>=2.8,<4",
+]
+api = [
+    "fastapi>=0.115,<1",
+    "opensearch-py>=2.8,<4",
+    "pyjwt[crypto]>=2.10,<3",
+    "uvicorn>=0.34,<1",
+]
 
 [project.scripts]
 video-media-catalog = "video_media_catalog.cli:main"
 video-media-catalog-spark = "video_media_catalog.spark_cli:main"
+video-media-catalog-index = "video_media_catalog.index_cli:main"
+video-media-catalog-api = "video_media_catalog.api_cli:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -27,6 +38,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1",
     "pytest>=8.3,<10",
     "ruff==0.16.6",
 ]

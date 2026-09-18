@@ -1,0 +1,56 @@
+[project]
+name = "video-media-catalog"
+version = "0.1.0"
+description = "Deterministic Wikidata and EIDR film and television catalog pipeline"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "boto3>=1.35,<2",
+    "defusedxml>=0.7,<1",
+    "pyarrow>=18,<27",
+    "pydantic>=2.10,<3",
+]
+
+[project.optional-dependencies]
+spark = [
+    "pyspark==3.5.5",
+]
+
+[project.scripts]
+video-media-catalog = "video_media_catalog.cli:main"
+video-media-catalog-spark = "video_media_catalog.spark_cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<10",
+    "ruff==0.16.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/video_media_catalog"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+    "spark: requires Java and the pyspark optional dependency",
+    "integration: requires an explicitly enabled local Iceberg runtime",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.uv]
+default-groups = ["dev"]

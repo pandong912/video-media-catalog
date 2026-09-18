@@ -1,0 +1,15 @@
+.git/
+.github/
+.idea/
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+tests/
+build/
+dist/
+spark-warehouse/
+metastore_db/
+landing-output/
+catalog-output/

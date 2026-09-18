@@ -7,28 +7,23 @@ import os
 import time
 from collections.abc import Sequence
 from typing import Any
-from urllib.parse import urlparse
 
 from video_media_catalog.canonical import canonical_json, sha256_digest
-from video_media_catalog.commit import (
-    MAX_CONTROL_BYTES,
-    control_publisher,
-    publish_commit,
-)
+from video_media_catalog.commit import control_publisher, publish_commit
 from video_media_catalog.constants import STAGE
 from video_media_catalog.iceberg import CatalogConfig, MediaCatalogTables
 from video_media_catalog.identity import uuid7_timestamp_iso
-from video_media_catalog.landing import validate_landing_manifest
-from video_media_catalog.models import (
-    Checksum,
-    LandingManifest,
-    LandingSummary,
-    ObjectRef,
+from video_media_catalog.quality import (
+    VALIDATE_STAGE,
+    QualityConfig,
+    read_quality_gate,
 )
-from video_media_catalog.object_store import BoundedObjectStore
-from video_media_catalog.runtime_args import RuntimeArguments, join_uri
+from video_media_catalog.spark_input import (
+    load_landing_frame,
+    load_landing_input,
+    runtime_arguments,
+)
 from video_media_catalog.spark_transform import transform_landing
-from video_media_catalog.storage import digest_file, local_path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,6 +87,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="sha256 digest of non-secret runtime config; derived when omitted",
     )
     parser.add_argument("--max-closure-iterations", type=int, default=64)
+    parser.add_argument("--expected-entity-count", type=int, default=0)
+    parser.add_argument(
+        "--entity-count-tolerance-percent",
+        type=float,
+        default=5.0,
+    )
+    parser.add_argument("--minimum-name-coverage", type=float, default=0.0)
     parser.add_argument(
         "--max-landing-shard-bytes",
         type=int,
@@ -102,126 +104,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--spark-packages",
         help="optional Maven coordinates for local development",
     )
+    quality = parser.add_mutually_exclusive_group()
+    quality.add_argument(
+        "--quality-report-required",
+        dest="quality_report_required",
+        action="store_true",
+        default=True,
+        help="require a bound PASS validation report before any Iceberg write",
+    )
+    quality.add_argument(
+        "--no-quality-report-required",
+        dest="quality_report_required",
+        action="store_false",
+        help="explicitly disable the quality gate for tests/backward compatibility",
+    )
     return parser
 
 
-def _runtime_arguments(parsed: argparse.Namespace) -> RuntimeArguments:
-    return RuntimeArguments.model_validate(
-        {field: getattr(parsed, field) for field in RuntimeArguments.model_fields}
-    )
-
-
-def _read_s3_bytes(
-    uri: str,
-    *,
-    region: str | None,
-    endpoint_url: str | None,
-    path_style_access: bool,
-) -> bytes:
-    import boto3
-    from botocore.config import Config
-
-    parsed = urlparse(uri)
-    response = boto3.client(
-        "s3",
-        region_name=region,
-        endpoint_url=endpoint_url,
-        config=Config(
-            signature_version="s3v4",
-            retries={"max_attempts": 5, "mode": "standard"},
-            s3={"addressing_style": ("path" if path_style_access else "virtual")},
-        ),
-    ).get_object(
-        Bucket=parsed.netloc,
-        Key=parsed.path.lstrip("/"),
-        ChecksumMode="ENABLED",
-    )
-    length = int(response.get("ContentLength", 0))
-    if length > MAX_CONTROL_BYTES:
-        response["Body"].close()
-        raise ValueError("landing manifest exceeds maximum size")
-    body = response["Body"]
-    try:
-        payload = body.read(MAX_CONTROL_BYTES + 1)
-    finally:
-        body.close()
-    if len(payload) > MAX_CONTROL_BYTES:
-        raise ValueError("landing manifest exceeds maximum size")
-    return payload
-
-
-def _read_landing_manifest(
-    uri: str,
-    *,
-    region: str | None,
-    endpoint_url: str | None = None,
-    path_style_access: bool = False,
-) -> tuple[LandingManifest, str, int]:
-    parsed = urlparse(uri)
-    if parsed.scheme == "s3":
-        payload = _read_s3_bytes(
-            uri,
-            region=region,
-            endpoint_url=endpoint_url,
-            path_style_access=path_style_access,
-        )
-        digest = sha256_digest(payload)
-        size = len(payload)
-    else:
-        path = local_path(uri).resolve()
-        if path.stat().st_size > MAX_CONTROL_BYTES:
-            raise ValueError("landing manifest exceeds maximum size")
-        payload = path.read_bytes()
-        digest, size = digest_file(path)
-    manifest = LandingManifest.model_validate_json(payload)
-    validate_landing_manifest(manifest)
-    return manifest, digest, size
-
-
-def _read_landing_summary(
-    uri: str,
-    *,
-    region: str | None,
-    endpoint_url: str | None = None,
-    path_style_access: bool = False,
-) -> LandingSummary:
-    parsed = urlparse(uri)
-    if parsed.scheme == "s3":
-        payload = _read_s3_bytes(
-            uri,
-            region=region,
-            endpoint_url=endpoint_url,
-            path_style_access=path_style_access,
-        )
-    else:
-        path = local_path(uri).resolve()
-        if path.stat().st_size > MAX_CONTROL_BYTES:
-            raise ValueError("landing summary exceeds maximum size")
-        payload = path.read_bytes()
-    return LandingSummary.model_validate_json(payload)
-
-
-def _spark_uri(uri: str) -> str:
-    return "s3a://" + uri[len("s3://") :] if uri.startswith("s3://") else uri
-
-
-def _empty_landing(spark: Any) -> Any:
-    return spark.createDataFrame(
-        [],
-        """
-        record_key STRING NOT NULL,
-        source STRING NOT NULL,
-        source_record_id STRING NOT NULL,
-        source_revision STRING,
-        modified STRING,
-        source_hash STRING NOT NULL,
-        payload_json STRING NOT NULL
-        """,
-    )
-
-
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
-    runtime = _runtime_arguments(parsed)
+    runtime = runtime_arguments(parsed)
     if parsed.stage != STAGE:
         raise ValueError(f"--stage must be {STAGE}")
     if not parsed.warehouse:
@@ -233,72 +134,35 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if parsed.shuffle_partitions is not None and parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
 
-    landing_manifest_uri = parsed.landing_manifest_uri or join_uri(
-        runtime.stage_prefix("media-catalog-extract"),
-        "landing-manifest.json",
+    landing_input = load_landing_input(
+        runtime,
+        landing_manifest_uri=parsed.landing_manifest_uri,
+        aws_region=parsed.aws_region,
+        s3_endpoint=parsed.s3_endpoint,
+        s3_path_style_access=parsed.s3_path_style_access,
+        max_landing_shard_bytes=parsed.max_landing_shard_bytes,
     )
-    manifest, manifest_digest, _ = _read_landing_manifest(
-        landing_manifest_uri,
-        region=parsed.aws_region,
-        endpoint_url=parsed.s3_endpoint,
-        path_style_access=parsed.s3_path_style_access,
-    )
-    summary_uri = join_uri(
-        landing_manifest_uri.rsplit("/", 1)[0],
-        "landing-summary.json",
-    )
-    summary = _read_landing_summary(
-        summary_uri,
-        region=parsed.aws_region,
-        endpoint_url=parsed.s3_endpoint,
-        path_style_access=parsed.s3_path_style_access,
-    )
-    if (
-        summary.manifest_uri != landing_manifest_uri
-        or summary.manifest_checksum != manifest_digest
-        or summary.manifest_id != manifest.manifest_id
-        or summary.record_count != manifest.record_count
-        or summary.shard_count != len(manifest.shards)
-    ):
-        raise ValueError("landing summary does not bind the landing manifest")
-    expected_input_digest = f"sha256:hex:{runtime.manifest_hash}"
-    if manifest.input_manifest_digest != expected_input_digest and (
-        parsed.landing_manifest_uri is None
-        or urlparse(landing_manifest_uri).scheme == "s3"
-    ):
-        raise ValueError("landing manifest does not bind the JobSpec input manifest")
-    object_store: BoundedObjectStore | None = None
-    for shard in manifest.shards:
-        reference = ObjectRef(
-            uri=shard.uri,
-            format="OBJECT_FORMAT_PARQUET",
-            media_type="application/vnd.apache.parquet",
-            checksum=Checksum(value=shard.checksum),
-            size_bytes=shard.size_bytes,
-            etag=shard.etag,
-            object_version=shard.object_version,
+    quality_config_digest: str | None = None
+    if parsed.quality_report_required:
+        quality_config = QualityConfig(
+            expected_entity_count=parsed.expected_entity_count,
+            entity_count_tolerance_percent=parsed.entity_count_tolerance_percent,
+            minimum_name_coverage=parsed.minimum_name_coverage,
+            max_closure_iterations=parsed.max_closure_iterations,
         )
-        if urlparse(shard.uri).scheme == "file":
-            digest, size = digest_file(local_path(shard.uri))
-            if (
-                size > parsed.max_landing_shard_bytes
-                or size != shard.size_bytes
-                or digest != shard.checksum
-            ):
-                raise ValueError(
-                    "local landing shard differs from its immutable declaration"
-                )
-        else:
-            if object_store is None:
-                object_store = BoundedObjectStore(
-                    region=parsed.aws_region,
-                    endpoint_url=parsed.s3_endpoint,
-                    path_style_access=parsed.s3_path_style_access,
-                )
-            object_store.verify(
-                reference,
-                max_bytes=parsed.max_landing_shard_bytes,
-            )
+        quality_gate = read_quality_gate(
+            publisher=control_publisher(
+                runtime.stage_prefix(VALIDATE_STAGE),
+                aws_region=parsed.aws_region,
+                s3_endpoint=parsed.s3_endpoint,
+                s3_path_style_access=parsed.s3_path_style_access,
+            ),
+            runtime=runtime,
+            landing_input=landing_input,
+            expected_config_digest=quality_config.digest,
+        )
+        assert quality_gate is not None
+        quality_config_digest = quality_gate.report.config_digest
     config = CatalogConfig(
         catalog_name=parsed.catalog_name,
         namespace=parsed.namespace,
@@ -319,6 +183,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         "maxClosureIterations": parsed.max_closure_iterations,
         "shufflePartitions": parsed.shuffle_partitions,
     }
+    if parsed.quality_report_required:
+        nonsecret_config.update(
+            {
+                "qualityReportRequired": True,
+                "qualityConfigDigest": quality_config_digest,
+            }
+        )
     config_digest = parsed.config_digest or sha256_digest(
         canonical_json(nonsecret_config)
     )
@@ -340,17 +211,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     started_ns = time.monotonic_ns()
     stage_time = uuid7_timestamp_iso(runtime.run_id)
     try:
-        shard_uris = [_spark_uri(shard.uri) for shard in manifest.shards]
-        landing = (
-            spark.read.parquet(*shard_uris) if shard_uris else _empty_landing(spark)
-        ).persist()
-        actual_record_count = landing.count()
-        if actual_record_count != manifest.record_count:
-            raise ValueError(
-                "landing record count mismatch: "
-                f"manifest={manifest.record_count}, "
-                f"actual={actual_record_count}"
-            )
+        landing = load_landing_frame(spark, landing_input)
         frames = transform_landing(
             spark,
             landing,

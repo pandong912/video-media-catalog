@@ -4,11 +4,13 @@
 
 1. `video-media-catalog`：严格控制面 runtime 模式，验证 JobSpec 的 immutable
    Parquet source manifest，从 S3/file 有界物化源对象，发布 landing。
-2. `video-media-catalog-spark`：Spark 3.5.5 执行类型闭包、精确合并和六张
+2. `video-media-catalog-validate`：Spark 3.5.5 对完整 landing 执行转换和
+   分布式质量门禁，只发布质量报告，不写 Iceberg。
+3. `video-media-catalog-spark`：Spark 3.5.5 执行类型闭包、精确合并和六张
    Iceberg 表的 insert-only MERGE，最后发布 SnapshotSet 与 OutputCommit。
-3. `video-media-catalog-index`：从 SnapshotSet 锁定的六表 Iceberg snapshot
+4. `video-media-catalog-index`：从 SnapshotSet 锁定的六表 Iceberg snapshot
    构建 versioned OpenSearch 索引，校验后原子切换只读 alias。
-4. `video-media-catalog-api`：独立、只读且 OIDC fail-closed 的 FastAPI 服务。
+5. `video-media-catalog-api`：独立、只读且 OIDC fail-closed 的 FastAPI 服务。
 
 全球目录表不含 tenant。`tenantId` 只用于控制面运行和 commit。
 Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重建的查询投影。
@@ -47,6 +49,68 @@ Parquet 每行描述一个源对象，固定字段：
 最多各一行 Wikidata/EIDR。EIDR XML v1 只接受 plain；Wikidata 支持三种压缩。
 完整契约见
 [`contracts/parquet/media_catalog.v1.md`](contracts/parquet/media_catalog.v1.md)。
+
+## 官方 Wikidata dump 同步
+
+`video-media-catalog-wikidata-sync` 只接受官方带日期的 canonical URL：
+
+```bash
+video-media-catalog-wikidata-sync \
+  --source-url \
+    https://dumps.wikimedia.org/wikidatawiki/entities/20260901/wikidata-20260901-all.json.bz2 \
+  --destination-prefix s3://catalog-input/wikidata/raw \
+  --aws-region us-east-1
+```
+
+CLI 拒绝 `latest`、非 HTTPS、非 `dumps.wikimedia.org` host、userinfo、端口、
+query、fragment 和越出 allowlist 的重定向。它先读取同目录官方 SHA-1 校验
+清单 `wikidata-YYYYMMDD-sha1sums.txt`，再把响应流式 multipart 上传到临时
+S3 对象；完整 SHA-1 核对成功后，使用 server-side multipart copy 条件发布
+按日期和上游 SHA-1 寻址的最终对象。
+过程中同时计算 SHA-256，不会把完整 dump 落盘或读入内存。默认硬上限 200 GiB；
+任何下载、摘要或 S3 错误都会 abort 活跃 multipart upload。
+
+目标 bucket 必须启用 S3 Versioning。最终对象 metadata 绑定 source URL、
+上游 SHA-1、日期和 SHA-256；同身份同内容可复用，metadata 或内容冲突会失败。
+认证仅使用 boto3 默认凭据链，CLI 不接受 access key/secret 参数。
+
+## 确定性 Wikidata 子集
+
+Spark 3.5.5 CLI 从上述不可变对象构建预算严格的子集：
+
+```bash
+video-media-catalog-wikidata-subset \
+  --dump-uri \
+    s3://catalog-input/wikidata/raw/date=20260901/sha1=<sha1>/wikidata-20260901-all.json.bz2 \
+  --dump-sha256 <64位hex> \
+  --dump-size <bytes> \
+  --dump-version <S3 VersionId> \
+  --dump-etag <ETag> \
+  --staging-prefix s3://catalog-work/wikidata-normalized \
+  --output-prefix s3://catalog-input/wikidata/subsets \
+  --aws-region us-east-1
+```
+
+默认 `target-count=100000`。作品基础预算为 MOVIE 30000、TV_SERIES 15000、
+TV_SEASON 10000、TV_EPISODE 25000，可分别用 `--movie-count`、
+`--tv-series-count`、`--tv-season-count`、`--tv-episode-count` 调整。
+每类先按 Wikipedia sitelink 数降序、QID 数字升序选择；配额不足时在作品间
+确定性回填。剩余预算依次给已选作品的层级目标、按引用频率排序的
+PERSON/ORGANIZATION credit 目标，最后从其余可分类实体确定性回填。
+
+全量规范化和 P31/P279 闭包均在 Spark executor 上执行。规范化 Parquet staging
+以 dump 完整 ObjectRef 和 normalization algorithm identity 寻址，并以 commit
+marker 控制复用；driver 最多 collect/broadcast `target-count` 个 QID。输出加入
+所选实体分类所需的 class dependency rows（不计 entity budget），并删除所有
+指向未选 QID 的 relation statements。
+
+最终对象是按 QID 排序、one-entity-per-line 的 bzip2，硬上限 4 GiB，可由现有
+`iter_wikidata_entities` 和 runtime extract 直接读取。Spark 先写单个临时 part，
+driver 再有界流式复制并计算 SHA-256。发布顺序固定为 subset →
+`source-manifest.parquet` → `audit-manifest.json`；最后一个 audit manifest 是
+commit marker，记录 dump 完整 ObjectRef、配置 digest、六类 selected counts、
+dependency rows 和被裁剪 relation statement 数。所有最终 S3 写入都禁止覆盖
+冲突内容，并要求完整 ETag 和 VersionId。
 
 ## 生产提取 runtime
 
@@ -126,6 +190,41 @@ uv run video-media-catalog extract \
 可额外传 `--wikidata-sha256`、`--eidr-sha256`。本模式只接受本地路径或
 `file://`，不会默认搜索 EIDR。
 
+## Spark 质量门禁
+
+独立 validate stage 使用与 commit stage 完全相同的 LandingManifest、
+LandingSummary、每个 shard ObjectRef 和实际 record count 校验，再复用
+`transform_landing` 生成六表 DataFrame；它不会创建或写入任何 Iceberg 表：
+
+```bash
+video-media-catalog-validate \
+  --manifest-uri s3://catalog-input/manifests/source-manifest.parquet \
+  --manifest-hash sha256:hex:<64位hex> \
+  --manifest-version <S3 VersionId> \
+  --manifest-etag <ETag> \
+  --manifest-size <bytes> \
+  --run-id <UUIDv7> \
+  --job-spec-id <UUIDv7> \
+  --tenant-id <UUIDv7> \
+  --attempt 1 \
+  --output-prefix s3://catalog-output/runs/<run-id> \
+  --executor-image registry.example/catalog@sha256:<64位hex> \
+  --stage media-catalog-validate \
+  --expected-entity-count 100000 \
+  --entity-count-tolerance-percent 5 \
+  --minimum-name-coverage 0.95
+```
+
+指标全部通过 Spark 聚合、groupBy 和 anti-join 分布式计算，driver 只接收计数：
+六表行数、六表主键 null/duplicate、ingest error 数、relation 两端悬空数、
+至少一个名称的 entity 覆盖率，以及 expected entity count 容差。默认 expected
+为 0（跳过数量范围）、容差 5%、最低名称覆盖率 0。
+
+无论 PASS/FAILED，stage 都先不可变发布 `quality-report.json`，再以
+`quality-summary.json` commit-last。summary 绑定 report 完整 ObjectRef、
+RuntimeArguments input identity、landing manifest ID/digest 和 quality config
+digest。FAILED 完成发布后 CLI 返回非零。
+
 ## Spark / Iceberg commit
 
 Spark worker 接收相同标准参数，并要求：
@@ -133,6 +232,11 @@ Spark worker 接收相同标准参数，并要求：
 ```text
 --stage media-catalog-commit
 ```
+
+commit 默认要求同 run/attempt 的 validate summary 和 report 均存在、完整
+ObjectRef 校验通过、状态为 PASS，且 runtime、landing 和 quality config 互相
+绑定；检查发生在任何 `create_tables`/MERGE 之前。测试或旧流程必须显式传
+`--no-quality-report-required` 才能关闭，不能依赖 Argo DAG 顺序绕过。
 
 landing manifest 默认自动推导为：
 
@@ -354,7 +458,8 @@ Docker 固定 Python 3.12、Java 17、Spark/PySpark 3.5.5、Iceberg 1.8.1，
 `opensearch-py`。
 
 镜像使用 Spark 官方 Kubernetes `/opt/entrypoint.sh`，并内置
-`/opt/video-media-catalog/stage.py` 供 SparkApplication 启动 driver/executor。
+`/opt/video-media-catalog/stage.py` 作为 commit 入口，以及独立
+`/opt/video-media-catalog/validate_stage.py` 作为 quality gate 入口。
 Argo 提取节点通过 container `command` 显式选择 `video-media-catalog`；直接运行
 镜像时默认 CMD 显示 Spark CLI help。
 

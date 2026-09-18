@@ -67,6 +67,7 @@ RUN uv sync --frozen --no-dev --no-install-project --extra index
 COPY src ./src
 COPY contracts ./contracts
 COPY stage.py /opt/video-media-catalog/stage.py
+COPY validate_stage.py /opt/video-media-catalog/validate_stage.py
 RUN uv sync --frozen --no-dev --extra index \
     && mkdir --parents \
         "$SPARK_HOME/work-dir" /tmp/spark-local /tmp/spark-warehouse \

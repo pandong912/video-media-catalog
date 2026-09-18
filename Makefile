@@ -4,8 +4,8 @@ sync:
 	uv sync --frozen --all-extras
 
 lint:
-	uv run --frozen --all-extras ruff check src tests
-	uv run --frozen --all-extras ruff format --check src tests
+	uv run --frozen --all-extras ruff check src tests validate_stage.py
+	uv run --frozen --all-extras ruff format --check src tests validate_stage.py
 
 test:
 	uv run --frozen --all-extras pytest -m "not spark and not integration"

@@ -8,9 +8,9 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     pyproject = (root / "pyproject.toml").read_text()
     dockerfile = (root / "Dockerfile").read_text()
 
-    assert "FROM amazoncorretto:17-al2023-headless AS java-runtime" in dockerfile
-    assert "FROM python:3.12-slim-trixie" in dockerfile
+    assert "FROM eclipse-temurin:17-jre-noble" in dockerfile
     assert "slim-bookworm" not in dockerfile
+    assert "slim-trixie" not in dockerfile
     assert '"pyspark==3.5.5"' in pyproject
     assert "ARG SPARK_VERSION=3.5.5" in dockerfile
     assert "ARG AWS_JAVA_SDK_BUNDLE_VERSION=1.12.780" in dockerfile
@@ -18,7 +18,7 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         "ARG AWS_JAVA_SDK_BUNDLE_SHA1=308a3af95a47e0c4e1f8bd98a37657d4661ae45e"
     ) in dockerfile
     assert '"$SPARK_HOME/kubernetes/dockerfiles/spark/entrypoint.sh"' in dockerfile
-    assert "JAVA_HOME=/opt/java" in dockerfile
+    assert "JAVA_HOME=/opt/java/openjdk" in dockerfile
     assert 'ENTRYPOINT ["/opt/entrypoint.sh"]' in dockerfile
     assert "COPY stage.py /opt/video-media-catalog/stage.py" in dockerfile
     assert "WORKDIR /opt/spark/work-dir" in dockerfile

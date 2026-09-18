@@ -132,6 +132,9 @@ def test_hadoop_and_glue_catalog_configuration(tmp_path: Path) -> None:
     assert values["spark.sql.catalog.media.catalog-impl"].endswith("GlueCatalog")
     assert values["spark.sql.catalog.media.io-impl"].endswith("S3FileIO")
     assert values["spark.sql.catalog.media.client.region"] == "us-east-1"
+    assert values["spark.hadoop.fs.s3a.aws.credentials.provider"] == (
+        "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+    )
 
 
 def test_catalog_identifiers_are_validated() -> None:

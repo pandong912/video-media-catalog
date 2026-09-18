@@ -140,6 +140,7 @@ def test_end_to_end_spark_commit_last(tmp_path: Path, fixture_dir: Path) -> None
             "registry.example/catalog@sha256:" + "c" * 64,
             "--stage",
             "media-catalog-commit",
+            "--no-quality-report-required",
         ]
     )
     result = run(args)

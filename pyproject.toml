@@ -31,6 +31,9 @@ video-media-catalog = "video_media_catalog.cli:main"
 video-media-catalog-spark = "video_media_catalog.spark_cli:main"
 video-media-catalog-index = "video_media_catalog.index_cli:main"
 video-media-catalog-api = "video_media_catalog.api_cli:main"
+video-media-catalog-validate = "video_media_catalog.validate_cli:main"
+video-media-catalog-wikidata-sync = "video_media_catalog.wikidata_sync_cli:main"
+video-media-catalog-wikidata-subset = "video_media_catalog.wikidata_subset_cli:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]

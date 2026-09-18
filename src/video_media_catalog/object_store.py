@@ -480,11 +480,14 @@ class BoundedObjectStore:
                     ),
                     True,
                 )
-        metadata = self.client.head_object(
-            Bucket=location.bucket,
-            Key=location.key,
-            ChecksumMode="ENABLED",
-        )
+        head_request: dict[str, Any] = {
+            "Bucket": location.bucket,
+            "Key": location.key,
+            "ChecksumMode": "ENABLED",
+        }
+        if response.get("VersionId"):
+            head_request["VersionId"] = response["VersionId"]
+        metadata = self.client.head_object(**head_request)
         metadata = {**response, **metadata}
         return UploadResult(
             self._object_ref(

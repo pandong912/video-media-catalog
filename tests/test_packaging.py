@@ -23,6 +23,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     assert "JAVA_HOME=/opt/java/openjdk" in dockerfile
     assert 'ENTRYPOINT ["/opt/entrypoint.sh"]' in dockerfile
     assert "COPY stage.py /opt/video-media-catalog/stage.py" in dockerfile
+    assert (
+        "COPY validate_stage.py /opt/video-media-catalog/validate_stage.py"
+        in dockerfile
+    )
     assert "WORKDIR /opt/spark/work-dir" in dockerfile
     assert "--extra index" in dockerfile
 
@@ -43,6 +47,18 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         'video-media-catalog-index = "video_media_catalog.index_cli:main"' in pyproject
     )
     assert 'video-media-catalog-api = "video_media_catalog.api_cli:main"' in pyproject
+    assert (
+        'video-media-catalog-validate = "video_media_catalog.validate_cli:main"'
+        in pyproject
+    )
+    assert (
+        "video-media-catalog-wikidata-sync = "
+        '"video_media_catalog.wikidata_sync_cli:main"' in pyproject
+    )
+    assert (
+        "video-media-catalog-wikidata-subset = "
+        '"video_media_catalog.wikidata_subset_cli:main"' in pyproject
+    )
     assert "repository: video-media-catalog\n" in publish_workflow
     assert "repository: video-media-catalog-api" in publish_workflow
     assert "dockerfile: Dockerfile.api" in publish_workflow

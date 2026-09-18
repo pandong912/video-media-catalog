@@ -1,4 +1,12 @@
-FROM python:3.12-slim-bookworm
+FROM amazoncorretto:17-al2023-headless AS java-runtime
+
+RUN cp -a \
+    "$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")" \
+    /opt/java
+
+FROM python:3.12-slim-trixie
+
+COPY --from=java-runtime /opt/java /opt/java
 
 ARG SPARK_VERSION=3.5.5
 ARG ICEBERG_VERSION=1.8.1
@@ -24,10 +32,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends -o Acquire::Retries=5 \
-        bash ca-certificates curl openjdk-17-jre-headless procps tini \
+        bash ca-certificates curl procps tini \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s "$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")" \
-        /opt/java \
     && curl --fail --location --retry 5 --output /tmp/spark.tgz \
         "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
     && echo "${SPARK_SHA512}  /tmp/spark.tgz" | sha512sum --check --strict \

@@ -132,6 +132,15 @@ def build_community_registry() -> SourceRegistrySnapshot:
         connector_id="media-catalog-v1-key-migration",
         documentation_url=("https://github.com/pandong912/video-media-catalog"),
     )
+    identity_product = SourceProduct(
+        source_product_id="identity-resolution-v2",
+        source_system_id="video-media-catalog",
+        name="Community identity resolution v2",
+        kind=SourceProductKind.INTERNAL_CATALOG,
+        policy_id="internal-key-continuity",
+        connector_id="community-identity-spark-v1",
+        documentation_url=("https://github.com/pandong912/video-media-catalog"),
+    )
     return SourceRegistrySnapshot(
         registry_id="community-catalog-bootstrap",
         source_systems=(
@@ -144,6 +153,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
             wikidata_product,
             eidr_product,
             v1_product,
+            identity_product,
             tvmaze_product,
         ),
         source_namespaces=(

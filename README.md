@@ -15,6 +15,44 @@
 全球目录表不含 tenant。`tenantId` 只用于控制面运行和 commit。
 Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重建的查询投影。
 
+## Community catalog v2 foundation
+
+方案 2 以公共/社区数据为主，但不把不同许可的数据混成一张“开放”表。当前分支
+新增供应商中立的 v2 基础契约：
+
+- `source_registry.py`：区分 source system、product、ID namespace、native
+  schema 与 rights profile；
+- `rights.py`：按用途、受众、地域、期限和物理 policy zone 做 fail-closed
+  权利判断；
+- `connector.py`：统一 full/delta/leased、coverage、watermark、delete
+  semantics、原始 ObjectRef 与 record envelope；
+- `assertions.py` / `identity_v2.py`：事实断言与永久内部实体键分离，保留
+  evidence、可逆 decision、membership、redirect 和全部 v1 key；
+- `attribution.py`：为 CC BY/BY-SA 发布生成确定性、可审计的来源与许可清单；
+- `community_release.py`：发布 policy-specific Gold，区分 affected count 与
+  snapshot total，并绑定 exact input/policy/quality identity。
+
+现有 v1 pipeline、六表、算法摘要和 API 不变。完整设计与边界见
+[`docs/architecture/community-catalog-v2.md`](docs/architecture/community-catalog-v2.md)
+和
+[`contracts/community_catalog.v2.md`](contracts/community_catalog.v2.md)。
+
+TVmaze 是首个 v2 社区 connector。它只访问固定的官方 `/shows?page=N`，
+遵守 429/`Retry-After` 和至少 20 calls/10 seconds 的公开限制，先不可变发布
+原始 page，再发布 batch manifest、record shards 和最终 record-set marker：
+
+```bash
+video-media-catalog-tvmaze-sync \
+  --destination-prefix file:///absolute/path/to/community-captures \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<64位hex>
+```
+
+生产使用 S3 prefix 时继续通过 AWS 默认凭据链，不接受静态 access key 参数。
+TVmaze 元数据进入 `open_sharealike`；mapper 首版故意不提升 image URL，图片必须
+经过逐资产权利审核。该 connector 不做标题模糊归并，只输出 source-owned
+assertions。
+
 ## 安装
 
 ```bash

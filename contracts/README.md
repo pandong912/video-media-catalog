@@ -6,6 +6,9 @@
   Parquet、六张 curated Iceberg 表及兼容规则。
 - `control/media_catalog_commit.v1.md`：`SnapshotSet` 与 `OutputCommit` 的
   ProtoJSON 子集和 commit-last 规则。
+- `community_catalog.v2.md`：供应商中立的 rights、source registry、
+  connector envelope、assertion、identity ledger 与 policy-specific release
+  边界。它是并行 v2 契约，不改变 v1。
 
 当前 schema version 为 `1.0`。新增可空字段是兼容变更；删除字段、改变字段
 类型、主键输入或既有枚举语义均需要新 major contract。全球目录事实不含

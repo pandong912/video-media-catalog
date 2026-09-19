@@ -46,6 +46,7 @@ def _row(
     entity_type: str,
     *,
     parent: str | None = None,
+    person_credits: tuple[str, ...] = (),
 ) -> tuple[dict, tuple[str, str]]:
     claims = {
         "P577": [
@@ -90,6 +91,16 @@ def _row(
                 "target_qid": parent,
                 "target_type_hint": "UNKNOWN",
             }
+        )
+    if person_credits:
+        claims["P161"] = [_statement(target) for target in person_credits]
+        relations.extend(
+            {
+                "property_id": "P161",
+                "target_qid": target,
+                "target_type_hint": "PERSON",
+            }
+            for target in person_credits
         )
     payload = {
         "id": qid,
@@ -158,3 +169,42 @@ def test_distributed_reference_selection_and_audit(
     }
     assert audit.content_count == 4
     assert audit.hierarchy_counts["PARTIAL"] == 0
+
+
+@pytest.mark.spark
+def test_agent_selection_does_not_reclassify_selected_content(
+    spark: SparkSession,
+) -> None:
+    rows_and_types = [
+        _row("Q1", "MOVIE", person_credits=("Q2", "Q5")),
+        _row("Q2", "TV_SERIES"),
+        _row("Q5", "PERSON"),
+    ]
+    normalized = spark.createDataFrame(
+        [value[0] for value in rows_and_types],
+        schema=normalized_schema(),
+    )
+    entity_types = spark.createDataFrame(
+        [value[1] for value in rows_and_types],
+        "qid STRING, entity_type STRING",
+    )
+    config = ReferenceSelectionConfig(
+        content_quotas={
+            "MOVIE": 1,
+            "TV_SERIES": 1,
+            "TV_SEASON": 0,
+            "TV_EPISODE": 0,
+        },
+        agent_limits={"PERSON": 1, "ORGANIZATION": 0},
+    )
+
+    result = select_reference_with_spark(
+        spark,
+        normalized=normalized,
+        entity_types=entity_types,
+        config=config,
+    )
+
+    assert result.content_qids == ("Q1", "Q2")
+    assert result.agent_qids == ("Q5",)
+    assert set(result.content_qids).isdisjoint(result.agent_qids)

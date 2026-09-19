@@ -68,6 +68,23 @@ def eidr_rights_profile() -> RightsProfile:
     )
 
 
+def internal_key_continuity_profile() -> RightsProfile:
+    return RightsProfile(
+        policy_id="internal-key-continuity",
+        policy_version="1.0",
+        zone=PolicyZone.INTERNAL,
+        license_id="PROJECT-INTERNAL",
+        terms_url="https://github.com/pandong912/video-media-catalog",
+        permissions=_open_actions(),
+        audiences=("internal",),
+        territories=("*",),
+        notes=(
+            "Covers project-created stable keys and migration metadata, not "
+            "the external source facts referenced by those keys."
+        ),
+    )
+
+
 def build_community_registry() -> SourceRegistrySnapshot:
     tvmaze_system, tvmaze_product, tvmaze_namespace = tvmaze_registry_entries()
     wikidata_system = SourceSystem(
@@ -81,6 +98,12 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Entertainment Identifier Registry",
         operator="EIDR Association",
         homepage="https://www.eidr.org/",
+    )
+    internal_system = SourceSystem(
+        source_system_id="video-media-catalog",
+        name="Video Media Catalog",
+        operator="video-media-catalog project",
+        homepage="https://github.com/pandong912/video-media-catalog",
     )
     wikidata_product = SourceProduct(
         source_product_id="wikidata-json-dump",
@@ -100,16 +123,27 @@ def build_community_registry() -> SourceRegistrySnapshot:
         connector_id="eidr-v1-adapter",
         documentation_url="https://www.eidr.org/faq",
     )
+    v1_product = SourceProduct(
+        source_product_id="media-catalog-v1",
+        source_system_id="video-media-catalog",
+        name="Published Wikidata/EIDR v1 catalog",
+        kind=SourceProductKind.INTERNAL_CATALOG,
+        policy_id="internal-key-continuity",
+        connector_id="media-catalog-v1-key-migration",
+        documentation_url=("https://github.com/pandong912/video-media-catalog"),
+    )
     return SourceRegistrySnapshot(
         registry_id="community-catalog-bootstrap",
         source_systems=(
             wikidata_system,
             eidr_system,
+            internal_system,
             tvmaze_system,
         ),
         source_products=(
             wikidata_product,
             eidr_product,
+            v1_product,
             tvmaze_product,
         ),
         source_namespaces=(
@@ -148,6 +182,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         rights_profiles=(
             wikidata_rights_profile(),
             eidr_rights_profile(),
+            internal_key_continuity_profile(),
             tvmaze_rights_profile(),
         ),
     )

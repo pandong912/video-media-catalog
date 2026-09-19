@@ -20,6 +20,7 @@ from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
     GOLD_QUALITY_MEDIA_TYPE,
+    GOLD_RELEASE_COMMIT_MEDIA_TYPE,
 )
 from video_media_catalog.gold_quality import GoldQualityStatus
 from video_media_catalog.gold_spark_transform import build_distributed_gold
@@ -297,6 +298,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             attribution_manifest_ref=attribution_ref,
             committed_at=parsed.committed_at,
         )
+        commit_ref = store.upload_bytes(
+            commit.json_bytes(),
+            join_uri(plan_prefix, "release-commit.json"),
+            media_type=GOLD_RELEASE_COMMIT_MEDIA_TYPE,
+            object_format="OBJECT_FORMAT_JSON",
+            max_bytes=CONTROL_MAX_BYTES,
+        ).object_ref
         return {
             "releasePlanId": build.plan.release_plan_id,
             "commitKey": commit.commit_key,
@@ -304,6 +312,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 mode="json", by_alias=True, exclude_none=True
             ),
             "attributionManifest": attribution_ref.model_dump(
+                mode="json", by_alias=True, exclude_none=True
+            ),
+            "releaseCommit": commit_ref.model_dump(
                 mode="json", by_alias=True, exclude_none=True
             ),
             "tableCounts": commit.table_counts,

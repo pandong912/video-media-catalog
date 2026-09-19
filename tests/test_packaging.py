@@ -71,6 +71,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         "video-media-catalog-gold-spark = "
         '"video_media_catalog.gold_cli:main"' in pyproject
     )
+    assert (
+        "video-media-catalog-gold-index = "
+        '"video_media_catalog.gold_index_cli:main"' in pyproject
+    )
     assert "repository: video-media-catalog\n" in publish_workflow
     assert "repository: video-media-catalog-api" in publish_workflow
     assert "dockerfile: Dockerfile.api" in publish_workflow

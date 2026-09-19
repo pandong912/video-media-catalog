@@ -21,8 +21,10 @@ semantics, quality report, attribution binding, and release-fenced Gold tables
 in
 [`contracts/parquet/community_catalog_gold.v2.md`](../../contracts/parquet/community_catalog_gold.v2.md).
 The distributed identity stage and Silver-to-Gold transform now consume exact
-snapshot sets and committed run IDs without driver collection. The v2 serving
-index remains a later phase.
+snapshot sets and committed run IDs without driver collection. A bounded,
+strict-mapping OpenSearch projection publishes only to the isolated
+`media-catalog-community-v2-shadow-read` alias. The v2 query API remains a later
+phase.
 
 ## Source portfolio
 

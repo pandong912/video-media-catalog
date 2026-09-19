@@ -48,6 +48,20 @@ from video_media_catalog.api_search import (
     build_search_query,
     select_description,
 )
+from video_media_catalog.gold_api_models import (
+    GoldCatalogEntity,
+    GoldSearchResponse,
+)
+from video_media_catalog.gold_api_search import (
+    GoldCursorCodec,
+    GoldSearchParameters,
+    build_gold_external_identifier_query,
+    build_gold_search_query,
+)
+from video_media_catalog.gold_search_index import (
+    SHADOW_INDEX_PREFIX,
+    SHADOW_READ_ALIAS,
+)
 from video_media_catalog.opensearch_client import (
     OpenSearchConnection,
     create_opensearch_client,
@@ -58,6 +72,7 @@ _LANGUAGE = re.compile(r"^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$")
 _CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
 _ENTITY_KEY = r"^sha256:[0-9a-f]{64}$"
 _SCHEME = r"^[a-z][a-z0-9._-]{0,31}$"
+_ENTITY_CLASS = r"^[A-Z][A-Z0-9_]{0,63}$"
 _BEARER_DEPENDENCY = Security(HTTPBearer(auto_error=False))
 _AUTHENTICATED_ERRORS = {
     400: {"model": ProblemDetails},
@@ -108,6 +123,9 @@ class APISettings:
     aws_region: str | None = None
     opensearch_service: str = "es"
     read_alias: str = READ_ALIAS
+    community_read_alias: str = SHADOW_READ_ALIAS
+    community_index_prefix: str = SHADOW_INDEX_PREFIX
+    community_cursor_ttl_seconds: int = 900
     request_timeout_seconds: float = 5.0
     environment: str = "production"
     auth_disabled: bool = False
@@ -128,6 +146,24 @@ class APISettings:
             raise ValueError("cursor signing secret must contain at least 32 bytes")
         if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,254}", self.read_alias) is None:
             raise ValueError("read alias is not a safe OpenSearch name")
+        if (
+            re.fullmatch(
+                r"[a-z0-9][a-z0-9_-]{0,254}",
+                self.community_read_alias,
+            )
+            is None
+        ):
+            raise ValueError("community read alias is not a safe OpenSearch name")
+        if (
+            re.fullmatch(
+                r"[a-z0-9][a-z0-9_-]{0,254}",
+                self.community_index_prefix,
+            )
+            is None
+        ):
+            raise ValueError("community index prefix is not a safe OpenSearch name")
+        if not 1 <= self.community_cursor_ttl_seconds <= 3600:
+            raise ValueError("community cursor TTL must be between 1 and 3600")
         OpenSearchConnection(
             endpoint=self.opensearch_endpoint,
             aws_region=self.aws_region,
@@ -164,6 +200,20 @@ class APISettings:
                 "INDEX_ALIAS",
                 "MEDIA_CATALOG_READ_ALIAS",
                 default=READ_ALIAS,
+            ),
+            community_read_alias=_environment_value(
+                "MEDIA_CATALOG_COMMUNITY_READ_ALIAS",
+                default=SHADOW_READ_ALIAS,
+            ),
+            community_index_prefix=_environment_value(
+                "MEDIA_CATALOG_COMMUNITY_INDEX_PREFIX",
+                default=SHADOW_INDEX_PREFIX,
+            ),
+            community_cursor_ttl_seconds=int(
+                os.environ.get(
+                    "MEDIA_CATALOG_COMMUNITY_CURSOR_TTL_SECONDS",
+                    "900",
+                )
             ),
             request_timeout_seconds=float(
                 os.environ.get("MEDIA_CATALOG_SEARCH_TIMEOUT_SECONDS", "5")
@@ -408,6 +458,25 @@ def _summary(
     }
 
 
+def _gold_summary(hit: Any) -> dict[str, Any]:
+    source = _source(hit)
+    identifiers = source.get("externalIdentifiers")
+    return {
+        "entityKey": source.get("entityKey"),
+        "entityLevel": source.get("entityLevel"),
+        "entityKind": source.get("entityKind"),
+        "displayName": source.get("displayName"),
+        "displayLanguage": source.get("displayLanguage"),
+        "releasePlanId": source.get("releasePlanId"),
+        "conflictCount": source.get("conflictCount", 0),
+        "externalIdentifiers": (
+            identifiers[:_SUMMARY_IDENTIFIER_LIMIT]
+            if isinstance(identifiers, list)
+            else []
+        ),
+    }
+
+
 def _validate_query_parameters(request: Request, allowed: set[str]) -> None:
     names = [name for name, _ in request.query_params.multi_items()]
     if set(names) - allowed or len(names) != len(set(names)):
@@ -428,6 +497,11 @@ def create_app(
     owns_client = client is None
     client = client or create_opensearch_client(settings.opensearch_connection())
     cursor_codec = CursorCodec(settings.cursor_secret.encode("utf-8"))
+    gold_cursor_codec = GoldCursorCodec(
+        settings.cursor_secret.encode("utf-8"),
+        ttl_seconds=settings.community_cursor_ttl_seconds,
+        index_prefix=settings.community_index_prefix,
+    )
     timeout_ms = int(settings.request_timeout_seconds * 1000)
 
     @asynccontextmanager
@@ -746,5 +820,199 @@ def create_app(
             _source(hits[0]),
             requested_language=None,
         )
+
+    @app.get(
+        "/api/v2/catalog/search",
+        tags=["community-catalog-v2"],
+        summary="Search the policy-resolved community Gold catalog",
+        dependencies=[Depends(require_principal)],
+        response_model=GoldSearchResponse,
+        responses=_AUTHENTICATED_ERRORS,
+    )
+    def search_gold_catalog(
+        request: Request,
+        q: Annotated[str, Query(max_length=200)] = "",
+        entity_level: Annotated[
+            str | None,
+            Query(alias="entityLevel", pattern=_ENTITY_CLASS),
+        ] = None,
+        entity_kind: Annotated[
+            str | None,
+            Query(alias="entityKind", pattern=_ENTITY_CLASS),
+        ] = None,
+        language: Annotated[
+            str | None,
+            Query(min_length=2, max_length=35),
+        ] = None,
+        has_conflicts: Annotated[
+            bool | None,
+            Query(alias="hasConflicts"),
+        ] = None,
+        page_size: Annotated[
+            int,
+            Query(alias="pageSize", ge=1, le=100),
+        ] = 20,
+        cursor: Annotated[
+            str | None,
+            Query(min_length=10, max_length=4096),
+        ] = None,
+    ) -> dict[str, Any]:
+        _validate_query_parameters(
+            request,
+            {
+                "q",
+                "entityLevel",
+                "entityKind",
+                "language",
+                "hasConflicts",
+                "pageSize",
+                "cursor",
+            },
+        )
+        parameters = GoldSearchParameters(
+            q=_normalize_search_text(q),
+            entity_level=entity_level,
+            entity_kind=entity_kind,
+            language=_normalize_language(language),
+            has_conflicts=has_conflicts,
+            page_size=page_size,
+        )
+        state = (
+            gold_cursor_codec.decode(
+                cursor,
+                fingerprint=parameters.fingerprint(),
+            )
+            if cursor
+            else None
+        )
+        response = _call_opensearch(
+            lambda: _search_get(
+                client,
+                alias=(
+                    state.index if state is not None else settings.community_read_alias
+                ),
+                body=build_gold_search_query(
+                    parameters,
+                    search_after=(state.sort if state is not None else None),
+                    timeout_ms=timeout_ms,
+                ),
+                timeout_seconds=settings.request_timeout_seconds,
+            )
+        )
+        hits, total = _hits(response)
+        next_cursor = None
+        if len(hits) == page_size:
+            indexes = {hit.get("_index") for hit in hits if isinstance(hit, dict)}
+            sort = hits[-1].get("sort") if isinstance(hits[-1], dict) else None
+            if (
+                len(indexes) != 1
+                or not isinstance(next(iter(indexes)), str)
+                or not isinstance(sort, list)
+            ):
+                raise UpstreamFailure(
+                    502,
+                    "Bad Gateway",
+                    "Gold search hit has no stable index and sort tuple",
+                )
+            next_cursor = gold_cursor_codec.encode(
+                index=next(iter(indexes)),
+                sort=sort,
+                fingerprint=parameters.fingerprint(),
+            )
+        return {
+            "items": [_gold_summary(hit) for hit in hits],
+            "nextCursor": next_cursor,
+            "totalValue": total["value"],
+            "totalRelation": total["relation"],
+        }
+
+    @app.get(
+        "/api/v2/catalog/entities/{entityKey}",
+        tags=["community-catalog-v2"],
+        summary="Get one policy-resolved Gold entity",
+        dependencies=[Depends(require_principal)],
+        response_model=GoldCatalogEntity,
+        responses={
+            **_AUTHENTICATED_ERRORS,
+            404: {"model": ProblemDetails},
+        },
+    )
+    def get_gold_entity(
+        request: Request,
+        entity_key: Annotated[
+            str,
+            Path(alias="entityKey", pattern=_ENTITY_KEY),
+        ],
+    ) -> dict[str, Any]:
+        _validate_query_parameters(request, set())
+        try:
+            response = _call_opensearch(
+                lambda: client.get(
+                    index=settings.community_read_alias,
+                    id=entity_key,
+                    request_timeout=settings.request_timeout_seconds,
+                ),
+                allow_not_found=True,
+            )
+        except Exception as exc:
+            if getattr(exc, "status_code", None) == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Gold catalog entity was not found",
+                ) from exc
+            raise
+        if not isinstance(response, dict) or not isinstance(
+            response.get("_source"), dict
+        ):
+            raise UpstreamFailure(
+                502,
+                "Bad Gateway",
+                "Gold entity response is invalid",
+            )
+        return response["_source"]
+
+    @app.get(
+        "/api/v2/catalog/external-identifiers/{namespace}/{value:path}",
+        tags=["community-catalog-v2"],
+        summary="Resolve one Gold external identifier",
+        dependencies=[Depends(require_principal)],
+        response_model=GoldCatalogEntity,
+        responses={
+            **_AUTHENTICATED_ERRORS,
+            404: {"model": ProblemDetails},
+            409: {"model": ProblemDetails},
+        },
+    )
+    def resolve_gold_external_identifier(
+        request: Request,
+        namespace: Annotated[str, Path(pattern=_SCHEME)],
+        value: Annotated[str, Path(min_length=1, max_length=256)],
+    ) -> dict[str, Any]:
+        _validate_query_parameters(request, set())
+        identifier = _validate_text(value, label="external identifier")
+        response = _call_opensearch(
+            lambda: _search_get(
+                client,
+                alias=settings.community_read_alias,
+                body=build_gold_external_identifier_query(
+                    namespace=namespace,
+                    value=identifier,
+                    timeout_ms=timeout_ms,
+                ),
+                timeout_seconds=settings.request_timeout_seconds,
+            )
+        )
+        hits, total = _hits(response)
+        if total["value"] == 0 or not hits:
+            raise HTTPException(
+                status_code=404,
+                detail="Gold external identifier was not found",
+            )
+        if total["relation"] != "eq" or total["value"] != 1 or len(hits) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Gold external identifier resolves to multiple entities",
+            )
+        return _source(hits[0])
 
     return app

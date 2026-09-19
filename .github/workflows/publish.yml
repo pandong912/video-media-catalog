@@ -40,8 +40,19 @@ jobs:
         include:
           - repository: video-media-catalog
             dockerfile: Dockerfile
+            tag_prefix: sha
+            release_prefix: ""
+            artifact: video-media-catalog
+          - repository: video-media-catalog
+            dockerfile: Dockerfile.emr
+            tag_prefix: emr-sha
+            release_prefix: emr-
+            artifact: video-media-catalog-emr
           - repository: video-media-catalog-api
             dockerfile: Dockerfile.api
+            tag_prefix: sha
+            release_prefix: ""
+            artifact: video-media-catalog-api
     env:
       ECR_REPOSITORY: ${{ matrix.repository }}
     steps:
@@ -61,9 +72,9 @@ jobs:
           image='${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}'
           {
             echo 'values<<EOF'
-            echo "${image}:sha-${GITHUB_SHA}"
+            echo "${image}:${{ matrix.tag_prefix }}-${GITHUB_SHA}"
             if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-              echo "${image}:${GITHUB_REF_NAME}"
+              echo "${image}:${{ matrix.release_prefix }}${GITHUB_REF_NAME}"
             fi
             echo 'EOF'
           } >>"$GITHUB_OUTPUT"
@@ -73,7 +84,7 @@ jobs:
           digest="$(
             aws ecr describe-images \
               --repository-name "$ECR_REPOSITORY" \
-              --image-ids "imageTag=sha-${GITHUB_SHA}" \
+              --image-ids "imageTag=${{ matrix.tag_prefix }}-${GITHUB_SHA}" \
               --query 'imageDetails[0].imageDigest' \
               --output text 2>/dev/null || true
           )"
@@ -166,7 +177,7 @@ jobs:
           )"
           aws ecr put-image \
             --repository-name "$ECR_REPOSITORY" \
-            --image-tag "$GITHUB_REF_NAME" \
+            --image-tag "${{ matrix.release_prefix }}${GITHUB_REF_NAME}" \
             --image-manifest "$(jq -r '.imageManifest' <<<"$image")" \
             --image-manifest-media-type "$(
               jq -r '.imageManifestMediaType' <<<"$image"
@@ -201,8 +212,8 @@ jobs:
             '${{ steps.ecr.outputs.registry }}' \
             "$ECR_REPOSITORY" \
             '${{ steps.image.outputs.digest }}' \
-            > "image-reference-${ECR_REPOSITORY}.txt"
+            > "image-reference-${{ matrix.artifact }}.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.repository }}-image-reference
-          path: image-reference-${{ matrix.repository }}.txt
+          name: ${{ matrix.artifact }}-image-reference
+          path: image-reference-${{ matrix.artifact }}.txt

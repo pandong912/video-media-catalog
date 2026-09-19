@@ -236,10 +236,21 @@ def configure_s3a_builder(
     aws_region: str | None,
     s3_endpoint: str | None,
     s3_path_style_access: bool,
+    credentials_provider: str = "web-identity",
 ) -> Any:
+    providers = {
+        "default": "com.amazonaws.auth.DefaultAWSCredentialsProviderChain",
+        "web-identity": "com.amazonaws.auth.WebIdentityTokenCredentialsProvider",
+    }
+    try:
+        provider = providers[credentials_provider]
+    except KeyError as exc:
+        raise ValueError(
+            "credentials_provider must be 'default' or 'web-identity'"
+        ) from exc
     builder = builder.config(
         "spark.hadoop.fs.s3a.aws.credentials.provider",
-        "com.amazonaws.auth.WebIdentityTokenCredentialsProvider",
+        provider,
     )
     if aws_region:
         builder = builder.config(

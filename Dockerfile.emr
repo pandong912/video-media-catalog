@@ -1,0 +1,30 @@
+FROM public.ecr.aws/emr-serverless/spark/emr-7.9.0:latest
+
+ARG UV_VERSION=0.9.7
+
+USER root
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON=/usr/bin/python3.12 \
+    VIRTUAL_ENV=/opt/video-media-catalog/.venv \
+    PATH="/opt/video-media-catalog/.venv/bin:$PATH"
+
+RUN dnf install --assumeyes python3.12 python3.12-pip \
+    && dnf clean all \
+    && /usr/bin/python3.12 -m pip install --no-cache-dir "uv==${UV_VERSION}"
+
+WORKDIR /opt/video-media-catalog
+COPY pyproject.toml uv.lock README.md ./
+RUN /usr/bin/python3.12 -m uv sync --frozen --no-dev --no-install-project
+
+COPY src ./src
+COPY contracts ./contracts
+RUN /usr/bin/python3.12 -m uv sync --frozen --no-dev \
+    && chown --recursive hadoop:hadoop /opt/video-media-catalog
+
+# EMR Serverless requires the base image entrypoint and runs workers as hadoop.
+USER hadoop:hadoop
+WORKDIR /home/hadoop

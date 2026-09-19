@@ -268,8 +268,8 @@ video-media-catalog-wikidata-subset \
   --aws-region us-east-1
 ```
 
-默认 `target-count=100000`。作品基础预算为 MOVIE 30000、TV_SERIES 15000、
-TV_SEASON 10000、TV_EPISODE 25000，可分别用 `--movie-count`、
+默认 `target-count=100000`。reference selector 的作品预算为 MOVIE 30000、
+TV_SERIES 2000、TV_SEASON 10000、TV_EPISODE 58000，可分别用 `--movie-count`、
 `--tv-series-count`、`--tv-season-count`、`--tv-episode-count` 调整。
 每类先按 Wikipedia sitelink 数降序、QID 数字升序选择；配额不足时在作品间
 确定性回填。剩余预算依次给已选作品的层级目标、按引用频率排序的
@@ -288,6 +288,12 @@ driver 再有界流式复制并计算 SHA-256。发布顺序固定为 subset →
 commit marker，记录 dump 完整 ObjectRef、配置 digest、六类 selected counts、
 dependency rows 和被裁剪 relation statement 数。所有最终 S3 写入都禁止覆盖
 冲突内容，并要求完整 ETag 和 VersionId。
+
+生产 reference-subset 由 Argo 的小型 submitter Pod 调用
+`video-media-catalog-emr-submit` 提交至 EMR Serverless 7.9.0（Spark 3.5.5）。
+EMR 自定义镜像内置同一 `reference_subset_cli.py`，executor 使用独立
+shuffle-optimized 临时盘；S3A 使用 EMR runtime role 的默认凭据链。Argo
+submitter 会轮询至终态，并在自身被终止时尽力取消尚未结束的 EMR job。
 
 ## 生产提取 runtime
 
@@ -640,13 +646,19 @@ Docker 固定 Python 3.12、Java 17、Spark/PySpark 3.5.5、Iceberg 1.8.1，
 Argo 提取节点通过 container `command` 显式选择 `video-media-catalog`；直接运行
 镜像时默认 CMD 显示 Spark CLI help。
 
+`Dockerfile.emr` 继承官方 EMR Serverless 7.9.0 Spark 基础镜像，安装
+Python 3.12 和项目依赖，保留 EMR 的 `/usr/bin/entrypoint.sh` 与 `hadoop`
+运行用户。该镜像只通过 `local:///opt/video-media-catalog/...` 运行已打包的
+reference-subset 入口。
+
 `Dockerfile.api` 基于已更新的 Ubuntu Noble，安装 Python 3.12，使用非 root
 用户，不包含 Java、Spark 或 PySpark，兼容 read-only root filesystem，并内置
 `/healthz` healthcheck。
 
-GitHub publish 使用矩阵分别发布 `video-media-catalog` 和
-`video-media-catalog-api`，均使用 OIDC、immutable ECR digest 以及
-Critical findings 必须为 0 的门禁。需要
+GitHub publish 使用矩阵分别发布 Kubernetes batch、EMR Serverless batch 和
+API 三个镜像变体；两个 batch 变体共用 `video-media-catalog` repository，
+但使用 `sha-*` 与 `emr-sha-*` 独立 immutable tags。所有变体均使用 OIDC、
+immutable ECR digest 以及 Critical findings 必须为 0 的门禁。需要
 `AWS_MEDIA_CATALOG_CI_ROLE_ARN` 和可选 `AWS_REGION`，不保存静态 AWS key。
 
 ## 测试

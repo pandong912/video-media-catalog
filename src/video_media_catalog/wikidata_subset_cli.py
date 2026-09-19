@@ -42,6 +42,7 @@ from video_media_catalog.wikidata_subset import (
 )
 from video_media_catalog.wikidata_subset_spark import (
     build_subset,
+    item_entity_rows,
     normalize_dump,
     write_normalized_staging,
 )
@@ -328,7 +329,8 @@ def _load_or_build_staging(
         if normalized.count() != manifest.row_count:
             normalized.unpersist()
             raise ValueError("normalized staging row count differs from commit marker")
-        return normalized
+        # Older staging may still contain dump property entities (P*).
+        return item_entity_rows(normalized)
 
     normalized = normalize_dump(spark, _spark_uri(dump.uri))
     row_count = write_normalized_staging(normalized, _spark_uri(data.uri))
@@ -345,7 +347,7 @@ def _load_or_build_staging(
         max_bytes=MAX_CONTROL_BYTES,
     ).object_ref
     _require_versioned(marker_ref, "normalized staging marker")
-    return normalized
+    return item_entity_rows(normalized)
 
 
 def _hash_s3_object(

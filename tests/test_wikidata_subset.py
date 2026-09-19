@@ -217,3 +217,37 @@ def test_runtime_source_manifest_entry_has_complete_immutable_fields() -> None:
     assert entry.object_version == "version-1"
     assert entry.etag == "etag-1"
     assert entry.license == "CC0-1.0"
+
+
+def test_normalized_dump_row_skips_property_entities() -> None:
+    import json
+
+    from video_media_catalog.wikidata_subset_spark import _normalized_dump_row
+
+    property_line = json.dumps(
+        {
+            "id": "P10027",
+            "type": "property",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "sitelinks": {},
+            "claims": {},
+        }
+    )
+    item_line = json.dumps(
+        {
+            "id": "Q42",
+            "type": "item",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "sitelinks": {},
+            "claims": {},
+        }
+    )
+    assert _normalized_dump_row(property_line) is None
+    row = _normalized_dump_row(item_line)
+    assert row is not None
+    assert row["qid"] == "Q42"
+    assert row["qid_numeric"] == 42

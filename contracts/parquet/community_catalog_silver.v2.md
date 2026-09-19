@@ -34,6 +34,19 @@ snapshot contains only one run. Concurrent rows remain isolated by `run_id`.
 Gold releases must pin both the data-table snapshots and the commit-table
 snapshot, then join only committed runs.
 
+## Silver snapshot set
+
+`CommunitySilverSnapshotSet` is the small commit handoff to Gold. It contains:
+
+- deterministic `snapshotSetId`;
+- the exact committed run IDs included in this build;
+- the exact `community_ingest_commit` snapshot ID;
+- one exact snapshot ID or explicit empty value for every Silver data table;
+- creation time.
+
+Gold readers first verify the snapshot-set ObjectRef, then time-travel every
+table and anti-join any run not listed in the snapshot set.
+
 ## Run tables
 
 ### `community_ingest_run`

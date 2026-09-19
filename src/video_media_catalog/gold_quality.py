@@ -109,11 +109,50 @@ def build_gold_quality_report(
     table_counts = draft.expected_counts
     if table_counts != plan.expected_counts:
         raise ValueError("Gold draft counts do not match release plan")
-    field_total = len(draft.fields)
-    conflict_ratio = len(draft.conflicts) / field_total if field_total else 0.0
-    identity_denominator = len(draft.entity_keys) + draft.unresolved_identity_count
+    return build_gold_quality_report_from_metrics(
+        plan=plan,
+        policy=policy,
+        table_counts=table_counts,
+        conflict_count=len(draft.conflicts),
+        field_count=len(draft.fields),
+        withheld_assertion_count=draft.withheld_assertion_count,
+        unresolved_identity_count=draft.unresolved_identity_count,
+        entity_count=len(draft.entity_keys),
+        eligible_policy_counts=draft.eligible_policy_counts,
+        created_at=created_at,
+    )
+
+
+def build_gold_quality_report_from_metrics(
+    *,
+    plan: GoldReleasePlan,
+    policy: GoldResolutionPolicy,
+    table_counts: dict[str, int],
+    conflict_count: int,
+    field_count: int,
+    withheld_assertion_count: int,
+    unresolved_identity_count: int,
+    entity_count: int,
+    eligible_policy_counts: dict[str, int],
+    created_at: str,
+) -> GoldQualityReport:
+    if table_counts != plan.expected_counts:
+        raise ValueError("Gold metrics counts do not match release plan")
+    if any(
+        isinstance(value, bool) or value < 0
+        for value in (
+            conflict_count,
+            field_count,
+            withheld_assertion_count,
+            unresolved_identity_count,
+            entity_count,
+        )
+    ):
+        raise ValueError("Gold quality metrics must be non-negative")
+    conflict_ratio = conflict_count / field_count if field_count else 0.0
+    identity_denominator = entity_count + unresolved_identity_count
     unresolved_ratio = (
-        draft.unresolved_identity_count / identity_denominator
+        unresolved_identity_count / identity_denominator
         if identity_denominator
         else 0.0
     )
@@ -134,12 +173,12 @@ def build_gold_quality_report(
         "release_plan_id": plan.release_plan_id,
         "field_policy_digest": policy.digest,
         "table_counts": table_counts,
-        "conflict_count": len(draft.conflicts),
+        "conflict_count": conflict_count,
         "conflict_ratio": conflict_ratio,
-        "withheld_assertion_count": draft.withheld_assertion_count,
-        "unresolved_identity_count": draft.unresolved_identity_count,
+        "withheld_assertion_count": withheld_assertion_count,
+        "unresolved_identity_count": unresolved_identity_count,
         "unresolved_identity_ratio": unresolved_ratio,
-        "eligible_policy_counts": dict(sorted(draft.eligible_policy_counts.items())),
+        "eligible_policy_counts": dict(sorted(eligible_policy_counts.items())),
         "violations": tuple(violations),
         "status": (GoldQualityStatus.FAILED if violations else GoldQualityStatus.PASS),
         "created_at": created_at,

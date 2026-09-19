@@ -53,6 +53,33 @@ TVmaze 元数据进入 `open_sharealike`；mapper 首版故意不提升 image UR
 经过逐资产权利审核。该 connector 不做标题模糊归并，只输出 source-owned
 assertions。
 
+同步结果中的 immutable batch/record-set ObjectRef 可提交到独立的 Silver v2
+Spark 入口：
+
+```bash
+video-media-catalog-community-spark \
+  --batch-manifest-uri s3://bucket/.../batch-manifest.json \
+  --batch-manifest-hash sha256:<hex> \
+  --batch-manifest-size <bytes> \
+  --batch-manifest-version <VersionId> \
+  --batch-manifest-etag <ETag> \
+  --record-set-manifest-uri s3://bucket/.../record-set.json \
+  --record-set-manifest-hash sha256:<hex> \
+  --record-set-manifest-size <bytes> \
+  --record-set-manifest-version <VersionId> \
+  --record-set-manifest-etag <ETag> \
+  --committed-at 2026-09-19T00:00:00Z \
+  --catalog-type glue \
+  --catalog-name media \
+  --namespace community_catalog_v2 \
+  --warehouse s3://bucket/community-warehouse
+```
+
+Silver 表全部带确定性 `run_id`。source/assertion/identity 行只有在
+`community_ingest_commit` 最后写入后才可见；失败运行留下的 staged rows 不会进入
+Gold。`v1_migration.py` 从 snapshot-pinned 六表导入全部既有 key，原样保存
+`entity_key`，不会按新规则重新计算。
+
 ## 安装
 
 ```bash

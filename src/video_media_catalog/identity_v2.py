@@ -21,6 +21,7 @@ from video_media_catalog.v2_contracts import (
 
 
 class EntityLevel(StrEnum):
+    UNKNOWN = "UNKNOWN"
     EDITORIAL_WORK = "EDITORIAL_WORK"
     SERIES = "SERIES"
     SEASON = "SEASON"

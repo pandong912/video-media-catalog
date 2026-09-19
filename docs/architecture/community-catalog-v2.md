@@ -12,6 +12,12 @@ outputs. Public, community, personal-research, and commercial sources may share
 code and internal entity keys, but they must not share storage, indexes, or
 publication rights unless an explicit policy permits it.
 
+The current implementation includes the source/rights/connector/identity
+contracts, TVmaze capture and assertion mapping, and the run-fenced Silver
+Iceberg tables defined in
+[`contracts/parquet/community_catalog_silver.v2.md`](../../contracts/parquet/community_catalog_silver.v2.md).
+Gold resolution and v2 serving remain later phases.
+
 ## Source portfolio
 
 The initial source portfolio is split by effective rights rather than by

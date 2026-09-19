@@ -495,9 +495,7 @@ def dependency_rows(
         )
         if delta.count() == 0:
             break
-        dependencies = _materialize(
-            dependencies.unionByName(delta).dropDuplicates()
-        )
+        dependencies = _materialize(dependencies.unionByName(delta).dropDuplicates())
     else:
         raise RuntimeError(
             "classification dependency traversal did not converge within "

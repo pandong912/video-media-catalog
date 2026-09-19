@@ -52,7 +52,10 @@ from video_media_catalog.wikidata_subset_cli import (
 from video_media_catalog.wikidata_subset_cli import (
     build_parser as legacy_build_parser,
 )
-from video_media_catalog.wikidata_subset_spark import build_reference_subset
+from video_media_catalog.wikidata_subset_spark import (
+    build_reference_subset,
+    configure_bfs_materialize_dir,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -265,6 +268,10 @@ def run(
         f"date={dump_date}",
         f"reference-build-sha256={build_digest.removeprefix('sha256:')}",
         f"spark-output-{uuid.uuid4().hex}",
+    )
+    configure_bfs_materialize_dir(
+        session,
+        _spark_uri(f"{temporary.uri.rstrip('/')}/bfs-materialize"),
     )
     try:
         normalized = _load_or_build_staging(

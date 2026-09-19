@@ -15,6 +15,8 @@
   identifier、relation、conflict 与 release commit-last 规则。
 - `reference_catalog_selection.v1.md`：10 万内容实体、独立 agent budget、
   asset demand profile、层级闭包优先和 selection audit 规则。
+- `catalog_asset_match.v1.md`：AssetVersion 匹配请求、候选 Manifest、显式确认
+  边界，以及 300 条黄金集离线评测门禁。
 
 当前 schema version 为 `1.0`。新增可空字段是兼容变更；删除字段、改变字段
 类型、主键输入或既有枚举语义均需要新 major contract。全球目录事实不含

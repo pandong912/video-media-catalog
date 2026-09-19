@@ -4,22 +4,25 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Self
+from typing import Any, Literal, Self
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.canonical import canonical_json, sha256_digest
 from video_media_catalog.constants import (
     CREDIT_ORGANIZATION_PROPERTIES,
     CREDIT_PERSON_PROPERTIES,
 )
+from video_media_catalog.models import ObjectRef
 from video_media_catalog.transform import (
     _qid_values,
     _statement_value,
     _statements,
 )
-from video_media_catalog.v2_contracts import require_rfc3339
+from video_media_catalog.v2_contracts import V2ContractModel, require_rfc3339
 from video_media_catalog.wikidata_subset import (
     RelationReference,
     qid_number,
@@ -43,9 +46,7 @@ AGENT_TYPES = frozenset(DEFAULT_AGENT_LIMITS)
 REFERENCE_PARENT_PROPERTIES = frozenset({"P179", "P361", "P4908"})
 
 
-class AssetDemandProfile(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class AssetDemandProfile(V2ContractModel):
     schema_version: str = "1.0"
     sample_count: int = Field(gt=0)
     source_manifest_digest: str
@@ -86,13 +87,17 @@ class AssetDemandProfile(BaseModel):
     @property
     def digest(self) -> str:
         return sha256_digest(
-            canonical_json(self.model_dump(mode="json", exclude_none=True))
+            canonical_json(
+                self.model_dump(
+                    mode="json",
+                    by_alias=True,
+                    exclude_none=True,
+                )
+            )
         )
 
 
-class ReferenceSelectionConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ReferenceSelectionConfig(V2ContractModel):
     content_quotas: dict[str, int] = Field(
         default_factory=lambda: dict(DEFAULT_CONTENT_QUOTAS)
     )
@@ -212,19 +217,44 @@ class ReferenceSelectionResult:
         }
 
 
-class ReferenceQualityThresholds(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ReferenceQualityThresholds(V2ContractModel):
     minimum_title_coverage: float = Field(default=0.995, ge=0, le=1)
     minimum_movie_release_coverage: float = Field(default=0.98, ge=0, le=1)
     minimum_episode_parent_coverage: float = Field(default=0.99, ge=0, le=1)
 
+    @property
+    def digest(self) -> str:
+        return sha256_digest(
+            canonical_json(
+                self.model_dump(
+                    mode="json",
+                    by_alias=True,
+                    exclude_none=True,
+                )
+            )
+        )
 
-class ReferenceSelectionAudit(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.0"
-    algorithm_id: str = REFERENCE_SELECTION_ALGORITHM_ID
+def reference_subset_build_digest(
+    config: ReferenceSelectionConfig,
+    thresholds: ReferenceQualityThresholds,
+) -> str:
+    return sha256_digest(
+        canonical_json(
+            {
+                "algorithmId": REFERENCE_SELECTION_ALGORITHM_ID,
+                "selectionConfigDigest": config.digest,
+                "qualityThresholdsDigest": thresholds.digest,
+            }
+        )
+    )
+
+
+class ReferenceSelectionAudit(V2ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
+    algorithm_id: Literal["reference-catalog-selection-v1"] = (
+        REFERENCE_SELECTION_ALGORITHM_ID
+    )
     config_digest: str
     demand_profile_digest: str | None = None
     content_count: int = Field(ge=0)
@@ -234,7 +264,7 @@ class ReferenceSelectionAudit(BaseModel):
     hierarchy_counts: dict[str, int]
     field_coverage: dict[str, dict[str, float]]
     violations: tuple[str, ...]
-    status: str
+    status: Literal["PASS", "FAILED"]
 
     @model_validator(mode="after")
     def validate_status(self) -> Self:
@@ -244,7 +274,165 @@ class ReferenceSelectionAudit(BaseModel):
         return self
 
     def json_bytes(self) -> bytes:
-        return (canonical_json(self.model_dump(mode="json")) + "\n").encode()
+        return (
+            canonical_json(
+                self.model_dump(mode="json", by_alias=True, exclude_none=True)
+            )
+            + "\n"
+        ).encode()
+
+
+class ReferenceSubsetAuditManifest(V2ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
+    status: Literal["COMPLETE"] = "COMPLETE"
+    algorithm_id: Literal["reference-catalog-selection-v1"] = (
+        REFERENCE_SELECTION_ALGORITHM_ID
+    )
+    config_digest: str
+    quality_thresholds_digest: str
+    build_digest: str
+    demand_profile_digest: str | None = None
+    demand_profile: ObjectRef | None = None
+    dump: ObjectRef
+    subset: ObjectRef
+    source_manifest: ObjectRef
+    content_quotas: dict[str, int]
+    agent_limits: dict[str, int]
+    quality_thresholds: ReferenceQualityThresholds
+    selected_count: int = Field(ge=0)
+    dependency_rows: int = Field(ge=0)
+    output_rows: int = Field(gt=0)
+    pruned_relation_statements: int = Field(ge=0)
+    normalization_staging_uri: str
+    quality: ReferenceSelectionAudit
+
+    @field_validator(
+        "config_digest",
+        "quality_thresholds_digest",
+        "build_digest",
+        "demand_profile_digest",
+    )
+    @classmethod
+    def validate_digests(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.startswith("sha256:") or len(value) != 71:
+            raise ValueError("digest must be sha256:<64 lowercase hex>")
+        int(value.removeprefix("sha256:"), 16)
+        return value
+
+    @field_validator(
+        "demand_profile",
+        "dump",
+        "subset",
+        "source_manifest",
+        mode="before",
+    )
+    @classmethod
+    def reject_object_ref_extras(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        aliases = {
+            field.alias or name for name, field in ObjectRef.model_fields.items()
+        }
+        allowed = set(ObjectRef.model_fields) | aliases
+        extras = (
+            set(value) - allowed
+            if isinstance(value, Mapping)
+            else set(getattr(value, "__pydantic_extra__", {}) or {})
+        )
+        if extras:
+            raise ValueError(f"ObjectRef contains unexpected fields: {sorted(extras)}")
+        return value
+
+    @field_validator("normalization_staging_uri")
+    @classmethod
+    def validate_staging_uri(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "s3"
+            or not parsed.netloc
+            or not parsed.path.strip("/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("normalization_staging_uri must be a safe S3 URI")
+        return value
+
+    @model_validator(mode="after")
+    def validate_complete_manifest(self) -> Self:
+        config = ReferenceSelectionConfig(
+            content_quotas=self.content_quotas,
+            agent_limits=self.agent_limits,
+            demand_profile_digest=self.demand_profile_digest,
+        )
+        if config.digest != self.config_digest:
+            raise ValueError("config_digest does not bind selection config")
+        if self.quality_thresholds.digest != self.quality_thresholds_digest:
+            raise ValueError("quality_thresholds_digest does not bind thresholds")
+        if (
+            reference_subset_build_digest(config, self.quality_thresholds)
+            != self.build_digest
+        ):
+            raise ValueError("build_digest does not bind selection and quality config")
+        if (
+            self.quality.config_digest != self.config_digest
+            or self.quality.demand_profile_digest != self.demand_profile_digest
+            or self.quality.status != "PASS"
+        ):
+            raise ValueError("quality report does not approve this selection")
+        if self.selected_count != (
+            self.quality.content_count + self.quality.agent_count
+        ):
+            raise ValueError("selected_count does not match quality counts")
+        if self.output_rows != self.selected_count + self.dependency_rows:
+            raise ValueError("output_rows must equal selected and dependency rows")
+        if (self.demand_profile is None) != (self.demand_profile_digest is None):
+            raise ValueError("demand profile reference and digest must be paired")
+        references = {
+            "dump": self.dump,
+            "subset": self.subset,
+            "source_manifest": self.source_manifest,
+        }
+        if self.demand_profile is not None:
+            references["demand_profile"] = self.demand_profile
+        for name, reference in references.items():
+            if (
+                reference.etag is None
+                or reference.object_version is None
+                or reference.object_version == "null"
+                or reference.size_bytes <= 0
+            ):
+                raise ValueError(f"{name} must be a non-empty immutable ObjectRef")
+        if (
+            self.source_manifest.format != "OBJECT_FORMAT_PARQUET"
+            or self.source_manifest.media_type != "application/vnd.apache.parquet"
+        ):
+            raise ValueError("source_manifest must reference Parquet")
+        for name, reference in {"dump": self.dump, "subset": self.subset}.items():
+            if (
+                reference.format != "OBJECT_FORMAT_JSON"
+                or reference.media_type != "application/x-bzip2"
+            ):
+                raise ValueError(f"{name} must reference Wikidata JSON bzip2")
+        if self.subset.size_bytes > 4 * 1024**3:
+            raise ValueError("subset exceeds the 4 GiB compressed object limit")
+        if self.demand_profile is not None and (
+            self.demand_profile.format != "OBJECT_FORMAT_JSON"
+            or self.demand_profile.media_type != "application/json"
+        ):
+            raise ValueError("demand_profile must reference JSON")
+        return self
+
+    def json_bytes(self) -> bytes:
+        return (
+            canonical_json(
+                self.model_dump(mode="json", by_alias=True, exclude_none=True)
+            )
+            + "\n"
+        ).encode()
 
 
 def build_reference_selection_audit(
@@ -442,8 +630,19 @@ def _take(
     candidates: list[ReferenceCandidate],
     *,
     limit: int,
+    hierarchy_support: Counter[str] | None = None,
 ) -> list[ReferenceCandidate]:
-    return sorted(candidates, key=candidate_rank)[:limit]
+    return sorted(
+        candidates,
+        key=lambda candidate: (
+            -candidate.demand_score,
+            -(0 if hierarchy_support is None else hierarchy_support[candidate.qid]),
+            -candidate.completeness_score,
+            -candidate.exact_identifier_count,
+            -candidate.sitelink_count,
+            qid_number(candidate.qid),
+        ),
+    )[:limit]
 
 
 def select_reference_candidates(
@@ -458,6 +657,12 @@ def select_reference_candidates(
     selected_content: dict[str, str] = {}
     hierarchy_coverage: dict[str, str] = {}
     fallback_counts = {entity_type: 0 for entity_type in CONTENT_TYPES}
+    hierarchy_support: Counter[str] = Counter(
+        parent_qid
+        for candidate in candidates
+        if candidate.entity_type in {"TV_SEASON", "TV_EPISODE"}
+        for parent_qid in candidate.parent_qids
+    )
 
     def select_type(
         entity_type: str,
@@ -480,7 +685,14 @@ def select_reference_candidates(
                 if set(candidate.parent_qids) & preferred_parent_qids
             ]
         )
-        chosen = _take(preferred, limit=quota)
+        support = (
+            hierarchy_support if entity_type in {"TV_SERIES", "TV_SEASON"} else None
+        )
+        chosen = _take(
+            preferred,
+            limit=quota,
+            hierarchy_support=support,
+        )
         chosen_qids = {candidate.qid for candidate in chosen}
         if len(chosen) < quota:
             fallback = _take(
@@ -490,6 +702,7 @@ def select_reference_candidates(
                     if candidate.qid not in chosen_qids
                 ],
                 limit=quota - len(chosen),
+                hierarchy_support=support,
             )
             chosen.extend(fallback)
             fallback_counts[entity_type] = len(fallback)

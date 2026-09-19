@@ -60,6 +60,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         '"video_media_catalog.wikidata_subset_cli:main"' in pyproject
     )
     assert (
+        "video-media-catalog-reference-subset = "
+        '"video_media_catalog.reference_subset_cli:main"' in pyproject
+    )
+    assert (
         "video-media-catalog-tvmaze-sync = "
         '"video_media_catalog.tvmaze_sync_cli:main"' in pyproject
     )

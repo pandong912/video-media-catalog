@@ -13,6 +13,17 @@ from video_media_catalog.constants import (
     MEDIA_ENTITY_TYPES,
     RELATION_PROPERTIES,
 )
+from video_media_catalog.reference_selection import (
+    AssetDemandProfile,
+    ReferenceQualityThresholds,
+    ReferenceSelectionAudit,
+    ReferenceSelectionConfig,
+    ReferenceSelectionResult,
+)
+from video_media_catalog.reference_selection_spark import (
+    audit_reference_with_spark,
+    select_reference_with_spark,
+)
 from video_media_catalog.transform import _qid_values, _statement_value, _statements
 from video_media_catalog.wikidata_subset import (
     ENTITY_BUDGET_TYPES,
@@ -42,6 +53,24 @@ class SparkSubsetBuild:
     dependency_rows: int
     pruned_relation_statements: int
     output_rows: int
+
+
+@dataclass(frozen=True)
+class SparkReferenceSubsetBuild:
+    lines: Any
+    selection: ReferenceSelectionResult
+    quality: ReferenceSelectionAudit
+    dependency_rows: int
+    pruned_relation_statements: int
+    output_rows: int
+
+
+class ReferenceSelectionQualityError(ValueError):
+    def __init__(self, audit: ReferenceSelectionAudit) -> None:
+        self.audit = audit
+        super().__init__(
+            "reference selection quality gate failed: " + ", ".join(audit.violations)
+        )
 
 
 def _normalized_dump_row(raw_line: str) -> dict[str, Any] | None:
@@ -391,7 +420,7 @@ def select_with_spark(
 def dependency_rows(
     spark: Any,
     normalized: Any,
-    selected: SelectionResult,
+    selected: SelectionResult | ReferenceSelectionResult,
     *,
     max_closure_iterations: int,
 ) -> Any:
@@ -548,6 +577,100 @@ def build_subset(
     return SparkSubsetBuild(
         lines=lines,
         selection=selection,
+        dependency_rows=dependency_count,
+        pruned_relation_statements=pruned_count,
+        output_rows=output_rows,
+    )
+
+
+def build_reference_subset(
+    spark: Any,
+    normalized: Any,
+    config: ReferenceSelectionConfig,
+    *,
+    demand_profile: AssetDemandProfile | None = None,
+    quality_thresholds: ReferenceQualityThresholds | None = None,
+    max_closure_iterations: int = 64,
+) -> SparkReferenceSubsetBuild:
+    """Build the content-first subset and fail closed on quality gates."""
+
+    from pyspark.sql import functions as F
+
+    if max_closure_iterations < 1:
+        raise ValueError("max_closure_iterations must be positive")
+    entity_types, closure = classify_entities(
+        spark,
+        normalized,
+        max_closure_iterations=max_closure_iterations,
+    )
+    selection = select_reference_with_spark(
+        spark,
+        normalized=normalized,
+        entity_types=entity_types,
+        config=config,
+        demand_profile=demand_profile,
+    )
+    quality = audit_reference_with_spark(
+        spark,
+        normalized=normalized,
+        entity_types=entity_types,
+        result=selection,
+        config=config,
+        demand_profile=demand_profile,
+        thresholds=quality_thresholds,
+    )
+    if quality.status != "PASS":
+        entity_types.unpersist()
+        closure.unpersist()
+        raise ReferenceSelectionQualityError(quality)
+
+    dependencies = dependency_rows(
+        spark,
+        normalized,
+        selection,
+        max_closure_iterations=max_closure_iterations,
+    ).persist()
+    dependency_count = dependencies.count()
+    selected_frame = _selected_frame(spark, dict(selection.entity_types))
+    selected_rows = normalized.join(
+        F.broadcast(selected_frame.select("qid")),
+        "qid",
+        "inner",
+    ).withColumn("is_selected", F.lit(True))
+    dependency_payloads = normalized.join(dependencies, "qid", "inner").withColumn(
+        "is_selected",
+        F.lit(False),
+    )
+    source_rows = selected_rows.unionByName(dependency_payloads).select(
+        "qid",
+        "qid_numeric",
+        "payload_json",
+        "is_selected",
+    )
+    selected_qids = set(selection.selected_qids)
+    broadcast_qids = spark.sparkContext.broadcast(selected_qids)
+    output = spark.createDataFrame(
+        source_rows.rdd.map(lambda row: _pruned_row(row, broadcast_qids.value)),
+        schema=_output_schema(),
+    ).persist()
+    output_rows = output.count()
+    selected_output = output.where(F.col("is_selected")).count()
+    if selected_output != len(selection.selected_qids):
+        raise RuntimeError("selected output row count differs from reference selection")
+    pruned_value = output.agg(F.sum("pruned_count").alias("count")).first()["count"]
+    pruned_count = int(pruned_value or 0)
+    lines = (
+        output.repartition(1)
+        .sortWithinPartitions("qid_numeric")
+        .select(F.col("payload_json").alias("value"))
+    )
+    dependencies.unpersist()
+    entity_types.unpersist()
+    closure.unpersist()
+    return SparkReferenceSubsetBuild(
+        lines=lines,
+        selection=selection,
+        quality=quality,
         dependency_rows=dependency_count,
         pruned_relation_statements=pruned_count,
         output_rows=output_rows,

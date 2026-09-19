@@ -399,6 +399,7 @@ def _output_ref(
     *,
     sha256: str,
     size: int,
+    algorithm_id: str = SUBSET_ALGORITHM_ID,
 ) -> ObjectRef:
     etag = _etag(head.get("ETag"))
     version = head.get("VersionId")
@@ -414,7 +415,7 @@ def _output_ref(
         object_version=version,
         created_at=_timestamp(head.get("LastModified")),
         attributes={
-            "algorithmId": SUBSET_ALGORITHM_ID,
+            "algorithmId": algorithm_id,
             "compression": "bzip2",
         },
     )
@@ -429,6 +430,7 @@ def _verify_existing_output(
     config_digest: str,
     dump_sha256: str,
     max_bytes: int,
+    algorithm_id: str = SUBSET_ALGORITHM_ID,
 ) -> ObjectRef | None:
     try:
         head = s3.head_object(
@@ -449,6 +451,7 @@ def _verify_existing_output(
         or metadata.get("sha256") != sha256
         or metadata.get("config-digest") != config_digest
         or metadata.get("dump-sha256") != dump_sha256
+        or metadata.get("algorithm-id") != algorithm_id
     ):
         raise ObjectStoreError(
             "IMMUTABLE_OBJECT_CONFLICT",
@@ -465,7 +468,13 @@ def _verify_existing_output(
             "IMMUTABLE_OBJECT_CONFLICT",
             "subset destination exists with conflicting content",
         )
-    return _output_ref(location, head, sha256=sha256, size=size)
+    return _output_ref(
+        location,
+        head,
+        sha256=sha256,
+        size=size,
+        algorithm_id=algorithm_id,
+    )
 
 
 def _publish_s3_part(
@@ -477,6 +486,7 @@ def _publish_s3_part(
     config_digest: str,
     dump_sha256: str,
     max_bytes: int,
+    algorithm_id: str = SUBSET_ALGORITHM_ID,
 ) -> ObjectRef:
     sha256, size = _hash_s3_object(
         s3,
@@ -492,6 +502,7 @@ def _publish_s3_part(
         config_digest=config_digest,
         dump_sha256=dump_sha256,
         max_bytes=max_bytes,
+        algorithm_id=algorithm_id,
     )
     if existing is not None:
         return existing
@@ -519,7 +530,7 @@ def _publish_s3_part(
                     "sha256": sha256,
                     "config-digest": config_digest,
                     "dump-sha256": dump_sha256,
-                    "algorithm-id": SUBSET_ALGORITHM_ID,
+                    "algorithm-id": algorithm_id,
                 },
                 ChecksumSHA256=base64.b64encode(bytes.fromhex(sha256)).decode("ascii"),
                 IfNoneMatch="*",
@@ -536,6 +547,7 @@ def _publish_s3_part(
                 config_digest=config_digest,
                 dump_sha256=dump_sha256,
                 max_bytes=max_bytes,
+                algorithm_id=algorithm_id,
             )
             if existing is None:
                 raise
@@ -560,7 +572,13 @@ def _publish_s3_part(
     }
     if int(head.get("ContentLength", -1)) != size or metadata.get("sha256") != sha256:
         raise RuntimeError("published subset failed metadata verification")
-    return _output_ref(destination, head, sha256=sha256, size=size)
+    return _output_ref(
+        destination,
+        head,
+        sha256=sha256,
+        size=size,
+        algorithm_id=algorithm_id,
+    )
 
 
 def _temporary_part(

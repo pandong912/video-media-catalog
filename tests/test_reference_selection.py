@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import random
 
+import pytest
+from pydantic import ValidationError
+
+from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.reference_selection import (
     AssetDemandProfile,
     ReferenceCandidate,
     ReferenceQualityThresholds,
     ReferenceSelectionConfig,
+    ReferenceSubsetAuditManifest,
     build_reference_selection_audit,
     reference_candidate,
+    reference_subset_build_digest,
     select_reference_candidates,
 )
 from video_media_catalog.wikidata_subset import RelationReference
@@ -110,6 +116,28 @@ def test_reference_selection_is_independent_of_input_order() -> None:
         assert select_reference_candidates(shuffled, _config()) == expected
 
 
+def test_series_hierarchy_support_precedes_standalone_completeness() -> None:
+    config = ReferenceSelectionConfig(
+        content_quotas={
+            "MOVIE": 0,
+            "TV_SERIES": 1,
+            "TV_SEASON": 1,
+            "TV_EPISODE": 0,
+        },
+        agent_limits={"PERSON": 0, "ORGANIZATION": 0},
+    )
+    result = select_reference_candidates(
+        [
+            _candidate("Q10", "TV_SERIES", completeness=100, exact_ids=1),
+            _candidate("Q11", "TV_SERIES", completeness=50),
+            _candidate("Q12", "TV_SEASON", parents=("Q11",)),
+        ],
+        config,
+    )
+    assert result.content_qids == ("Q11", "Q12")
+    assert result.hierarchy_coverage == {"Q12": "COMPLETE"}
+
+
 def test_reference_candidate_uses_demand_and_exact_ids() -> None:
     payload = {
         "id": "Q1",
@@ -180,3 +208,77 @@ def test_reference_audit_blocks_missing_required_fields() -> None:
     )
     assert audit.status == "FAILED"
     assert any("TITLE_COVERAGE" in value for value in audit.violations)
+
+
+def _ref(kind: str) -> ObjectRef:
+    if kind == "source-manifest.parquet":
+        object_format = "OBJECT_FORMAT_PARQUET"
+        media_type = "application/vnd.apache.parquet"
+    else:
+        object_format = "OBJECT_FORMAT_JSON"
+        media_type = "application/x-bzip2"
+    return ObjectRef(
+        uri=f"s3://reference-catalog/{kind}",
+        format=object_format,
+        media_type=media_type,
+        checksum=Checksum(value="a" * 64),
+        size_bytes=100,
+        etag="etag",
+        object_version="version-1",
+    )
+
+
+def test_reference_subset_audit_binds_quality_and_immutable_outputs() -> None:
+    config = ReferenceSelectionConfig(
+        content_quotas={
+            "MOVIE": 1,
+            "TV_SERIES": 0,
+            "TV_SEASON": 0,
+            "TV_EPISODE": 0,
+        },
+        agent_limits={"PERSON": 0, "ORGANIZATION": 0},
+    )
+    thresholds = ReferenceQualityThresholds(
+        minimum_title_coverage=1,
+        minimum_movie_release_coverage=1,
+        minimum_episode_parent_coverage=1,
+    )
+    candidates = [
+        _candidate(
+            "Q1",
+            "MOVIE",
+            exact_ids=1,
+            complete_fields=True,
+        )
+    ]
+    result = select_reference_candidates(candidates, config)
+    quality = build_reference_selection_audit(
+        result=result,
+        candidates=candidates,
+        config=config,
+        thresholds=thresholds,
+    )
+    audit = ReferenceSubsetAuditManifest(
+        config_digest=config.digest,
+        quality_thresholds_digest=thresholds.digest,
+        build_digest=reference_subset_build_digest(config, thresholds),
+        dump=_ref("dump.json.bz2"),
+        subset=_ref("subset.json.bz2"),
+        source_manifest=_ref("source-manifest.parquet"),
+        content_quotas=config.content_quotas,
+        agent_limits=config.agent_limits,
+        quality_thresholds=thresholds,
+        selected_count=1,
+        dependency_rows=2,
+        output_rows=3,
+        pruned_relation_statements=0,
+        normalization_staging_uri="s3://reference-catalog/staging",
+        quality=quality,
+    )
+
+    assert audit.status == "COMPLETE"
+    assert b'"buildDigest"' in audit.json_bytes()
+    invalid = audit.model_dump()
+    invalid["build_digest"] = "sha256:" + ("f" * 64)
+    with pytest.raises(ValidationError, match="build_digest"):
+        ReferenceSubsetAuditManifest.model_validate(invalid)

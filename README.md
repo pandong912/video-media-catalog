@@ -89,6 +89,8 @@ Gold v2 继续按 policy context 隔离：
   直接阻断而不是猜测；
 - `gold.py` / `gold_resolution.py`：rights eligibility 先于字段选择；
   `SINGLE` 冲突不任意选供应商，`SET_UNION` 保留多值及 assertion lineage；
+- `gold_spark_transform.py`：分布式 join active membership、rights/TTL、source
+  provenance，生成 entity/field/identifier/relation/conflict 五类 Gold frames；
 - `gold_quality.py`：冲突率、未解析身份率和 rights gate 形成不可变报告；
 - `gold_iceberg.py`：entity/field/identifier/relation/conflict 五表按 release plan
   隔离，质量 PASS 后才发布 commit marker；
@@ -96,9 +98,10 @@ Gold v2 继续按 policy context 隔离：
 
 完整表契约见
 [`contracts/parquet/community_catalog_gold.v2.md`](contracts/parquet/community_catalog_gold.v2.md)。
-当前 Gold resolver 是确定性、可单元验证的语义核心；全球规模的分布式
-Silver→Gold Spark 作业和 v2 shadow OpenSearch 索引属于下一独立切片，不能用
-driver collect 代替。
+`video-media-catalog-gold-spark` 验证 immutable
+`CommunitySilverSnapshotSet`，按列出的 committed runs time-travel Silver，
+发布 quality/attribution 对象并 commit Gold。v2 shadow OpenSearch 索引仍属于
+下一独立切片。
 
 ## 安装
 

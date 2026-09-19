@@ -16,7 +16,12 @@ The current implementation includes the source/rights/connector/identity
 contracts, TVmaze capture and assertion mapping, and the run-fenced Silver
 Iceberg tables defined in
 [`contracts/parquet/community_catalog_silver.v2.md`](../../contracts/parquet/community_catalog_silver.v2.md).
-Gold resolution and v2 serving remain later phases.
+It also defines the deterministic Gold identity/rights/field-resolution
+semantics, quality report, attribution binding, and release-fenced Gold tables
+in
+[`contracts/parquet/community_catalog_gold.v2.md`](../../contracts/parquet/community_catalog_gold.v2.md).
+The distributed Silver-to-Gold transform and v2 serving index remain later
+phases.
 
 ## Source portfolio
 

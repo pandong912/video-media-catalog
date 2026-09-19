@@ -80,6 +80,23 @@ Silver 表全部带确定性 `run_id`。source/assertion/identity 行只有在
 Gold。`v1_migration.py` 从 snapshot-pinned 六表导入全部既有 key，原样保存
 `entity_key`，不会按新规则重新计算。
 
+Gold v2 继续按 policy context 隔离：
+
+- `identity_resolution.py`：精确匹配只接受唯一候选，未匹配 source node 分配一次
+  内部 UUIDv7，歧义进入 conflict，membership/redirect 可按 as-of 重放；
+- `gold.py` / `gold_resolution.py`：rights eligibility 先于字段选择；
+  `SINGLE` 冲突不任意选供应商，`SET_UNION` 保留多值及 assertion lineage；
+- `gold_quality.py`：冲突率、未解析身份率和 rights gate 形成不可变报告；
+- `gold_iceberg.py`：entity/field/identifier/relation/conflict 五表按 release plan
+  隔离，质量 PASS 后才发布 commit marker；
+- attribution 与 quality ObjectRef 必须绑定实际 payload，才能进入 release commit。
+
+完整表契约见
+[`contracts/parquet/community_catalog_gold.v2.md`](contracts/parquet/community_catalog_gold.v2.md)。
+当前 Gold resolver 是确定性、可单元验证的语义核心；全球规模的分布式
+Silver→Gold Spark 作业和 v2 shadow OpenSearch 索引属于下一独立切片，不能用
+driver collect 代替。
+
 ## 安装
 
 ```bash

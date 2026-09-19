@@ -7,6 +7,7 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text()
     dockerfile = (root / "Dockerfile").read_text()
+    emr_dockerfile = (root / "Dockerfile.emr").read_text()
     api_dockerfile = (root / "Dockerfile.api").read_text()
     publish_workflow = (root / ".github/workflows/publish.yml").read_text()
 
@@ -29,6 +30,14 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     )
     assert "WORKDIR /opt/spark/work-dir" in dockerfile
     assert "--extra index" in dockerfile
+
+    assert emr_dockerfile.startswith(
+        "FROM public.ecr.aws/emr-serverless/spark/emr-7.9.0:latest"
+    )
+    assert "python3.12" in emr_dockerfile
+    assert "USER hadoop:hadoop" in emr_dockerfile
+    assert "ENTRYPOINT" not in emr_dockerfile
+    assert "CMD" not in emr_dockerfile
 
     assert api_dockerfile.startswith("FROM ubuntu:noble")
     assert "apt-get upgrade --yes" in api_dockerfile
@@ -64,6 +73,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         '"video_media_catalog.reference_subset_cli:main"' in pyproject
     )
     assert (
+        "video-media-catalog-emr-submit = "
+        '"video_media_catalog.emr_serverless_cli:main"' in pyproject
+    )
+    assert (
         "video-media-catalog-tvmaze-sync = "
         '"video_media_catalog.tvmaze_sync_cli:main"' in pyproject
     )
@@ -81,5 +94,7 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
     )
     assert "repository: video-media-catalog\n" in publish_workflow
     assert "repository: video-media-catalog-api" in publish_workflow
+    assert "dockerfile: Dockerfile.emr" in publish_workflow
+    assert "artifact: video-media-catalog-emr" in publish_workflow
     assert "dockerfile: Dockerfile.api" in publish_workflow
     assert "findingSeverityCounts.CRITICAL" in publish_workflow

@@ -115,6 +115,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--spark-packages")
     parser.add_argument("--aws-region", default=os.environ.get("AWS_REGION"))
+    parser.add_argument(
+        "--s3-credentials-provider",
+        choices=("default", "web-identity"),
+        default="web-identity",
+        help=(
+            "S3A credential chain: web-identity for EKS IRSA or default for "
+            "the EMR Serverless runtime role"
+        ),
+    )
     parser.add_argument("--s3-endpoint", default=os.environ.get("S3_ENDPOINT"))
     parser.add_argument(
         "--s3-path-style-access",
@@ -690,6 +699,7 @@ def _spark_session(parsed: argparse.Namespace) -> Any:
         aws_region=parsed.aws_region,
         s3_endpoint=parsed.s3_endpoint,
         s3_path_style_access=parsed.s3_path_style_access,
+        credentials_provider=parsed.s3_credentials_provider,
     )
     return builder.getOrCreate()
 

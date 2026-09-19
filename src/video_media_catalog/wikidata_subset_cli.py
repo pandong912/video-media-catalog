@@ -42,6 +42,7 @@ from video_media_catalog.wikidata_subset import (
 )
 from video_media_catalog.wikidata_subset_spark import (
     build_subset,
+    configure_bfs_materialize_dir,
     item_entity_rows,
     normalize_dump,
     write_normalized_staging,
@@ -756,6 +757,10 @@ def run(
         f"date={dump_date}",
         f"config-sha256={config.digest.removeprefix('sha256:')}",
         f"spark-output-{uuid.uuid4().hex}",
+    )
+    configure_bfs_materialize_dir(
+        session,
+        _spark_uri(f"{temporary.uri.rstrip('/')}/bfs-materialize"),
     )
     try:
         normalized = _load_or_build_staging(

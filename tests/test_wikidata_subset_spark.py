@@ -20,12 +20,14 @@ from video_media_catalog.wikidata_subset import SubsetSelectionConfig
 from video_media_catalog.wikidata_subset_spark import (
     build_reference_subset,
     build_subset,
+    configure_bfs_materialize_dir,
     normalize_dump,
 )
 
 
 @pytest.fixture(scope="module")
-def spark():
+def spark(tmp_path_factory):
+    scratch = tmp_path_factory.mktemp("bfs-materialize")
     session = (
         SparkSession.builder.master("local[2]")
         .appName("video-media-catalog-wikidata-subset-test")
@@ -33,6 +35,7 @@ def spark():
         .config("spark.sql.shuffle.partitions", "2")
         .getOrCreate()
     )
+    configure_bfs_materialize_dir(session, scratch.as_uri())
     yield session
     session.stop()
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,6 +40,8 @@ from video_media_catalog.wikidata_subset import (
     prepare_subset_payload,
     wikipedia_sitelink_count,
 )
+
+_MATERIALIZE_SCRATCH_CONF = "spark.video_media_catalog.materializeScratchUri"
 
 _TYPE_PRIORITY = {
     "TV_EPISODE": 0,
@@ -207,13 +210,35 @@ def _choose_type_expression(column: Any) -> Any:
     )
 
 
-def _materialize_local(frame: Any) -> Any:
-    """Eagerly truncate lineage so iterative BFS does not replay union chains."""
+def configure_bfs_materialize_dir(spark: Any, uri: str) -> None:
+    """Set durable scratch URI used to truncate BFS lineage between hops."""
 
-    checkpointed = frame.localCheckpoint(eager=True)
+    cleaned = uri.strip()
+    if not cleaned:
+        raise ValueError("BFS materialize scratch URI must be non-empty")
+    spark.conf.set(_MATERIALIZE_SCRATCH_CONF, cleaned.rstrip("/"))
+
+
+def _materialize(frame: Any) -> Any:
+    """Truncate lineage by writing to durable scratch and reading back.
+
+    ``localCheckpoint`` keeps blocks only on the original executors, so executor
+    eviction loses checkpoint partitions. Parquet under a shared scratch URI
+    (S3 in cluster runs, local path in tests) survives executor replacement.
+    """
+
+    spark = frame.sparkSession
+    root = spark.conf.get(_MATERIALIZE_SCRATCH_CONF, None)
+    if not root:
+        raise RuntimeError(
+            "BFS materialize scratch URI is not configured; call "
+            "configure_bfs_materialize_dir(...) before classify/dependency traversal"
+        )
+    path = f"{root}/mat-{uuid.uuid4().hex}"
+    frame.write.mode("errorifexists").parquet(path)
     if getattr(frame, "is_cached", False):
         frame.unpersist()
-    return checkpointed
+    return spark.read.parquet(path)
 
 
 def classify_entities(
@@ -226,12 +251,12 @@ def classify_entities(
 
     from pyspark.sql import functions as F
 
-    closure = _materialize_local(
+    closure = _materialize(
         spark.createDataFrame(
             sorted(ENTITY_TYPE_SEEDS.items()), ["class_id", "entity_type"]
         )
     )
-    edges = _materialize_local(
+    edges = _materialize(
         normalized.select(
             F.col("qid").alias("child"),
             F.explode("subclass_parents").alias("parent"),
@@ -247,7 +272,7 @@ def classify_entities(
         )
         if delta.count() == 0:
             break
-        closure = _materialize_local(closure.unionByName(delta).dropDuplicates())
+        closure = _materialize(closure.unionByName(delta).dropDuplicates())
     else:
         raise RuntimeError(
             "P31/P279 closure did not converge within "
@@ -266,7 +291,7 @@ def classify_entities(
         .agg(F.min(_choose_type_expression(F.col("entity_type"))).alias("chosen"))
         .select("qid", F.col("chosen.entity_type").alias("entity_type"))
     )
-    entity_types = _materialize_local(
+    entity_types = _materialize(
         normalized.select("qid")
         .join(classified, "qid", "left")
         .fillna({"entity_type": "UNKNOWN"})
@@ -446,7 +471,7 @@ def dependency_rows(
     from pyspark.sql import functions as F
 
     selected_frame = _selected_frame(spark, dict(selected.entity_types))
-    dependencies = _materialize_local(
+    dependencies = _materialize(
         normalized.join(
             F.broadcast(selected_frame.select("qid")),
             "qid",
@@ -455,7 +480,7 @@ def dependency_rows(
         .select(F.explode("direct_types").alias("qid"))
         .dropDuplicates()
     )
-    edges = _materialize_local(
+    edges = _materialize(
         normalized.select(
             F.col("qid").alias("child"),
             F.explode("subclass_parents").alias("parent"),
@@ -470,7 +495,7 @@ def dependency_rows(
         )
         if delta.count() == 0:
             break
-        dependencies = _materialize_local(
+        dependencies = _materialize(
             dependencies.unionByName(delta).dropDuplicates()
         )
     else:

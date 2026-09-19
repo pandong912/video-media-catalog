@@ -153,6 +153,23 @@ v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和
 selection audit 和生产回放通过后才切换 CLI。契约见
 [`contracts/reference_catalog_selection.v1.md`](contracts/reference_catalog_selection.v1.md)。
 
+## Asset matching MVP
+
+[`asset_matching.py`](src/video_media_catalog/asset_matching.py) 提供有界、确定性、
+仅建议候选的匹配核心。输入只接受 AssetVersion 的结构化元数据，不接受视频字节、
+对象存储凭据或 URI；输出绑定 Gold release、concrete index、请求摘要和逐项证据。
+精确外部 ID、标题、类型、年份、时长、季集号和语言参与排序，最多返回 20 条候选。
+
+候选 Manifest 始终是 `REVIEW_REQUIRED`，不会直接创建 control-plane
+`ReferenceLink`。用户明确选择 `candidateKey` 后，才可生成
+`CATALOG_MATCH_CONFIRMED` proposal；tenant fencing、ReferenceLink 写入与撤销仍由
+控制面负责。
+
+[`asset_match_evaluation.py`](src/video_media_catalog/asset_match_evaluation.py) 对不少于
+300 条人工确认黄金集计算 top-1、recall@5、精确 ID 准确率及 proposed-accept
+误匹配率，并输出不可变门禁报告。完整契约见
+[`contracts/catalog_asset_match.v1.md`](contracts/catalog_asset_match.v1.md)。
+
 ## 安装
 
 ```bash

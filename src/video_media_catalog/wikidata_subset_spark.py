@@ -190,6 +190,15 @@ def _choose_type_expression(column: Any) -> Any:
     )
 
 
+def _materialize_local(frame: Any) -> Any:
+    """Eagerly truncate lineage so iterative BFS does not replay union chains."""
+
+    checkpointed = frame.localCheckpoint(eager=True)
+    if getattr(frame, "is_cached", False):
+        frame.unpersist()
+    return checkpointed
+
+
 def classify_entities(
     spark: Any,
     normalized: Any,
@@ -200,37 +209,29 @@ def classify_entities(
 
     from pyspark.sql import functions as F
 
-    closure = spark.createDataFrame(
-        sorted(ENTITY_TYPE_SEEDS.items()), ["class_id", "entity_type"]
-    ).persist()
-    edges = (
+    closure = _materialize_local(
+        spark.createDataFrame(
+            sorted(ENTITY_TYPE_SEEDS.items()), ["class_id", "entity_type"]
+        )
+    )
+    edges = _materialize_local(
         normalized.select(
             F.col("qid").alias("child"),
             F.explode("subclass_parents").alias("parent"),
-        )
-        .dropDuplicates()
-        .persist()
+        ).dropDuplicates()
     )
     for _ in range(max_closure_iterations):
-        candidates = (
+        # One action per hop: empty delta => converged. Avoid take(1)+count().
+        delta = (
             edges.join(closure, edges.parent == closure.class_id, "inner")
             .select(F.col("child").alias("class_id"), "entity_type")
             .dropDuplicates()
+            .join(closure, ["class_id", "entity_type"], "left_anti")
         )
-        delta = candidates.join(
-            closure, ["class_id", "entity_type"], "left_anti"
-        ).persist()
-        if not delta.take(1):
-            delta.unpersist()
+        if delta.count() == 0:
             break
-        previous = closure
-        closure = previous.unionByName(delta).dropDuplicates().persist()
-        closure.count()
-        previous.unpersist()
-        delta.unpersist()
+        closure = _materialize_local(closure.unionByName(delta).dropDuplicates())
     else:
-        edges.unpersist()
-        closure.unpersist()
         raise RuntimeError(
             "P31/P279 closure did not converge within "
             f"{max_closure_iterations} iterations"
@@ -248,11 +249,10 @@ def classify_entities(
         .agg(F.min(_choose_type_expression(F.col("entity_type"))).alias("chosen"))
         .select("qid", F.col("chosen.entity_type").alias("entity_type"))
     )
-    entity_types = (
+    entity_types = _materialize_local(
         normalized.select("qid")
         .join(classified, "qid", "left")
         .fillna({"entity_type": "UNKNOWN"})
-        .persist()
     )
     return entity_types, closure
 
@@ -429,7 +429,7 @@ def dependency_rows(
     from pyspark.sql import functions as F
 
     selected_frame = _selected_frame(spark, dict(selected.entity_types))
-    dependencies = (
+    dependencies = _materialize_local(
         normalized.join(
             F.broadcast(selected_frame.select("qid")),
             "qid",
@@ -437,29 +437,26 @@ def dependency_rows(
         )
         .select(F.explode("direct_types").alias("qid"))
         .dropDuplicates()
-        .persist()
     )
-    edges = normalized.select(
-        F.col("qid").alias("child"),
-        F.explode("subclass_parents").alias("parent"),
-    ).dropDuplicates()
+    edges = _materialize_local(
+        normalized.select(
+            F.col("qid").alias("child"),
+            F.explode("subclass_parents").alias("parent"),
+        ).dropDuplicates()
+    )
     for _ in range(max_closure_iterations):
-        parents = (
+        delta = (
             dependencies.join(edges, dependencies.qid == edges.child, "inner")
             .select(F.col("parent").alias("qid"))
             .dropDuplicates()
+            .join(dependencies, "qid", "left_anti")
         )
-        delta = parents.join(dependencies, "qid", "left_anti").persist()
-        if not delta.take(1):
-            delta.unpersist()
+        if delta.count() == 0:
             break
-        previous = dependencies
-        dependencies = previous.unionByName(delta).dropDuplicates().persist()
-        dependencies.count()
-        previous.unpersist()
-        delta.unpersist()
+        dependencies = _materialize_local(
+            dependencies.unionByName(delta).dropDuplicates()
+        )
     else:
-        dependencies.unpersist()
         raise RuntimeError(
             "classification dependency traversal did not converge within "
             f"{max_closure_iterations} iterations"

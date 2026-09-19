@@ -13,6 +13,8 @@
   assertion/identity Iceberg 表、commit-last 和分区规则。
 - `parquet/community_catalog_gold.v2.md`：policy-specific Gold 实体、字段、
   identifier、relation、conflict 与 release commit-last 规则。
+- `reference_catalog_selection.v1.md`：10 万内容实体、独立 agent budget、
+  asset demand profile、层级闭包优先和 selection audit 规则。
 
 当前 schema version 为 `1.0`。新增可空字段是兼容变更；删除字段、改变字段
 类型、主键输入或既有枚举语义均需要新 major contract。全球目录事实不含

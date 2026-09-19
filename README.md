@@ -132,6 +132,27 @@ v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和
 `MEDIA_CATALOG_COMMUNITY_INDEX_PREFIX` 和
 `MEDIA_CATALOG_COMMUNITY_CURSOR_TTL_SECONDS` 配置；v1 alias 和 API 契约不变。
 
+## Reference catalog MVP selector
+
+内部资产匹配 MVP 将目录预算改为“10 万内容实体，人物/机构另计”。默认内容配额为
+30,000 部电影、2,000 个系列、10,000 个季和 58,000 个单集；人物和机构上限分别
+为 30,000 与 5,000。
+
+[`reference_selection.py`](src/video_media_catalog/reference_selection.py) 和
+[`reference_selection_spark.py`](src/video_media_catalog/reference_selection_spark.py)
+实现：
+
+- optional aggregate asset-demand profile；
+- 标题/年份/runtime/语言/国家/精确 ID 完整度评分；
+- 系列先于季、季/系列先于单集的层级闭包优先；
+- 不完整 fallback 的 `PARTIAL` 标记；
+- 独立 credit agent closure；
+- title、电影年份和单集父级覆盖率门禁。
+
+旧 `video-media-catalog-wikidata-subset` 行为暂不改变；新选择器在独立
+selection audit 和生产回放通过后才切换 CLI。契约见
+[`contracts/reference_catalog_selection.v1.md`](contracts/reference_catalog_selection.v1.md)。
+
 ## 安装
 
 ```bash

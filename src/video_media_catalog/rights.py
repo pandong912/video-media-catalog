@@ -64,6 +64,7 @@ class RightsProfile(V2ContractModel):
     terms_digest: str | None = None
     permissions: tuple[UsageAction, ...]
     audiences: tuple[str, ...] = ("internal",)
+    purposes: tuple[str, ...] = ("*",)
     territories: tuple[str, ...] = ("*",)
     attribution_text: str | None = None
     share_alike: bool = False
@@ -122,7 +123,7 @@ class RightsProfile(V2ContractModel):
             raise ValueError("at least one permission is required")
         return normalized
 
-    @field_validator("audiences", "territories")
+    @field_validator("audiences", "purposes", "territories")
     @classmethod
     def normalize_scopes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _sorted_unique(value)
@@ -163,6 +164,7 @@ class RightsProfile(V2ContractModel):
         *,
         at: datetime | None = None,
         audience: str = "internal",
+        purpose: str = "*",
         territory: str = "*",
     ) -> bool:
         current = (at or datetime.now(UTC)).astimezone(UTC)
@@ -173,6 +175,7 @@ class RightsProfile(V2ContractModel):
         return (
             action in self.permissions
             and ("*" in self.audiences or audience in self.audiences)
+            and ("*" in self.purposes or purpose in self.purposes)
             and ("*" in self.territories or territory in self.territories)
         )
 
@@ -196,6 +199,7 @@ def evaluate_rights(
     *,
     at: datetime | None = None,
     audience: str = "internal",
+    purpose: str = "*",
     territory: str = "*",
 ) -> RightsEvaluation:
     """Evaluate the intersection of all contributing source policies."""
@@ -215,6 +219,7 @@ def evaluate_rights(
                 action,
                 at=current,
                 audience=audience,
+                purpose=purpose,
                 territory=territory,
             )
         }

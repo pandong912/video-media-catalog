@@ -9,6 +9,7 @@ from video_media_catalog.identity_v2 import (
     EvidenceKind,
     LegacyKeyMap,
     allocate_entity,
+    allocate_source_entity,
     build_entity_membership,
     build_entity_redirect,
     build_identity_decision,
@@ -40,6 +41,24 @@ def test_new_entity_allocation_is_source_independent() -> None:
     )
     assert entity.entity_key.startswith("sha256:")
     assert "tvmaze" not in entity.json_bytes().decode()
+
+
+def test_source_allocation_is_retry_stable_and_then_internal() -> None:
+    first = allocate_source_entity(
+        source_node=_node(),
+        entity_level=EntityLevel.SERIES,
+        entity_kind="TV_SERIES",
+        first_observed_at=TIMESTAMP,
+    )
+    second = allocate_source_entity(
+        source_node=_node(),
+        entity_level=EntityLevel.SERIES,
+        entity_kind="TV_SERIES",
+        first_observed_at=TIMESTAMP,
+    )
+    assert first == second
+    assert first.allocation_id is not None
+    assert "tvmaze" not in first.entity_key
 
 
 def test_v1_import_preserves_published_key_verbatim() -> None:

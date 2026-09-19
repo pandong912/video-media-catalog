@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Self
@@ -9,7 +11,7 @@ from typing import Self
 from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.assertions import SourceNodeRef
-from video_media_catalog.canonical import deterministic_key
+from video_media_catalog.canonical import canonical_json, deterministic_key
 from video_media_catalog.identity import require_canonical_uuid7
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
@@ -53,6 +55,7 @@ class DecisionStatus(StrEnum):
 
 
 class EvidenceKind(StrEnum):
+    SOURCE_ENTITY_BOOTSTRAP = "SOURCE_ENTITY_BOOTSTRAP"
     REGISTRY_IDENTIFIER = "REGISTRY_IDENTIFIER"
     SOURCE_REDIRECT = "SOURCE_REDIRECT"
     EXACT_IDENTIFIER = "EXACT_IDENTIFIER"
@@ -136,6 +139,40 @@ def allocate_entity(
         entity_level=entity_level,
         entity_kind=entity_kind,
         created_at=created_at,
+        first_release_id=first_release_id,
+    )
+
+
+def allocate_source_entity(
+    *,
+    source_node: SourceNodeRef,
+    entity_level: EntityLevel,
+    entity_kind: str,
+    first_observed_at: str,
+    first_release_id: str | None = None,
+) -> EntityLedgerEntry:
+    """Allocate once from a source-node request; the persisted key is authoritative."""
+
+    timestamp = parse_rfc3339(first_observed_at)
+    timestamp_ms = int(timestamp.timestamp() * 1000)
+    payload = canonical_json(
+        {
+            "kind": "community-source-entity-allocation-v2",
+            "sourceNode": source_node.model_dump(mode="json", by_alias=True),
+        }
+    ).encode()
+    random_bits = int.from_bytes(hashlib.sha256(payload).digest()[:10], "big")
+    random_bits &= (1 << 74) - 1
+    random_a = (random_bits >> 62) & 0xFFF
+    random_b = random_bits & ((1 << 62) - 1)
+    value = (
+        (timestamp_ms << 80) | (0x7 << 76) | (random_a << 64) | (0b10 << 62) | random_b
+    )
+    return allocate_entity(
+        allocation_id=str(uuid.UUID(int=value)),
+        entity_level=entity_level,
+        entity_kind=entity_kind,
+        created_at=first_observed_at,
         first_release_id=first_release_id,
     )
 

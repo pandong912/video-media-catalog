@@ -23,6 +23,9 @@ GOLD_QUALITY_MEDIA_TYPE = (
 ATTRIBUTION_MEDIA_TYPE = (
     "application/vnd.video-media-catalog.attribution-manifest.v2+json"
 )
+GOLD_RELEASE_COMMIT_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.gold-release-commit.v2+json"
+)
 
 
 def _validate_object_ref(

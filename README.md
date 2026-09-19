@@ -100,8 +100,27 @@ Gold v2 继续按 policy context 隔离：
 [`contracts/parquet/community_catalog_gold.v2.md`](contracts/parquet/community_catalog_gold.v2.md)。
 `video-media-catalog-gold-spark` 验证 immutable
 `CommunitySilverSnapshotSet`，按列出的 committed runs time-travel Silver，
-发布 quality/attribution 对象并 commit Gold。v2 shadow OpenSearch 索引仍属于
-下一独立切片。
+发布 quality/attribution 对象并 commit Gold。v2 shadow OpenSearch 使用独立
+alias，不替换 v1：
+
+```bash
+video-media-catalog-gold-index \
+  --release-commit-uri s3://bucket/.../release-commit.json \
+  --release-commit-hash sha256:<hex> \
+  --release-commit-size <bytes> \
+  --release-commit-version <VersionId> \
+  --release-commit-etag <ETag> \
+  --manifest-prefix s3://bucket/gold-index-builds \
+  --completed-at 2026-09-19T00:00:00Z \
+  --image-digest sha256:<hex> \
+  --catalog-type glue \
+  --warehouse s3://bucket/community-warehouse \
+  --opensearch-endpoint https://search.example.com
+```
+
+固定 shadow alias 为 `media-catalog-community-v2-shadow-read`。索引文档只包含
+有界 titles/identifiers/attributes/relation summary 和 conflict 标记；完整
+assertions 与 relations 仍留在 Iceberg。v2 查询 API 属于后续切片。
 
 ## 安装
 

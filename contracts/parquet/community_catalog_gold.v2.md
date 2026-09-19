@@ -137,3 +137,18 @@ Blocking checks include:
 
 Rows are staged first. The release commit is inserted last. Search indexing
 reads exact Gold snapshots plus the exact commit-table snapshot.
+
+## Shadow serving projection
+
+The initial v2 serving index is deliberately isolated from v1:
+
+- index prefix: `media-catalog-community-v2`;
+- read alias: `media-catalog-community-v2-shadow-read`;
+- document ID: internal `entityKey`;
+- mapping: strict and version/digest bound;
+- source: one immutable Gold release commit and its exact table snapshots.
+
+Documents contain bounded titles, external identifiers, selected attributes,
+relation counts, conflict markers, provenance release ID, and overflow counts.
+Complete assertions and relation edges remain in Iceberg. Building or switching
+the shadow alias never modifies `media-catalog-entities-read`.

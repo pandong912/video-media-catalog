@@ -24,7 +24,12 @@ from video_media_catalog.reference_selection_spark import (
     audit_reference_with_spark,
     select_reference_with_spark,
 )
-from video_media_catalog.transform import _qid_values, _statement_value, _statements
+from video_media_catalog.transform import (
+    _QID,
+    _qid_values,
+    _statement_value,
+    _statements,
+)
 from video_media_catalog.wikidata_subset import (
     ENTITY_BUDGET_TYPES,
     HIERARCHY_PROPERTIES,
@@ -77,11 +82,16 @@ def _normalized_dump_row(raw_line: str) -> dict[str, Any] | None:
     payload = parse_and_normalize_dump_line(raw_line)
     if payload is None:
         return None
+    # Official dumps interleave property entities (P*); subset selection only
+    # accepts item QIDs and qid_number() rejects anything else.
+    qid = str(payload.get("id") or "")
+    if _QID.fullmatch(qid) is None:
+        return None
     relations: list[dict[str, str]] = []
     for property_id in RELATION_PROPERTIES:
         for statement in _statements(payload, property_id):
             target = _statement_value(statement)
-            if not isinstance(target, str) or not target.startswith("Q"):
+            if not isinstance(target, str) or _QID.fullmatch(target) is None:
                 continue
             hint = (
                 "PERSON"
@@ -99,7 +109,6 @@ def _normalized_dump_row(raw_line: str) -> dict[str, Any] | None:
                     "target_type_hint": hint,
                 }
             )
-    qid = str(payload["id"])
     return {
         "qid": qid,
         "qid_numeric": int(qid[1:]),
@@ -109,6 +118,14 @@ def _normalized_dump_row(raw_line: str) -> dict[str, Any] | None:
         "subclass_parents": sorted(set(_qid_values(payload, "P279"))),
         "relations": relations,
     }
+
+
+def item_entity_rows(normalized: Any) -> Any:
+    """Keep only item QIDs so reused staging that still contains P* is safe."""
+
+    from pyspark.sql import functions as F
+
+    return normalized.where(F.col("qid").rlike(r"^Q[1-9][0-9]*$"))
 
 
 def normalized_schema() -> Any:

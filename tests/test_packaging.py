@@ -63,6 +63,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         "video-media-catalog-tvmaze-sync = "
         '"video_media_catalog.tvmaze_sync_cli:main"' in pyproject
     )
+    assert (
+        "video-media-catalog-community-spark = "
+        '"video_media_catalog.community_cli:main"' in pyproject
+    )
     assert "repository: video-media-catalog\n" in publish_workflow
     assert "repository: video-media-catalog-api" in publish_workflow
     assert "dockerfile: Dockerfile.api" in publish_workflow

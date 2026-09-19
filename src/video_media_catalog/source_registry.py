@@ -25,6 +25,7 @@ class RegistryStatus(StrEnum):
 
 
 class SourceProductKind(StrEnum):
+    INTERNAL_CATALOG = "internal_catalog"
     IDENTIFIER_REGISTRY = "identifier_registry"
     KNOWLEDGE_GRAPH = "knowledge_graph"
     COMMUNITY_DATABASE = "community_database"

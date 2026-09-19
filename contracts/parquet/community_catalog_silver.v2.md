@@ -1,0 +1,194 @@
+# Community catalog Silver v2
+
+## Scope
+
+This contract persists immutable connector records, source assertions, and
+identity-ledger changes. It is parallel to the six v1 curated tables and does
+not alter their schema or semantics.
+
+All tables use Iceberg format version 2 and Zstandard Parquet. JSON columns use
+the repository's canonical UTF-8 JSON encoding. Digests and logical keys use
+`sha256:<64 lowercase hex>`.
+
+## Run visibility
+
+Every data row carries a deterministic `run_id`. A row is visible to downstream
+Gold processing only when the same run has one valid row in
+`community_ingest_commit`.
+
+Publication order is:
+
+1. insert immutable `community_ingest_run`;
+2. insert every staged data row;
+3. verify actual per-run counts in every declared data table;
+4. capture the exact latest table snapshot IDs used as upper bounds;
+5. insert `community_ingest_commit` last.
+
+A failed run may leave staged rows but no commit marker. Those rows are
+invisible. Retrying identical immutable inputs reuses the same `run_id` and
+keys. A new code, mapping, policy, input, or configuration digest creates a new
+run.
+
+The snapshot IDs in a commit are audit upper bounds, not a claim that the
+snapshot contains only one run. Concurrent rows remain isolated by `run_id`.
+Gold releases must pin both the data-table snapshots and the commit-table
+snapshot, then join only committed runs.
+
+## Run tables
+
+### `community_ingest_run`
+
+Primary key: `run_id`.
+
+- `run_id STRING NOT NULL`
+- `run_kind STRING NOT NULL`
+- `source_product_id STRING NOT NULL`
+- `input_id STRING NOT NULL`
+- `policy_id STRING NOT NULL`
+- `policy_digest STRING NOT NULL`
+- `image_digest STRING NOT NULL`
+- `config_digest STRING NOT NULL`
+- `started_at STRING NOT NULL`
+- `expected_counts_json STRING NOT NULL`
+- `manifest_json STRING NOT NULL`
+
+### `community_ingest_commit`
+
+Uniqueness key: `run_id`. `commit_key` binds the immutable commit payload.
+
+- `commit_key STRING NOT NULL`
+- `run_id STRING NOT NULL`
+- `committed_at STRING NOT NULL`
+- `table_counts_json STRING NOT NULL`
+- `table_snapshot_ids_json STRING NOT NULL`
+- `commit_json STRING NOT NULL`
+
+Only one immutable commit payload is valid for a `run_id`.
+
+## Source and assertion tables
+
+### `community_source_record`
+
+Primary key: `envelope_key`.
+
+- `envelope_key`, `run_id`, `batch_id`
+- `source_system_id`, `source_product_id`, `source_namespace_id`
+- `source_record_id`, nullable `source_revision`
+- `operation`
+- nullable `source_modified_at`, `valid_from`, `valid_to`, `expires_at`
+- `observed_at`, `ingested_at`
+- `payload_schema`, `source_hash`
+- nullable `payload_json`, nullable `payload_object_json`
+- `raw_object_json`, `source_location`
+- `policy_id`, `policy_digest`, `citation_keys_json`
+
+### `community_field_assertion`
+
+Primary key: `assertion_id`.
+
+- `assertion_id`, `run_id`
+- subject namespace/source ID/referent kind
+- `predicate`, `value_type`, `value_json`, `qualifiers_json`, `status`
+- `provenance_json`, `policy_id`, `policy_digest`, `observed_at`
+
+### `community_identifier_assertion`
+
+Primary key: `assertion_id`.
+
+- `assertion_id`, `run_id`
+- subject namespace/source ID/referent kind
+- identifier `namespace_id`, `value`, `issuer`, `referent_kind`
+- `status`, `provenance_json`, `policy_id`, `policy_digest`, `observed_at`
+
+### `community_relationship_assertion`
+
+Primary key: `assertion_id`.
+
+- `assertion_id`, `run_id`
+- subject namespace/source ID/referent kind
+- `predicate`
+- object namespace/source ID/referent kind
+- `qualifiers_json`, `status`, `provenance_json`
+- `policy_id`, `policy_digest`, `observed_at`
+
+### `community_entity_type_assertion`
+
+Primary key: `assertion_id`.
+
+- `assertion_id`, `run_id`
+- subject namespace/source ID/referent kind
+- `entity_type`, `status`, `provenance_json`
+- `policy_id`, `policy_digest`, `observed_at`
+
+Assertion IDs do not include a canonical entity key.
+
+## Identity tables
+
+### `community_entity_ledger`
+
+Primary key: `entity_key`.
+
+- `entity_key`, `run_id`
+- nullable internal `allocation_id`
+- `entity_level`, `entity_kind`, `status`
+- `created_at`, nullable `first_release_id`
+- `imported_v1 BOOLEAN NOT NULL`
+
+### `community_legacy_key_map`
+
+Primary key: `legacy_key`.
+
+- `legacy_key`, `run_id`, `legacy_kind`, `target_key`
+- `imported_at`, `source_snapshot_set_id`
+
+Published v1 keys are copied verbatim. They are never recomputed.
+
+### `community_identity_evidence`
+
+Primary key: `evidence_key`.
+
+- `evidence_key`, `run_id`, `kind`
+- source namespace/source ID/referent kind
+- `candidate_entity_key`
+- `assertion_keys_json`, `observed_at`
+- `policy_id`, `policy_digest`, nullable `confidence`
+- `details_json`, `evidence_json`
+
+### `community_identity_decision`
+
+Primary key: `decision_id`.
+
+- `decision_id`, `run_id`, `status`
+- source namespace/source ID/referent kind
+- `entity_key`, `evidence_keys_json`
+- `policy_version`, `decided_by`, `decided_at`, `reason`
+- `decision_json`
+
+### `community_entity_membership`
+
+Primary key: `membership_key`.
+
+- `membership_key`, `run_id`
+- source namespace/source ID/referent kind
+- `entity_key`, `decision_id`, `valid_from`, nullable `valid_to`
+
+### `community_entity_redirect`
+
+Primary key: `redirect_key`.
+
+- `redirect_key`, `run_id`
+- `source_entity_key`, `target_entity_key`
+- `effective_at`, `decision_id`
+
+Redirects must be acyclic.
+
+## Partitioning
+
+Run metadata and commits are bucketed by `run_id`. Source/assertion tables are
+initially bucketed by `run_id` to support deterministic staging verification,
+run-level removal, and compaction. Entity-ledger and redirect tables are
+bucketed by their primary entity key for lookup.
+
+This initial layout must be benchmarked before full community backfills.
+Changing a partition spec is an Iceberg metadata evolution and does not change
+logical key semantics.

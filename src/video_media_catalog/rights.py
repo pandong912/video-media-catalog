@@ -20,6 +20,7 @@ from video_media_catalog.v2_contracts import (
 
 
 class PolicyZone(StrEnum):
+    INTERNAL = "internal"
     OPEN_CC0 = "open_cc0"
     OPEN_ATTRIBUTED = "open_attributed"
     OPEN_SHAREALIKE = "open_sharealike"

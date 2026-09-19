@@ -295,10 +295,13 @@ def select_reference_with_spark(
                     F.col("entity_type"),
                 )
                 .when(
-                    F.array_contains("hint_types", "PERSON"),
-                    F.lit("PERSON"),
+                    F.col("entity_type") == "UNKNOWN",
+                    F.when(
+                        F.array_contains("hint_types", "PERSON"),
+                        F.lit("PERSON"),
+                    ).otherwise(F.lit("ORGANIZATION")),
                 )
-                .otherwise(F.lit("ORGANIZATION")),
+                .otherwise(F.col("entity_type")),
             )
         )
         agents: dict[str, str] = {}

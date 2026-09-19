@@ -120,7 +120,17 @@ video-media-catalog-gold-index \
 
 固定 shadow alias 为 `media-catalog-community-v2-shadow-read`。索引文档只包含
 有界 titles/identifiers/attributes/relation summary 和 conflict 标记；完整
-assertions 与 relations 仍留在 Iceberg。v2 查询 API 属于后续切片。
+assertions 与 relations 仍留在 Iceberg。现有 OIDC API 同时提供隔离的 v2 路由：
+
+- `GET /api/v2/catalog/search`
+- `GET /api/v2/catalog/entities/{entityKey}`
+- `GET /api/v2/catalog/external-identifiers/{namespace}/{value}`
+
+v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和过期时间，
+因此 alias 切换不会造成跨版本错页。可通过
+`MEDIA_CATALOG_COMMUNITY_READ_ALIAS`、
+`MEDIA_CATALOG_COMMUNITY_INDEX_PREFIX` 和
+`MEDIA_CATALOG_COMMUNITY_CURSOR_TTL_SECONDS` 配置；v1 alias 和 API 契约不变。
 
 ## 安装
 

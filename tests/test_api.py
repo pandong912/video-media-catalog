@@ -70,10 +70,67 @@ class FakeOpenSearch:
             "sourceRecordIds": ["Q1"],
             "sourceRecords": [],
         }
+        self.gold_entity = {
+            "entityKey": ENTITY_KEY,
+            "entityLevel": "SERIES",
+            "entityKind": "TV_SERIES",
+            "status": "ACTIVE",
+            "releasePlanId": "sha256:" + ("2" * 64),
+            "displayName": "Gold Example",
+            "displayLanguage": "en",
+            "titles": [
+                {
+                    "value": "Gold Example",
+                    "language": "en",
+                    "titleRole": "PRIMARY",
+                }
+            ],
+            "attributes": {
+                "formats": ["Scripted"],
+                "languages": ["English"],
+                "statuses": ["Running"],
+                "premiered": ["2020-01-01"],
+                "ended": [],
+                "runtimeMinutes": ["45"],
+                "averageRuntimeMinutes": ["45"],
+                "genres": ["Drama"],
+            },
+            "externalIdentifiers": [
+                {
+                    "namespace": "imdb-title",
+                    "value": "tt0000001",
+                    "issuer": "IMDb",
+                    "referentKind": "SERIES",
+                }
+            ],
+            "relationSummary": [],
+            "conflictCount": 0,
+            "conflictPredicates": [],
+            "sourceNodeCount": 1,
+            "overflow": {
+                "titles": 0,
+                "externalIdentifiers": 0,
+                "relationTypes": 0,
+                "formats": 0,
+                "languages": 0,
+                "statuses": 0,
+                "premiered": 0,
+                "ended": 0,
+                "runtimeMinutes": 0,
+                "averageRuntimeMinutes": 0,
+                "genres": 0,
+            },
+        }
 
     def get(self, **kwargs: Any) -> dict[str, Any]:
         self.get_requests.append(kwargs)
-        return {"_source": self.entity}
+        return {
+            "_source": (
+                self.gold_entity
+                if kwargs.get("index") == "media-catalog-community-v2-shadow-read"
+                else self.entity
+            )
+        }
 
 
 class AcceptingVerifier:
@@ -469,3 +526,94 @@ def test_invalid_page_size_uses_problem_details() -> None:
     assert response.json()["retryable"] is False
     assert unknown.status_code == 422
     assert duplicate.status_code == 422
+
+
+def test_gold_search_cursor_stays_on_concrete_index() -> None:
+    search = FakeOpenSearch()
+    concrete_index = "media-catalog-community-v2-" + ("a" * 24)
+    search.search_responses = [
+        {
+            "timed_out": False,
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [
+                    {
+                        "_index": concrete_index,
+                        "_source": search.gold_entity,
+                        "_score": 2.5,
+                        "sort": [2.5, ENTITY_KEY],
+                    }
+                ],
+            },
+        },
+        {
+            "timed_out": False,
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [],
+            },
+        },
+    ]
+    with TestClient(create_app(_test_settings(), client=search)) as client:
+        first = client.get(
+            "/api/v2/catalog/search",
+            params={
+                "q": "Gold",
+                "entityLevel": "SERIES",
+                "hasConflicts": "false",
+                "pageSize": 1,
+            },
+        )
+        second = client.get(
+            "/api/v2/catalog/search",
+            params={
+                "q": "Gold",
+                "entityLevel": "SERIES",
+                "hasConflicts": "false",
+                "pageSize": 1,
+                "cursor": first.json()["nextCursor"],
+            },
+        )
+
+    assert first.status_code == 200
+    assert first.json()["items"][0]["displayName"] == "Gold Example"
+    assert second.status_code == 200
+    assert (
+        search.search_requests[0]["url"]
+        == "/media-catalog-community-v2-shadow-read/_search"
+    )
+    assert search.search_requests[1]["url"] == f"/{concrete_index}/_search"
+    assert search.search_requests[1]["body"]["search_after"] == [
+        2.5,
+        ENTITY_KEY,
+    ]
+
+
+def test_gold_detail_and_external_identifier_use_shadow_alias() -> None:
+    search = FakeOpenSearch()
+    search.search_responses = [
+        {
+            "timed_out": False,
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [{"_source": search.gold_entity}],
+            },
+        }
+    ]
+    with TestClient(create_app(_test_settings(), client=search)) as client:
+        detail = client.get(f"/api/v2/catalog/entities/{ENTITY_KEY}")
+        external = client.get(
+            "/api/v2/catalog/external-identifiers/imdb-title/tt0000001"
+        )
+
+    assert detail.status_code == 200
+    assert detail.json()["releasePlanId"].startswith("sha256:")
+    assert search.get_requests[0]["index"] == "media-catalog-community-v2-shadow-read"
+    assert external.status_code == 200
+    filters = search.search_requests[0]["body"]["query"]["nested"]["query"]["bool"][
+        "filter"
+    ]
+    assert filters == [
+        {"term": {"externalIdentifiers.namespace": "imdb-title"}},
+        {"term": {"externalIdentifiers.value": "tt0000001"}},
+    ]

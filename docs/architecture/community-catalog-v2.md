@@ -23,8 +23,9 @@ in
 The distributed identity stage and Silver-to-Gold transform now consume exact
 snapshot sets and committed run IDs without driver collection. A bounded,
 strict-mapping OpenSearch projection publishes only to the isolated
-`media-catalog-community-v2-shadow-read` alias. The v2 query API remains a later
-phase.
+`media-catalog-community-v2-shadow-read` alias. OIDC-protected `/api/v2/catalog`
+routes query that alias and bind pagination cursors to one concrete immutable
+index; v1 routes and alias remain unchanged.
 
 ## Source portfolio
 

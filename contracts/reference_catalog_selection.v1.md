@@ -51,10 +51,11 @@ Each candidate has:
 Ranking order is deterministic:
 
 1. demand score;
-2. completeness score;
-3. exact-ID count;
-4. sitelink count;
-5. numeric QID.
+2. available child support for series and seasons;
+3. completeness score;
+4. exact-ID count;
+5. sitelink count;
+6. numeric QID.
 
 Sitelinks are a notability signal only.
 
@@ -86,13 +87,20 @@ After content selection:
 
 The immutable audit records:
 
-- config and demand-profile digests;
+- selection config, quality-threshold, combined build, and demand-profile
+  digests;
+- immutable dump, optional demand-profile, subset, and source-manifest
+  ObjectRefs;
 - selected content counts by type;
 - selected people and organizations;
 - complete/partial hierarchy counts;
 - required-field and exact-ID coverage by type;
 - per-stage fallback counts;
+- output and classification-dependency row counts;
 - relation statements pruned because their target was outside the selected
   content/agent closure.
 
 Selection and audit must be independent of input order and Spark partitioning.
+The `video-media-catalog-reference-subset` CLI publishes no subset or source
+manifest when a quality gate fails. The legacy Wikidata subset CLI retains its
+original selection semantics and output paths.

@@ -149,8 +149,23 @@ v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和
 - 独立 credit agent closure；
 - title、电影年份和单集父级覆盖率门禁。
 
-旧 `video-media-catalog-wikidata-subset` 行为暂不改变；新选择器在独立
-selection audit 和生产回放通过后才切换 CLI。契约见
+旧 `video-media-catalog-wikidata-subset` 行为保持不变；内容优先构建使用独立
+`video-media-catalog-reference-subset`，避免无审计地改变旧产物语义：
+
+```bash
+video-media-catalog-reference-subset \
+  --dump-uri s3://catalog-input/wikidata/raw/.../wikidata-20260901-all.json.bz2 \
+  --dump-sha256 <64-hex> --dump-size <bytes> \
+  --dump-version <version-id> --dump-etag <etag> \
+  --output-prefix s3://catalog-output/reference \
+  --staging-prefix s3://catalog-staging/wikidata \
+  --aws-region us-east-1
+```
+
+CLI 在发布 subset 前执行 title、电影日期和单集父级覆盖率门禁；人物与机构不占
+10 万内容预算。可选 demand profile 必须同时提供 URI、SHA-256、size、ETag 和
+VersionId，selection config、质量阈值、dump 与输出对象共同写入不可变 audit。
+契约见
 [`contracts/reference_catalog_selection.v1.md`](contracts/reference_catalog_selection.v1.md)。
 
 ## Asset matching MVP

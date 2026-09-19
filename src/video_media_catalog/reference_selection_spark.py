@@ -86,7 +86,7 @@ def _scored_candidates(
         ),
         score_schema,
     )
-    return (
+    base = (
         normalized.join(entity_types, "qid")
         .withColumn("_score", score_udf("payload_json", "entity_type"))
         .select(
@@ -106,27 +106,42 @@ def _scored_candidates(
             F.col("_score.has_country").alias("has_country"),
             F.col("_score.has_external_id").alias("has_external_id"),
         )
+    )
+    support = (
+        base.where(F.col("entity_type").isin("TV_SEASON", "TV_EPISODE"))
+        .select(F.explode("parent_qids").alias("qid"))
+        .groupBy("qid")
+        .agg(F.count(F.lit(1)).alias("hierarchy_support_count"))
+    )
+    return (
+        base.join(support, "qid", "left")
+        .fillna({"hierarchy_support_count": 0})
         .persist()
     )
 
 
-def _collect_ranked(frame: Any, limit: int) -> list[Any]:
+def _collect_ranked(
+    frame: Any,
+    limit: int,
+    *,
+    include_hierarchy_support: bool = False,
+) -> list[Any]:
     from pyspark.sql import functions as F
 
     if limit <= 0:
         return []
-    return (
-        frame.orderBy(
-            F.desc("demand_score"),
+    order = [F.desc("demand_score")]
+    if include_hierarchy_support:
+        order.append(F.desc("hierarchy_support_count"))
+    order.extend(
+        [
             F.desc("completeness_score"),
             F.desc("exact_identifier_count"),
             F.desc("sitelink_count"),
             F.asc("qid_numeric"),
-        )
-        .limit(limit)
-        .select("qid", "entity_type")
-        .collect()
+        ]
     )
+    return frame.orderBy(*order).limit(limit).select("qid", "entity_type").collect()
 
 
 def _selected_frame(spark: Any, selected: dict[str, str]) -> Any:
@@ -178,6 +193,7 @@ def select_reference_with_spark(
         rows = _collect_ranked(
             candidates.where(F.col("entity_type") == entity_type),
             quota,
+            include_hierarchy_support=entity_type == "TV_SERIES",
         )
         if len(rows) != quota:
             raise ValueError(f"not enough {entity_type} candidates")
@@ -201,13 +217,18 @@ def select_reference_with_spark(
                 > 0
             )
         )
-        preferred_rows = _collect_ranked(preferred, quota)
+        preferred_rows = _collect_ranked(
+            preferred,
+            quota,
+            include_hierarchy_support=entity_type == "TV_SEASON",
+        )
         selected_ids = {row.qid for row in preferred_rows}
         fallback_rows = []
         if len(preferred_rows) < quota:
             fallback_rows = _collect_ranked(
                 base.where(~F.col("qid").isin(sorted(selected_ids))),
                 quota - len(preferred_rows),
+                include_hierarchy_support=entity_type == "TV_SEASON",
             )
         rows = [*preferred_rows, *fallback_rows]
         if len(rows) != quota:

@@ -200,6 +200,17 @@ def _spark_uri(uri: str) -> str:
     return "s3a://" + uri[len("s3://") :] if uri.startswith("s3://") else uri
 
 
+def _temporary_spark_locations(
+    temporary: S3Location,
+) -> tuple[S3Location, str]:
+    """Keep durable BFS scratch separate from Spark's final output path."""
+
+    root_key = temporary.key.rstrip("/")
+    output = S3Location(temporary.bucket, f"{root_key}/output")
+    scratch_uri = _spark_uri(f"{temporary.uri.rstrip('/')}/bfs-materialize")
+    return output, scratch_uri
+
+
 def _read_small_json(s3: Any, location: S3Location) -> bytes | None:
     try:
         response = s3.get_object(
@@ -768,10 +779,8 @@ def run(
         f"config-sha256={config.digest.removeprefix('sha256:')}",
         f"spark-output-{uuid.uuid4().hex}",
     )
-    configure_bfs_materialize_dir(
-        session,
-        _spark_uri(f"{temporary.uri.rstrip('/')}/bfs-materialize"),
-    )
+    temporary_output, bfs_scratch_uri = _temporary_spark_locations(temporary)
+    configure_bfs_materialize_dir(session, bfs_scratch_uri)
     try:
         normalized = _load_or_build_staging(
             spark=session,
@@ -790,10 +799,10 @@ def run(
         (
             built.lines.write.mode("errorifexists")
             .option("compression", "bzip2")
-            .text(_spark_uri(temporary.uri))
+            .text(_spark_uri(temporary_output.uri))
         )
         store.verify(dump, max_bytes=parsed.max_dump_bytes)
-        part, part_version = _temporary_part(client, temporary)
+        part, part_version = _temporary_part(client, temporary_output)
         subset_location = _join(
             build_root,
             f"wikidata-{dump_date}-subset.json.bz2",

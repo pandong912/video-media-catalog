@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from video_media_catalog.object_store import S3Location
 from video_media_catalog.reference_selection import (
     DEFAULT_AGENT_LIMITS,
     DEFAULT_CONTENT_QUOTAS,
@@ -10,6 +11,7 @@ from video_media_catalog.reference_subset_cli import (
     _read_demand_profile,
     build_parser,
 )
+from video_media_catalog.wikidata_subset_cli import _temporary_spark_locations
 
 
 def _parse(*extra: str):
@@ -56,3 +58,21 @@ def test_reference_subset_cli_requires_complete_demand_profile_object_ref() -> N
             s3=object(),
             store=object(),
         )
+
+
+def test_spark_output_does_not_share_path_with_bfs_scratch() -> None:
+    temporary = S3Location(
+        "catalog",
+        "raw/wikidata/subsets/_temporary/spark-output-run-1",
+    )
+
+    output, scratch_uri = _temporary_spark_locations(temporary)
+
+    assert output.uri == (
+        "s3://catalog/raw/wikidata/subsets/_temporary/spark-output-run-1/output"
+    )
+    assert scratch_uri == (
+        "s3a://catalog/raw/wikidata/subsets/_temporary/"
+        "spark-output-run-1/bfs-materialize"
+    )
+    assert output.uri != scratch_uri.replace("s3a://", "s3://", 1)

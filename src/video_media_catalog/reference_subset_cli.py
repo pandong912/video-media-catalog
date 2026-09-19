@@ -48,6 +48,7 @@ from video_media_catalog.wikidata_subset_cli import (
     _spark_session,
     _spark_uri,
     _temporary_part,
+    _temporary_spark_locations,
 )
 from video_media_catalog.wikidata_subset_cli import (
     build_parser as legacy_build_parser,
@@ -269,10 +270,8 @@ def run(
         f"reference-build-sha256={build_digest.removeprefix('sha256:')}",
         f"spark-output-{uuid.uuid4().hex}",
     )
-    configure_bfs_materialize_dir(
-        session,
-        _spark_uri(f"{temporary.uri.rstrip('/')}/bfs-materialize"),
-    )
+    temporary_output, bfs_scratch_uri = _temporary_spark_locations(temporary)
+    configure_bfs_materialize_dir(session, bfs_scratch_uri)
     try:
         normalized = _load_or_build_staging(
             spark=session,
@@ -293,10 +292,10 @@ def run(
         (
             built.lines.write.mode("errorifexists")
             .option("compression", "bzip2")
-            .text(_spark_uri(temporary.uri))
+            .text(_spark_uri(temporary_output.uri))
         )
         store.verify(dump, max_bytes=parsed.max_dump_bytes)
-        part, part_version = _temporary_part(client, temporary)
+        part, part_version = _temporary_part(client, temporary_output)
         subset = _publish_s3_part(
             s3=client,
             source=part,

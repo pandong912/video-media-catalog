@@ -15,6 +15,7 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     assert {product.source_product_id for product in first.source_products} == {
         "wikidata-json-dump",
         "eidr-public-registry",
+        "identity-resolution-v2",
         "media-catalog-v1",
         "tvmaze-public-api",
     }

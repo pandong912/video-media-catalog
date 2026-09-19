@@ -84,6 +84,9 @@ Gold v2 继续按 policy context 隔离：
 
 - `identity_resolution.py`：精确匹配只接受唯一候选，未匹配 source node 分配一次
   内部 UUIDv7，歧义进入 conflict，membership/redirect 可按 as-of 重放；
+- `identity_spark.py`：分布式读取 active type/identifier assertions，优先与 v1
+  external identifiers 做类型兼容的精确连接，未匹配项再分配内部实体；多候选
+  直接阻断而不是猜测；
 - `gold.py` / `gold_resolution.py`：rights eligibility 先于字段选择；
   `SINGLE` 冲突不任意选供应商，`SET_UNION` 保留多值及 assertion lineage；
 - `gold_quality.py`：冲突率、未解析身份率和 rights gate 形成不可变报告；

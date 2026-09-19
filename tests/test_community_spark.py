@@ -21,6 +21,9 @@ from video_media_catalog.connector import (
     build_connector_record_envelope,
     build_connector_record_set_manifest,
 )
+from video_media_catalog.identity_spark import (
+    build_identity_resolution_dataframes,
+)
 from video_media_catalog.models import Checksum, ObjectRef, SnapshotSet
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
@@ -149,12 +152,37 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         batch=batch,
         record_set=record_set,
     )
+    identity_frames = None
     try:
         assert frames["community_source_record"].count() == 1
         assert frames["community_field_assertion"].count() >= 3
         assert frames["community_identifier_assertion"].count() == 2
         assert run.expected_counts["community_entity_type_assertion"] == 1
+        v1_key = "sha256:" + ("9" * 64)
+        identity_run, identity_frames = build_identity_resolution_dataframes(
+            spark,
+            visible_silver=frames,
+            v1_external_identifiers=spark.createDataFrame(
+                [(v1_key, "imdb", "tt0000001")],
+                "entity_key STRING, scheme STRING, value STRING",
+            ),
+            v1_entities=spark.createDataFrame(
+                [(v1_key, "TV_SERIES")],
+                "entity_key STRING, entity_type STRING",
+            ),
+            input_id="sha256:" + ("8" * 64),
+            image_digest="sha256:" + ("7" * 64),
+            config_digest="sha256:" + ("6" * 64),
+            started_at="2026-09-19T00:00:00Z",
+        )
+        assert identity_frames["community_entity_ledger"].count() == 0
+        memberships = identity_frames["community_entity_membership"].collect()
+        assert memberships[0].entity_key == v1_key
+        assert identity_run.expected_counts["community_entity_membership"] == 1
     finally:
+        if identity_frames is not None:
+            for frame in identity_frames.values():
+                frame.unpersist()
         for frame in frames.values():
             frame.unpersist()
 

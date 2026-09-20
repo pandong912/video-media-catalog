@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -28,6 +28,12 @@ from video_media_catalog.connector import (
     ConnectorRecordSetManifest,
     validate_envelope_against_batch,
     validate_envelopes_against_batch,
+)
+from video_media_catalog.record_shard_materialization import (
+    MaterializedRecordShard,
+    bind_materialized_shards,
+    materialized_shard_from_reference,
+    validate_stream_envelope_key_bounds,
 )
 from video_media_catalog.source_mapper import MappedAssertions
 from video_media_catalog.source_registry import (
@@ -244,6 +250,11 @@ def build_source_silver_rows(
         raise ValueError("local source projection exceeds max_records")
     if len(records) != record_set.record_count:
         raise ValueError("records do not match record-set count")
+    if records:
+        if records[0].envelope_key != record_set.first_envelope_key:
+            raise ValueError("first envelope key does not match record set")
+        if records[-1].envelope_key != record_set.last_envelope_key:
+            raise ValueError("last envelope key does not match record set")
     mapper = mapper_for_product(batch.source_product_id)
     mapped = [mapper(record) for record in records]
     run = _build_run(
@@ -285,6 +296,7 @@ def build_source_silver_dataframes(
     registry: SourceRegistrySnapshot,
     batch: ConnectorBatchManifest,
     record_set: ConnectorRecordSetManifest,
+    materialized_shards: Sequence[MaterializedRecordShard] | None = None,
 ) -> tuple[CommunityIngestRun, dict[str, Any]]:
     """Map immutable envelope shards on Spark without any source API access."""
 
@@ -293,6 +305,13 @@ def build_source_silver_dataframes(
         batch,
         record_set,
     )
+    if materialized_shards is None:
+        materialized_shards = tuple(
+            materialized_shard_from_reference(reference)
+            for reference in record_set.record_objects
+        )
+    bind_materialized_shards(materialized_shards, record_set.record_objects)
+    validate_stream_envelope_key_bounds(materialized_shards, record_set)
     mapper = mapper_for_product(batch.source_product_id)
 
     def parse_record(line):
@@ -305,11 +324,9 @@ def build_source_silver_dataframes(
             policy_digests=policy_digests,
         )
 
-    if record_set.record_objects:
+    if materialized_shards:
         envelopes = (
-            spark.read.text(
-                [_spark_input_uri(item.uri) for item in record_set.record_objects]
-            )
+            spark.read.text([shard.spark_uri for shard in materialized_shards])
             .rdd.map(parse_record)
             .persist()
         )
@@ -328,6 +345,8 @@ def build_source_silver_dataframes(
         )
         if duplicate:
             raise ValueError("record set contains duplicate envelope keys")
+        validate_stream_envelope_key_bounds(materialized_shards, record_set)
+        bind_materialized_shards(materialized_shards, record_set.record_objects)
 
         expected_counts = {table: 0 for table in DATA_TABLE_COLUMNS}
         expected_counts["community_source_record"] = record_count

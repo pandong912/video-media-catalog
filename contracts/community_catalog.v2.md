@@ -127,6 +127,15 @@ A valid zero-record delta has an empty `recordObjects` list and null key bounds;
 connectors must not publish a fake NDJSON record merely to represent an empty
 window. A non-empty record set requires at least one immutable record object.
 
+Silver Spark ingestion must never read a mutable latest S3 key for a versioned
+record shard. After verifying each shard ObjectRef, the driver materializes the
+declared VersionId bytes into a checksum-addressed staging object within the
+existing capture bucket/prefix IAM scope, then Spark reads only the staged
+inputs. Materialization is commit-last and concurrent-safe: an existing staging
+object is reused only when checksum and size match, otherwise ingestion fails
+closed. Mapping validates record count and first/last envelope key bounds against
+the record-set manifest before and after projection.
+
 Concrete deletion rules are fail-closed:
 
 - IMDb deletion inference is permitted only between complete seven-file

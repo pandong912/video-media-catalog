@@ -23,6 +23,10 @@ from video_media_catalog.object_store import (
     BoundedObjectStore,
     RuntimeObjectStore,
 )
+from video_media_catalog.record_shard_materialization import (
+    MAX_RECORD_SHARD_COUNT,
+    materialize_record_shards,
+)
 from video_media_catalog.source_silver import (
     build_source_silver_dataframes,
     mapper_for_product,
@@ -74,6 +78,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-raw-object-bytes",
         type=int,
         default=DEFAULT_RAW_OBJECT_MAX_BYTES,
+    )
+    parser.add_argument(
+        "--record-staging-prefix",
+        help=(
+            "optional S3/file prefix for checksum-addressed record shard staging; "
+            "defaults to a sibling _staging/record-shards path"
+        ),
+    )
+    parser.add_argument(
+        "--max-record-shards",
+        type=int,
+        default=MAX_RECORD_SHARD_COUNT,
     )
     return parser
 
@@ -130,6 +146,8 @@ def _read_model[T: (ConnectorBatchManifest, ConnectorRecordSetManifest)](
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if min(parsed.max_record_object_bytes, parsed.max_raw_object_bytes) < 1:
         raise ValueError("raw and record object byte limits must be positive")
+    if parsed.max_record_shards < 1:
+        raise ValueError("max-record-shards must be positive")
     if parsed.shuffle_partitions is not None and parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
     batch_ref = _object_ref(
@@ -174,6 +192,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             reference,
             max_bytes=parsed.max_record_object_bytes,
         )
+    materialized_shards = materialize_record_shards(
+        store,
+        record_set.record_objects,
+        staging_prefix=parsed.record_staging_prefix,
+        max_bytes=parsed.max_record_object_bytes,
+        max_shards=parsed.max_record_shards,
+    )
     mapper_for_product(batch.source_product_id)
 
     config = CatalogConfig(
@@ -206,6 +231,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             registry=build_community_registry(),
             batch=batch,
             record_set=record_set,
+            materialized_shards=materialized_shards,
         )
         commit = CommunityCatalogTables(spark, config).stage_and_commit(
             run=ingest_run,

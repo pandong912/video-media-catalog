@@ -158,7 +158,6 @@ def _source_capture(
         )
         for source_id, operation, title in records
     )
-    keys = sorted(envelope.envelope_key for envelope in envelopes)
     record_set = build_connector_record_set_manifest(
         batch_id=batch.batch_id,
         source_product_id=batch.source_product_id,
@@ -166,8 +165,8 @@ def _source_capture(
         policy_digest=batch.policy_digest,
         record_objects=(raw_object,),
         record_count=len(envelopes),
-        first_envelope_key=keys[0],
-        last_envelope_key=keys[-1],
+        first_envelope_key=envelopes[0].envelope_key,
+        last_envelope_key=envelopes[-1].envelope_key,
         created_at=acquired_at,
     )
     return build_source_silver_rows(

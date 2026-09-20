@@ -77,6 +77,7 @@ class FakeOpenSearch:
             "status": "ACTIVE",
             "releasePlanId": "sha256:" + ("2" * 64),
             "contextId": "research",
+            "ownerSubject": "test-owner",
             "displayName": "Gold Example",
             "displayLanguage": "en",
             "titles": [
@@ -684,6 +685,9 @@ def test_research_search_cursor_stays_on_concrete_index() -> None:
         2.5,
         ENTITY_KEY,
     ]
+    assert search.search_requests[0]["body"]["query"]["bool"]["filter"][0] == {
+        "term": {"ownerSubject": "test-owner"}
+    }
 
 
 def test_research_detail_and_external_identifier_use_research_alias() -> None:
@@ -706,14 +710,96 @@ def test_research_detail_and_external_identifier_use_research_alias() -> None:
     assert detail.status_code == 200
     assert detail.json()["releasePlanId"].startswith("sha256:")
     assert detail.json()["contextId"] == "research"
+    assert detail.json()["ownerSubject"] == "test-owner"
     assert detail.json()["sourceBadges"][0]["sourceProductId"] == ("tvmaze-public-api")
     assert detail.json()["rights"][0]["attributionText"].startswith("TV data")
     assert search.get_requests[0]["index"] == "media-catalog-research-read"
     assert external.status_code == 200
-    filters = search.search_requests[0]["body"]["query"]["nested"]["query"]["bool"][
-        "filter"
-    ]
-    assert filters == [
+    filters = search.search_requests[0]["body"]["query"]["bool"]["filter"]
+    assert filters[0] == {"term": {"ownerSubject": "test-owner"}}
+    nested_filters = filters[1]["nested"]["query"]["bool"]["filter"]
+    assert nested_filters == [
         {"term": {"externalIdentifiers.namespace": "imdb-title"}},
         {"term": {"externalIdentifiers.value": "tt0000001"}},
     ]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v2/research/search",
+        f"/api/v2/research/entities/{ENTITY_KEY}",
+        "/api/v2/research/external-identifiers/imdb-title/tt0000001",
+    ],
+)
+@pytest.mark.parametrize("document_owner", [None, "user-b"])
+def test_owner_a_api_rejects_owner_b_or_unowned_documents(
+    path: str,
+    document_owner: str | None,
+) -> None:
+    search = FakeOpenSearch()
+    if document_owner is None:
+        search.gold_entity.pop("ownerSubject")
+    else:
+        search.gold_entity["ownerSubject"] = document_owner
+    if not path.startswith("/api/v2/research/entities/"):
+        search.search_responses = [
+            {
+                "timed_out": False,
+                "hits": {
+                    "total": {"value": 1, "relation": "eq"},
+                    "hits": [{"_source": search.gold_entity}],
+                },
+            }
+        ]
+    app = create_app(
+        authenticated_settings(),
+        client=search,
+        verifier=AcceptingVerifier(subject="user-1"),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            path,
+            headers={"Authorization": "Bearer signed-token"},
+        )
+
+    assert response.status_code == 502
+    assert "Gold Example" not in response.text
+    assert "user-b" not in response.text
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v2/research/search",
+        "/api/v2/research/external-identifiers/imdb-title/tt0000001",
+    ],
+)
+def test_owner_a_api_rejects_mixed_owner_result_sets(path: str) -> None:
+    search = FakeOpenSearch()
+    owner_a = {**search.gold_entity, "ownerSubject": "user-1"}
+    owner_b = {**search.gold_entity, "ownerSubject": "user-b"}
+    search.search_responses = [
+        {
+            "timed_out": False,
+            "hits": {
+                "total": {"value": 2, "relation": "eq"},
+                "hits": [{"_source": owner_a}, {"_source": owner_b}],
+            },
+        }
+    ]
+    app = create_app(
+        authenticated_settings(),
+        client=search,
+        verifier=AcceptingVerifier(subject="user-1"),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            path,
+            headers={"Authorization": "Bearer signed-token"},
+        )
+
+    assert response.status_code == 502
+    assert "Gold Example" not in response.text

@@ -23,8 +23,9 @@ from video_media_catalog.gold_search_index import (
     GoldIndexBuildManifest,
     derive_gold_build_id,
     ensure_gold_index,
-    gold_index_config_digest,
+    gold_index_config_identity,
     gold_index_name,
+    validate_gold_index_owner,
 )
 from video_media_catalog.gold_search_projection import (
     build_gold_search_projection,
@@ -143,6 +144,19 @@ def _close(client: Any) -> None:
         transport.close()
 
 
+def _validate_projection_owner(documents: Any, *, owner_subject: str) -> None:
+    from pyspark.sql import functions as F
+
+    owner = require_oidc_subject(owner_subject)
+    mismatched = documents.where(
+        F.col("ownerSubject").isNull() | (F.col("ownerSubject") != F.lit(owner))
+    ).limit(1)
+    if mismatched.count():
+        raise RuntimeError(
+            "Gold search projection contains missing or mismatched document owners"
+        )
+
+
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if (
         parsed.read_alias != RESEARCH_READ_ALIAS
@@ -187,7 +201,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         s3_endpoint=parsed.s3_endpoint,
         s3_path_style_access=parsed.s3_path_style_access,
     )
-    config_digest = gold_index_config_digest(
+    config_identity = gold_index_config_identity(
         read_alias=parsed.read_alias,
         index_prefix=parsed.index_prefix,
         owner_subject=owner_subject,
@@ -197,6 +211,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         bulk_max_chunk_bytes=parsed.bulk_max_chunk_bytes,
         image_digest=parsed.image_digest,
     )
+    config_digest = config_identity.digest
     build_id = derive_gold_build_id(
         commit=commit,
         config_digest=config_digest,
@@ -230,6 +245,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ensure_gold_index(
             client,
             index_name=index_name,
+            owner_subject=commit.owner_subject,
             shards=parsed.shards,
             replicas=parsed.replicas,
         )
@@ -249,7 +265,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             spark,
             gold_tables=frames,
             release_plan_id=commit.release_plan_id,
+            owner_subject=commit.owner_subject,
         ).persist()
+        _validate_projection_owner(
+            documents,
+            owner_subject=commit.owner_subject,
+        )
         expected_count = documents.count()
         current_count = index_document_count(client, index_name=index_name)
         if current_count > expected_count:
@@ -269,9 +290,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                     f"success={result.document_count}, "
                     f"errors={result.error_count}, expected={expected_count}"
                 )
-        actual_count = index_document_count(client, index_name=index_name)
-        if actual_count != expected_count:
-            raise RuntimeError("Gold shadow document count mismatch")
+        actual_count = validate_gold_index_owner(
+            client,
+            index_name=index_name,
+            owner_subject=commit.owner_subject,
+            expected_document_count=expected_count,
+        )
         manifest = GoldIndexBuildManifest(
             build_id=build_id,
             release_plan_id=commit.release_plan_id,
@@ -280,6 +304,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             release_commit=reference,
             table_snapshot_ids=commit.table_snapshot_ids,
             mapping_digest=MAPPING_DIGEST,
+            config_identity=config_identity,
             config_digest=config_digest,
             document_count=actual_count,
             index=index_name,
@@ -296,6 +321,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             object_format="OBJECT_FORMAT_JSON",
             max_bytes=CONTROL_MAX_BYTES,
         ).object_ref
+        validate_gold_index_owner(
+            client,
+            index_name=index_name,
+            owner_subject=commit.owner_subject,
+            expected_document_count=actual_count,
+        )
         switch_read_alias(
             client,
             alias=parsed.read_alias,

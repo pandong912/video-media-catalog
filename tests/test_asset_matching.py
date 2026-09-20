@@ -181,6 +181,7 @@ def test_gold_api_entity_adapts_to_bounded_match_record() -> None:
         status="ACTIVE",
         release_plan_id=RELEASE_PLAN_ID,
         context_id="research",
+        owner_subject="owner-123",
         display_name="Hero",
         display_language="en",
         titles=[

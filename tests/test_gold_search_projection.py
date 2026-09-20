@@ -114,7 +114,7 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
             }
         ],
     }
-    document = project_gold_entity(row)
+    document = project_gold_entity(row, owner_subject="owner-123")
     assert document["displayName"] == "中文标题"
     assert document["displayLanguage"] == "zh-hans"
     assert len(document["titles"]) == MAX_TITLES
@@ -124,6 +124,7 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     assert document["externalIdentifiers"][0]["value"] == "tt0000001"
     assert document["conflictPredicates"] == ["status"]
     assert document["contextId"] == "research"
+    assert document["ownerSubject"] == "owner-123"
     assert document["sourceBadges"][0]["sourceProductId"] == "tvmaze-public-api"
     assert document["winningAssertions"][0]["citationKeys"]
     assert document["rights"][0]["attributionText"].startswith("TV data")

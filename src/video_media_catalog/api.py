@@ -482,8 +482,27 @@ def _summary(
     }
 
 
-def _gold_summary(hit: Any) -> dict[str, Any]:
-    source = _source(hit)
+def _require_gold_owner(
+    source: dict[str, Any],
+    *,
+    principal_subject: str,
+    configured_owner_subject: str,
+) -> dict[str, Any]:
+    owner = source.get("ownerSubject")
+    if (
+        not isinstance(owner, str)
+        or owner != principal_subject
+        or owner != configured_owner_subject
+    ):
+        raise UpstreamFailure(
+            502,
+            "Bad Gateway",
+            "Research document owner does not match the API identity",
+        )
+    return source
+
+
+def _gold_summary(source: dict[str, Any]) -> dict[str, Any]:
     identifiers = source.get("externalIdentifiers")
     source_badges = source.get("sourceBadges")
     return {
@@ -494,6 +513,7 @@ def _gold_summary(hit: Any) -> dict[str, Any]:
         "displayLanguage": source.get("displayLanguage"),
         "releasePlanId": source.get("releasePlanId"),
         "contextId": source.get("contextId"),
+        "ownerSubject": source.get("ownerSubject"),
         "conflictCount": source.get("conflictCount", 0),
         "externalIdentifiers": (
             identifiers[:_SUMMARY_IDENTIFIER_LIMIT]
@@ -532,6 +552,9 @@ def create_app(
         settings.cursor_secret.encode("utf-8"),
         ttl_seconds=settings.research_cursor_ttl_seconds,
         index_prefix=settings.research_index_prefix,
+    )
+    research_owner_subject = require_oidc_subject(
+        settings.oidc_owner_subject or "test-owner"
     )
     timeout_ms = int(settings.request_timeout_seconds * 1000)
 
@@ -893,12 +916,12 @@ def create_app(
         "/api/v2/research/search",
         tags=["research-v2"],
         summary="Search the owner-only research catalog",
-        dependencies=[Depends(require_research_principal)],
         response_model=GoldSearchResponse,
         responses=_AUTHENTICATED_ERRORS,
     )
     def search_gold_catalog(
         request: Request,
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
         q: Annotated[str, Query(max_length=200)] = "",
         entity_level: Annotated[
             str | None,
@@ -961,6 +984,7 @@ def create_app(
                 ),
                 body=build_gold_search_query(
                     parameters,
+                    owner_subject=research_owner_subject,
                     search_after=(state.sort if state is not None else None),
                     timeout_ms=timeout_ms,
                 ),
@@ -968,6 +992,14 @@ def create_app(
             )
         )
         hits, total = _hits(response)
+        sources = [
+            _require_gold_owner(
+                _source(hit),
+                principal_subject=principal.subject,
+                configured_owner_subject=research_owner_subject,
+            )
+            for hit in hits
+        ]
         next_cursor = None
         if len(hits) == page_size:
             indexes = {hit.get("_index") for hit in hits if isinstance(hit, dict)}
@@ -988,7 +1020,7 @@ def create_app(
                 fingerprint=parameters.fingerprint(),
             )
         return {
-            "items": [_gold_summary(hit) for hit in hits],
+            "items": [_gold_summary(source) for source in sources],
             "nextCursor": next_cursor,
             "totalValue": total["value"],
             "totalRelation": total["relation"],
@@ -998,7 +1030,6 @@ def create_app(
         "/api/v2/research/entities/{entityKey}",
         tags=["research-v2"],
         summary="Get one owner-only research entity",
-        dependencies=[Depends(require_research_principal)],
         response_model=GoldCatalogEntity,
         responses={
             **_AUTHENTICATED_ERRORS,
@@ -1011,6 +1042,7 @@ def create_app(
             str,
             Path(alias="entityKey", pattern=_ENTITY_KEY),
         ],
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
     ) -> dict[str, Any]:
         _validate_query_parameters(request, set())
         try:
@@ -1037,13 +1069,16 @@ def create_app(
                 "Bad Gateway",
                 "Research entity response is invalid",
             )
-        return response["_source"]
+        return _require_gold_owner(
+            response["_source"],
+            principal_subject=principal.subject,
+            configured_owner_subject=research_owner_subject,
+        )
 
     @app.get(
         "/api/v2/research/external-identifiers/{namespace}/{value:path}",
         tags=["research-v2"],
         summary="Resolve one research external identifier",
-        dependencies=[Depends(require_research_principal)],
         response_model=GoldCatalogEntity,
         responses={
             **_AUTHENTICATED_ERRORS,
@@ -1055,6 +1090,7 @@ def create_app(
         request: Request,
         namespace: Annotated[str, Path(pattern=_SCHEME)],
         value: Annotated[str, Path(min_length=1, max_length=256)],
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
     ) -> dict[str, Any]:
         _validate_query_parameters(request, set())
         identifier = _validate_text(value, label="external identifier")
@@ -1065,12 +1101,21 @@ def create_app(
                 body=build_gold_external_identifier_query(
                     namespace=namespace,
                     value=identifier,
+                    owner_subject=research_owner_subject,
                     timeout_ms=timeout_ms,
                 ),
                 timeout_seconds=settings.request_timeout_seconds,
             )
         )
         hits, total = _hits(response)
+        sources = [
+            _require_gold_owner(
+                _source(hit),
+                principal_subject=principal.subject,
+                configured_owner_subject=research_owner_subject,
+            )
+            for hit in hits
+        ]
         if total["value"] == 0 or not hits:
             raise HTTPException(
                 status_code=404,
@@ -1081,6 +1126,6 @@ def create_app(
                 status_code=409,
                 detail="Research external identifier resolves to multiple entities",
             )
-        return _source(hits[0])
+        return sources[0]
 
     return app

@@ -15,6 +15,7 @@ from typing import Any
 from video_media_catalog.api_search import InvalidCursor
 from video_media_catalog.canonical import canonical_json_bytes
 from video_media_catalog.gold_search_index import RESEARCH_INDEX_PREFIX
+from video_media_catalog.v2_contracts import require_oidc_subject
 
 _ENTITY_KEY = re.compile(r"^sha256:[0-9a-f]{64}$")
 _INDEX = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
@@ -27,6 +28,7 @@ GOLD_SEARCH_SOURCE_FIELDS = (
     "displayLanguage",
     "releasePlanId",
     "contextId",
+    "ownerSubject",
     "conflictCount",
     "externalIdentifiers",
     "sourceBadges",
@@ -182,9 +184,11 @@ class GoldCursorCodec:
 def build_gold_search_query(
     parameters: GoldSearchParameters,
     *,
+    owner_subject: str,
     search_after: list[Any] | None,
     timeout_ms: int,
 ) -> dict[str, Any]:
+    owner = require_oidc_subject(owner_subject)
     if parameters.q:
         must = [
             {
@@ -220,7 +224,7 @@ def build_gold_search_query(
         ]
     else:
         must = [{"match_all": {}}]
-    filters = []
+    filters = [{"term": {"ownerSubject": owner}}]
     if parameters.entity_level is not None:
         filters.append({"term": {"entityLevel": parameters.entity_level}})
     if parameters.entity_kind is not None:
@@ -269,24 +273,39 @@ def build_gold_external_identifier_query(
     *,
     namespace: str,
     value: str,
+    owner_subject: str,
     timeout_ms: int,
 ) -> dict[str, Any]:
+    owner = require_oidc_subject(owner_subject)
     return {
         "size": 2,
         "track_total_hits": True,
         "timeout": f"{timeout_ms}ms",
         "query": {
-            "nested": {
-                "path": "externalIdentifiers",
-                "score_mode": "none",
-                "query": {
-                    "bool": {
-                        "filter": [
-                            {"term": {"externalIdentifiers.namespace": namespace}},
-                            {"term": {"externalIdentifiers.value": value}},
-                        ]
-                    }
-                },
+            "bool": {
+                "filter": [
+                    {"term": {"ownerSubject": owner}},
+                    {
+                        "nested": {
+                            "path": "externalIdentifiers",
+                            "score_mode": "none",
+                            "query": {
+                                "bool": {
+                                    "filter": [
+                                        {
+                                            "term": {
+                                                "externalIdentifiers.namespace": (
+                                                    namespace
+                                                )
+                                            }
+                                        },
+                                        {"term": {"externalIdentifiers.value": value}},
+                                    ]
+                                }
+                            },
+                        }
+                    },
+                ]
             }
         },
         "sort": [{"entityKey": {"order": "asc"}}],

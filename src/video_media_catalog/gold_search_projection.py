@@ -13,6 +13,7 @@ from video_media_catalog.gold import (
     GoldAssertionLineage,
     assertion_lineage_from_trace,
 )
+from video_media_catalog.v2_contracts import require_oidc_subject
 
 DISPLAY_LANGUAGES = ("zh-hans", "zh-hant", "zh", "en", "und")
 MAX_TITLES = 64
@@ -78,8 +79,9 @@ def _lineage(value: dict[str, Any]) -> tuple[GoldAssertionLineage, ...]:
     return assertion_lineage_from_trace(trace)
 
 
-def project_gold_entity(row: Any) -> dict[str, Any]:
+def project_gold_entity(row: Any, *, owner_subject: str) -> dict[str, Any]:
     value = _dict(row)
+    owner = require_oidc_subject(owner_subject)
     titles = []
     attributes: dict[str, set[str]] = {
         name: set() for name in _ATTRIBUTE_PREDICATES.values()
@@ -354,6 +356,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         "status": str(value["status"]),
         "releasePlanId": str(value["release_plan_id"]),
         "contextId": RESEARCH_CONTEXT_ID,
+        "ownerSubject": owner,
         "displayName": display,
         "displayLanguage": display_language,
         "titles": titles,
@@ -404,6 +407,7 @@ def projection_schema():
             StructField("status", string, False),
             StructField("releasePlanId", string, False),
             StructField("contextId", string, False),
+            StructField("ownerSubject", string, False),
             StructField("displayName", string, False),
             StructField("displayLanguage", string, False),
             StructField(
@@ -612,9 +616,11 @@ def build_gold_search_projection(
     *,
     gold_tables: Mapping[str, Any],
     release_plan_id: str,
+    owner_subject: str,
 ):
     from pyspark.sql import functions as F
 
+    owner = require_oidc_subject(owner_subject)
     entities = gold_tables["community_gold_entity"].where(
         F.col("release_plan_id") == release_plan_id
     )
@@ -702,6 +708,6 @@ def build_gold_search_projection(
         .join(conflicts, "entity_key", "left")
     )
     return spark.createDataFrame(
-        joined.rdd.map(project_gold_entity),
+        joined.rdd.map(lambda row: project_gold_entity(row, owner_subject=owner)),
         schema=projection_schema(),
     )

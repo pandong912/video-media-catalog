@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from video_media_catalog.api import APISettings, create_app
-from video_media_catalog.api_auth import Principal
+from video_media_catalog.api_auth import AuthenticationError, Principal
 from video_media_catalog.api_search import select_description
 
 ENTITY_KEY = "sha256:" + "1" * 64
@@ -195,6 +195,11 @@ class AcceptingVerifier:
             subject=self.subject,
             scopes=self.scopes,
         )
+
+
+class RejectingVerifier:
+    def verify(self, _token: str) -> Principal:
+        raise AuthenticationError("bearer token verification failed")
 
 
 def _test_settings() -> APISettings:
@@ -853,6 +858,30 @@ def test_research_routes_reject_missing_token(path: str) -> None:
 
     assert missing.status_code == 401
     assert missing.json()["code"] == "AUTHENTICATION_REQUIRED"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v2/research/search",
+        f"/api/v2/research/entities/{ENTITY_KEY}",
+    ],
+)
+def test_research_routes_reject_bad_token(path: str) -> None:
+    app = create_app(
+        authenticated_settings(),
+        client=FakeOpenSearch(),
+        verifier=RejectingVerifier(),
+    )
+
+    with TestClient(app) as client:
+        rejected = client.get(
+            path,
+            headers={"Authorization": "Bearer not-a-valid-token"},
+        )
+
+    assert rejected.status_code == 401
+    assert rejected.json()["code"] == "AUTHENTICATION_REQUIRED"
 
 
 def test_research_routes_reject_missing_governance_scope() -> None:

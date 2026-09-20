@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from video_media_catalog.api import APISettings, create_app
-from video_media_catalog.api_auth import Principal
+from video_media_catalog.api_auth import AuthenticationError, Principal
 from video_media_catalog.assertions import SourceNodeRef
 from video_media_catalog.community_snapshot import SILVER_SNAPSHOT_MEDIA_TYPE
 from video_media_catalog.identity_curation import (
@@ -60,6 +60,11 @@ class StaticVerifier:
 
     def verify(self, _token: str) -> Principal:
         return Principal(subject=self.subject, scopes=self.scopes)
+
+
+class RejectingVerifier:
+    def verify(self, _token: str) -> Principal:
+        raise AuthenticationError("bearer token verification failed")
 
 
 class StaticReviewReader:
@@ -181,6 +186,7 @@ def test_review_read_endpoints_require_governance_scope() -> None:
 
     assert unauthenticated.status_code == 401
     assert queue.status_code == 200
+    assert "ownerSubject" not in str(queue.json())
     assert queue.json()["items"][0]["conflict"]["conflictKey"] == (
         reader.conflict.conflict_key
     )
@@ -190,6 +196,22 @@ def test_review_read_endpoints_require_governance_scope() -> None:
     assert manifest.json()["operatorSubject"] == "operator-1"
     assert write_attempt.status_code == 405
     assert search.transport.requests == []
+
+
+def test_review_routes_reject_bad_token() -> None:
+    app = create_app(
+        _settings(),
+        client=FakeOpenSearch(),
+        verifier=RejectingVerifier(),
+        review_reader=StaticReviewReader(),
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v2/research/identity-conflicts",
+            headers={"Authorization": "Bearer not-a-valid-token"},
+        )
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTHENTICATION_REQUIRED"
 
 
 def test_review_routes_fail_closed_for_missing_scope() -> None:

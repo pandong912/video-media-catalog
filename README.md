@@ -1088,8 +1088,8 @@ API Pod 必须使用独立 ServiceAccount/IRSA，仅授予读 alias 所需的 Op
 `GET /<alias>/_search` 发送，不需要 POST。除 `/healthz` 外，请求复用同源
 `Authorization: Bearer <JWT>`。
 服务校验 JWT 签名、`iss`、`aud`、`exp`、非空 `sub`；v2 research 路由固定
-要求 `governance.read` 且 `sub` 与唯一配置值逐字节相同，不会记录 token。
-缺少 owner subject 或其他 OIDC 配置时生产服务拒绝启动。
+要求 `governance.read`，不会记录 token。operator subject 仅出现在 curation
+audit 字段中。缺少 issuer/JWKS/audience 时生产服务拒绝启动。
 仅测试可同时设置
 `MEDIA_CATALOG_ENVIRONMENT=test` 与 `MEDIA_CATALOG_AUTH_DISABLED=true`。
 

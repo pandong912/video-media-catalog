@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterable
+from contextlib import suppress
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import TracebackType
+from typing import Self
 
 from video_media_catalog.canonical import sha256_digest
 from video_media_catalog.connector import (
@@ -19,6 +25,120 @@ from video_media_catalog.v2_contracts import V2ContractModel
 
 CONTROL_OBJECT_MAX_BYTES = 16 * 1024 * 1024
 DEFAULT_RECORD_SHARD_BYTES = 8 * 1024 * 1024
+ENVELOPE_KEY_INDEX_CACHE_KIB = 2 * 1024
+_ENVELOPE_KEY_INDEX_COMMIT_INTERVAL = 10_000
+
+
+class _EnvelopeKeyIndex:
+    """Exact disk-backed uniqueness index with a fixed SQLite page cache."""
+
+    def __init__(self) -> None:
+        self._directory: TemporaryDirectory[str] | None = None
+        self._database_path: Path | None = None
+        self._connection: sqlite3.Connection | None = None
+        self._pending = 0
+
+    @property
+    def database_path(self) -> Path:
+        if self._database_path is None:
+            raise RuntimeError("envelope key index is not open")
+        return self._database_path
+
+    @property
+    def cache_limit_bytes(self) -> int:
+        if self._connection is None:
+            raise RuntimeError("envelope key index is not open")
+        configured = int(self._connection.execute("PRAGMA cache_size").fetchone()[0])
+        if configured < 0:
+            return abs(configured) * 1024
+        page_size = int(self._connection.execute("PRAGMA page_size").fetchone()[0])
+        return configured * page_size
+
+    @property
+    def uses_file_temp_storage(self) -> bool:
+        if self._connection is None:
+            raise RuntimeError("envelope key index is not open")
+        configured = self._connection.execute("PRAGMA temp_store").fetchone()[0]
+        return int(configured) == 1
+
+    def __enter__(self) -> Self:
+        directory = TemporaryDirectory(prefix="connector-envelope-keys-")
+        database_path = Path(directory.name) / "keys.sqlite3"
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = sqlite3.connect(
+                database_path,
+                cached_statements=1,
+            )
+            connection.execute(f"PRAGMA cache_size = -{ENVELOPE_KEY_INDEX_CACHE_KIB}")
+            connection.execute("PRAGMA temp_store = FILE")
+            connection.execute("PRAGMA journal_mode = DELETE")
+            connection.execute(
+                """
+                CREATE TABLE envelope_keys (
+                    envelope_key TEXT PRIMARY KEY NOT NULL
+                ) WITHOUT ROWID
+                """
+            )
+        except BaseException:
+            if connection is not None:
+                with suppress(sqlite3.Error):
+                    connection.close()
+            with suppress(OSError):
+                directory.cleanup()
+            raise
+        self._directory = directory
+        self._database_path = database_path
+        self._connection = connection
+        return self
+
+    def add(self, envelope_key: str) -> None:
+        if self._connection is None:
+            raise RuntimeError("envelope key index is not open")
+        try:
+            self._connection.execute(
+                "INSERT INTO envelope_keys(envelope_key) VALUES (?)",
+                (envelope_key,),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(
+                "connector output contains duplicate envelope keys"
+            ) from None
+        self._pending += 1
+        if self._pending >= _ENVELOPE_KEY_INDEX_COMMIT_INTERVAL:
+            self._connection.commit()
+            self._pending = 0
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        connection = self._connection
+        directory = self._directory
+        self._connection = None
+        self._directory = None
+        self._database_path = None
+        try:
+            if connection is not None:
+                if exc_type is None:
+                    try:
+                        connection.commit()
+                    finally:
+                        connection.close()
+                else:
+                    with suppress(sqlite3.Error):
+                        connection.rollback()
+                    with suppress(sqlite3.Error):
+                        connection.close()
+        finally:
+            if directory is not None:
+                if exc_type is None:
+                    directory.cleanup()
+                else:
+                    with suppress(OSError):
+                        directory.cleanup()
 
 
 class PublishedConnectorCapture(V2ContractModel):
@@ -60,7 +180,6 @@ def publish_connector_capture(
     first_key: str | None = None
     last_key: str | None = None
     record_count = 0
-    seen_envelope_keys: set[str] = set()
 
     def flush_shard() -> None:
         nonlocal shard, shard_index
@@ -88,20 +207,19 @@ def publish_connector_capture(
         shard = bytearray()
         shard_index += 1
 
-    for envelope in envelopes:
-        validate_envelope_against_batch(batch, envelope)
-        if envelope.envelope_key in seen_envelope_keys:
-            raise ValueError("connector output contains duplicate envelope keys")
-        seen_envelope_keys.add(envelope.envelope_key)
-        line = envelope.json_bytes()
-        if len(line) > record_shard_bytes:
-            raise ValueError("one connector record exceeds shard byte limit")
-        if shard and len(shard) + len(line) > record_shard_bytes:
-            flush_shard()
-        shard.extend(line)
-        first_key = first_key or envelope.envelope_key
-        last_key = envelope.envelope_key
-        record_count += 1
+    with _EnvelopeKeyIndex() as envelope_keys:
+        for envelope in envelopes:
+            validate_envelope_against_batch(batch, envelope)
+            envelope_keys.add(envelope.envelope_key)
+            line = envelope.json_bytes()
+            if len(line) > record_shard_bytes:
+                raise ValueError("one connector record exceeds shard byte limit")
+            if shard and len(shard) + len(line) > record_shard_bytes:
+                flush_shard()
+            shard.extend(line)
+            first_key = first_key or envelope.envelope_key
+            last_key = envelope.envelope_key
+            record_count += 1
     flush_shard()
 
     if record_count != batch.record_count:

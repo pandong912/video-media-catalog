@@ -4,7 +4,9 @@ import base64
 import hashlib
 import io
 import json
+import tempfile
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import ClassVar
 from urllib.parse import urlparse, urlunparse
 
@@ -27,9 +29,10 @@ from video_media_catalog.object_store import BoundedObjectStore, ObjectStoreErro
 from video_media_catalog.record_shard_materialization import (
     MaterializedRecordShard,
     bind_materialized_shards,
-    default_record_staging_prefix,
     materialize_record_shards,
     record_staging_uri,
+    resolve_record_staging_prefix,
+    validate_record_staging_prefix,
 )
 from video_media_catalog.source_silver import build_source_silver_rows
 from video_media_catalog.tvmaze import (
@@ -39,6 +42,12 @@ from video_media_catalog.tvmaze import (
     TVMAZE_SOURCE_SYSTEM_ID,
     tvmaze_rights_profile,
 )
+
+WAREHOUSE = "s3://bucket/community-warehouse"
+CONTROL_STAGING_PREFIX = (
+    "s3://bucket/community-warehouse/research/control/record-shards"
+)
+LANDING_STAGING_PREFIX = "s3://bucket/landing/research/materialized-record-shards/run-1"
 
 
 class PreconditionFailure(Exception):
@@ -246,17 +255,76 @@ def _capture_record(payload_line: bytes) -> tuple[object, object, object]:
     return batch, record_set, envelope
 
 
-def test_default_record_staging_prefix_is_sibling_to_capture_objects() -> None:
-    prefix = default_record_staging_prefix("s3://bucket/captures/b1/records.ndjson")
-    assert prefix == "s3://bucket/captures/b1/_staging/record-shards"
-
-
 def test_record_staging_uri_is_checksum_addressed() -> None:
     checksum = "a" * 64
     uri = record_staging_uri("s3://bucket/staging", checksum)
     assert uri == (
         "s3://bucket/staging/sha256=" + checksum + f"/sha256:{checksum}.ndjson"
     )
+
+
+def test_validate_record_staging_prefix_accepts_control_root() -> None:
+    validated = validate_record_staging_prefix(
+        CONTROL_STAGING_PREFIX,
+        warehouse=WAREHOUSE,
+        require_s3=True,
+    )
+    assert validated == CONTROL_STAGING_PREFIX
+
+
+def test_validate_record_staging_prefix_accepts_landing_root() -> None:
+    validated = validate_record_staging_prefix(
+        LANDING_STAGING_PREFIX,
+        warehouse=WAREHOUSE,
+        require_s3=True,
+    )
+    assert validated == LANDING_STAGING_PREFIX
+
+
+def test_validate_record_staging_prefix_rejects_cross_bucket() -> None:
+    with pytest.raises(ValueError, match="catalog warehouse bucket"):
+        validate_record_staging_prefix(
+            "s3://other-bucket/community-warehouse/research/control",
+            warehouse=WAREHOUSE,
+            require_s3=True,
+        )
+
+
+def test_validate_record_staging_prefix_rejects_disallowed_prefix() -> None:
+    with pytest.raises(ValueError, match="allowed catalog write path"):
+        validate_record_staging_prefix(
+            "s3://bucket/captures/b1/_staging/record-shards",
+            warehouse=WAREHOUSE,
+            require_s3=True,
+        )
+
+
+def test_resolve_record_staging_prefix_requires_explicit_s3_prefix() -> None:
+    reference = _s3_ref(_sample_envelope_bytes())
+    with pytest.raises(ValueError, match="requires --record-staging-prefix"):
+        resolve_record_staging_prefix(
+            None,
+            warehouse=WAREHOUSE,
+            references=(reference,),
+        )
+
+
+def test_materialize_rejects_missing_s3_staging_prefix(tmp_path: Path) -> None:
+    payload = _sample_envelope_bytes()
+    reference = _s3_ref(payload)
+    store = BoundedObjectStore(
+        client=VersionedRaceClient(
+            versioned_payload=payload,
+            latest_payload=payload,
+        )
+    )
+    with pytest.raises(ValueError, match="requires staging prefix"):
+        materialize_record_shards(
+            store,
+            (reference,),
+            scratch_dir=tmp_path,
+            max_bytes=len(payload),
+        )
 
 
 def test_materialize_s3_shard_uses_version_id_after_latest_overwrite(
@@ -284,6 +352,7 @@ def test_materialize_s3_shard_uses_version_id_after_latest_overwrite(
     materialized = materialize_record_shards(
         store,
         (reference,),
+        staging_prefix=CONTROL_STAGING_PREFIX,
         scratch_dir=tmp_path,
         max_bytes=len(original),
     )[0]
@@ -312,12 +381,14 @@ def test_materialize_reuses_existing_staging_with_matching_checksum(
     first = materialize_record_shards(
         store,
         (reference,),
+        staging_prefix=CONTROL_STAGING_PREFIX,
         scratch_dir=tmp_path / "one",
         max_bytes=len(payload),
     )[0]
     second = materialize_record_shards(
         store,
         (reference,),
+        staging_prefix=CONTROL_STAGING_PREFIX,
         scratch_dir=tmp_path / "two",
         max_bytes=len(payload),
     )[0]
@@ -372,6 +443,93 @@ def test_materialize_file_shard_preserves_percent_encoded_paths(tmp_path: Path) 
         max_bytes=len(payload),
     )[0]
     assert Path(materialized.spark_uri).read_bytes() == payload
+
+
+def test_scratch_lifecycle_cleans_after_file_materialize_success(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "records.ndjson"
+    payload = _sample_envelope_bytes()
+    path.write_bytes(payload)
+    reference = ObjectRef(
+        uri=path.as_uri(),
+        format="OBJECT_FORMAT_OTHER",
+        media_type=(
+            "application/vnd.video-media-catalog.connector-record-envelope.v2+ndjson"
+        ),
+        checksum=Checksum(value=hashlib.sha256(payload).hexdigest()),
+        size_bytes=len(payload),
+        created_at="2026-09-20T00:00:00Z",
+    )
+    with TemporaryDirectory(prefix="record-shard-scratch-") as scratch_name:
+        scratch = Path(scratch_name)
+        materialize_record_shards(
+            BoundedObjectStore(client=object()),
+            (reference,),
+            scratch_dir=scratch,
+            max_bytes=len(payload),
+        )
+        assert any(scratch.iterdir())
+        scratch_path = Path(scratch_name)
+    assert not scratch_path.exists()
+
+
+def test_scratch_lifecycle_cleans_after_s3_materialize_failure(
+    tmp_path: Path,
+) -> None:
+    payload = _sample_envelope_bytes()
+    reference = _s3_ref(payload).model_copy(
+        update={"checksum": Checksum(value="0" * 64)},
+    )
+    store = BoundedObjectStore(
+        client=VersionedRaceClient(
+            versioned_payload=payload,
+            latest_payload=payload,
+        )
+    )
+    with TemporaryDirectory(prefix="record-shard-scratch-") as scratch_name:
+        scratch = Path(scratch_name)
+        with pytest.raises(ObjectStoreError, match="checksum"):
+            store.verify(reference, max_bytes=len(payload))
+            materialize_record_shards(
+                store,
+                (reference,),
+                staging_prefix=CONTROL_STAGING_PREFIX,
+                scratch_dir=scratch,
+                max_bytes=len(payload),
+            )
+        scratch_path = Path(scratch_name)
+    assert not scratch_path.exists()
+
+
+def test_materialize_does_not_create_orphan_temp_dirs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mkdtemp_calls: list[str] = []
+    original_mkdtemp = tempfile.mkdtemp
+
+    def tracked_mkdtemp(*args: object, **kwargs: object) -> str:
+        mkdtemp_calls.append(str(args))
+        return original_mkdtemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkdtemp", tracked_mkdtemp)
+    payload = _sample_envelope_bytes()
+    reference = _s3_ref(payload)
+    store = BoundedObjectStore(
+        client=VersionedRaceClient(
+            versioned_payload=payload,
+            latest_payload=payload,
+        )
+    )
+    materialize_record_shards(
+        store,
+        (reference,),
+        staging_prefix=CONTROL_STAGING_PREFIX,
+        scratch_dir=tmp_path,
+        max_bytes=len(payload),
+    )
+    assert mkdtemp_calls == []
 
 
 def test_bind_materialized_shards_rejects_checksum_drift() -> None:

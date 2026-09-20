@@ -169,8 +169,9 @@ TMDB facts 固定进入 `research_private` research policy。image path 只作�
 
 同步结果中的 immutable batch/record-set ObjectRef 可提交到独立的 Silver v2
 Spark 入口。driver 会先按 VersionId/ETag 验证每个 record shard，再通过
-`GetObject(VersionId)` 物化到同 bucket/prefix 下 checksum-addressed staging，
-Spark 只读取 staged 不可变输入，不会直接读取可被覆盖的 latest key：
+`GetObject(VersionId)` 物化到 catalog warehouse bucket 内显式声明的
+checksum-addressed staging prefix，Spark 只读取 staged 不可变输入，不会直接
+读取可被覆盖的 latest key，也不会默认写入 capture sibling prefix：
 
 ```bash
 video-media-catalog-community-spark \
@@ -184,6 +185,7 @@ video-media-catalog-community-spark \
   --record-set-manifest-size <bytes> \
   --record-set-manifest-version <VersionId> \
   --record-set-manifest-etag <ETag> \
+  --record-staging-prefix s3://bucket/community-warehouse/research/control/record-shards \
   --committed-at 2026-09-19T00:00:00Z \
   --catalog-type glue \
   --catalog-name media \
@@ -191,10 +193,16 @@ video-media-catalog-community-spark \
   --warehouse s3://bucket/community-warehouse
 ```
 
-可选 `--record-staging-prefix` 覆盖默认的 sibling
-`_staging/record-shards` 路径；`--max-record-shards` 与
+S3 record shard 输入时 `--record-staging-prefix` 必填，且必须位于 catalog
+warehouse bucket 内、落在允许写入的 research staging 路径下，例如
+`<warehouse>/research/control/...` 或
+`landing/research/materialized-record-shards/...`。缺失或越界 prefix 直接
+fail closed。GitOps research source-silver 模板应传入同一 bucket 内已授权
+的 staging prefix（infra 侧 values/helpers 约束）；`--max-record-shards` 与
 `--max-record-object-bytes` 共同限制 driver 物化规模。已存在的 staging
-对象仅在 checksum/size 完全一致时复用，否则 fail closed。
+对象仅在 checksum/size 完全一致时复用，否则 fail closed。driver 在
+verify→materialize→Spark mapping 全生命周期内持有 scratch TemporaryDirectory，
+失败或 Spark 异常时自动清理本地副本。
 
 Silver 表全部带确定性 `run_id`。source/assertion/identity 行只有在
 `community_ingest_commit` 最后写入后才可见；失败运行留下的 staged rows 不会进入

@@ -129,12 +129,19 @@ window. A non-empty record set requires at least one immutable record object.
 
 Silver Spark ingestion must never read a mutable latest S3 key for a versioned
 record shard. After verifying each shard ObjectRef, the driver materializes the
-declared VersionId bytes into a checksum-addressed staging object within the
-existing capture bucket/prefix IAM scope, then Spark reads only the staged
-inputs. Materialization is commit-last and concurrent-safe: an existing staging
-object is reused only when checksum and size match, otherwise ingestion fails
-closed. Mapping validates record count and first/last envelope key bounds against
-the record-set manifest before and after projection.
+declared VersionId bytes into a checksum-addressed staging object under an
+explicit catalog warehouse staging prefix, then Spark reads only the staged
+inputs. S3 record shards require `--record-staging-prefix`; the prefix must stay
+within the catalog warehouse bucket and under an allowed research write path such
+as `<warehouse>/research/control/...` or
+`landing/research/materialized-record-shards/...`. Missing or out-of-scope
+prefixes fail closed; capture sibling prefixes are not used by default.
+Materialization is commit-last and concurrent-safe: an existing staging object is
+reused only when checksum and size match, otherwise ingestion fails closed. The
+driver owns a scratch TemporaryDirectory for verify→materialize→mapping and
+cleans local copies on success or failure. Mapping validates record count and
+first/last envelope key bounds against the record-set manifest before and after
+projection.
 
 Concrete deletion rules are fail-closed:
 

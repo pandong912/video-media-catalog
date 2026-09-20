@@ -26,6 +26,7 @@ from video_media_catalog.object_store import (
 from video_media_catalog.record_shard_materialization import (
     MAX_RECORD_SHARD_COUNT,
     materialize_record_shards,
+    resolve_record_staging_prefix,
 )
 from video_media_catalog.source_silver import (
     build_source_silver_dataframes,
@@ -82,8 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--record-staging-prefix",
         help=(
-            "optional S3/file prefix for checksum-addressed record shard staging; "
-            "defaults to a sibling _staging/record-shards path"
+            "required S3 prefix for checksum-addressed record shard staging when "
+            "record shards use s3://; must stay within the catalog warehouse "
+            "bucket under warehouse/research/control or "
+            "landing/research/materialized-record-shards"
         ),
     )
     parser.add_argument(
@@ -185,19 +188,10 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             endpoint_url=parsed.s3_endpoint,
             path_style_access=parsed.s3_path_style_access,
         )
-    for reference in batch.raw_objects:
-        store.verify(reference, max_bytes=parsed.max_raw_object_bytes)
-    for reference in record_set.record_objects:
-        store.verify(
-            reference,
-            max_bytes=parsed.max_record_object_bytes,
-        )
-    materialized_shards = materialize_record_shards(
-        store,
-        record_set.record_objects,
-        staging_prefix=parsed.record_staging_prefix,
-        max_bytes=parsed.max_record_object_bytes,
-        max_shards=parsed.max_record_shards,
+    staging_prefix = resolve_record_staging_prefix(
+        parsed.record_staging_prefix,
+        warehouse=parsed.warehouse,
+        references=record_set.record_objects,
     )
     mapper_for_product(batch.source_product_id)
 
@@ -225,31 +219,48 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         builder = builder.config("spark.jars.packages", parsed.spark_packages)
     spark = builder.getOrCreate()
     frames = None
-    try:
-        ingest_run, frames = build_source_silver_dataframes(
-            spark,
-            registry=build_community_registry(),
-            batch=batch,
-            record_set=record_set,
-            materialized_shards=materialized_shards,
+    with tempfile.TemporaryDirectory(prefix="community-catalog-scratch-") as scratch:
+        scratch_dir = Path(scratch)
+        for reference in batch.raw_objects:
+            store.verify(reference, max_bytes=parsed.max_raw_object_bytes)
+        for reference in record_set.record_objects:
+            store.verify(
+                reference,
+                max_bytes=parsed.max_record_object_bytes,
+            )
+        materialized_shards = materialize_record_shards(
+            store,
+            record_set.record_objects,
+            staging_prefix=staging_prefix,
+            scratch_dir=scratch_dir,
+            max_bytes=parsed.max_record_object_bytes,
+            max_shards=parsed.max_record_shards,
         )
-        commit = CommunityCatalogTables(spark, config).stage_and_commit(
-            run=ingest_run,
-            dataframes=frames,
-            committed_at=parsed.committed_at,
-        )
-        return {
-            "runId": ingest_run.run_id,
-            "commitKey": commit.commit_key,
-            "sourceProductId": ingest_run.source_product_id,
-            "tableCounts": commit.table_counts,
-            "tableSnapshotIds": commit.table_snapshot_ids,
-        }
-    finally:
-        if frames is not None:
-            for frame in frames.values():
-                frame.unpersist()
-        spark.stop()
+        try:
+            ingest_run, frames = build_source_silver_dataframes(
+                spark,
+                registry=build_community_registry(),
+                batch=batch,
+                record_set=record_set,
+                materialized_shards=materialized_shards,
+            )
+            commit = CommunityCatalogTables(spark, config).stage_and_commit(
+                run=ingest_run,
+                dataframes=frames,
+                committed_at=parsed.committed_at,
+            )
+            return {
+                "runId": ingest_run.run_id,
+                "commitKey": commit.commit_key,
+                "sourceProductId": ingest_run.source_product_id,
+                "tableCounts": commit.table_counts,
+                "tableSnapshotIds": commit.table_snapshot_ids,
+            }
+        finally:
+            if frames is not None:
+                for frame in frames.values():
+                    frame.unpersist()
+            spark.stop()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from video_media_catalog.connector import ConnectorRecordSetManifest
 from video_media_catalog.models import ObjectRef
@@ -17,7 +16,7 @@ from video_media_catalog.spark_input import spark_uri
 from video_media_catalog.storage import digest_file, local_path, publish_file_immutable
 
 MAX_RECORD_SHARD_COUNT = 4096
-RECORD_STAGING_SEGMENT = "_staging/record-shards"
+LANDING_RECORD_STAGING_ROOT = "landing/research/materialized-record-shards"
 
 
 def _spark_input_uri(uri: str) -> str:
@@ -57,19 +56,102 @@ def materialized_shard_from_reference(reference: ObjectRef) -> MaterializedRecor
     )
 
 
-def default_record_staging_prefix(*uris: str) -> str:
-    """Derive a sibling staging prefix from versioned record object URIs."""
-
-    if not uris:
-        raise ValueError("record staging prefix requires at least one object URI")
-    parsed = urlsplit(uris[0])
+def _warehouse_bucket_and_key(warehouse: str) -> tuple[str, str]:
+    parsed = urlsplit(warehouse.rstrip("/"))
+    if parsed.scheme not in {"file", "s3", "s3a"}:
+        raise ValueError("warehouse must use file://, s3://, or s3a://")
+    if parsed.query or parsed.fragment or parsed.username or parsed.password:
+        raise ValueError("warehouse must not contain credentials/query/fragment")
     if parsed.scheme == "file":
-        parent = local_path(uris[0]).resolve().parent
-        return join_uri(parent.as_uri(), RECORD_STAGING_SEGMENT)
-    if parsed.scheme != "s3":
-        raise ValueError("record staging prefix requires file:// or s3:// URIs")
-    parent = parsed.path.rsplit("/", 1)[0]
-    return f"s3://{parsed.netloc}{parent}/{RECORD_STAGING_SEGMENT}"
+        return "", unquote(parsed.path.lstrip("/"))
+    if not parsed.netloc or not parsed.path.lstrip("/"):
+        raise ValueError("warehouse must include bucket and key prefix")
+    return parsed.netloc, unquote(parsed.path.lstrip("/"))
+
+
+def _staging_bucket_and_key(staging_prefix: str) -> tuple[str, str]:
+    parsed = urlsplit(staging_prefix.rstrip("/"))
+    if parsed.scheme not in {"file", "s3"}:
+        raise ValueError("record staging prefix must use file:// or s3://")
+    if parsed.query or parsed.fragment or parsed.username or parsed.password:
+        raise ValueError(
+            "record staging prefix must not contain credentials/query/fragment"
+        )
+    if parsed.scheme == "file":
+        key = unquote(parsed.path.lstrip("/"))
+        if not key:
+            raise ValueError("file record staging prefix must include a directory path")
+        return "", key
+    if not parsed.netloc or not parsed.path.lstrip("/"):
+        raise ValueError("S3 record staging prefix must include bucket and key prefix")
+    return parsed.netloc, unquote(parsed.path.lstrip("/"))
+
+
+def _allowed_record_staging_roots(warehouse_key: str) -> tuple[str, ...]:
+    control_root = "/".join(
+        part for part in (warehouse_key.rstrip("/"), "research", "control") if part
+    )
+    return (control_root, LANDING_RECORD_STAGING_ROOT)
+
+
+def validate_record_staging_prefix(
+    staging_prefix: str,
+    *,
+    warehouse: str,
+    require_s3: bool,
+) -> str:
+    """Ensure staging stays within catalog-bucket writable research paths."""
+
+    normalized = staging_prefix.rstrip("/")
+    staging_bucket, staging_key = _staging_bucket_and_key(normalized)
+    warehouse_bucket, warehouse_key = _warehouse_bucket_and_key(warehouse)
+    scheme = urlsplit(normalized).scheme
+    if require_s3:
+        if scheme != "s3":
+            raise ValueError("S3 record shards require s3:// record staging prefix")
+        if urlsplit(warehouse).scheme not in {"s3", "s3a"}:
+            raise ValueError("S3 record staging requires S3 warehouse")
+        if staging_bucket != warehouse_bucket:
+            raise ValueError("record staging prefix must use catalog warehouse bucket")
+        if not any(
+            staging_key == root or staging_key.startswith(f"{root}/")
+            for root in _allowed_record_staging_roots(warehouse_key)
+        ):
+            raise ValueError(
+                "record staging prefix is not under an allowed catalog write path"
+            )
+        return normalized
+    if scheme == "s3" and warehouse_bucket and staging_bucket != warehouse_bucket:
+        raise ValueError("record staging prefix must use catalog warehouse bucket")
+    return normalized
+
+
+def resolve_record_staging_prefix(
+    staging_prefix: str | None,
+    *,
+    warehouse: str,
+    references: Sequence[ObjectRef],
+) -> str | None:
+    requires_s3 = any(
+        urlsplit(reference.uri).scheme == "s3" for reference in references
+    )
+    if requires_s3:
+        if not staging_prefix:
+            raise ValueError(
+                "S3 record shard materialization requires --record-staging-prefix"
+            )
+        return validate_record_staging_prefix(
+            staging_prefix,
+            warehouse=warehouse,
+            require_s3=True,
+        )
+    if staging_prefix:
+        return validate_record_staging_prefix(
+            staging_prefix,
+            warehouse=warehouse,
+            require_s3=False,
+        )
+    return None
 
 
 def _envelope_key_bounds(path: Path) -> tuple[str, str]:
@@ -144,30 +226,23 @@ def _materialize_s3_shard(
         raise ValueError("S3 record shard requires VersionId and ETag")
     checksum = reference.checksum.value
     destination_uri = record_staging_uri(staging_prefix, checksum)
-    with tempfile.TemporaryDirectory(
-        prefix="record-shard-download-",
-        dir=scratch_dir,
-    ) as directory:
-        downloaded = store.download(
-            reference,
-            Path(directory) / "source.ndjson",
-            max_bytes=max_bytes,
-        )
-        if (
-            downloaded.sha256 != checksum
-            or downloaded.size_bytes != reference.size_bytes
-        ):
-            raise ValueError(
-                "downloaded record shard differs from immutable declaration"
-            )
-        first_key, last_key = _envelope_key_bounds(downloaded.path)
-        uploaded = store.upload_file(
-            downloaded.path,
-            destination_uri,
-            media_type=reference.media_type,
-            object_format=reference.format,
-            max_bytes=max_bytes,
-        )
+    download_path = scratch_dir / f"download-sha256={checksum[:16]}" / "source.ndjson"
+    download_path.parent.mkdir(parents=True, exist_ok=True)
+    downloaded = store.download(
+        reference,
+        download_path,
+        max_bytes=max_bytes,
+    )
+    if downloaded.sha256 != checksum or downloaded.size_bytes != reference.size_bytes:
+        raise ValueError("downloaded record shard differs from immutable declaration")
+    first_key, last_key = _envelope_key_bounds(downloaded.path)
+    uploaded = store.upload_file(
+        downloaded.path,
+        destination_uri,
+        media_type=reference.media_type,
+        object_format=reference.format,
+        max_bytes=max_bytes,
+    )
     staged = uploaded.object_ref
     if staged.checksum.value != checksum or staged.size_bytes != reference.size_bytes:
         raise ValueError("staged record shard differs from immutable declaration")
@@ -186,7 +261,7 @@ def materialize_record_shards(
     references: Sequence[ObjectRef],
     *,
     staging_prefix: str | None = None,
-    scratch_dir: Path | None = None,
+    scratch_dir: Path,
     max_bytes: int,
     max_shards: int = MAX_RECORD_SHARD_COUNT,
 ) -> tuple[MaterializedRecordShard, ...]:
@@ -200,18 +275,12 @@ def materialize_record_shards(
         raise ValueError("record shard count exceeds configured limit")
     if not references:
         return ()
-    resolved_scratch = scratch_dir or Path(
-        tempfile.mkdtemp(prefix="record-shard-materialize-")
-    )
-    resolved_scratch.mkdir(parents=True, exist_ok=True)
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     s3_refs = [
         reference for reference in references if urlsplit(reference.uri).scheme == "s3"
     ]
-    resolved_staging = staging_prefix or (
-        default_record_staging_prefix(*(item.uri for item in s3_refs))
-        if s3_refs
-        else None
-    )
+    if s3_refs and staging_prefix is None:
+        raise ValueError("S3 record shard materialization requires staging prefix")
     materialized: list[MaterializedRecordShard] = []
     for reference in references:
         scheme = urlsplit(reference.uri).scheme
@@ -219,21 +288,20 @@ def materialize_record_shards(
             materialized.append(
                 _materialize_file_shard(
                     reference,
-                    scratch_dir=resolved_scratch,
+                    scratch_dir=scratch_dir,
                     max_bytes=max_bytes,
                 )
             )
             continue
         if scheme != "s3":
             raise ValueError("record shard URI must use file:// or s3://")
-        if resolved_staging is None:
-            raise ValueError("S3 record shard materialization requires staging prefix")
+        assert staging_prefix is not None
         materialized.append(
             _materialize_s3_shard(
                 store,
                 reference,
-                staging_prefix=resolved_staging,
-                scratch_dir=resolved_scratch,
+                staging_prefix=staging_prefix,
+                scratch_dir=scratch_dir,
                 max_bytes=max_bytes,
             )
         )

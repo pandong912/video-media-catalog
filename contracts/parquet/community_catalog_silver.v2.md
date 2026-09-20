@@ -86,11 +86,15 @@ AWS default credential chain, including an EMR Serverless execution role. They
 do not accept static credentials or provision infrastructure.
 
 `video-media-catalog-community-spark` verifies every record shard ObjectRef,
-materializes versioned S3 bytes into checksum-addressed staging within the
-existing capture prefix, and only then hands Spark immutable staged URIs.
-Spark must not read unversioned `s3://` keys for declared record shards.
-Materialized inputs remain bound to the source checksum and byte size through
-mapping, and the mapper rejects record count or envelope key bound drift.
+materializes versioned S3 bytes into checksum-addressed staging under an explicit
+catalog warehouse staging prefix, and only then hands Spark immutable staged
+URIs. S3 inputs require `--record-staging-prefix` within the warehouse bucket
+and an allowed research write path; capture sibling prefixes are not used by
+default. Spark must not read unversioned `s3://` keys for declared record
+shards. Materialized inputs remain bound to the source checksum and byte size
+through mapping, and the mapper rejects record count or envelope key bound drift.
+The driver owns scratch TemporaryDirectory cleanup across verify, materialize,
+and mapping.
 
 ## Run tables
 

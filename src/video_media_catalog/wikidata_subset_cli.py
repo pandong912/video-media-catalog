@@ -542,39 +542,58 @@ def _publish_s3_part(
         raise RuntimeError("temporary subset part has no readable body")
     published_version: str | None = None
     try:
-        try:
-            published = s3.put_object(
-                Bucket=destination.bucket,
-                Key=destination.key,
-                Body=body,
-                ContentLength=size,
-                ContentType="application/x-bzip2",
-                Metadata={
-                    "sha256": sha256,
-                    "config-digest": config_digest,
-                    "dump-sha256": dump_sha256,
-                    "algorithm-id": algorithm_id,
-                },
-                ChecksumSHA256=base64.b64encode(bytes.fromhex(sha256)).decode("ascii"),
-                IfNoneMatch="*",
-            )
-            published_version = published.get("VersionId")
-        except Exception as exc:
-            if not _is_precondition_failure(exc):
-                raise
-            existing = _verify_existing_output(
-                s3,
-                destination,
-                sha256=sha256,
-                size=size,
-                config_digest=config_digest,
-                dump_sha256=dump_sha256,
-                max_bytes=max_bytes,
-                algorithm_id=algorithm_id,
-            )
-            if existing is None:
-                raise
-            return existing
+        with tempfile.TemporaryFile(
+            prefix="wikidata-subset-publish-",
+        ) as seekable_body:
+            copied_hash = hashlib.sha256()
+            copied_size = 0
+            while True:
+                chunk = body.read(S3_STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                copied_size += len(chunk)
+                if copied_size > max_bytes:
+                    raise ValueError("temporary subset part exceeds configured bound")
+                copied_hash.update(chunk)
+                seekable_body.write(chunk)
+            if copied_size != size or copied_hash.hexdigest() != sha256:
+                raise RuntimeError("temporary subset part changed while publishing")
+            seekable_body.seek(0)
+            try:
+                published = s3.put_object(
+                    Bucket=destination.bucket,
+                    Key=destination.key,
+                    Body=seekable_body,
+                    ContentLength=size,
+                    ContentType="application/x-bzip2",
+                    Metadata={
+                        "sha256": sha256,
+                        "config-digest": config_digest,
+                        "dump-sha256": dump_sha256,
+                        "algorithm-id": algorithm_id,
+                    },
+                    ChecksumSHA256=base64.b64encode(bytes.fromhex(sha256)).decode(
+                        "ascii"
+                    ),
+                    IfNoneMatch="*",
+                )
+                published_version = published.get("VersionId")
+            except Exception as exc:
+                if not _is_precondition_failure(exc):
+                    raise
+                existing = _verify_existing_output(
+                    s3,
+                    destination,
+                    sha256=sha256,
+                    size=size,
+                    config_digest=config_digest,
+                    dump_sha256=dump_sha256,
+                    max_bytes=max_bytes,
+                    algorithm_id=algorithm_id,
+                )
+                if existing is None:
+                    raise
+                return existing
     finally:
         body.close()
     if (

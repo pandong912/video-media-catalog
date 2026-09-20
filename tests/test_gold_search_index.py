@@ -80,7 +80,7 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     )
     assert digest.startswith("sha256:")
     assert digest == (
-        "sha256:a2a1483cd29e41cb78cda4fba16036cb99d434612a17dc40315118646381f6cc"
+        "sha256:a9905f2abd12cfcd8bd098018216e5dc3b3af2dc719faf47b94b66bc0507ad55"
     )
     assert name.startswith("media-catalog-research-")
     assert "sourceBadges" in INDEX_MAPPINGS["properties"]

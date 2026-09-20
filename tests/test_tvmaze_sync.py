@@ -14,6 +14,7 @@ from video_media_catalog.tvmaze_sync import (
     TVMazePageFetch,
     capture_tvmaze_show_delta,
     capture_tvmaze_show_index,
+    plan_tvmaze_delta_windows,
 )
 
 
@@ -54,6 +55,27 @@ class EmptyDeltaFetcher:
 
     def fetch_show(self, show_id: int) -> TVMazePageFetch:
         raise AssertionError(show_id)
+
+
+class ManyDeltaFetcher:
+    def __init__(self) -> None:
+        self.updates = {
+            "1": 1_700_000_001,
+            "2": 1_700_000_002,
+            "3": 1_700_000_003,
+        }
+        self.show_calls: list[int] = []
+
+    def fetch_updates(self, since: str) -> TVMazePageFetch:
+        assert since == "day"
+        return TVMazePageFetch(
+            status=200,
+            body=json.dumps(self.updates).encode(),
+        )
+
+    def fetch_show(self, show_id: int) -> TVMazePageFetch:
+        self.show_calls.append(show_id)
+        return TVMazePageFetch(status=200, body=json.dumps(_show(show_id)).encode())
 
 
 class FakeResponse(BytesIO):
@@ -235,3 +257,43 @@ def test_tvmaze_empty_delta_commits_without_fake_records(tmp_path) -> None:
 
     assert result.batch_manifest.record_count == 0
     assert result.record_set_manifest.record_objects == ()
+
+
+def test_tvmaze_delta_requires_and_honors_explicit_bounded_window(
+    tmp_path,
+) -> None:
+    fetcher = ManyDeltaFetcher()
+    with pytest.raises(RuntimeError, match="2 explicit bounded windows"):
+        capture_tvmaze_show_delta(
+            destination_prefix=tmp_path.as_uri(),
+            acquired_at="2026-09-20T00:00:00Z",
+            image_digest="sha256:" + ("a" * 64),
+            config_digest="sha256:" + ("b" * 64),
+            since="day",
+            fetcher=fetcher,
+            store=BoundedObjectStore(client=object()),
+            max_updates=2,
+        )
+    assert fetcher.show_calls == []
+
+    plans = plan_tvmaze_delta_windows(
+        fetcher.updates,
+        window_start="2026-09-19T00:00:00Z",
+        window_end="2026-09-20T00:00:00Z",
+        max_updates=2,
+    )
+    result = capture_tvmaze_show_delta(
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        since="day",
+        fetcher=fetcher,
+        store=BoundedObjectStore(client=object()),
+        max_updates=2,
+        window_cursor=plans[0].cursor,
+    )
+
+    assert result.batch_manifest.record_count == 2
+    assert result.batch_manifest.coverage_scope["windowShardCount"] == 2
+    assert fetcher.show_calls == [1, 2]

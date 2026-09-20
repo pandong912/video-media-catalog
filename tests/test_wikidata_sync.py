@@ -15,6 +15,7 @@ from video_media_catalog.wikidata_sync import (
     MIN_MULTIPART_PART_BYTES,
     StreamingHttpResponse,
     WikidataSyncError,
+    plan_wikidata_dump_window,
     sync_official_dump,
     validate_official_dump_url,
 )
@@ -283,6 +284,9 @@ def test_streaming_multipart_hashes_and_reuses_complete_object() -> None:
         upload_part_bytes=MIN_MULTIPART_PART_BYTES,
         copy_part_bytes=MIN_MULTIPART_PART_BYTES,
         staging_token_factory=lambda: "fixed",
+        window_start="2026-09-01T00:00:00Z",
+        window_end="2026-09-01T23:59:59Z",
+        watermark="20260901",
     )
     second = sync_official_dump(
         source_url=SOURCE_URL,
@@ -297,6 +301,10 @@ def test_streaming_multipart_hashes_and_reuses_complete_object() -> None:
     assert first.size_bytes == len(payload)
     assert first.etag and first.object_version
     assert first.source_url == SOURCE_URL
+    assert first.window_start == "2026-09-01T00:00:00Z"
+    assert first.window_end == "2026-09-01T23:59:59Z"
+    assert first.cursor is not None
+    assert first.watermark == "20260901"
     assert not first.reused
     assert second.reused
     assert second.uri == first.uri
@@ -643,6 +651,14 @@ def test_cli_exposes_range_retry_configuration() -> None:
             "0.5",
             "--retry-max-backoff-seconds",
             "9",
+            "--window-start",
+            "2026-09-01T00:00:00Z",
+            "--window-end",
+            "2026-09-01T23:59:59Z",
+            "--cursor",
+            "dump-20260901",
+            "--watermark",
+            "20260901",
         ]
     )
 
@@ -654,6 +670,21 @@ def test_cli_exposes_range_retry_configuration() -> None:
     assert configured.range_attempts == 7
     assert configured.retry_initial_backoff_seconds == 0.5
     assert configured.retry_max_backoff_seconds == 9
+    assert configured.window_start == "2026-09-01T00:00:00Z"
+    assert configured.window_end == "2026-09-01T23:59:59Z"
+    assert configured.cursor == "dump-20260901"
+    assert configured.watermark == "20260901"
+
+
+def test_wikidata_dump_window_planning_is_offline_and_deterministic() -> None:
+    first = plan_wikidata_dump_window(SOURCE_URL)
+    second = plan_wikidata_dump_window(SOURCE_URL)
+
+    assert first == second
+    assert first.window_start == "2026-09-01T00:00:00Z"
+    assert first.window_end == "2026-09-01T23:59:59Z"
+    assert first.item_count == 1
+    assert first.watermark == "20260901"
 
 
 @pytest.mark.parametrize(

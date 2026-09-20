@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from enum import StrEnum
-from typing import Any, Protocol, Self
+from typing import Any, Literal, Protocol, Self
 from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
@@ -75,7 +75,7 @@ def _validate_immutable_ref(reference: ObjectRef, *, label: str) -> None:
     scheme = urlsplit(reference.uri).scheme
     if scheme not in {"file", "s3"}:
         raise ValueError(f"{label} must use file:// or s3://")
-    if scheme == "s3" and (reference.etag is None or reference.object_version is None):
+    if scheme == "s3" and (not reference.etag or not reference.object_version):
         raise ValueError(f"{label} S3 ObjectRef requires ETag and object version")
     if reference.size_bytes <= 0:
         raise ValueError(f"{label} must be non-empty")
@@ -95,6 +95,444 @@ class SourceWindow(V2ContractModel):
         if parse_rfc3339(self.end) < parse_rfc3339(self.start):
             raise ValueError("source window end must not precede start")
         return self
+
+
+class CaptureWindowStatus(StrEnum):
+    """Terminal status for one immutable capture-window attempt."""
+
+    COMMITTED = "COMMITTED"
+    EMPTY = "EMPTY"
+    FAILED = "FAILED"
+
+
+def _normalize_control_position(
+    value: str | None,
+    *,
+    label: str,
+) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized or len(normalized) > 1024:
+        raise ValueError(f"{label} must be non-empty and bounded")
+    return normalized
+
+
+class SourceWatermark(V2ContractModel):
+    """Immutable, replayable source position after a committed capture window."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    watermark_id: str
+    source_product_id: str
+    window_start: str
+    window_end: str
+    cursor: str | None = None
+    watermark: str | None = None
+    config_digest: str
+    image_digest: str
+    policy_digest: str
+
+    @field_validator(
+        "watermark_id",
+        "config_digest",
+        "image_digest",
+        "policy_digest",
+    )
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("source_product_id")
+    @classmethod
+    def validate_source_product_id(cls, value: str) -> str:
+        return require_slug(value, label="source watermark product")
+
+    @field_validator("window_start", "window_end")
+    @classmethod
+    def validate_window_timestamp(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @field_validator("cursor", "watermark")
+    @classmethod
+    def normalize_position(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return _normalize_control_position(value, label=info.field_name)
+
+    @model_validator(mode="after")
+    def validate_watermark(self, info: ValidationInfo) -> Self:
+        if parse_rfc3339(self.window_end) < parse_rfc3339(self.window_start):
+            raise ValueError("source watermark window end must not precede start")
+        if self.cursor is None and self.watermark is None:
+            raise ValueError("source watermark requires a cursor or watermark")
+        if not (info.context or {}).get("skip_identity"):
+            expected = deterministic_key(
+                "source-watermark-v1",
+                _source_watermark_identity(self),
+            )
+            if self.watermark_id != expected:
+                raise ValueError(
+                    "watermark_id does not match immutable watermark identity"
+                )
+        return self
+
+
+def _source_watermark_identity(watermark: SourceWatermark) -> dict[str, Any]:
+    return {
+        "schemaVersion": watermark.schema_version,
+        "sourceProductId": watermark.source_product_id,
+        "windowStart": watermark.window_start,
+        "windowEnd": watermark.window_end,
+        "cursor": watermark.cursor,
+        "watermark": watermark.watermark,
+        "configDigest": watermark.config_digest,
+        "imageDigest": watermark.image_digest,
+        "policyDigest": watermark.policy_digest,
+    }
+
+
+def build_source_watermark(**values: Any) -> SourceWatermark:
+    """Build a canonical source watermark with a deterministic identity."""
+
+    provisional = SourceWatermark.model_validate(
+        {**values, "watermark_id": _ZERO_DIGEST},
+        context={"skip_identity": True},
+    )
+    normalized = provisional.model_dump(mode="python")
+    normalized["watermark_id"] = deterministic_key(
+        "source-watermark-v1",
+        _source_watermark_identity(provisional),
+    )
+    return SourceWatermark.model_validate(normalized)
+
+
+class CaptureWindowPlan(V2ContractModel):
+    """One deterministic bounded slice of an ordered changed-record inventory."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    plan_id: str
+    source_product_id: str
+    window_start: str
+    window_end: str
+    cursor: str
+    watermark: str | None = None
+    items_digest: str
+    item_offset: int = Field(ge=0)
+    item_count: int = Field(ge=0)
+    total_items: int = Field(ge=0)
+    max_items: int = Field(gt=0)
+    shard_index: int = Field(ge=0)
+    shard_count: int = Field(gt=0)
+
+    @field_validator("plan_id", "items_digest")
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("source_product_id")
+    @classmethod
+    def validate_source_product_id(cls, value: str) -> str:
+        return require_slug(value, label="capture window product")
+
+    @field_validator("window_start", "window_end")
+    @classmethod
+    def validate_window_timestamp(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @field_validator("cursor", "watermark")
+    @classmethod
+    def normalize_position(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return _normalize_control_position(value, label=info.field_name)
+
+    @model_validator(mode="after")
+    def validate_plan(self, info: ValidationInfo) -> Self:
+        if parse_rfc3339(self.window_end) < parse_rfc3339(self.window_start):
+            raise ValueError("capture window end must not precede start")
+        expected_shards = max(
+            1,
+            (self.total_items + self.max_items - 1) // self.max_items,
+        )
+        if self.shard_count != expected_shards:
+            raise ValueError("capture window shard count is inconsistent")
+        if self.shard_index >= self.shard_count:
+            raise ValueError("capture window shard index is out of range")
+        expected_offset = self.shard_index * self.max_items
+        expected_count = min(
+            self.max_items,
+            max(0, self.total_items - expected_offset),
+        )
+        if self.item_offset != expected_offset or self.item_count != expected_count:
+            raise ValueError("capture window item bounds are inconsistent")
+        if not (info.context or {}).get("skip_identity"):
+            expected = deterministic_key(
+                "capture-window-plan-v1",
+                _capture_window_plan_identity(self),
+            )
+            if self.plan_id != expected:
+                raise ValueError("plan_id does not match capture-window identity")
+        return self
+
+
+def _capture_window_plan_identity(plan: CaptureWindowPlan) -> dict[str, Any]:
+    return {
+        "schemaVersion": plan.schema_version,
+        "sourceProductId": plan.source_product_id,
+        "windowStart": plan.window_start,
+        "windowEnd": plan.window_end,
+        "cursor": plan.cursor,
+        "watermark": plan.watermark,
+        "itemsDigest": plan.items_digest,
+        "itemOffset": plan.item_offset,
+        "itemCount": plan.item_count,
+        "totalItems": plan.total_items,
+        "maxItems": plan.max_items,
+        "shardIndex": plan.shard_index,
+        "shardCount": plan.shard_count,
+    }
+
+
+def build_capture_window_plan(**values: Any) -> CaptureWindowPlan:
+    provisional = CaptureWindowPlan.model_validate(
+        {**values, "plan_id": _ZERO_DIGEST},
+        context={"skip_identity": True},
+    )
+    normalized = provisional.model_dump(mode="python")
+    normalized["plan_id"] = deterministic_key(
+        "capture-window-plan-v1",
+        _capture_window_plan_identity(provisional),
+    )
+    return CaptureWindowPlan.model_validate(normalized)
+
+
+def plan_bounded_capture_windows(
+    *,
+    source_product_id: str,
+    window_start: str,
+    window_end: str,
+    item_keys: Iterable[str],
+    max_items: int,
+    watermark: str | None = None,
+) -> tuple[CaptureWindowPlan, ...]:
+    """Partition an ordered inventory without dropping records at the limit."""
+
+    if max_items < 1:
+        raise ValueError("max_items must be positive")
+    keys = tuple(item_keys)
+    if any(not key or len(key) > 2048 for key in keys):
+        raise ValueError("capture window item keys must be non-empty and bounded")
+    if len(keys) != len(set(keys)):
+        raise ValueError("capture window item keys must be unique")
+    normalized_product = require_slug(
+        source_product_id,
+        label="capture window product",
+    )
+    normalized_start = require_rfc3339(window_start, label="window_start")
+    normalized_end = require_rfc3339(window_end, label="window_end")
+    if parse_rfc3339(normalized_end) < parse_rfc3339(normalized_start):
+        raise ValueError("capture window end must not precede start")
+    normalized_watermark = _normalize_control_position(
+        watermark,
+        label="watermark",
+    )
+    items_digest = digest_identity({"itemKeys": keys})
+    total_items = len(keys)
+    shard_count = max(1, (total_items + max_items - 1) // max_items)
+    plans: list[CaptureWindowPlan] = []
+    for shard_index in range(shard_count):
+        item_offset = shard_index * max_items
+        item_count = min(max_items, max(0, total_items - item_offset))
+        cursor = deterministic_key(
+            "capture-window-cursor-v1",
+            {
+                "sourceProductId": normalized_product,
+                "windowStart": normalized_start,
+                "windowEnd": normalized_end,
+                "itemsDigest": items_digest,
+                "itemOffset": item_offset,
+                "itemCount": item_count,
+            },
+        )
+        plans.append(
+            build_capture_window_plan(
+                source_product_id=normalized_product,
+                window_start=normalized_start,
+                window_end=normalized_end,
+                cursor=cursor,
+                watermark=normalized_watermark,
+                items_digest=items_digest,
+                item_offset=item_offset,
+                item_count=item_count,
+                total_items=total_items,
+                max_items=max_items,
+                shard_index=shard_index,
+                shard_count=shard_count,
+            )
+        )
+    return tuple(plans)
+
+
+def select_capture_window(
+    plans: Iterable[CaptureWindowPlan],
+    *,
+    cursor: str | None,
+) -> CaptureWindowPlan:
+    """Select one explicit plan, refusing ambiguous multi-window captures."""
+
+    available = tuple(plans)
+    if not available:
+        raise ValueError("capture window plan must not be empty")
+    if cursor is None:
+        if len(available) == 1:
+            return available[0]
+        raise ValueError(
+            f"capture requires one of {len(available)} explicit window cursors"
+        )
+    normalized = _normalize_control_position(cursor, label="cursor")
+    matches = [plan for plan in available if plan.cursor == normalized]
+    if len(matches) != 1:
+        raise ValueError("capture window cursor is stale or unknown")
+    return matches[0]
+
+
+class CaptureWindowReceipt(V2ContractModel):
+    """Commit-last marker binding a source window to an immutable batch object."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    receipt_id: str
+    source_product_id: str
+    window_start: str
+    window_end: str
+    cursor: str | None = None
+    watermark: str | None = None
+    batch_object: ObjectRef | None = None
+    status: CaptureWindowStatus
+    config_digest: str
+    image_digest: str
+    policy_digest: str
+
+    @field_validator(
+        "receipt_id",
+        "config_digest",
+        "image_digest",
+        "policy_digest",
+    )
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("source_product_id")
+    @classmethod
+    def validate_source_product_id(cls, value: str) -> str:
+        return require_slug(value, label="capture receipt product")
+
+    @field_validator("window_start", "window_end")
+    @classmethod
+    def validate_window_timestamp(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @field_validator("cursor", "watermark")
+    @classmethod
+    def normalize_position(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return _normalize_control_position(value, label=info.field_name)
+
+    @model_validator(mode="after")
+    def validate_receipt(self, info: ValidationInfo) -> Self:
+        if parse_rfc3339(self.window_end) < parse_rfc3339(self.window_start):
+            raise ValueError("capture receipt window end must not precede start")
+        if self.cursor is None and self.watermark is None:
+            raise ValueError("capture receipt requires a cursor or watermark")
+        committed = self.status in {
+            CaptureWindowStatus.COMMITTED,
+            CaptureWindowStatus.EMPTY,
+        }
+        if committed != (self.batch_object is not None):
+            raise ValueError(
+                "committed/empty receipt requires exactly one batch ObjectRef"
+            )
+        if self.batch_object is not None:
+            _validate_immutable_ref(
+                self.batch_object,
+                label="capture receipt batch object",
+            )
+            if (
+                self.batch_object.format != "OBJECT_FORMAT_JSON"
+                or "connector-batch" not in self.batch_object.media_type
+            ):
+                raise ValueError(
+                    "capture receipt batch object must be a connector batch JSON"
+                )
+        if not (info.context or {}).get("skip_identity"):
+            expected = deterministic_key(
+                "capture-window-receipt-v1",
+                _capture_window_receipt_identity(self),
+            )
+            if self.receipt_id != expected:
+                raise ValueError("receipt_id does not match immutable receipt identity")
+        return self
+
+
+def _capture_window_receipt_identity(
+    receipt: CaptureWindowReceipt,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": receipt.schema_version,
+        "sourceProductId": receipt.source_product_id,
+        "windowStart": receipt.window_start,
+        "windowEnd": receipt.window_end,
+        "cursor": receipt.cursor,
+        "watermark": receipt.watermark,
+        "batchObject": (
+            None
+            if receipt.batch_object is None
+            else _object_identity(receipt.batch_object)
+        ),
+        "status": receipt.status.value,
+        "configDigest": receipt.config_digest,
+        "imageDigest": receipt.image_digest,
+        "policyDigest": receipt.policy_digest,
+    }
+
+
+def build_capture_window_receipt(**values: Any) -> CaptureWindowReceipt:
+    provisional = CaptureWindowReceipt.model_validate(
+        {**values, "receipt_id": _ZERO_DIGEST},
+        context={"skip_identity": True},
+    )
+    normalized = provisional.model_dump(mode="python")
+    normalized["receipt_id"] = deterministic_key(
+        "capture-window-receipt-v1",
+        _capture_window_receipt_identity(provisional),
+    )
+    return CaptureWindowReceipt.model_validate(normalized)
+
+
+def capture_window_slot_id(receipt: CaptureWindowReceipt) -> str:
+    """Return the stable logical key used to reject divergent window replays."""
+
+    return deterministic_key(
+        "capture-window-slot-v1",
+        {
+            "sourceProductId": receipt.source_product_id,
+            "windowStart": receipt.window_start,
+            "windowEnd": receipt.window_end,
+            "cursor": receipt.cursor,
+        },
+    )
+
+
+def source_watermark_from_receipt(
+    receipt: CaptureWindowReceipt,
+) -> SourceWatermark:
+    if receipt.status == CaptureWindowStatus.FAILED:
+        raise ValueError("failed capture receipt cannot advance a source watermark")
+    return build_source_watermark(
+        source_product_id=receipt.source_product_id,
+        window_start=receipt.window_start,
+        window_end=receipt.window_end,
+        cursor=receipt.cursor,
+        watermark=receipt.watermark,
+        config_digest=receipt.config_digest,
+        image_digest=receipt.image_digest,
+        policy_digest=receipt.policy_digest,
+    )
 
 
 class ConnectorBatchManifest(V2ContractModel):

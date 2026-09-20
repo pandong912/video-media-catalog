@@ -50,6 +50,13 @@ digest、原始 `ObjectRef` 和 mapper provenance。网络采集进程只负责�
 dataset 响应；`video-media-catalog-community-spark` 只读取不可变 capture，不在
 Spark executor 中访问外网。代码没有、也不允许 IMDb/TMDB/TVmaze 网页抓取。
 
+应用侧控制面另外提供版本化 `SourceWatermark`、`CaptureWindowPlan` 和
+`CaptureWindowReceipt`。它们使用 canonical JSON 与确定性 SHA-256 ID；S3
+batch `ObjectRef` 必须固定 ETag + VersionId。控制对象按 batch 校验 →
+watermark → receipt 的顺序发布，receipt 是 commit-last marker。file/S3
+条件发布对重复同内容返回既有引用，对同 key 不同内容以
+`IMMUTABLE_OBJECT_CONFLICT` fail-closed。
+
 可审计 registry（含 policy digest）可直接输出：
 
 ```bash
@@ -102,9 +109,12 @@ video-media-catalog-tvmaze-delta-sync \
   --image-digest sha256:<hex>
 ```
 
-delta 默认最多 20,000 个 changed IDs，避免 control manifest 和本地 payload
-spool 无界增长；应优先使用 `since=day`，超限时必须先扩展 capture/control
-设计，不能静默发布部分批次。
+delta 每个 batch 默认最多 20,000 个 changed IDs。完整 update index 会先按
+`(modified timestamp, show ID)` 排序并绑定 digest；超限时生成多个 bounded
+window cursor，未指定 cursor 的 capture 会在请求任何 detail 前 fail-closed，
+不会静默截断。调用方可用 `decode_tvmaze_update_index()` 与
+`plan_tvmaze_delta_windows()` 复用规划结果，再通过 `--window-cursor` 执行每个
+batch；`--window-start/--window-end/--watermark` 可显式绑定调度水位。
 
 生产使用 S3 prefix 时继续通过 AWS 默认凭据链，不接受静态 access key 参数。
 TVmaze 元数据进入 `open_sharealike`；mapper 首版故意不提升 image URL，图片必须
@@ -124,6 +134,10 @@ video-media-catalog-imdb-sync \
   --user-agent 'video-media-catalog/0.1 contact@example.com' \
   --image-digest sha256:<hex>
 ```
+
+调度器可选传入成对的 `--window-start/--window-end` 以及 `--cursor`、
+`--watermark`；这些值进入 coverage/source-window 和确定性 batch identity。
+不传时保持原有 snapshot CLI 行为。
 
 IMDb 数据固定进入 `research_private`，只允许 `audience=research`、
 `purpose=research` 的 store/transform/display/search/derive；不授予
@@ -158,8 +172,11 @@ video-media-catalog-tmdb-sync changes \
   --image-digest sha256:<hex>
 ```
 
-changes 默认最多 20,000 个 changed IDs，超限会在发布 batch/record-set 前失败；
-调度器应缩短窗口重试，不能静默截断。
+changes 每个 detail batch 默认最多 20,000 个 changed IDs。所有 change pages
+先形成完整、按 entity kind + ID 排序且 digest-bound 的 inventory，再由
+`plan_tmdb_change_windows()` 生成多个 cursor。多窗口 capture 未提供
+`--window-cursor` 会在 detail 获取和 commit 前失败；逐 cursor 执行可覆盖全部
+IDs，不需要缩短日期窗口，也不允许静默截断。`--watermark` 可固定前置水位。
 
 TMDB facts 固定进入 `research_private` research policy。image path 只作为
 `assetReviewRequired=true` 的来源 assertion，不能据此发布图片。任何 UI 使用还
@@ -483,6 +500,11 @@ video-media-catalog-wikidata-sync \
   --destination-prefix s3://catalog-input/wikidata/raw \
   --aws-region us-east-1
 ```
+
+`plan_wikidata_dump_window()` 只解析 dated canonical URL，不访问网络，并为 dump
+日期生成确定性单窗口 cursor。CLI/`sync_official_dump()` 也接受可选的
+`--window-start/--window-end/--cursor/--watermark`，便于外部调度器将同一份
+不可变 dump 纳入统一 capture-window 控制面；旧命令无需新增参数。
 
 CLI 拒绝 `latest`、非 HTTPS、非 `dumps.wikimedia.org` host、userinfo、端口、
 query、fragment 和越出 allowlist 的重定向。它先读取同目录官方 SHA-1 校验

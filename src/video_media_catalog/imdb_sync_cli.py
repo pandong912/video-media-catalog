@@ -32,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--image-digest", required=True)
     parser.add_argument("--acquired-at")
+    parser.add_argument("--window-start")
+    parser.add_argument("--window-end")
+    parser.add_argument("--cursor")
+    parser.add_argument("--watermark")
     parser.add_argument("--timeout-seconds", type=float, default=120)
     parser.add_argument("--max-attempts", type=int, default=5)
     parser.add_argument(
@@ -58,20 +62,29 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
     acquired_at = parsed.acquired_at or datetime.now(UTC).isoformat().replace(
         "+00:00", "Z"
     )
-    config_digest = sha256_digest(
-        canonical_json(
-            {
-                "connector": "imdb-official-tsv",
-                "version": "1.0.0",
-                "origin": IMDB_DATASET_ORIGIN,
-                "datasets": list(IMDB_DATASET_FILES),
-                "timeoutSeconds": parsed.timeout_seconds,
-                "maxAttempts": parsed.max_attempts,
-                "maxDatasetBytes": parsed.max_dataset_bytes,
-                "recordShardBytes": parsed.record_shard_bytes,
-            }
-        )
+    config_values = {
+        "connector": "imdb-official-tsv",
+        "version": "1.0.0",
+        "origin": IMDB_DATASET_ORIGIN,
+        "datasets": list(IMDB_DATASET_FILES),
+        "timeoutSeconds": parsed.timeout_seconds,
+        "maxAttempts": parsed.max_attempts,
+        "maxDatasetBytes": parsed.max_dataset_bytes,
+        "recordShardBytes": parsed.record_shard_bytes,
+    }
+    config_values.update(
+        {
+            key: value
+            for key, value in {
+                "windowStart": parsed.window_start,
+                "windowEnd": parsed.window_end,
+                "cursor": parsed.cursor,
+                "watermark": parsed.watermark,
+            }.items()
+            if value is not None
+        }
     )
+    config_digest = sha256_digest(canonical_json(config_values))
     downloader = OfficialHttpsDownloader(
         allowed_host="datasets.imdbws.com",
         allowed_path_prefix="/",
@@ -113,6 +126,10 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
             rate_limit_count=rate_limits,
             max_dataset_bytes=parsed.max_dataset_bytes,
             record_shard_bytes=parsed.record_shard_bytes,
+            window_start=parsed.window_start,
+            window_end=parsed.window_end,
+            cursor=parsed.cursor,
+            watermark=parsed.watermark,
         )
     return {
         "batchId": capture.batch_manifest.batch_id,

@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--image-digest", required=True)
     parser.add_argument("--acquired-at")
+    parser.add_argument("--window-start")
+    parser.add_argument("--window-end")
+    parser.add_argument("--cursor")
+    parser.add_argument("--watermark")
     parser.add_argument("--aws-region", default=os.environ.get("AWS_REGION"))
     parser.add_argument("--s3-endpoint", default=os.environ.get("S3_ENDPOINT"))
     parser.add_argument(
@@ -60,20 +64,29 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
     acquired_at = parsed.acquired_at or (
         datetime.now(UTC).isoformat().replace("+00:00", "Z")
     )
-    config_digest = sha256_digest(
-        canonical_json(
-            {
-                "connector": "tvmaze-show-index",
-                "version": "1.0.0",
-                "timeoutSeconds": parsed.timeout_seconds,
-                "minimumIntervalSeconds": parsed.minimum_interval_seconds,
-                "maxAttempts": parsed.max_attempts,
-                "maxPages": parsed.max_pages,
-                "maxPageBytes": parsed.max_page_bytes,
-                "recordShardBytes": parsed.record_shard_bytes,
-            }
-        )
+    config_values = {
+        "connector": "tvmaze-show-index",
+        "version": "1.0.0",
+        "timeoutSeconds": parsed.timeout_seconds,
+        "minimumIntervalSeconds": parsed.minimum_interval_seconds,
+        "maxAttempts": parsed.max_attempts,
+        "maxPages": parsed.max_pages,
+        "maxPageBytes": parsed.max_page_bytes,
+        "recordShardBytes": parsed.record_shard_bytes,
+    }
+    config_values.update(
+        {
+            key: value
+            for key, value in {
+                "windowStart": parsed.window_start,
+                "windowEnd": parsed.window_end,
+                "cursor": parsed.cursor,
+                "watermark": parsed.watermark,
+            }.items()
+            if value is not None
+        }
     )
+    config_digest = sha256_digest(canonical_json(config_values))
     fetcher = TVMazeHttpFetcher(
         user_agent=parsed.user_agent,
         timeout_seconds=parsed.timeout_seconds,
@@ -100,6 +113,10 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
         max_pages=parsed.max_pages,
         max_page_bytes=parsed.max_page_bytes,
         record_shard_bytes=parsed.record_shard_bytes,
+        window_start=parsed.window_start,
+        window_end=parsed.window_end,
+        cursor=parsed.cursor,
+        watermark=parsed.watermark,
     )
     return {
         "batchId": result.batch_manifest.batch_id,

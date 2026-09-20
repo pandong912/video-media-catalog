@@ -43,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="S3 prefix under which the content-addressed object is published",
     )
+    parser.add_argument("--window-start")
+    parser.add_argument("--window-end")
+    parser.add_argument("--cursor")
+    parser.add_argument("--watermark")
     parser.add_argument(
         "--max-bytes",
         type=int,
@@ -131,6 +135,10 @@ def run(
         retry_initial_backoff_seconds=parsed.retry_initial_backoff_seconds,
         retry_max_backoff_seconds=parsed.retry_max_backoff_seconds,
         sleeper=sleeper,
+        window_start=parsed.window_start,
+        window_end=parsed.window_end,
+        cursor=parsed.cursor,
+        watermark=parsed.watermark,
     )
 
 

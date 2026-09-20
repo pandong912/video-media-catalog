@@ -96,10 +96,19 @@ def test_imdb_official_snapshot_is_replayable_and_maps_all_row_families(
         config_digest="sha256:" + ("b" * 64),
         store=BoundedObjectStore(client=object()),
         record_shard_bytes=32 * 1024,
+        window_start="2026-09-19T00:00:00Z",
+        window_end="2026-09-20T00:00:00Z",
+        cursor="imdb-snapshot-2026-09-20",
+        watermark="2026-09-20",
     )
 
     assert result.batch_manifest.record_count == len(IMDB_DATASET_FILES)
     assert result.batch_manifest.delete_coverage.value == "SNAPSHOT_DIFF"
+    assert result.batch_manifest.source_window is not None
+    assert result.batch_manifest.watermark_after == "2026-09-20"
+    assert result.batch_manifest.coverage_scope["cursor"] == (
+        "imdb-snapshot-2026-09-20"
+    )
     records = _records(result)
     mapped = [map_imdb_record(item) for item in records]
     assert {item.source_node.namespace_id for item in mapped} == {

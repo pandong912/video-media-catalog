@@ -86,6 +86,42 @@ Required captured output:
 coverage, acquisition time, and counters. A re-run with the same identity must
 produce the same manifest bytes. A leased batch requires `replayableUntil`.
 
+## SourceWatermark and CaptureWindowReceipt v1
+
+Application-side acquisition control uses two frozen lower-camel JSON contracts
+with `schemaVersion = "1.0"`:
+
+- `SourceWatermark` binds `sourceProductId`, an inclusive `windowStart` /
+  `windowEnd`, at least one opaque `cursor` or `watermark`, and exact
+  `configDigest`, `imageDigest`, and `policyDigest`.
+- `CaptureWindowReceipt` binds the same control identity plus terminal `status`
+  and the immutable connector batch-manifest `batchObject`.
+
+`COMMITTED` and `EMPTY` receipts require a non-empty `file://` or `s3://`
+connector-batch JSON `ObjectRef`; S3 references require both ETag and VersionId.
+`FAILED` receipts must not carry a batch object and cannot advance a source
+watermark or be published as a commit marker.
+
+`watermarkId`, window-plan `planId`, generated window cursors, and `receiptId`
+are domain-separated SHA-256 identities over canonical JSON. Parsing verifies
+those identities again, so changing a digest, status, window, cursor, watermark,
+or any `ObjectRef` field is a validation failure rather than a new
+interpretation of the same object.
+
+Changed-record inventories are ordered and digest-bound before partitioning.
+Every plan records `itemOffset`, `itemCount`, `totalItems`, `maxItems`,
+`shardIndex`, and `shardCount`; an empty inventory still produces one explicit
+empty window. If more than one plan exists, capture requires one generated
+cursor. Missing or stale cursors fail closed, and no planner path truncates at
+the per-window limit.
+
+Control publication is conditional for both file and S3 stores. Replaying
+identical bytes at a key returns the pinned existing `ObjectRef`; different
+bytes at that key raise `IMMUTABLE_OBJECT_CONFLICT`. Publication verifies the
+batch first, writes the content-addressed watermark second, and writes the
+stable window-slot receipt last. Orphaned raw objects or watermarks are not
+commits.
+
 Official API/dataset acquisition and Spark mapping are separate trust
 boundaries. Acquisition may access only explicitly allowlisted official
 origins, stores every response as an immutable raw `ObjectRef`, and publishes

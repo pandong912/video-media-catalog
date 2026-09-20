@@ -12,14 +12,23 @@ from typing import Self
 
 from video_media_catalog.canonical import sha256_digest
 from video_media_catalog.connector import (
+    CaptureWindowReceipt,
+    CaptureWindowStatus,
     ConnectorBatchManifest,
     ConnectorRecordEnvelope,
     ConnectorRecordSetManifest,
+    SourceWatermark,
     build_connector_record_set_manifest,
+    capture_window_slot_id,
+    source_watermark_from_receipt,
     validate_envelope_against_batch,
 )
 from video_media_catalog.models import ObjectRef
-from video_media_catalog.object_store import RuntimeObjectStore
+from video_media_catalog.object_store import (
+    RuntimeObjectStore,
+    UploadResult,
+    conditional_publish_bytes,
+)
 from video_media_catalog.runtime_args import join_uri
 from video_media_catalog.v2_contracts import V2ContractModel
 
@@ -247,4 +256,121 @@ def publish_connector_capture(
         batch_manifest_object=batch_manifest_object,
         record_set_manifest=record_set,
         record_set_manifest_object=record_set_manifest_object,
+    )
+
+
+class PublishedCaptureWindowControl(V2ContractModel):
+    """Immutable watermark followed by its commit-last window receipt."""
+
+    source_watermark: SourceWatermark
+    source_watermark_object: ObjectRef
+    receipt: CaptureWindowReceipt
+    receipt_object: ObjectRef
+
+
+def publish_source_watermark(
+    *,
+    destination_prefix: str,
+    watermark: SourceWatermark,
+    store: RuntimeObjectStore,
+) -> UploadResult:
+    """Publish one content-addressed watermark, reusing an identical replay."""
+
+    return conditional_publish_bytes(
+        store,
+        watermark.json_bytes(),
+        join_uri(
+            destination_prefix,
+            watermark.source_product_id,
+            "control",
+            "watermarks",
+            watermark.watermark_id.removeprefix("sha256:"),
+            "watermark.json",
+        ),
+        media_type=("application/vnd.video-media-catalog.source-watermark.v1+json"),
+        object_format="OBJECT_FORMAT_JSON",
+        max_bytes=CONTROL_OBJECT_MAX_BYTES,
+    )
+
+
+def _publish_receipt_bytes(
+    *,
+    destination_prefix: str,
+    receipt: CaptureWindowReceipt,
+    store: RuntimeObjectStore,
+) -> UploadResult:
+    return conditional_publish_bytes(
+        store,
+        receipt.json_bytes(),
+        join_uri(
+            destination_prefix,
+            receipt.source_product_id,
+            "control",
+            "capture-windows",
+            capture_window_slot_id(receipt).removeprefix("sha256:"),
+            "receipt.json",
+        ),
+        media_type=(
+            "application/vnd.video-media-catalog.capture-window-receipt.v1+json"
+        ),
+        object_format="OBJECT_FORMAT_JSON",
+        max_bytes=CONTROL_OBJECT_MAX_BYTES,
+    )
+
+
+def publish_capture_window_receipt(
+    *,
+    destination_prefix: str,
+    receipt: CaptureWindowReceipt,
+    store: RuntimeObjectStore,
+) -> UploadResult:
+    """Verify the immutable batch before publishing the final receipt marker."""
+
+    if receipt.status == CaptureWindowStatus.FAILED:
+        raise ValueError("failed capture receipt cannot be published as a commit")
+    if receipt.batch_object is None:
+        raise ValueError("committed capture receipt requires a batch ObjectRef")
+    store.verify(
+        receipt.batch_object,
+        max_bytes=CONTROL_OBJECT_MAX_BYTES,
+    )
+    return _publish_receipt_bytes(
+        destination_prefix=destination_prefix,
+        receipt=receipt,
+        store=store,
+    )
+
+
+def publish_capture_window_commit(
+    *,
+    destination_prefix: str,
+    receipt: CaptureWindowReceipt,
+    store: RuntimeObjectStore,
+) -> PublishedCaptureWindowControl:
+    """Publish watermark first and the verified window receipt strictly last."""
+
+    if receipt.status == CaptureWindowStatus.FAILED:
+        raise ValueError("failed capture receipt cannot advance source control")
+    if receipt.batch_object is None:
+        raise ValueError("committed capture receipt requires a batch ObjectRef")
+    store.verify(
+        receipt.batch_object,
+        max_bytes=CONTROL_OBJECT_MAX_BYTES,
+    )
+    watermark = source_watermark_from_receipt(receipt)
+    watermark_result = publish_source_watermark(
+        destination_prefix=destination_prefix,
+        watermark=watermark,
+        store=store,
+    )
+    receipt_result = _publish_receipt_bytes(
+        destination_prefix=destination_prefix,
+        receipt=receipt,
+        store=store,
+    )
+    return PublishedCaptureWindowControl(
+        source_watermark=watermark,
+        source_watermark_object=watermark_result.object_ref,
+        receipt=receipt,
+        receipt_object=receipt_result.object_ref,
     )

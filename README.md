@@ -327,12 +327,47 @@ pinned snapshot；候选类型、merge survivor、split 全覆盖/不重复和 r
 `IDENTITY_CURATION` run 走现有 `CommunityCatalogTables` commit-last。相同
 manifest 重试得到相同 run/row keys，并直接复用已验证 commit。
 
-完成自动或人工 identity 后，再发布包含 source、migration、identity 和可选
-curation run 的快照供 `video-media-catalog-gold-spark` 使用。
-`publish-snapshot` 保留为 v2 兼容入口，适合显式且有界的 run 列表。发布器先
-固定 ingest-run/commit/data snapshot IDs，再逐 run 核对 manifest、commit 和
-每表行数；最多可显式选择 4,096 个 run。S3 目标若未返回 VersionId 或 ETag
-会失败，不会向下游提供 “latest” 引用：
+Identity resolver config 固定为版本 `1.0`。默认 exact component、单 node
+candidate 和 component candidate 上限都是 256，label propagation 上限为 64；
+可分别用 `--identity-max-component-size`、
+`--identity-max-node-candidate-keys`、
+`--identity-max-component-candidate-keys` 和
+`--identity-max-label-iterations` 调整。完整配置及 digest 会进入 run manifest，
+并与传入的 `--config-digest` 合成为最终 run `config_digest`。任何超限仍
+fail-closed，manifest 的 `conflictCountsByReason` 给出原因计数。
+
+解析顺序固定为 work/series → season → episode。子节点只在 parent membership
+唯一、parent 类型兼容且 ordinal 明确时生成 `PARENT_CONSTRAINED`
+evidence/decision/membership；其余进入 conflict。已有 membership 若遇到新的
+exact-ID 候选，只输出增量冲突，不静默改写 membership。
+
+本地 synthetic benchmark 默认只跑 1 万节点：
+
+```bash
+video-media-catalog-identity-benchmark --master 'local[4]'
+```
+
+1M/5M 档必须同时给出显式确认，防止开发机或共享 Spark 环境误启动大作业：
+
+```bash
+video-media-catalog-identity-benchmark \
+  --scale 1m \
+  --confirm-large-scale
+
+video-media-catalog-identity-benchmark \
+  --scale 5m \
+  --confirm-large-scale
+```
+
+输出为 JSON，包含 runtime、Spark completed-stage shuffle/spill counters、
+component/node 数、按原因 conflict counts 和 resolver config digest。单元测试
+只执行 32 节点的小档，不会触发 1M/5M。
+
+最后再次发布包含 source、migration、identity 和可选 curation run 的快照供
+`video-media-catalog-gold-spark` 使用。发布器先固定 ingest-run/commit/data
+snapshot IDs，再逐 run 核对 manifest、commit 和每表行数；最多可显式选择
+4,096 个 run。S3 目标若未返回 VersionId 或 ETag 会失败，不会向下游提供
+“latest”引用：
 
 ```bash
 video-media-catalog-research-silver publish-snapshot \
@@ -422,7 +457,9 @@ release commit 和 index build manifest 都绑定同一个
   内部 UUIDv7，歧义进入 conflict，membership/redirect 可按 as-of 重放；
 - `identity_spark.py`：分布式读取 active type/identifier assertions，优先与 v1
   external identifiers 做类型兼容的精确连接，未匹配项再分配内部实体；多候选
-  直接阻断而不是猜测；
+  直接阻断而不是猜测；先解析 work/series，再以唯一、类型兼容的 parent
+  membership 和明确 ordinal 解析 season/episode，标题模糊相似度绝不自动
+  merge；
 - `gold.py` / `gold_resolution.py`：固定 audience=`research`、
   purpose=`research`，默认允许 open、public registry 与已登记
   `research_private` zone；每条 assertion 仍须同时通过

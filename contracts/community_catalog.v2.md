@@ -272,10 +272,34 @@ zero candidates allocate a new internal entity; more than one candidate emits
 an immutable `IdentityConflict` for review and does not create a decision or
 membership.
 
+Every production resolution run binds a versioned `IdentityResolutionConfig`.
+Version `1.0` defaults to 256 nodes per exact component, 256 candidate keys per
+node/component, and 64 label-propagation iterations. The effective run
+`configDigest` binds both the caller runtime digest and the complete resolver
+configuration. Raising a limit therefore creates a different materialization
+and run identity. A node/component that exceeds a configured bound remains
+fail-closed and emits a reason-specific conflict; the run manifest reports
+`conflictCountsByReason`.
+
 `PARENT_CONSTRAINED` evidence is valid only for a season or episode. It binds
 the child to a resolved parent source node/entity/membership, the hierarchy
 relationship assertion, and the season/episode ordinal assertions. Parent
 identity or numbering alone is insufficient.
+
+Production resolution is ordered: non-hierarchy work/series nodes first,
+seasons second, and episodes last. The parent join is a distributed relational
+join. A child is accepted only when exactly one type-compatible active parent
+membership and an unambiguous required ordinal are present. Missing,
+type-incompatible, or multiple parent bindings emit conflicts and no
+membership. Child groups may share an entity only through the exact parent
+entity plus season/episode ordinals (or through one compatible exact ID);
+titles and fuzzy similarity never trigger an automatic merge.
+
+Active memberships are immutable inputs to incremental resolution. When later
+exact identifiers introduce a candidate other than the currently assigned
+entity, the resolver emits `EXISTING_MEMBERSHIP_EXACT_ID_CONFLICT` and records
+that membership rewriting was suppressed. It does not silently replace or
+close the existing membership.
 
 Review decisions are immutable `ACCEPT`, `REJECT`, `UNCERTAIN`, or `REVOKE`
 events. `ACCEPT` opens a membership, `REJECT` creates none, and `REVOKE`

@@ -267,9 +267,18 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         }
 
         competing_key = "sha256:" + ("a" * 64)
+        reevaluation_visible = {
+            **frames,
+            "community_entity_membership": identity_frames[
+                "community_entity_membership"
+            ],
+            "community_external_id_index": identity_frames[
+                "community_external_id_index"
+            ],
+        }
         conflict_run, conflict_frames = build_identity_resolution_dataframes(
             spark,
-            visible_silver=frames,
+            visible_silver=reevaluation_visible,
             v1_external_identifiers=spark.createDataFrame(
                 [
                     (v1_key, "imdb", "tt0000001"),
@@ -292,8 +301,18 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         )
         conflicts = conflict_frames["community_identity_conflict"].collect()
         assert len(conflicts) == 1
+        assert conflicts[0].reason == "EXISTING_MEMBERSHIP_EXACT_ID_CONFLICT"
         assert conflict_run.expected_counts["community_identity_conflict"] == 1
         assert conflict_frames["community_entity_membership"].count() == 0
+        assert conflict_run.input_manifest["conflictCountsByReason"] == {
+            "EXISTING_MEMBERSHIP_EXACT_ID_CONFLICT": 1
+        }
+        assert json.loads(conflicts[0].details_json) == {
+            "existingMembershipCount": 1,
+            "incrementalReevaluation": True,
+            "membershipRewriteSuppressed": True,
+            "nodeCandidateCount": 2,
+        }
         assert set(json.loads(conflicts[0].candidate_entity_keys_json)) == {
             v1_key,
             competing_key,
@@ -581,6 +600,20 @@ def test_imdb_series_identifier_joins_v1_series_entity(
         assert v1_key not in allocated_keys
         assert len(allocated_keys) == 2
         assert identity_frames["community_identity_conflict"].count() == 0
+        episode_evidence = (
+            identity_frames["community_identity_evidence"]
+            .where("source_id = 'tt0000002'")
+            .collect()
+        )
+        assert len(episode_evidence) == 1
+        assert episode_evidence[0].kind == "PARENT_CONSTRAINED"
+        parent_details = json.loads(episode_evidence[0].details_json)[
+            "parentConstraint"
+        ]
+        assert parent_details["parentEntityKey"] == v1_key
+        assert parent_details["parentSourceNode"]["sourceId"] == "tt0000099"
+        assert parent_details["seasonNumber"] == "1"
+        assert parent_details["episodeNumber"] == "1"
     finally:
         if identity_frames is not None:
             for frame in identity_frames.values():

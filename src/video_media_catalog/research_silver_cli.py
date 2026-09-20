@@ -44,6 +44,7 @@ from video_media_catalog.iceberg import (
     MediaCatalogTables,
 )
 from video_media_catalog.identity_spark import (
+    IdentityResolutionConfig,
     build_identity_resolution_dataframes,
 )
 from video_media_catalog.models import Checksum, ObjectRef, SnapshotSet
@@ -181,6 +182,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     identity.add_argument("--image-digest", required=True)
     identity.add_argument("--config-digest", required=True)
+    identity_defaults = IdentityResolutionConfig()
+    identity.add_argument(
+        "--identity-max-label-iterations",
+        type=int,
+        default=identity_defaults.max_exact_blocking_label_iterations,
+    )
+    identity.add_argument(
+        "--identity-max-component-size",
+        type=int,
+        default=identity_defaults.max_exact_blocking_component_size,
+    )
+    identity.add_argument(
+        "--identity-max-node-candidate-keys",
+        type=int,
+        default=identity_defaults.max_exact_blocking_node_candidate_keys,
+    )
+    identity.add_argument(
+        "--identity-max-component-candidate-keys",
+        type=int,
+        default=identity_defaults.max_exact_blocking_component_candidate_keys,
+    )
     identity.add_argument("--started-at", required=True)
     identity.add_argument("--committed-at", required=True)
     _add_v1_namespace_arg(identity)
@@ -826,6 +848,20 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         parsed.config_digest,
         label="config-digest",
     )
+    resolution_config = IdentityResolutionConfig(
+        max_exact_blocking_label_iterations=(
+            parsed.identity_max_label_iterations
+        ),
+        max_exact_blocking_component_size=(
+            parsed.identity_max_component_size
+        ),
+        max_exact_blocking_node_candidate_keys=(
+            parsed.identity_max_node_candidate_keys
+        ),
+        max_exact_blocking_component_candidate_keys=(
+            parsed.identity_max_component_candidate_keys
+        ),
+    )
     silver_ref = _control_object_ref(
         parsed,
         "silver_snapshot",
@@ -961,6 +997,7 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             source_records=visible["community_source_record"],
             ingest_runs=ingest_runs,
             committed_source_run_ids=source_run_ids,
+            resolution_config=resolution_config,
         )
         commit = tables.stage_and_commit(
             run=run,
@@ -973,6 +1010,8 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "runId": run.run_id,
             "commitKey": commit.commit_key,
             "registryDigest": registry.digest,
+            "configDigest": run.config_digest,
+            "identityResolutionConfigDigest": resolution_config.digest,
             "sourceRunIds": source_run_ids,
             "tableCounts": commit.table_counts,
             "tableSnapshotIds": commit.table_snapshot_ids,

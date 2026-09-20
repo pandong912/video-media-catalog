@@ -257,6 +257,23 @@ start time, and registry digest so a later immutable run never aliases an
 earlier row. Multiple entries for one block are legal and must produce review
 conflicts rather than arbitrary selection.
 
+### Identity resolution run manifest
+
+An `IDENTITY_RESOLUTION` run carries these additional `inputManifest` fields:
+
+- `runtimeConfigDigest`: the caller-supplied non-secret runtime digest;
+- `identityResolutionConfigDigest`: the digest of the complete versioned
+  resolver configuration;
+- `identityResolutionConfig`: schema version, component/candidate bounds, and
+  label-iteration bound;
+- `conflictCountsByReason`: exact emitted conflict counts grouped by reason.
+
+The run-level `config_digest` is not merely the caller value. It is the digest
+binding that value to `identityResolutionConfigDigest` and the canonical
+configuration payload. Version `1.0` defaults to component/node/candidate
+bounds of 256 and 64 label iterations. Bound overflow always produces a
+conflict and never a membership.
+
 ### `community_entity_ledger`
 
 Primary key: `entity_key`.
@@ -291,6 +308,14 @@ Primary key: `evidence_key`.
 hierarchy-relation assertion, and season/episode ordinal details inside
 `details_json`.
 
+The production Spark stage resolves non-hierarchy work/series nodes before
+seasons, then resolves episodes after adding accepted season memberships. Its
+parent membership and candidate statistics are DataFrame/Spark SQL joins and
+aggregations. Exactly one compatible active parent membership is required.
+Missing parent membership, incompatible parent type, ambiguous ordinals, or
+multiple parent memberships produce reason-specific conflict rows. No title
+similarity participates in this path.
+
 ### `community_identity_conflict`
 
 Primary key: `conflict_key`.
@@ -305,6 +330,12 @@ Conflicts are immutable review-queue observations. They do not create an
 entity membership. `materialization_id` distinguishes resolver runs that
 observe the same unresolved source assertions. Review outcomes are separate
 identity decisions.
+
+An already-active source membership is re-evaluated when current exact
+identifier assertions expose new indexed candidates. A candidate different
+from the active entity produces
+`EXISTING_MEMBERSHIP_EXACT_ID_CONFLICT`; the existing membership row is not
+rewritten, revoked, or replaced by the resolver.
 
 ### `community_identity_decision`
 

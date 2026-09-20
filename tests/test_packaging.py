@@ -101,6 +101,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         '"video_media_catalog.source_registry_cli:main"' in pyproject
     )
     assert (
+        "video-media-catalog-identity-benchmark = "
+        '"video_media_catalog.identity_benchmark_cli:main"' in pyproject
+    )
+    assert (
         "video-media-catalog-community-spark = "
         '"video_media_catalog.community_cli:main"' in pyproject
     )

@@ -89,6 +89,10 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     assert identity.source_run_ids == ["sha256:" + ("c" * 64)]
     assert identity.s3_credentials_provider == "default"
     assert identity.silver_snapshot_media_type.endswith("silver-snapshot-set.v2+json")
+    assert identity.identity_max_label_iterations == 64
+    assert identity.identity_max_component_size == 256
+    assert identity.identity_max_node_candidate_keys == 256
+    assert identity.identity_max_component_candidate_keys == 256
 
     publication = build_parser().parse_args(
         [

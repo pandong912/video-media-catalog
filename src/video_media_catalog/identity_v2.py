@@ -67,9 +67,12 @@ class EvidenceKind(StrEnum):
 
 
 _HIERARCHY_REFERENT_KINDS = {
-    EntityLevel.SERIES: {"SERIES", "TV_SERIES"},
-    EntityLevel.SEASON: {"SEASON", "TV_SEASON"},
-    EntityLevel.EPISODE: {"EPISODE", "TV_EPISODE"},
+    # Some source namespaces (notably IMDb title IDs) use one broad
+    # EDITORIAL_WORK referent kind. Production resolution additionally joins
+    # the source's exact entity-type assertion before constructing a constraint.
+    EntityLevel.SERIES: {"EDITORIAL_WORK", "SERIES", "TV_SERIES"},
+    EntityLevel.SEASON: {"EDITORIAL_WORK", "SEASON", "TV_SEASON"},
+    EntityLevel.EPISODE: {"EDITORIAL_WORK", "EPISODE", "TV_EPISODE"},
 }
 
 

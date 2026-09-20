@@ -135,6 +135,16 @@ def test_hadoop_and_glue_catalog_configuration(tmp_path: Path) -> None:
     assert values["spark.hadoop.fs.s3a.aws.credentials.provider"] == (
         "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
     )
+    emr = CatalogConfig(
+        catalog_name="media",
+        namespace="catalog_v1",
+        warehouse="s3://example-bucket/catalog",
+        catalog_type="glue",
+        s3_credentials_provider="default",
+    )
+    assert emr.spark_configs()["spark.hadoop.fs.s3a.aws.credentials.provider"] == (
+        "com.amazonaws.auth.DefaultAWSCredentialsProviderChain"
+    )
 
 
 def test_catalog_identifiers_are_validated() -> None:
@@ -143,6 +153,14 @@ def test_catalog_identifiers_are_validated() -> None:
             catalog_name="media; DROP TABLE x",
             namespace="catalog",
             warehouse="file:///tmp/catalog",
+        )
+    with pytest.raises(ValueError, match="credentials provider"):
+        CatalogConfig(
+            catalog_name="media",
+            namespace="catalog",
+            warehouse="s3://example-bucket/catalog",
+            catalog_type="glue",
+            s3_credentials_provider="unknown",  # type: ignore[arg-type]
         )
 
 

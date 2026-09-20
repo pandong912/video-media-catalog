@@ -212,6 +212,7 @@ class CatalogConfig:
     aws_region: str | None = None
     s3_endpoint: str | None = None
     s3_path_style_access: bool = False
+    s3_credentials_provider: Literal["web-identity", "default"] = "web-identity"
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -222,6 +223,8 @@ class CatalogConfig:
                 raise ValueError(f"{label} is not a safe Spark identifier: {value!r}")
         if self.catalog_type == "glue" and not self.warehouse.startswith("s3"):
             raise ValueError("Glue catalog warehouse must be an s3:// or s3a:// URI")
+        if self.s3_credentials_provider not in {"web-identity", "default"}:
+            raise ValueError("unsupported S3 credentials provider")
 
     def spark_configs(self) -> dict[str, str]:
         prefix = f"spark.sql.catalog.{self.catalog_name}"
@@ -239,13 +242,18 @@ class CatalogConfig:
                 "org.apache.iceberg.aws.glue.GlueCatalog"
             )
             configs[f"{prefix}.io-impl"] = "org.apache.iceberg.aws.s3.S3FileIO"
-            # Hadoop S3A still uses AWS SDK v1 for landing Parquet reads.
-            # Its default provider list does not include EKS IRSA, so select
-            # the web-identity provider explicitly. Iceberg S3FileIO uses the
-            # SDK v2 default chain independently.
-            configs["spark.hadoop.fs.s3a.aws.credentials.provider"] = (
-                "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
-            )
+            # Hadoop S3A uses AWS SDK v1. EKS requires explicit web identity,
+            # while EMR Serverless injects credentials through the default
+            # provider chain. Iceberg S3FileIO uses SDK v2 independently.
+            providers = {
+                "web-identity": (
+                    "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+                ),
+                "default": "com.amazonaws.auth.DefaultAWSCredentialsProviderChain",
+            }
+            configs["spark.hadoop.fs.s3a.aws.credentials.provider"] = providers[
+                self.s3_credentials_provider
+            ]
             if self.aws_region:
                 configs[f"{prefix}.client.region"] = self.aws_region
             if self.s3_endpoint:

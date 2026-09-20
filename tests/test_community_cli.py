@@ -43,6 +43,12 @@ def test_community_cli_builds_bounded_control_object_ref() -> None:
     assert reference.checksum.value == "a" * 64
     assert reference.object_version is None
     assert parsed.namespace == "video_media_catalog"
+    assert parsed.s3_credentials_provider == "web-identity"
+
+    emr = build_parser().parse_args(
+        [*_arguments(), "--s3-credentials-provider", "default"]
+    )
+    assert emr.s3_credentials_provider == "default"
 
 
 def test_community_cli_requires_s3_immutability_fields() -> None:

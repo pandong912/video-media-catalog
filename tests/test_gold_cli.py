@@ -39,8 +39,14 @@ def test_gold_cli_builds_local_snapshot_reference() -> None:
     assert parsed.silver_namespace == "video_media_catalog"
     assert parsed.gold_namespace == "video_media_catalog"
     assert parsed.app_name == "media-catalog-research-gold"
+    assert parsed.s3_credentials_provider == "web-identity"
     assert not hasattr(parsed, "context_id")
     assert not hasattr(parsed, "allowed_zones")
+
+    emr = build_parser().parse_args(
+        [*_arguments(), "--s3-credentials-provider", "default"]
+    )
+    assert emr.s3_credentials_provider == "default"
 
 
 def test_gold_cli_requires_immutable_s3_snapshot() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -15,7 +16,7 @@ from video_media_catalog.runtime_args import join_uri
 from video_media_catalog.spark_input import spark_uri
 from video_media_catalog.storage import digest_file, local_path, publish_file_immutable
 
-MAX_RECORD_SHARD_COUNT = 4096
+MAX_RECORD_SHARD_COUNT = 8192
 LANDING_RECORD_STAGING_ROOT = "landing/research/materialized-record-shards"
 
 
@@ -233,27 +234,40 @@ def _materialize_s3_shard(
         download_path,
         max_bytes=max_bytes,
     )
-    if downloaded.sha256 != checksum or downloaded.size_bytes != reference.size_bytes:
-        raise ValueError("downloaded record shard differs from immutable declaration")
-    first_key, last_key = _envelope_key_bounds(downloaded.path)
-    uploaded = store.upload_file(
-        downloaded.path,
-        destination_uri,
-        media_type=reference.media_type,
-        object_format=reference.format,
-        max_bytes=max_bytes,
-    )
-    staged = uploaded.object_ref
-    if staged.checksum.value != checksum or staged.size_bytes != reference.size_bytes:
-        raise ValueError("staged record shard differs from immutable declaration")
-    return MaterializedRecordShard(
-        source=reference,
-        spark_uri=spark_uri(staged.uri),
-        checksum=checksum,
-        size_bytes=reference.size_bytes,
-        first_envelope_key=first_key,
-        last_envelope_key=last_key,
-    )
+    try:
+        if (
+            downloaded.sha256 != checksum
+            or downloaded.size_bytes != reference.size_bytes
+        ):
+            raise ValueError(
+                "downloaded record shard differs from immutable declaration"
+            )
+        first_key, last_key = _envelope_key_bounds(downloaded.path)
+        uploaded = store.upload_file(
+            downloaded.path,
+            destination_uri,
+            media_type=reference.media_type,
+            object_format=reference.format,
+            max_bytes=max_bytes,
+        )
+        staged = uploaded.object_ref
+        if (
+            staged.checksum.value != checksum
+            or staged.size_bytes != reference.size_bytes
+        ):
+            raise ValueError("staged record shard differs from immutable declaration")
+        return MaterializedRecordShard(
+            source=reference,
+            spark_uri=spark_uri(staged.uri),
+            checksum=checksum,
+            size_bytes=reference.size_bytes,
+            first_envelope_key=first_key,
+            last_envelope_key=last_key,
+        )
+    finally:
+        downloaded.path.unlink(missing_ok=True)
+        with suppress(OSError):
+            downloaded.path.parent.rmdir()
 
 
 def materialize_record_shards(

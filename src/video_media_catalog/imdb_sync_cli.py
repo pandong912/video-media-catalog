@@ -10,11 +10,13 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, sha256_digest
-from video_media_catalog.connector_publish import DEFAULT_RECORD_SHARD_BYTES
 from video_media_catalog.imdb import IMDB_DATASET_FILES, IMDB_DATASET_ORIGIN
 from video_media_catalog.imdb_sync import (
+    DEFAULT_IMDB_DATASET_PARALLELISM,
+    DEFAULT_IMDB_RECORD_SHARD_BYTES,
     DEFAULT_MAX_DATASET_BYTES,
-    capture_imdb_snapshot,
+    IMDB_PARALLEL_PUBLISHER_VERSION,
+    capture_imdb_snapshot_parallel,
 )
 from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.official_http import OfficialHttpsDownloader
@@ -46,7 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--record-shard-bytes",
         type=int,
-        default=DEFAULT_RECORD_SHARD_BYTES,
+        default=DEFAULT_IMDB_RECORD_SHARD_BYTES,
+    )
+    parser.add_argument(
+        "--dataset-parallelism",
+        type=int,
+        default=DEFAULT_IMDB_DATASET_PARALLELISM,
     )
     parser.add_argument("--aws-region", default=os.environ.get("AWS_REGION"))
     parser.add_argument("--s3-endpoint", default=os.environ.get("S3_ENDPOINT"))
@@ -59,6 +66,14 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
         raise ValueError("--user-agent or MEDIA_CATALOG_IMDB_USER_AGENT is required")
     if parsed.max_dataset_bytes < 1 or parsed.record_shard_bytes < 1:
         raise ValueError("dataset and shard byte limits must be positive")
+    if parsed.record_shard_bytes > DEFAULT_IMDB_RECORD_SHARD_BYTES:
+        raise ValueError("record-shard-bytes exceeds the reviewed 128 MiB cap")
+    if not 1 <= parsed.dataset_parallelism <= len(IMDB_DATASET_FILES):
+        raise ValueError("dataset-parallelism must be between 1 and 7")
+    if parsed.dataset_parallelism > 1 and not parsed.acquired_at:
+        raise ValueError(
+            "parallel IMDb capture requires stable --acquired-at for retry recovery"
+        )
     acquired_at = parsed.acquired_at or datetime.now(UTC).isoformat().replace(
         "+00:00", "Z"
     )
@@ -71,6 +86,7 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
         "maxAttempts": parsed.max_attempts,
         "maxDatasetBytes": parsed.max_dataset_bytes,
         "recordShardBytes": parsed.record_shard_bytes,
+        "publisherVersion": IMDB_PARALLEL_PUBLISHER_VERSION,
     }
     config_values.update(
         {
@@ -115,7 +131,7 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
             paths[dataset] = result.path
             retries += result.retry_count
             rate_limits += result.rate_limit_count
-        capture = capture_imdb_snapshot(
+        capture = capture_imdb_snapshot_parallel(
             dataset_paths=paths,
             destination_prefix=parsed.destination_prefix,
             acquired_at=acquired_at,
@@ -130,6 +146,10 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
             window_end=parsed.window_end,
             cursor=parsed.cursor,
             watermark=parsed.watermark,
+            dataset_parallelism=parsed.dataset_parallelism,
+            aws_region=parsed.aws_region,
+            s3_endpoint=parsed.s3_endpoint,
+            s3_path_style_access=parsed.s3_path_style_access,
         )
     return {
         "batchId": capture.batch_manifest.batch_id,
@@ -141,8 +161,8 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
             mode="json", by_alias=True, exclude_none=True
         ),
         "recordCount": capture.record_set_manifest.record_count,
-        "retryCount": capture.batch_manifest.retry_count,
-        "rateLimitCount": capture.batch_manifest.rate_limit_count,
+        "retryCount": retries,
+        "rateLimitCount": rate_limits,
     }
 
 

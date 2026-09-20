@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import csv
 import gzip
+from argparse import Namespace
 
+import pytest
+
+import video_media_catalog.imdb_sync as imdb_sync_module
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import ConnectorRecordEnvelope
 from video_media_catalog.imdb import (
@@ -12,7 +16,11 @@ from video_media_catalog.imdb import (
     iter_imdb_rows,
     map_imdb_record,
 )
-from video_media_catalog.imdb_sync import capture_imdb_snapshot
+from video_media_catalog.imdb_sync import (
+    capture_imdb_snapshot,
+    capture_imdb_snapshot_parallel,
+)
+from video_media_catalog.imdb_sync_cli import run as run_imdb_sync
 from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.rights import UsageAction
 from video_media_catalog.source_silver import build_source_silver_rows
@@ -166,6 +174,86 @@ def test_imdb_official_snapshot_is_replayable_and_maps_all_row_families(
     assert run.source_product_id == "imdb-non-commercial-datasets"
     assert len(rows["community_source_record"]) == len(IMDB_DATASET_FILES)
     assert rows["community_relationship_assertion"]
+
+
+def test_imdb_parallel_snapshot_is_deterministic_and_flat(tmp_path) -> None:
+    inputs = _datasets(tmp_path / "inputs")
+    destination = (tmp_path / "output").as_uri()
+    values = {
+        "dataset_paths": inputs,
+        "destination_prefix": destination,
+        "acquired_at": "2026-09-20T00:00:00Z",
+        "image_digest": "sha256:" + ("a" * 64),
+        "config_digest": "sha256:" + ("b" * 64),
+        "store": BoundedObjectStore(client=object()),
+        "record_shard_bytes": 32 * 1024,
+        "dataset_parallelism": 2,
+    }
+
+    first = capture_imdb_snapshot_parallel(**values)
+    second = capture_imdb_snapshot_parallel(**{**values, "retry_count": 3})
+
+    assert first.batch_manifest.batch_id == second.batch_manifest.batch_id
+    assert first.batch_manifest.retry_count == second.batch_manifest.retry_count == 0
+    assert first.record_set_manifest.record_set_id == (
+        second.record_set_manifest.record_set_id
+    )
+    assert first.record_set_manifest.schema_version == "2.0"
+    assert first.record_set_manifest.record_count == len(IMDB_DATASET_FILES)
+    assert len(first.record_set_manifest.record_objects) == len(IMDB_DATASET_FILES)
+    assert {item.source_record_id for item in _records(first)} == {
+        "title.basics:tt0000001",
+        "title.akas:tt0000001:1",
+        "title.episode:tt0000002",
+        "title.crew:tt0000001",
+        "title.principals:tt0000001:1",
+        "title.ratings:tt0000001",
+        "name.basics:nm0000001",
+    }
+
+
+def test_imdb_parallel_snapshot_reuses_completed_partitions(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    values = {
+        "dataset_paths": _datasets(tmp_path / "inputs"),
+        "destination_prefix": (tmp_path / "output").as_uri(),
+        "acquired_at": "2026-09-20T00:00:00Z",
+        "image_digest": "sha256:" + ("a" * 64),
+        "config_digest": "sha256:" + ("b" * 64),
+        "store": BoundedObjectStore(client=object()),
+        "record_shard_bytes": 32 * 1024,
+        "dataset_parallelism": 1,
+    }
+    first = capture_imdb_snapshot_parallel(**values)
+
+    def reject_republish(_task):
+        raise AssertionError("completed partition was unexpectedly republished")
+
+    monkeypatch.setattr(
+        imdb_sync_module,
+        "_publish_imdb_dataset_task",
+        reject_republish,
+    )
+    second = capture_imdb_snapshot_parallel(**values)
+
+    assert second.record_set_manifest.record_set_id == (
+        first.record_set_manifest.record_set_id
+    )
+
+
+def test_parallel_imdb_cli_requires_stable_acquired_at() -> None:
+    with pytest.raises(ValueError, match="stable --acquired-at"):
+        run_imdb_sync(
+            Namespace(
+                user_agent="video-media-catalog-test",
+                max_dataset_bytes=1024,
+                record_shard_bytes=1024,
+                dataset_parallelism=7,
+                acquired_at=None,
+            )
+        )
 
 
 def test_imdb_rights_are_owner_only_and_non_exportable() -> None:

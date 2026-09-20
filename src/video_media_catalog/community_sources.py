@@ -28,6 +28,7 @@ from video_media_catalog.tvmaze import (
 from video_media_catalog.v1_adapters import (
     EIDR_CONNECTOR_ID,
     WIKIDATA_CONNECTOR_ID,
+    WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
 )
 
 
@@ -152,7 +153,10 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Wikidata JSON entity dump",
         kind=SourceProductKind.KNOWLEDGE_GRAPH,
         policy_id="wikidata-structured-data-cc0",
-        connector_ids=(WIKIDATA_CONNECTOR_ID,),
+        connector_ids=(
+            WIKIDATA_CONNECTOR_ID,
+            WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
+        ),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
     eidr_product = SourceProduct(

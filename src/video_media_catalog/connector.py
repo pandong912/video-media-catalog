@@ -471,8 +471,8 @@ class ConnectorRecordSetManifest(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_record_set(self, info: ValidationInfo) -> Self:
-        if not self.record_objects:
-            raise ValueError("record set requires record_objects")
+        if self.record_count > 0 and not self.record_objects:
+            raise ValueError("non-empty record set requires record_objects")
         for item in self.record_objects:
             _validate_immutable_ref(item, label="record-set object")
         uris = [item.uri for item in self.record_objects]
@@ -539,23 +539,31 @@ def validate_envelopes_against_batch(
         if envelope.envelope_key in seen:
             raise ValueError("connector output contains duplicate envelope keys")
         seen.add(envelope.envelope_key)
-        if (
-            envelope.batch_id != manifest.batch_id
-            or envelope.source_system_id != manifest.source_system_id
-            or envelope.source_product_id != manifest.source_product_id
-            or envelope.policy_id != manifest.policy_id
-            or envelope.policy_digest != manifest.policy_digest
-        ):
-            raise ValueError("record envelope does not bind its batch manifest")
-        if envelope.operation == RecordOperation.INFERRED_ABSENCE and (
-            manifest.completeness != Completeness.COMPLETE
-            or manifest.change_semantics != ChangeSemantics.FULL_SNAPSHOT
-            or manifest.delete_coverage != DeleteCoverage.SNAPSHOT_DIFF
-        ):
-            raise ValueError(
-                "inferred absence requires complete snapshot-diff semantics"
-            )
+        validate_envelope_against_batch(manifest, envelope)
     return result
+
+
+def validate_envelope_against_batch(
+    manifest: ConnectorBatchManifest,
+    envelope: ConnectorRecordEnvelope,
+) -> ConnectorRecordEnvelope:
+    """Validate one envelope without materializing a potentially large batch."""
+
+    if (
+        envelope.batch_id != manifest.batch_id
+        or envelope.source_system_id != manifest.source_system_id
+        or envelope.source_product_id != manifest.source_product_id
+        or envelope.policy_id != manifest.policy_id
+        or envelope.policy_digest != manifest.policy_digest
+    ):
+        raise ValueError("record envelope does not bind its batch manifest")
+    if envelope.operation == RecordOperation.INFERRED_ABSENCE and (
+        manifest.completeness != Completeness.COMPLETE
+        or manifest.change_semantics != ChangeSemantics.FULL_SNAPSHOT
+        or manifest.delete_coverage != DeleteCoverage.SNAPSHOT_DIFF
+    ):
+        raise ValueError("inferred absence requires complete snapshot-diff semantics")
+    return envelope
 
 
 class CommunityConnector(Protocol):

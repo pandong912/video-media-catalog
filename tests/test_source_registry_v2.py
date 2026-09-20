@@ -16,7 +16,9 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "wikidata-json-dump",
         "eidr-public-registry",
         "identity-resolution-v2",
+        "imdb-non-commercial-datasets",
         "media-catalog-v1",
+        "tmdb-personal-research",
         "tvmaze-public-api",
     }
     wikidata = next(
@@ -24,6 +26,17 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     )
     assert wikidata.accepts("Q42")
     assert not wikidata.accepts("42")
+    namespaces = {item.namespace_id for item in first.source_namespaces}
+    assert {
+        "imdb-title",
+        "imdb-name",
+        "tmdb-movie",
+        "tmdb-tv",
+        "tmdb-person",
+    } <= namespaces
+    policies = {item.policy_id: item for item in first.rights_profiles}
+    assert policies["imdb-personal-noncommercial"].zone.value == "research_private"
+    assert policies["tmdb-personal-noncommercial"].zone.value == "research_private"
 
 
 def test_registry_rejects_dangling_product_references() -> None:

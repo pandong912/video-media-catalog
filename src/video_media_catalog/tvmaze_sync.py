@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Protocol
@@ -14,28 +17,42 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from pydantic import Field
 
-from video_media_catalog.canonical import deterministic_key, sha256_digest
+from video_media_catalog.canonical import (
+    canonical_json_bytes,
+    deterministic_key,
+    sha256_digest,
+)
 from video_media_catalog.connector import (
     ChangeSemantics,
     Completeness,
     ConnectorBatchManifest,
+    ConnectorRecordEnvelope,
     ConnectorRecordSetManifest,
     DeleteCoverage,
+    RecordOperation,
     Serialization,
     TransportKind,
     build_connector_batch_manifest,
+    build_connector_record_envelope,
     build_connector_record_set_manifest,
+)
+from video_media_catalog.connector_publish import (
+    PublishedConnectorCapture,
+    publish_connector_capture,
 )
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore, RuntimeObjectStore
 from video_media_catalog.runtime_args import join_uri
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
+    TVMAZE_DELTA_CONNECTOR_ID,
     TVMAZE_POLICY_ID,
+    TVMAZE_SHOW_NAMESPACE_ID,
     TVMAZE_SOURCE_PRODUCT_ID,
     TVMAZE_SOURCE_SYSTEM_ID,
     TVMazeShowConnector,
     _decode_page,
+    _show_id,
     tvmaze_rights_profile,
 )
 from video_media_catalog.v2_contracts import (
@@ -48,6 +65,7 @@ TVMAZE_API_ORIGIN = "https://api.tvmaze.com"
 DEFAULT_MAX_PAGE_BYTES = 16 * 1024 * 1024
 DEFAULT_RECORD_SHARD_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_PAGES = 100_000
+DEFAULT_MAX_UPDATES = 20_000
 CONTROL_OBJECT_MAX_BYTES = 16 * 1024 * 1024
 
 
@@ -61,6 +79,12 @@ class TVMazePageFetch:
 
 class TVMazePageFetcher(Protocol):
     def fetch_page(self, page: int) -> TVMazePageFetch: ...
+
+
+class TVMazeDeltaFetcher(Protocol):
+    def fetch_updates(self, since: str) -> TVMazePageFetch: ...
+
+    def fetch_show(self, show_id: int) -> TVMazePageFetch: ...
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -102,9 +126,27 @@ class TVMazeHttpFetcher:
     def fetch_page(self, page: int) -> TVMazePageFetch:
         if page < 0:
             raise ValueError("TVmaze page must be non-negative")
+        return self._fetch("/shows", {"page": str(page)})
+
+    def fetch_updates(self, since: str) -> TVMazePageFetch:
+        if since not in {"day", "week", "month"}:
+            raise ValueError("TVmaze update window must be day, week, or month")
+        return self._fetch("/updates/shows", {"since": since})
+
+    def fetch_show(self, show_id: int) -> TVMazePageFetch:
+        if isinstance(show_id, bool) or not isinstance(show_id, int) or show_id <= 0:
+            raise ValueError("TVmaze show id must be a positive integer")
+        return self._fetch(f"/shows/{show_id}", {})
+
+    def _fetch(
+        self,
+        path: str,
+        query: dict[str, str],
+    ) -> TVMazePageFetch:
         retries = 0
         rate_limits = 0
-        url = f"{TVMAZE_API_ORIGIN}/shows?{urlencode({'page': page})}"
+        suffix = f"?{urlencode(query)}" if query else ""
+        url = f"{TVMAZE_API_ORIGIN}{path}{suffix}"
         for attempt in range(1, self.max_attempts + 1):
             self._throttle()
             request = Request(
@@ -121,7 +163,11 @@ class TVMazeHttpFetcher:
                     request,
                     timeout=self.timeout_seconds,
                 )
-                self._validate_final_url(response.geturl(), page=page)
+                self._validate_final_url(
+                    response.geturl(),
+                    path=path,
+                    query=query,
+                )
                 body = response.read(self.max_page_bytes + 1)
                 if len(body) > self.max_page_bytes:
                     raise ValueError("TVmaze page exceeds configured byte limit")
@@ -134,11 +180,20 @@ class TVMazeHttpFetcher:
             except HTTPError as exc:
                 response = exc
                 status = int(exc.code)
-                self._validate_final_url(exc.geturl(), page=page)
+                self._validate_final_url(
+                    exc.geturl(),
+                    path=path,
+                    query=query,
+                )
                 if status == 404:
+                    body = exc.read(self.max_page_bytes + 1)
+                    if len(body) > self.max_page_bytes:
+                        raise ValueError(
+                            "TVmaze error response exceeds configured byte limit"
+                        ) from exc
                     return TVMazePageFetch(
                         status=404,
-                        body=b"",
+                        body=body,
                         retry_count=retries,
                         rate_limit_count=rate_limits,
                     )
@@ -171,14 +226,19 @@ class TVMazeHttpFetcher:
         self._last_request_at = self.clock()
 
     @staticmethod
-    def _validate_final_url(url: str, *, page: int) -> None:
+    def _validate_final_url(
+        url: str,
+        *,
+        path: str,
+        query: dict[str, str],
+    ) -> None:
         parsed = urlsplit(url)
         if (
             parsed.scheme != "https"
             or parsed.hostname != "api.tvmaze.com"
             or parsed.port not in {None, 443}
-            or parsed.path != "/shows"
-            or parse_qs(parsed.query) != {"page": [str(page)]}
+            or parsed.path != path
+            or parse_qs(parsed.query) != {key: [value] for key, value in query.items()}
         ):
             raise ValueError("TVmaze redirected outside the approved endpoint")
 
@@ -312,8 +372,7 @@ def capture_tvmaze_show_index(
                 "endpoint": "/shows",
                 "entityType": "show",
                 "firstPage": 0,
-                "lastPageInclusive": len(raw_objects) - 1,
-                "terminalStatus": 404,
+                "pagination": "contiguous-until-404",
             },
             raw_objects=tuple(raw_objects),
             acquired_at=acquired,
@@ -425,3 +484,209 @@ def capture_tvmaze_show_index(
             page_count=len(raw_objects),
             record_count=decoded_count,
         )
+
+
+def capture_tvmaze_show_delta(
+    *,
+    destination_prefix: str,
+    acquired_at: str,
+    image_digest: str,
+    config_digest: str,
+    since: str,
+    fetcher: TVMazeDeltaFetcher,
+    store: RuntimeObjectStore,
+    max_page_bytes: int = DEFAULT_MAX_PAGE_BYTES,
+    max_updates: int = DEFAULT_MAX_UPDATES,
+    record_shard_bytes: int = DEFAULT_RECORD_SHARD_BYTES,
+) -> PublishedConnectorCapture:
+    """Capture the official update index and current show details as one delta."""
+
+    acquired = require_rfc3339(acquired_at, label="acquired_at")
+    image = require_sha256(image_digest, label="image_digest")
+    config = require_sha256(config_digest, label="config_digest")
+    if since not in {"day", "week", "month"}:
+        raise ValueError("TVmaze update window must be day, week, or month")
+    if min(max_page_bytes, max_updates, record_shard_bytes) < 1:
+        raise ValueError("TVmaze delta byte limits must be positive")
+    policy = tvmaze_rights_profile()
+    capture_id = deterministic_key(
+        "tvmaze-show-updates-capture-v1",
+        {
+            "acquiredAt": acquired,
+            "imageDigest": image,
+            "configDigest": config,
+            "policyDigest": policy.digest,
+            "since": since,
+        },
+    ).removeprefix("sha256:")
+    payload_spool = TemporaryDirectory(prefix="tvmaze-delta-payloads-")
+    payload_root = Path(payload_spool.name)
+    update_result = fetcher.fetch_updates(since)
+    if update_result.status != 200:
+        raise RuntimeError(f"TVmaze show updates returned HTTP {update_result.status}")
+    if not update_result.body or len(update_result.body) > max_page_bytes:
+        raise ValueError("TVmaze update index is empty or exceeds its byte limit")
+    try:
+        update_payload = json.loads(update_result.body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("TVmaze update index must be UTF-8 JSON") from exc
+    if not isinstance(update_payload, dict):
+        raise ValueError("TVmaze update index must be a JSON object")
+    updates: dict[int, int] = {}
+    for raw_id, raw_timestamp in update_payload.items():
+        try:
+            show_id = int(raw_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("TVmaze update index contains an invalid show id") from exc
+        if (
+            show_id <= 0
+            or isinstance(raw_timestamp, bool)
+            or not isinstance(raw_timestamp, int)
+            or raw_timestamp <= 0
+        ):
+            raise ValueError("TVmaze update index contains an invalid timestamp")
+        updates[show_id] = raw_timestamp
+        if len(updates) > max_updates:
+            raise RuntimeError("TVmaze update count exceeds configured limit")
+
+    def upload_raw(body: bytes, *parts: str) -> ObjectRef:
+        digest = sha256_digest(body)
+        return store.upload_bytes(
+            body,
+            join_uri(
+                destination_prefix,
+                "tvmaze",
+                "updates",
+                capture_id,
+                *parts,
+                f"{digest}.json",
+            ),
+            media_type="application/json",
+            object_format="OBJECT_FORMAT_JSON",
+            max_bytes=max_page_bytes,
+        ).object_ref
+
+    raw_objects = [
+        upload_raw(
+            update_result.body,
+            "index",
+            f"since={since}",
+        )
+    ]
+    detail_records: list[tuple[int, int, int, Path | None, ObjectRef]] = []
+    retry_count = update_result.retry_count
+    rate_limit_count = update_result.rate_limit_count
+    for show_id, updated in sorted(updates.items()):
+        response = fetcher.fetch_show(show_id)
+        retry_count += response.retry_count
+        rate_limit_count += response.rate_limit_count
+        if response.status not in {200, 404}:
+            raise RuntimeError(f"TVmaze show {show_id} returned HTTP {response.status}")
+        body = response.body or canonical_json_bytes(
+            {
+                "connectorObservation": "not-found",
+                "id": show_id,
+                "status": response.status,
+            },
+            newline=True,
+        )
+        if len(body) > max_page_bytes:
+            raise ValueError("TVmaze show detail exceeds its byte limit")
+        payload_path = None
+        if response.status == 200:
+            try:
+                value = json.loads(body)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError("TVmaze show detail must be UTF-8 JSON") from exc
+            if not isinstance(value, dict) or _show_id(value) != show_id:
+                raise ValueError("TVmaze show detail identity does not match request")
+            payload_path = payload_root / f"{show_id}.json"
+            payload_path.write_bytes(canonical_json_bytes(value))
+        raw_object = upload_raw(body, "shows", f"id={show_id}")
+        raw_objects.append(raw_object)
+        detail_records.append(
+            (show_id, updated, response.status, payload_path, raw_object)
+        )
+    batch = build_connector_batch_manifest(
+        source_system_id=TVMAZE_SOURCE_SYSTEM_ID,
+        source_product_id=TVMAZE_SOURCE_PRODUCT_ID,
+        connector_id=TVMAZE_DELTA_CONNECTOR_ID,
+        connector_version="1.0.0",
+        image_digest=image,
+        config_digest=config,
+        policy_id=TVMAZE_POLICY_ID,
+        policy_digest=policy.digest,
+        transport_kind=TransportKind.API,
+        serialization=Serialization.JSON,
+        change_semantics=ChangeSemantics.DELTA,
+        completeness=Completeness.COMPLETE,
+        delete_coverage=DeleteCoverage.EXPLICIT,
+        coverage_scope={
+            "endpoint": "/updates/shows",
+            "detailEndpoint": "/shows/{id}",
+            "entityType": "show",
+            "since": since,
+        },
+        watermark_before=f"since:{since}",
+        watermark_after=(
+            datetime.fromtimestamp(max(updates.values()), tz=UTC)
+            .isoformat()
+            .replace("+00:00", "Z")
+            if updates
+            else acquired
+        ),
+        raw_objects=tuple(raw_objects),
+        acquired_at=acquired,
+        record_count=len(detail_records),
+        error_count=0,
+        retry_count=retry_count,
+        rate_limit_count=rate_limit_count,
+    )
+
+    def envelopes() -> Iterator[ConnectorRecordEnvelope]:
+        for show_id, updated, status, payload_path, raw_object in detail_records:
+            modified_at = (
+                datetime.fromtimestamp(updated, tz=UTC)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+            common = {
+                "batch_id": batch.batch_id,
+                "source_system_id": batch.source_system_id,
+                "source_product_id": batch.source_product_id,
+                "source_namespace_id": TVMAZE_SHOW_NAMESPACE_ID,
+                "source_record_id": str(show_id),
+                "source_revision": str(updated),
+                "source_modified_at": modified_at,
+                "observed_at": batch.acquired_at,
+                "ingested_at": batch.acquired_at,
+                "payload_schema": "tvmaze-show-v1",
+                "raw_object": raw_object,
+                "source_location": f"/shows/{show_id}",
+                "policy_id": batch.policy_id,
+                "policy_digest": batch.policy_digest,
+            }
+            if status == 404:
+                yield build_connector_record_envelope(
+                    operation=RecordOperation.DELETE,
+                    **common,
+                )
+            else:
+                if payload_path is None:
+                    raise RuntimeError("TVmaze UPSERT payload spool is missing")
+                yield build_connector_record_envelope(
+                    payload=json.loads(payload_path.read_bytes()),
+                    operation=RecordOperation.UPSERT,
+                    **common,
+                )
+
+    try:
+        return publish_connector_capture(
+            destination_prefix=destination_prefix,
+            batch=batch,
+            envelopes=envelopes(),
+            store=store,
+            record_shard_bytes=record_shard_bytes,
+        )
+    finally:
+        payload_spool.cleanup()

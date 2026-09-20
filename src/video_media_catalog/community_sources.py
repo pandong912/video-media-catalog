@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from video_media_catalog.imdb import (
+    imdb_registry_entries,
+    imdb_rights_profile,
+)
 from video_media_catalog.rights import PolicyZone, RightsProfile, UsageAction
 from video_media_catalog.source_registry import (
     SourceNamespace,
@@ -10,9 +14,17 @@ from video_media_catalog.source_registry import (
     SourceRegistrySnapshot,
     SourceSystem,
 )
+from video_media_catalog.tmdb import (
+    tmdb_registry_entries,
+    tmdb_rights_profile,
+)
 from video_media_catalog.tvmaze import (
     tvmaze_registry_entries,
     tvmaze_rights_profile,
+)
+from video_media_catalog.v1_adapters import (
+    EIDR_CONNECTOR_ID,
+    WIKIDATA_CONNECTOR_ID,
 )
 
 
@@ -87,6 +99,8 @@ def internal_key_continuity_profile() -> RightsProfile:
 
 def build_community_registry() -> SourceRegistrySnapshot:
     tvmaze_system, tvmaze_product, tvmaze_namespace = tvmaze_registry_entries()
+    imdb_system, imdb_product, imdb_namespaces = imdb_registry_entries()
+    tmdb_system, tmdb_product, tmdb_namespaces = tmdb_registry_entries()
     wikidata_system = SourceSystem(
         source_system_id="wikidata",
         name="Wikidata",
@@ -111,7 +125,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Wikidata JSON entity dump",
         kind=SourceProductKind.KNOWLEDGE_GRAPH,
         policy_id="wikidata-structured-data-cc0",
-        connector_id="wikidata-v1-adapter",
+        connector_id=WIKIDATA_CONNECTOR_ID,
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
     eidr_product = SourceProduct(
@@ -120,7 +134,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="EIDR public registry records",
         kind=SourceProductKind.IDENTIFIER_REGISTRY,
         policy_id="eidr-public-registry",
-        connector_id="eidr-v1-adapter",
+        connector_id=EIDR_CONNECTOR_ID,
         documentation_url="https://www.eidr.org/faq",
     )
     v1_product = SourceProduct(
@@ -148,6 +162,8 @@ def build_community_registry() -> SourceRegistrySnapshot:
             eidr_system,
             internal_system,
             tvmaze_system,
+            imdb_system,
+            tmdb_system,
         ),
         source_products=(
             wikidata_product,
@@ -155,6 +171,8 @@ def build_community_registry() -> SourceRegistrySnapshot:
             v1_product,
             identity_product,
             tvmaze_product,
+            imdb_product,
+            tmdb_product,
         ),
         source_namespaces=(
             SourceNamespace(
@@ -187,6 +205,41 @@ def build_community_registry() -> SourceRegistrySnapshot:
                 case_sensitive=False,
             ),
             tvmaze_namespace,
+            SourceNamespace(
+                namespace_id="douban-subject",
+                source_product_id="wikidata-json-dump",
+                issuer="Douban",
+                referent_kinds=("EDITORIAL_WORK", "PERSON"),
+                identifier_pattern=r"[0-9]+",
+            ),
+            SourceNamespace(
+                namespace_id="eidr-alternate",
+                source_product_id="eidr-public-registry",
+                issuer="EIDR Association",
+                referent_kinds=(
+                    "EDITORIAL_WORK",
+                    "SERIES",
+                    "SEASON",
+                    "EPISODE",
+                    "EDIT",
+                ),
+            ),
+            SourceNamespace(
+                namespace_id="thetvdb-series",
+                source_product_id="tvmaze-public-api",
+                issuer="TheTVDB",
+                referent_kinds=("SERIES",),
+                identifier_pattern=r"[1-9][0-9]*",
+            ),
+            SourceNamespace(
+                namespace_id="tvrage-show",
+                source_product_id="tvmaze-public-api",
+                issuer="TVRage",
+                referent_kinds=("SERIES",),
+                identifier_pattern=r"[1-9][0-9]*",
+            ),
+            *imdb_namespaces,
+            *tmdb_namespaces,
         ),
         schema_contracts=(),
         rights_profiles=(
@@ -194,5 +247,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
             eidr_rights_profile(),
             internal_key_continuity_profile(),
             tvmaze_rights_profile(),
+            imdb_rights_profile(),
+            tmdb_rights_profile(),
         ),
     )

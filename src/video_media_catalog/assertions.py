@@ -501,10 +501,11 @@ def build_relationship_assertion(
     status: AssertionStatus = AssertionStatus.ACTIVE,
 ) -> RelationshipAssertion:
     normalized_qualifiers = qualifiers or {}
+    normalized_predicate = require_slug(predicate, label="predicate")
     identity = _assertion_identity(
         kind="relationship",
         subject=subject,
-        predicate=predicate,
+        predicate=normalized_predicate,
         value=object.model_dump(mode="json", by_alias=True),
         qualifiers=normalized_qualifiers,
         provenance=provenance,
@@ -512,7 +513,7 @@ def build_relationship_assertion(
     return RelationshipAssertion(
         assertion_id=deterministic_key("relationship-assertion-v2", identity),
         subject=subject,
-        predicate=predicate,
+        predicate=normalized_predicate,
         object=object,
         qualifiers=normalized_qualifiers,
         status=status,

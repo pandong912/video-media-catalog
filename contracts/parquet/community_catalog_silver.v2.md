@@ -10,6 +10,12 @@ All tables use Iceberg format version 2 and Zstandard Parquet. JSON columns use
 the repository's canonical UTF-8 JSON encoding. Digests and logical keys use
 `sha256:<64 lowercase hex>`.
 
+The shared Spark mapper registry accepts committed record sets for
+`wikidata-json-dump`, `eidr-public-registry`, `tvmaze-public-api`,
+`imdb-non-commercial-datasets`, and `tmdb-personal-research`. Mapping is
+source-owned and deterministic. Spark executors read only immutable record
+objects and never call source APIs or receive source credentials.
+
 ## Run visibility
 
 Every data row carries a deterministic `run_id`. A row is visible to downstream

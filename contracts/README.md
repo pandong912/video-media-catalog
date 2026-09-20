@@ -8,7 +8,8 @@
   ProtoJSON 子集和 commit-last 规则。
 - `community_catalog.v2.md`：供应商中立的 rights、source registry、
   connector envelope、assertion、identity ledger 与 policy-specific release
-  边界。它是并行 v2 契约，不改变 v1。
+  边界，以及 Wikidata/EIDR/TVmaze/IMDb/TMDB acquisition、重放和删除语义。
+  它是并行 v2 契约，不改变 v1。
 - `parquet/community_catalog_silver.v2.md`：v2 run visibility、source/
   assertion/identity Iceberg 表、commit-last 和分区规则。
 - `parquet/community_catalog_gold.v2.md`：policy-specific Gold 实体、字段、

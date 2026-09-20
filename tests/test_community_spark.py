@@ -25,15 +25,15 @@ from video_media_catalog.identity_spark import (
     build_identity_resolution_dataframes,
 )
 from video_media_catalog.models import Checksum, ObjectRef, SnapshotSet
+from video_media_catalog.source_silver import (
+    build_source_silver_dataframes,
+)
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
     TVMAZE_POLICY_ID,
     TVMAZE_SOURCE_PRODUCT_ID,
     TVMAZE_SOURCE_SYSTEM_ID,
     tvmaze_rights_profile,
-)
-from video_media_catalog.tvmaze_silver import (
-    build_tvmaze_silver_dataframes,
 )
 from video_media_catalog.v1_migration import build_v1_key_migration
 
@@ -147,7 +147,7 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         last_envelope_key=envelope.envelope_key,
         created_at=batch.acquired_at,
     )
-    run, frames = build_tvmaze_silver_dataframes(
+    run, frames = build_source_silver_dataframes(
         spark,
         batch=batch,
         record_set=record_set,

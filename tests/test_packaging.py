@@ -81,6 +81,26 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         '"video_media_catalog.tvmaze_sync_cli:main"' in pyproject
     )
     assert (
+        "video-media-catalog-tvmaze-delta-sync = "
+        '"video_media_catalog.tvmaze_delta_sync_cli:main"' in pyproject
+    )
+    assert (
+        "video-media-catalog-v1-adapter = "
+        '"video_media_catalog.v1_adapter_cli:main"' in pyproject
+    )
+    assert (
+        "video-media-catalog-imdb-sync = "
+        '"video_media_catalog.imdb_sync_cli:main"' in pyproject
+    )
+    assert (
+        "video-media-catalog-tmdb-sync = "
+        '"video_media_catalog.tmdb_sync_cli:main"' in pyproject
+    )
+    assert (
+        "video-media-catalog-source-registry = "
+        '"video_media_catalog.source_registry_cli:main"' in pyproject
+    )
+    assert (
         "video-media-catalog-community-spark = "
         '"video_media_catalog.community_cli:main"' in pyproject
     )

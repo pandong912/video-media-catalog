@@ -37,9 +37,47 @@ Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重
 和
 [`contracts/community_catalog.v2.md`](contracts/community_catalog.v2.md)。
 
-TVmaze 是首个 v2 社区 connector。它只访问固定的官方 `/shows?page=N`，
-遵守 429/`Retry-After` 和至少 20 calls/10 seconds 的公开限制，先不可变发布
-原始 page，再发布 batch manifest、record shards 和最终 record-set marker：
+## Source connectors v2
+
+所有来源统一进入 `ConnectorBatchManifest` → `ConnectorRecordEnvelope` →
+`ConnectorRecordSetManifest`，每个 envelope 和 assertion 都绑定 rights policy
+digest、原始 `ObjectRef` 和 mapper provenance。网络采集进程只负责保存官方 API/
+dataset 响应；`video-media-catalog-community-spark` 只读取不可变 capture，不在
+Spark executor 中访问外网。代码没有、也不允许 IMDb/TMDB/TVmaze 网页抓取。
+
+可审计 registry（含 policy digest）可直接输出：
+
+```bash
+video-media-catalog-source-registry
+```
+
+### Wikidata / EIDR v2 adapters
+
+现有已校验 v1 Wikidata dump/subset 或 EIDR XML 可包装为 v2 capture。输入必须是
+完整不可变 `ObjectRef`；S3 输入必须同时带 VersionId 和 ETag：
+
+```bash
+video-media-catalog-v1-adapter \
+  --source wikidata \
+  --input-uri s3://bucket/wikidata/subset.json.bz2 \
+  --input-hash sha256:<hex> --input-size <bytes> \
+  --input-version <VersionId> --input-etag <ETag> \
+  --coverage-id reference-subset \
+  --destination-prefix s3://bucket/community-captures \
+  --image-digest sha256:<hex>
+```
+
+Wikidata adapter 在 capture 时按既有 P31/P279 规则生成确定性的 v1 type hint，
+Spark mapper 再生成字段、identifier、relation 与 entity-type assertions。EIDR
+默认是“已发现 ID 的部分集合”，因此不声明删除覆盖；只有运行方确认 XML 是同一
+coverage 的完整快照时才可传 `--eidr-complete-snapshot`。项目仍不提供默认 EIDR
+网络搜索或全库镜像 client。
+
+### TVmaze full + delta
+
+TVmaze full connector 只访问固定的官方 `/shows?page=N`，遵守
+429/`Retry-After` 和至少 20 calls/10 seconds 的公开限制，先不可变发布原始
+page，再发布 batch manifest、record shards 和最终 record-set marker：
 
 ```bash
 video-media-catalog-tvmaze-sync \
@@ -48,10 +86,81 @@ video-media-catalog-tvmaze-sync \
   --image-digest sha256:<64位hex>
 ```
 
+增量入口先捕获官方 `/updates/shows?since=day|week|month`，再按 ID 捕获
+`/shows/{id}`；详情 404 形成显式 DELETE，而不是把部分结果解释为删除：
+
+```bash
+video-media-catalog-tvmaze-delta-sync \
+  --destination-prefix s3://bucket/community-captures \
+  --since day \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+delta 默认最多 20,000 个 changed IDs，避免 control manifest 和本地 payload
+spool 无界增长；应优先使用 `since=day`，超限时必须先扩展 capture/control
+设计，不能静默发布部分批次。
+
 生产使用 S3 prefix 时继续通过 AWS 默认凭据链，不接受静态 access key 参数。
 TVmaze 元数据进入 `open_sharealike`；mapper 首版故意不提升 image URL，图片必须
-经过逐资产权利审核。该 connector 不做标题模糊归并，只输出 source-owned
+经过逐资产权利审核。connector 不做标题模糊归并，只输出 source-owned
 assertions。
+
+### IMDb official TSV
+
+IMDb connector 只下载 `https://datasets.imdbws.com/` 的七个官方 gzip TSV：
+title basics/akas/episode/crew/principals/ratings 与 name basics。七个文件必须
+同时成功并通过固定 header 校验后，才发布 complete snapshot；删除只能由相同
+coverage 的完整快照差异推断。
+
+```bash
+video-media-catalog-imdb-sync \
+  --destination-prefix s3://bucket/personal-research-captures \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+IMDb 数据固定进入 `research_private`，只允许 `audience=personal-research`、
+`purpose=personal-research` 的 store/transform/display/search/derive；不授予
+export、redistribute 或 ML 权限，并保留 IMDb 要求的署名。该入口不需要凭据，
+但需要能访问官方 dataset host。
+
+### TMDB daily export + changes/detail
+
+daily baseline 只下载官方 `files.tmdb.org/p/exports` 的 movie、TV、person ID
+inventory。TMDB 明确说明它不是完整 metadata export，因此 connector 不从 daily
+文件推断删除：
+
+```bash
+video-media-catalog-tmdb-sync daily-export \
+  --export-date 2026-09-20 \
+  --destination-prefix s3://bucket/personal-research-captures \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+changes 模式覆盖 movie/TV/person 的最多 14 天窗口，捕获全部 changed-ID pages，
+再捕获当前 details + credits/combined credits + external IDs + translations +
+image references。API token 只能通过环境变量注入，不进入 URL、manifest、日志或
+config digest：
+
+```bash
+export MEDIA_CATALOG_TMDB_API_READ_TOKEN='<API Read Access Token>'
+video-media-catalog-tmdb-sync changes \
+  --window-start 2026-09-19 --window-end 2026-09-20 \
+  --destination-prefix s3://bucket/personal-research-captures \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+changes 默认最多 20,000 个 changed IDs，超限会在发布 batch/record-set 前失败；
+调度器应缩短窗口重试，不能静默截断。
+
+TMDB facts 固定进入 `research_private` personal-research policy。image path 只作为
+`assetReviewRequired=true` 的来源 assertion，不能据此发布图片。任何 UI 使用还
+必须展示 approved TMDB logo 和
+“This product uses the TMDB API but is not endorsed or certified by TMDB.”
+声明。
 
 同步结果中的 immutable batch/record-set ObjectRef 可提交到独立的 Silver v2
 Spark 入口：

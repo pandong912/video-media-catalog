@@ -127,3 +127,23 @@ def test_record_set_manifest_binds_normalized_objects() -> None:
     )
     assert record_set.record_set_id.startswith("sha256:")
     assert record_set == type(record_set).model_validate_json(record_set.json_bytes())
+
+
+def test_empty_delta_record_set_does_not_require_a_fake_record_object() -> None:
+    batch = _batch(
+        change_semantics=ChangeSemantics.DELTA,
+        completeness=Completeness.COMPLETE,
+        delete_coverage=DeleteCoverage.EXPLICIT,
+        record_count=0,
+    )
+    record_set = build_connector_record_set_manifest(
+        batch_id=batch.batch_id,
+        source_product_id=batch.source_product_id,
+        policy_id=batch.policy_id,
+        policy_digest=batch.policy_digest,
+        record_objects=(),
+        record_count=0,
+        created_at=batch.acquired_at,
+    )
+    assert record_set.record_objects == ()
+    assert record_set.first_envelope_key is None

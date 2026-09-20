@@ -445,7 +445,7 @@ def transform_landing(
 
     closure = spark.createDataFrame(
         sorted(ENTITY_TYPE_SEEDS.items()), ["class_id", "entity_type"]
-    ).persist()
+    ).localCheckpoint(eager=True)
     edges = (
         wiki.select(
             F.col("source_record_id").alias("child"),
@@ -467,12 +467,13 @@ def transform_landing(
         delta = candidates.join(
             closure, ["class_id", "entity_type"], "left_anti"
         ).persist()
-        if not delta.take(1):
+        if delta.count() == 0:
             delta.unpersist()
             break
         previous = closure
-        closure = previous.unionByName(delta).dropDuplicates().persist()
-        closure.count()
+        closure = (
+            previous.unionByName(delta).dropDuplicates().localCheckpoint(eager=True)
+        )
         previous.unpersist()
         delta.unpersist()
     else:

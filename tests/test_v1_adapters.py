@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from video_media_catalog.connector import ConnectorRecordEnvelope
 from video_media_catalog.models import Checksum, ObjectRef
@@ -95,6 +96,68 @@ def test_wikidata_series_keeps_source_node_but_maps_series_blocking_ids(
         (item.namespace_id, item.referent_kind) for item in mapped.identifier_assertions
     }
     assert ("wikidata-item", "SERIES") in identifiers
+
+
+def test_wikidata_company_imdb_id_uses_company_namespace(
+    tmp_path,
+    fixture_dir,
+) -> None:
+    source = fixture_dir / "wikidata.json"
+    result = capture_v1_adapter(
+        source="wikidata",
+        input_path=source,
+        raw_object=_object(source, media_type="application/json"),
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        coverage_id="reference-subset-2026-09-20",
+        store=BoundedObjectStore(client=object()),
+    )
+    envelope = _records(result)[0].model_copy(
+        update={
+            "source_record_id": "Q2000",
+            "payload_json": json.dumps(
+                {
+                    "id": "Q2000",
+                    "v1EntityType": "ORGANIZATION",
+                    "claims": {
+                        "P345": [
+                            {
+                                "rank": "normal",
+                                "mainsnak": {
+                                    "snaktype": "value",
+                                    "datavalue": {
+                                        "value": "co0001757",
+                                        "type": "string",
+                                    },
+                                },
+                            },
+                            {
+                                "rank": "normal",
+                                "mainsnak": {
+                                    "snaktype": "value",
+                                    "datavalue": {
+                                        "value": "ch0000001",
+                                        "type": "string",
+                                    },
+                                },
+                            },
+                        ]
+                    },
+                }
+            ),
+        }
+    )
+
+    mapped = map_wikidata_record(envelope)
+    external = {
+        (item.namespace_id, item.value, item.referent_kind)
+        for item in mapped.identifier_assertions
+        if item.namespace_id != "wikidata-item"
+    }
+    assert ("imdb-company", "co0001757", "ORGANIZATION") in external
+    assert not any(value == "ch0000001" for _, value, _ in external)
 
 
 def test_eidr_v2_adapter_defaults_to_partial_exact_lookup_scope(

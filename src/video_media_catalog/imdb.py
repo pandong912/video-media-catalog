@@ -27,6 +27,7 @@ IMDB_SOURCE_PRODUCT_ID = "imdb-non-commercial-datasets"
 IMDB_RECORD_NAMESPACE_ID = "imdb-record"
 IMDB_TITLE_NAMESPACE_ID = "imdb-title"
 IMDB_NAME_NAMESPACE_ID = "imdb-name"
+IMDB_COMPANY_NAMESPACE_ID = "imdb-company"
 IMDB_CONNECTOR_ID = "imdb-official-tsv"
 IMDB_POLICY_ID = "imdb-research-noncommercial"
 IMDB_DATASET_ORIGIN = "https://datasets.imdbws.com"
@@ -180,6 +181,14 @@ def imdb_registry_entries() -> tuple[
             issuer="IMDb",
             referent_kinds=("PERSON",),
             identifier_pattern=r"nm[0-9]{7,12}",
+            case_sensitive=False,
+        ),
+        SourceNamespace(
+            namespace_id=IMDB_COMPANY_NAMESPACE_ID,
+            source_product_id=IMDB_SOURCE_PRODUCT_ID,
+            issuer="IMDb",
+            referent_kinds=("ORGANIZATION",),
+            identifier_pattern=r"co[0-9]{7,12}",
             case_sensitive=False,
         ),
     )

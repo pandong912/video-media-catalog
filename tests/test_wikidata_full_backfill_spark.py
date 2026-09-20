@@ -68,9 +68,10 @@ def test_small_fixture_profiles_full_media_selection(
         acquired_at="2026-09-01T00:00:00Z",
     )
     try:
-        assert build.profile.record_count == 10
+        assert build.profile.record_count == 9
         assert build.profile.root_counts["MOVIE"] == 2
-        assert build.profile.parent_count >= 1
+        assert build.profile.parent_count == 0
+        assert build.profile.parent_edge_count >= 1
         assert build.profile.credit_person_count >= 2
         assert build.profile.estimated_shards >= 1
         assert build.batch.connector_id == "wikidata-full-media-backfill"

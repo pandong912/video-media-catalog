@@ -62,7 +62,8 @@ def _identity_lifecycle_inputs(
 
 
 @pytest.fixture(scope="module")
-def spark():
+def spark(tmp_path_factory):
+    scratch = tmp_path_factory.mktemp("community-identity-checkpoints")
     session = (
         SparkSession.builder.master("local[2]")
         .appName("community-catalog-v2-unit-test")
@@ -70,6 +71,7 @@ def spark():
         .config("spark.sql.shuffle.partitions", "2")
         .getOrCreate()
     )
+    session.sparkContext.setCheckpointDir(scratch.as_posix())
     yield session
     session.stop()
 

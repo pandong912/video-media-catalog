@@ -203,6 +203,17 @@ _SOURCE_NODE_COLUMNS = (
 )
 
 
+def _ensure_identity_checkpoint_dir(spark: Any) -> None:
+    """Give localCheckpoint a writable directory before truncating lineage."""
+
+    sc = spark.sparkContext
+    java_dir = sc._jsc.sc().getCheckpointDir()
+    if java_dir.isDefined():
+        return
+    warehouse = str(spark.conf.get("spark.sql.warehouse.dir", "/tmp")).rstrip("/")
+    sc.setCheckpointDir(f"{warehouse}/identity-checkpoints")
+
+
 def _materialize_exact_blocking_labels(
     frame: Any,
     *,
@@ -210,19 +221,33 @@ def _materialize_exact_blocking_labels(
 ) -> Any:
     """Truncate label propagation lineage; fail closed on checkpoint loss."""
 
+    from pyspark import StorageLevel
+
+    spark = frame.sparkSession
+    _ensure_identity_checkpoint_dir(spark)
+    persisted = frame.persist(StorageLevel.MEMORY_AND_DISK)
     try:
-        materialized = frame.localCheckpoint(eager=True)
+        persisted.count()
+        materialized = persisted.localCheckpoint(eager=True)
     except Exception as exc:
+        with contextlib.suppress(Exception):
+            persisted.unpersist()
         raise RuntimeError(
             f"exact blocking {label} localCheckpoint failed; refusing incomplete merge"
         ) from exc
     try:
         materialized.take(1)
     except Exception as exc:
+        with contextlib.suppress(Exception):
+            persisted.unpersist()
+            materialized.unpersist()
         raise RuntimeError(
             f"exact blocking {label} checkpoint is unreadable; "
             "refusing incomplete merge"
         ) from exc
+    if persisted is not materialized:
+        with contextlib.suppress(Exception):
+            persisted.unpersist()
     return materialized
 
 

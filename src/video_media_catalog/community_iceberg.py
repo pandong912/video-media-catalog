@@ -14,6 +14,10 @@ from video_media_catalog.community_rows import (
     ingest_commit_row,
     ingest_run_row,
 )
+from video_media_catalog.community_snapshot import (
+    CommunitySilverEpochManifest,
+    build_committed_run_digest,
+)
 from video_media_catalog.community_tables import (
     DATA_TABLE_COLUMNS,
     NULLABLE_COLUMNS,
@@ -165,10 +169,7 @@ class CommunityCatalogTables:
         self.create_tables()
         existing = self.read_commit(run.run_id)
         if existing is not None:
-            if existing.table_counts != run.expected_counts:
-                raise RuntimeError("existing run commit conflicts with expected counts")
-            self._verify_run_manifest(run)
-            return existing
+            return self._reuse_existing_commit(run, existing)
 
         run_frame = self.spark.createDataFrame([ingest_run_row(run)])
         self.merge_insert_only("community_ingest_run", run_frame)
@@ -220,8 +221,24 @@ class CommunityCatalogTables:
         self.merge_insert_only("community_ingest_commit", commit_frame)
         published = self.read_commit(run.run_id)
         if published != commit:
-            raise RuntimeError("community ingest commit could not be verified")
+            if published is None:
+                raise RuntimeError("community ingest commit could not be verified")
+            return self._reuse_existing_commit(run, published)
         return published
+
+    def _reuse_existing_commit(
+        self,
+        run: CommunityIngestRun,
+        existing: CommunityIngestCommit,
+    ) -> CommunityIngestCommit:
+        """Return the winner of an exact retry or concurrent duplicate submit."""
+
+        if existing.run_id != run.run_id:
+            raise RuntimeError("existing run commit belongs to another run")
+        if existing.table_counts != run.expected_counts:
+            raise RuntimeError("existing run commit conflicts with expected counts")
+        self._verify_run_manifest(run)
+        return existing
 
     def read_commit(self, run_id: str) -> CommunityIngestCommit | None:
         run_id = require_sha256(run_id, label="run_id")
@@ -239,11 +256,128 @@ class CommunityCatalogTables:
             raise RuntimeError("one community run has multiple commit markers")
         return CommunityIngestCommit.model_validate_json(rows[0]["commit_json"])
 
+    def committed_runs_dataframe(self, commit_snapshot_id: int) -> Any:
+        """Return committed run IDs from one exact Iceberg snapshot."""
+
+        if isinstance(commit_snapshot_id, bool) or commit_snapshot_id <= 0:
+            raise ValueError("commit_snapshot_id must be positive")
+        return (
+            self.spark.read.format("iceberg")
+            .option("snapshot-id", str(commit_snapshot_id))
+            .load(self.table_name("community_ingest_commit"))
+            .select("run_id")
+        )
+
+    def committed_run_summary(self, committed_runs: Any) -> tuple[int, str]:
+        """Summarize an unbounded run set without collecting IDs to the driver."""
+
+        from pyspark.sql import functions as F
+
+        if "run_id" not in committed_runs.columns:
+            raise ValueError("committed runs dataframe requires run_id")
+        runs = committed_runs.select("run_id").persist()
+        try:
+            if (
+                runs.where(
+                    F.col("run_id").isNull()
+                    | ~F.col("run_id").rlike(r"^sha256:[0-9a-f]{64}$")
+                )
+                .limit(1)
+                .count()
+            ):
+                raise RuntimeError("commit snapshot contains an invalid run ID")
+            if (
+                runs.groupBy("run_id")
+                .count()
+                .where(F.col("count") != 1)
+                .limit(1)
+                .count()
+            ):
+                raise RuntimeError("commit snapshot contains duplicate run IDs")
+            run_count = runs.count()
+            bucket_rows = (
+                runs.withColumn("_bucket", F.substring("run_id", 8, 2))
+                .groupBy("_bucket")
+                .agg(
+                    F.count("*").alias("run_count"),
+                    F.sha2(
+                        F.concat_ws(
+                            "\n",
+                            F.sort_array(F.collect_list("run_id")),
+                        ),
+                        256,
+                    ).alias("run_digest"),
+                )
+                .orderBy("_bucket")
+                .collect()
+            )
+            # Only the fixed 256 bucket summaries cross the driver boundary.
+            buckets = tuple(
+                (
+                    str(row["_bucket"]),
+                    int(row["run_count"]),
+                    "sha256:" + str(row["run_digest"]),
+                )
+                for row in bucket_rows
+            )
+            return run_count, build_committed_run_digest(
+                run_count=run_count,
+                buckets=buckets,
+            )
+        finally:
+            runs.unpersist()
+
+    def validate_epoch_committed_runs(
+        self,
+        epoch: CommunitySilverEpochManifest,
+        committed_runs: Any,
+    ) -> None:
+        count, digest = self.committed_run_summary(committed_runs)
+        if count != epoch.committed_run_count:
+            raise ValueError("Silver epoch committed run count does not match snapshot")
+        if digest != epoch.committed_run_digest:
+            raise ValueError(
+                "Silver epoch committed run digest does not match snapshot"
+            )
+
+    def visible_run_dataframe(
+        self,
+        *,
+        run_snapshot_id: int,
+        committed_runs: Any,
+    ) -> Any:
+        """Read exact run metadata and fence it through distributed commits."""
+
+        from pyspark.sql import functions as F
+
+        if isinstance(run_snapshot_id, bool) or run_snapshot_id <= 0:
+            raise ValueError("run_snapshot_id must be positive")
+        runs = (
+            self.spark.read.format("iceberg")
+            .option("snapshot-id", str(run_snapshot_id))
+            .load(self.table_name("community_ingest_run"))
+        )
+        selected = committed_runs.select("run_id").dropDuplicates(["run_id"])
+        missing = selected.join(runs.select("run_id"), "run_id", "left_anti")
+        if missing.limit(1).count():
+            raise ValueError("run snapshot is missing a committed run manifest")
+        visible = runs.join(selected, "run_id", "inner")
+        if (
+            visible.groupBy("run_id")
+            .count()
+            .where(F.col("count") != 1)
+            .limit(1)
+            .count()
+        ):
+            raise ValueError("run snapshot contains duplicate committed manifests")
+        return visible
+
     def visible_dataframes(
         self,
         *,
         data_snapshot_ids: dict[str, int | None],
         commit_snapshot_id: int,
+        committed_runs: Any | None = None,
     ) -> dict[str, Any]:
         """Read exact snapshots and filter every row through committed runs."""
 
@@ -252,12 +386,11 @@ class CommunityCatalogTables:
         if commit_snapshot_id <= 0:
             raise ValueError("commit_snapshot_id must be positive")
         commits = (
-            self.spark.read.format("iceberg")
-            .option("snapshot-id", str(commit_snapshot_id))
-            .load(self.table_name("community_ingest_commit"))
-            .select("run_id")
-            .dropDuplicates(["run_id"])
+            self.committed_runs_dataframe(commit_snapshot_id)
+            if committed_runs is None
+            else committed_runs.select("run_id")
         )
+        commits = commits.dropDuplicates(["run_id"])
         visible = {}
         for table, snapshot_id in data_snapshot_ids.items():
             frame = (

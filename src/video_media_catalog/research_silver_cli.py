@@ -1,4 +1,4 @@
-"""Production Spark stages for the owner-only research Silver v2 chain."""
+"""Production Spark stages for the shared authenticated research Silver chain."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import argparse
 import os
 import re
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -21,10 +21,17 @@ from video_media_catalog.community_ingest import (
 )
 from video_media_catalog.community_snapshot import (
     CONTROL_MAX_BYTES,
-    MAX_COMMITTED_RUNS,
+    MAX_EPOCH_DELTA_RUNS,
+    SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
+    CommunitySilverEpochManifest,
+    CommunitySilverEpochReference,
+    CommunitySilverManifest,
     CommunitySilverSnapshotSet,
+    build_community_silver_epoch_manifest,
     build_community_silver_snapshot_set,
+    community_silver_manifest_id,
+    parse_community_silver_manifest,
 )
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
@@ -37,6 +44,7 @@ from video_media_catalog.iceberg import (
     MediaCatalogTables,
 )
 from video_media_catalog.identity_spark import (
+    IdentityResolutionConfig,
     build_identity_resolution_dataframes,
 )
 from video_media_catalog.models import Checksum, ObjectRef, SnapshotSet
@@ -46,13 +54,16 @@ from video_media_catalog.object_store import (
 )
 from video_media_catalog.v1_migration import build_v1_key_migration
 from video_media_catalog.v2_contracts import (
+    parse_rfc3339,
     require_rfc3339,
     require_sha256,
+    require_slug,
 )
 
 MAX_URI_LENGTH = 2_048
 MAX_OPTION_LENGTH = 4_096
 MAX_SHUFFLE_PARTITIONS = 100_000
+MAX_EXPLICIT_RUN_IDS = MAX_EPOCH_DELTA_RUNS
 SOURCE_DATA_TABLES = frozenset(
     {
         "community_source_record",
@@ -67,11 +78,13 @@ SOURCE_DATA_TABLES = frozenset(
 def _add_control_object_args(
     parser: argparse.ArgumentParser,
     prefix: str,
+    *,
+    required: bool = True,
 ) -> None:
     dashed = prefix.replace("_", "-")
-    parser.add_argument(f"--{dashed}-uri", required=True)
-    parser.add_argument(f"--{dashed}-hash", required=True)
-    parser.add_argument(f"--{dashed}-size", required=True, type=int)
+    parser.add_argument(f"--{dashed}-uri", required=required)
+    parser.add_argument(f"--{dashed}-hash", required=required)
+    parser.add_argument(f"--{dashed}-size", required=required, type=int)
     parser.add_argument(f"--{dashed}-version", default="")
     parser.add_argument(f"--{dashed}-etag", default="")
 
@@ -155,6 +168,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="resolve explicitly selected committed source runs",
     )
     _add_control_object_args(identity, "silver_snapshot")
+    identity.add_argument(
+        "--silver-snapshot-media-type",
+        choices=(SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE),
+        default=SILVER_SNAPSHOT_MEDIA_TYPE,
+    )
     _add_control_object_args(identity, "v1_snapshot")
     identity.add_argument(
         "--source-run-id",
@@ -164,6 +182,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     identity.add_argument("--image-digest", required=True)
     identity.add_argument("--config-digest", required=True)
+    identity_defaults = IdentityResolutionConfig()
+    identity.add_argument(
+        "--identity-max-label-iterations",
+        type=int,
+        default=identity_defaults.max_exact_blocking_label_iterations,
+    )
+    identity.add_argument(
+        "--identity-max-component-size",
+        type=int,
+        default=identity_defaults.max_exact_blocking_component_size,
+    )
+    identity.add_argument(
+        "--identity-max-node-candidate-keys",
+        type=int,
+        default=identity_defaults.max_exact_blocking_node_candidate_keys,
+    )
+    identity.add_argument(
+        "--identity-max-component-candidate-keys",
+        type=int,
+        default=identity_defaults.max_exact_blocking_component_candidate_keys,
+    )
     identity.add_argument("--started-at", required=True)
     identity.add_argument("--committed-at", required=True)
     _add_v1_namespace_arg(identity)
@@ -190,6 +229,37 @@ def build_parser() -> argparse.ArgumentParser:
         app_name="media-catalog-research-snapshot-publication",
     )
     publication.set_defaults(stage_runner=_run_snapshot_publication)
+
+    epoch = commands.add_parser(
+        "publish-epoch",
+        help="publish a bounded epoch manifest over all pinned committed runs",
+    )
+    epoch.add_argument(
+        "--delta-run-id",
+        dest="delta_run_ids",
+        action="append",
+        default=[],
+    )
+    epoch.add_argument(
+        "--epoch-uri",
+        "--snapshot-uri",
+        dest="epoch_uri",
+        required=True,
+    )
+    epoch.add_argument(
+        "--source-watermark",
+        dest="source_watermarks",
+        action="append",
+        default=[],
+        metavar="SOURCE_PRODUCT_ID=VALUE",
+    )
+    _add_control_object_args(epoch, "parent_epoch", required=False)
+    epoch.add_argument("--created-at", required=True)
+    _add_catalog_args(
+        epoch,
+        app_name="media-catalog-research-epoch-publication",
+    )
+    epoch.set_defaults(stage_runner=_run_epoch_publication)
     return parser
 
 
@@ -286,6 +356,26 @@ def _control_object_ref(
     )
 
 
+def _optional_control_object_ref(
+    parsed: argparse.Namespace,
+    prefix: str,
+    *,
+    media_type: str,
+) -> ObjectRef | None:
+    values = (
+        getattr(parsed, f"{prefix}_uri"),
+        getattr(parsed, f"{prefix}_hash"),
+        getattr(parsed, f"{prefix}_size"),
+    )
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise ValueError(
+            f"{prefix} immutable ObjectRef fields must be provided together"
+        )
+    return _control_object_ref(parsed, prefix, media_type=media_type)
+
+
 def _normalize_run_ids(
     values: Sequence[str],
     *,
@@ -293,12 +383,55 @@ def _normalize_run_ids(
 ) -> tuple[str, ...]:
     if not values:
         raise ValueError(f"{label} requires at least one run ID")
-    if len(values) > MAX_COMMITTED_RUNS:
-        raise ValueError(f"{label} supports at most {MAX_COMMITTED_RUNS} run IDs")
+    if len(values) > MAX_EXPLICIT_RUN_IDS:
+        raise ValueError(f"{label} supports at most {MAX_EXPLICIT_RUN_IDS} run IDs")
     normalized = tuple(require_sha256(value, label="run_id") for value in values)
     if len(set(normalized)) != len(normalized):
         raise ValueError(f"{label} contains duplicate run IDs")
     return tuple(sorted(normalized))
+
+
+def _parse_source_watermarks(values: Sequence[str]) -> dict[str, str]:
+    watermarks: dict[str, str] = {}
+    for value in values:
+        source, separator, watermark = value.partition("=")
+        if not separator:
+            raise ValueError("source watermark must use SOURCE_PRODUCT_ID=VALUE")
+        source_product_id = require_slug(source, label="source_product_id")
+        normalized = watermark.strip()
+        if not normalized or len(normalized) > 1024:
+            raise ValueError("source watermark must be non-empty and bounded")
+        if source_product_id in watermarks:
+            raise ValueError(f"duplicate source watermark: {source_product_id}")
+        watermarks[source_product_id] = normalized
+    return dict(sorted(watermarks.items()))
+
+
+def _validate_source_watermark_changes(
+    *,
+    parent: CommunitySilverEpochManifest,
+    source_watermarks: Mapping[str, str],
+    delta_runs: Mapping[str, CommunityIngestRun],
+) -> None:
+    changed_watermarks = {
+        source_product_id
+        for source_product_id in (
+            set(parent.source_watermarks) | set(source_watermarks)
+        )
+        if parent.source_watermarks.get(source_product_id)
+        != source_watermarks.get(source_product_id)
+    }
+    delta_source_products = {
+        run.source_product_id
+        for run in delta_runs.values()
+        if run.run_kind == IngestRunKind.SOURCE_ASSERTIONS
+    }
+    unexplained = sorted(changed_watermarks - delta_source_products)
+    if unexplained:
+        raise ValueError(
+            "source watermarks changed without a source delta run: "
+            + ", ".join(unexplained)
+        )
 
 
 def _v1_catalog_config(parsed: argparse.Namespace) -> CatalogConfig:
@@ -429,6 +562,28 @@ def _read_model[T](
             max_bytes=CONTROL_MAX_BYTES,
         )
         return model.model_validate_json(materialized.path.read_bytes())
+
+
+def _read_silver_manifest(
+    store: RuntimeObjectStore,
+    reference: ObjectRef,
+) -> CommunitySilverManifest:
+    store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
+    with tempfile.TemporaryDirectory(prefix="research-silver-control-") as directory:
+        materialized = store.download(
+            reference,
+            Path(directory) / "silver-manifest.json",
+            max_bytes=CONTROL_MAX_BYTES,
+        )
+        manifest = parse_community_silver_manifest(materialized.path.read_bytes())
+    expected_media_type = (
+        SILVER_EPOCH_MEDIA_TYPE
+        if isinstance(manifest, CommunitySilverEpochManifest)
+        else SILVER_SNAPSHOT_MEDIA_TYPE
+    )
+    if reference.media_type != expected_media_type:
+        raise ValueError("Silver manifest media type does not match schema version")
+    return manifest
 
 
 def _load_v1_tables(
@@ -586,29 +741,45 @@ def _verify_data_counts(
                 )
 
 
+def _manifest_committed_runs(
+    spark: Any,
+    *,
+    tables: CommunityCatalogTables,
+    manifest: CommunitySilverManifest,
+) -> Any:
+    committed = tables.committed_runs_dataframe(manifest.commit_snapshot_id)
+    if isinstance(manifest, CommunitySilverEpochManifest):
+        tables.validate_epoch_committed_runs(manifest, committed)
+        return committed
+    if len(manifest.committed_run_ids) > MAX_EXPLICIT_RUN_IDS:
+        raise ValueError("large Silver histories must use an epoch manifest")
+    selected = spark.createDataFrame(
+        [(run_id,) for run_id in manifest.committed_run_ids],
+        "run_id STRING",
+    )
+    if selected.join(committed, "run_id", "left_anti").limit(1).count():
+        raise ValueError("Silver snapshot set references an uncommitted run")
+    return committed.join(selected, "run_id", "inner")
+
+
 def _selected_silver_frames(
     spark: Any,
     *,
     tables: CommunityCatalogTables,
-    snapshot: CommunitySilverSnapshotSet,
+    snapshot: CommunitySilverManifest,
+    committed_runs: Any,
     source_run_ids: tuple[str, ...],
 ) -> dict[str, Any]:
     visible = tables.visible_dataframes(
         data_snapshot_ids=snapshot.data_snapshot_ids,
         commit_snapshot_id=snapshot.commit_snapshot_id,
-    )
-    selected_runs = spark.createDataFrame(
-        [(run_id,) for run_id in snapshot.committed_run_ids],
-        "run_id STRING",
+        committed_runs=committed_runs,
     )
     source_runs = spark.createDataFrame(
         [(run_id,) for run_id in source_run_ids],
         "run_id STRING",
     )
-    result = {
-        table: frame.join(selected_runs, "run_id", "inner")
-        for table, frame in visible.items()
-    }
+    result = dict(visible)
     for table in SOURCE_DATA_TABLES:
         result[table] = result[table].join(source_runs, "run_id", "inner")
     return result
@@ -677,10 +848,20 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         parsed.config_digest,
         label="config-digest",
     )
+    resolution_config = IdentityResolutionConfig(
+        max_exact_blocking_label_iterations=(parsed.identity_max_label_iterations),
+        max_exact_blocking_component_size=(parsed.identity_max_component_size),
+        max_exact_blocking_node_candidate_keys=(
+            parsed.identity_max_node_candidate_keys
+        ),
+        max_exact_blocking_component_candidate_keys=(
+            parsed.identity_max_component_candidate_keys
+        ),
+    )
     silver_ref = _control_object_ref(
         parsed,
         "silver_snapshot",
-        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        media_type=parsed.silver_snapshot_media_type,
     )
     v1_ref = _control_object_ref(
         parsed,
@@ -691,32 +872,55 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         urlsplit(reference.uri).scheme == "file" for reference in (silver_ref, v1_ref)
     )
     store = _object_store(parsed, local_only=local_inputs)
-    silver_snapshot = _read_model(
-        store,
-        silver_ref,
-        CommunitySilverSnapshotSet,
-    )
+    silver_snapshot = _read_silver_manifest(store, silver_ref)
     v1_snapshot = _read_model(store, v1_ref, SnapshotSet)
-    missing_sources = sorted(
-        set(source_run_ids) - set(silver_snapshot.committed_run_ids)
-    )
-    if missing_sources:
-        raise ValueError(
-            "source runs are absent from the pinned Silver snapshot: "
-            + ", ".join(missing_sources)
+    if isinstance(silver_snapshot, CommunitySilverSnapshotSet):
+        if len(silver_snapshot.committed_run_ids) > MAX_EXPLICIT_RUN_IDS:
+            raise ValueError("large Silver histories must use an epoch manifest")
+        missing_sources = sorted(
+            set(source_run_ids) - set(silver_snapshot.committed_run_ids)
         )
+        if missing_sources:
+            raise ValueError(
+                "source runs are absent from the pinned Silver snapshot: "
+                + ", ".join(missing_sources)
+            )
 
     config = _catalog_config(parsed)
     spark = _spark_session(parsed, config)
     frames: dict[str, Any] | None = None
     try:
         tables = CommunityCatalogTables(spark, config)
+        committed_runs = _manifest_committed_runs(
+            spark,
+            tables=tables,
+            manifest=silver_snapshot,
+        )
+        source_runs_frame = spark.createDataFrame(
+            [(run_id,) for run_id in source_run_ids],
+            "run_id STRING",
+        )
+        if (
+            source_runs_frame.join(
+                committed_runs,
+                "run_id",
+                "left_anti",
+            )
+            .limit(1)
+            .count()
+        ):
+            raise ValueError("source runs are absent from the pinned Silver manifest")
+        state_run_ids = (
+            source_run_ids
+            if isinstance(silver_snapshot, CommunitySilverEpochManifest)
+            else silver_snapshot.committed_run_ids
+        )
         runs, _ = _load_run_state(
             spark,
             tables=tables,
             run_snapshot_id=silver_snapshot.run_snapshot_id,
             commit_snapshot_id=silver_snapshot.commit_snapshot_id,
-            run_ids=silver_snapshot.committed_run_ids,
+            run_ids=state_run_ids,
         )
         wrong_kind = [
             run_id
@@ -732,6 +936,7 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             spark,
             tables=tables,
             snapshot=silver_snapshot,
+            committed_runs=committed_runs,
             source_run_ids=source_run_ids,
         )
         v1_tables = _load_v1_tables(
@@ -739,15 +944,22 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             config=_v1_catalog_config(parsed),
             snapshot_set=v1_snapshot,
         )
+        silver_input = {
+            "object": silver_ref.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            ),
+        }
+        silver_input[
+            (
+                "epochId"
+                if isinstance(silver_snapshot, CommunitySilverEpochManifest)
+                else "snapshotSetId"
+            )
+        ] = community_silver_manifest_id(silver_snapshot)
         pinned_inputs = {
-            "silverSnapshot": {
-                "object": silver_ref.model_dump(
-                    mode="json",
-                    by_alias=True,
-                    exclude_none=True,
-                ),
-                "snapshotSetId": silver_snapshot.snapshot_set_id,
-            },
+            "silverSnapshot": silver_input,
             "sourceRunIds": source_run_ids,
             "v1Snapshot": {
                 "object": v1_ref.model_dump(
@@ -763,14 +975,10 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "community-identity-resolution-input-v2",
             pinned_inputs,
         )
-        from pyspark.sql import functions as F
-
-        ingest_runs = (
-            spark.read.format("iceberg")
-            .option("snapshot-id", str(silver_snapshot.run_snapshot_id))
-            .load(tables.table_name("community_ingest_run"))
-            .where(F.col("run_id").isin(*source_run_ids))
-        )
+        ingest_runs = tables.visible_run_dataframe(
+            run_snapshot_id=silver_snapshot.run_snapshot_id,
+            committed_runs=committed_runs,
+        ).join(source_runs_frame, "run_id", "inner")
         run, frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=visible,
@@ -785,6 +993,7 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             source_records=visible["community_source_record"],
             ingest_runs=ingest_runs,
             committed_source_run_ids=source_run_ids,
+            resolution_config=resolution_config,
         )
         commit = tables.stage_and_commit(
             run=run,
@@ -797,6 +1006,8 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "runId": run.run_id,
             "commitKey": commit.commit_key,
             "registryDigest": registry.digest,
+            "configDigest": run.config_digest,
+            "identityResolutionConfigDigest": resolution_config.digest,
             "sourceRunIds": source_run_ids,
             "tableCounts": commit.table_counts,
             "tableSnapshotIds": commit.table_snapshot_ids,
@@ -817,6 +1028,277 @@ def _require_immutable_snapshot_output(reference: ObjectRef) -> None:
         raise RuntimeError(
             "S3 snapshot publication requires bucket versioning and an ETag"
         )
+
+
+def _verify_epoch_data_counts(
+    spark: Any,
+    *,
+    tables: CommunityCatalogTables,
+    committed_runs: Any,
+    commit_snapshot_id: int,
+    data_snapshot_ids: dict[str, int | None],
+) -> None:
+    """Verify all historical run counts with distributed joins."""
+
+    from pyspark.sql import functions as F
+
+    commits = (
+        spark.read.format("iceberg")
+        .option("snapshot-id", str(commit_snapshot_id))
+        .load(tables.table_name("community_ingest_commit"))
+        .join(
+            committed_runs.select("run_id").dropDuplicates(["run_id"]),
+            "run_id",
+            "inner",
+        )
+        .select("run_id", "table_counts_json")
+    )
+    for table in DATA_TABLE_COLUMNS:
+        expected = commits.select(
+            "run_id",
+            F.get_json_object("table_counts_json", f"$.{table}")
+            .cast("long")
+            .alias("expected_count"),
+        )
+        if (
+            expected.where(
+                F.col("expected_count").isNull() | (F.col("expected_count") < 0)
+            )
+            .limit(1)
+            .count()
+        ):
+            raise RuntimeError(f"{table} commit count is invalid")
+        snapshot_id = data_snapshot_ids[table]
+        if snapshot_id is None:
+            if expected.where(F.col("expected_count") != 0).limit(1).count():
+                raise RuntimeError(
+                    f"{table} has committed rows but no containing snapshot"
+                )
+            continue
+        actual = (
+            spark.read.format("iceberg")
+            .option("snapshot-id", str(snapshot_id))
+            .load(tables.table_name(table))
+            .join(
+                committed_runs.select("run_id").dropDuplicates(["run_id"]),
+                "run_id",
+                "inner",
+            )
+            .groupBy("run_id")
+            .count()
+            .withColumnRenamed("count", "actual_count")
+        )
+        mismatch = (
+            expected.join(actual, "run_id", "left")
+            .fillna(0, subset=["actual_count"])
+            .where(F.col("actual_count") != F.col("expected_count"))
+        )
+        if mismatch.limit(1).count():
+            raise RuntimeError(f"{table} rows differ from committed epoch counts")
+
+
+def _validate_epoch_delta(
+    spark: Any,
+    *,
+    current_runs: Any,
+    parent_runs: Any | None,
+    delta_run_ids: tuple[str, ...],
+) -> None:
+    expected_delta = spark.createDataFrame(
+        [(run_id,) for run_id in delta_run_ids],
+        "run_id STRING",
+    )
+    if parent_runs is None:
+        if not delta_run_ids:
+            return
+        actual_delta = current_runs.select("run_id").dropDuplicates(["run_id"])
+    else:
+        parent = parent_runs.select("run_id").dropDuplicates(["run_id"])
+        current = current_runs.select("run_id").dropDuplicates(["run_id"])
+        if parent.join(current, "run_id", "left_anti").limit(1).count():
+            raise ValueError("parent epoch contains runs absent from the new epoch")
+        actual_delta = current.join(parent, "run_id", "left_anti")
+    if (
+        actual_delta.join(expected_delta, "run_id", "left_anti").limit(1).count()
+        or expected_delta.join(actual_delta, "run_id", "left_anti").limit(1).count()
+    ):
+        raise ValueError(
+            "declared delta run IDs do not match epoch snapshot difference"
+        )
+
+
+def _run_epoch_publication(
+    parsed: argparse.Namespace,
+) -> dict[str, Any]:
+    delta_run_ids = (
+        ()
+        if not parsed.delta_run_ids
+        else _normalize_run_ids(
+            parsed.delta_run_ids,
+            label="publish-epoch delta",
+        )
+    )
+    if len(delta_run_ids) > MAX_EPOCH_DELTA_RUNS:
+        raise ValueError(
+            f"publish-epoch delta supports at most {MAX_EPOCH_DELTA_RUNS} run IDs"
+        )
+    source_watermarks = _parse_source_watermarks(parsed.source_watermarks)
+    created_at = require_rfc3339(parsed.created_at, label="created-at")
+    destination_uri = _validate_object_uri(
+        parsed.epoch_uri,
+        label="epoch URI",
+    )
+    parent_ref = _optional_control_object_ref(
+        parsed,
+        "parent_epoch",
+        media_type=SILVER_EPOCH_MEDIA_TYPE,
+    )
+    local_inputs = [destination_uri]
+    if parent_ref is not None:
+        local_inputs.append(parent_ref.uri)
+    store = _object_store(
+        parsed,
+        local_only=all(urlsplit(uri).scheme == "file" for uri in local_inputs),
+    )
+    parent: CommunitySilverEpochManifest | None = None
+    if parent_ref is not None:
+        parent_manifest = _read_silver_manifest(store, parent_ref)
+        if not isinstance(parent_manifest, CommunitySilverEpochManifest):
+            raise ValueError(
+                "parent epoch ObjectRef does not contain an epoch manifest"
+            )
+        parent = parent_manifest
+        if parse_rfc3339(created_at) < parse_rfc3339(parent.created_at):
+            raise ValueError("epoch created-at must not precede its parent")
+        missing_watermarks = sorted(
+            set(parent.source_watermarks) - set(source_watermarks)
+        )
+        if missing_watermarks:
+            raise ValueError(
+                "epoch cannot remove parent source watermarks: "
+                + ", ".join(missing_watermarks)
+            )
+
+    config = _catalog_config(parsed)
+    spark = _spark_session(parsed, config)
+    try:
+        tables = CommunityCatalogTables(spark, config)
+        commit_snapshot_id = tables.latest_snapshot_id("community_ingest_commit")
+        if commit_snapshot_id is None:
+            raise ValueError("community_ingest_commit has no committed snapshot")
+        run_snapshot_id = tables.latest_snapshot_id("community_ingest_run")
+        if run_snapshot_id is None:
+            raise ValueError("community_ingest_run has no committed snapshot")
+        data_snapshot_ids = {
+            table: tables.latest_snapshot_id(table) for table in DATA_TABLE_COLUMNS
+        }
+        committed_runs = tables.committed_runs_dataframe(commit_snapshot_id)
+        committed_run_count, committed_run_digest = tables.committed_run_summary(
+            committed_runs
+        )
+        if committed_run_count == 0:
+            raise ValueError("Silver epoch requires at least one committed run")
+        tables.visible_run_dataframe(
+            run_snapshot_id=run_snapshot_id,
+            committed_runs=committed_runs,
+        )
+
+        parent_runs = None
+        parent_epoch_ref = None
+        baseline_epoch_ref = None
+        if parent is not None:
+            assert parent_ref is not None
+            parent_runs = tables.committed_runs_dataframe(parent.commit_snapshot_id)
+            tables.validate_epoch_committed_runs(parent, parent_runs)
+            parent_epoch_ref = CommunitySilverEpochReference(
+                epoch_id=parent.epoch_id,
+                object_ref=parent_ref,
+            )
+            baseline_epoch_ref = parent.baseline_epoch or parent_epoch_ref
+        _validate_epoch_delta(
+            spark,
+            current_runs=committed_runs,
+            parent_runs=parent_runs,
+            delta_run_ids=delta_run_ids,
+        )
+
+        delta_runs: dict[str, CommunityIngestRun] = {}
+        if delta_run_ids:
+            delta_runs, delta_commits = _load_run_state(
+                spark,
+                tables=tables,
+                run_snapshot_id=run_snapshot_id,
+                commit_snapshot_id=commit_snapshot_id,
+                run_ids=delta_run_ids,
+            )
+            _verify_data_counts(
+                spark,
+                tables=tables,
+                run_ids=delta_run_ids,
+                commits=delta_commits,
+                data_snapshot_ids=data_snapshot_ids,
+            )
+        if parent is not None:
+            _validate_source_watermark_changes(
+                parent=parent,
+                source_watermarks=source_watermarks,
+                delta_runs=delta_runs,
+            )
+        _verify_epoch_data_counts(
+            spark,
+            tables=tables,
+            committed_runs=committed_runs,
+            commit_snapshot_id=commit_snapshot_id,
+            data_snapshot_ids=data_snapshot_ids,
+        )
+        epoch = build_community_silver_epoch_manifest(
+            parent_epoch=parent_epoch_ref,
+            baseline_epoch=baseline_epoch_ref,
+            delta_run_ids=delta_run_ids,
+            run_snapshot_id=run_snapshot_id,
+            commit_snapshot_id=commit_snapshot_id,
+            data_snapshot_ids=data_snapshot_ids,
+            source_watermarks=source_watermarks,
+            committed_run_count=committed_run_count,
+            committed_run_digest=committed_run_digest,
+            created_at=created_at,
+        )
+        result = store.upload_bytes(
+            epoch.json_bytes(),
+            destination_uri,
+            media_type=SILVER_EPOCH_MEDIA_TYPE,
+            object_format="OBJECT_FORMAT_JSON",
+            max_bytes=CONTROL_MAX_BYTES,
+        )
+        reference = result.object_ref
+        _require_immutable_snapshot_output(reference)
+        store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
+        return {
+            "context": "research",
+            "stage": "silver-epoch-publication",
+            "epochId": epoch.epoch_id,
+            "parentEpochId": (
+                None if epoch.parent_epoch is None else epoch.parent_epoch.epoch_id
+            ),
+            "baselineEpochId": (
+                None if epoch.baseline_epoch is None else epoch.baseline_epoch.epoch_id
+            ),
+            "deltaRunIds": epoch.delta_run_ids,
+            "sourceWatermarks": epoch.source_watermarks,
+            "committedRunCount": epoch.committed_run_count,
+            "committedRunDigest": epoch.committed_run_digest,
+            "runSnapshotId": epoch.run_snapshot_id,
+            "commitSnapshotId": epoch.commit_snapshot_id,
+            "dataSnapshotIds": epoch.data_snapshot_ids,
+            "silverEpoch": reference.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            ),
+            "reused": result.reused,
+        }
+    finally:
+        spark.stop()
 
 
 def _run_snapshot_publication(

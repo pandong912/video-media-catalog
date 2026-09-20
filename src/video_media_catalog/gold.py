@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from enum import StrEnum
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import (
     Field,
@@ -22,7 +22,6 @@ from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,
     require_https_url,
-    require_oidc_subject,
     require_rfc3339,
     require_sha256,
     require_slug,
@@ -53,6 +52,12 @@ class ResolutionOperator(StrEnum):
     NEVER_RESOLVE = "NEVER_RESOLVE"
 
 
+class PredicateKind(StrEnum):
+    FIELD = "FIELD"
+    IDENTIFIER = "IDENTIFIER"
+    RELATIONSHIP = "RELATIONSHIP"
+
+
 class GoldResolutionStatus(StrEnum):
     SELECTED = "SELECTED"
     SET = "SET"
@@ -63,7 +68,10 @@ class GoldResolutionStatus(StrEnum):
 class FieldPolicyRule(V2ContractModel):
     predicate: str
     operator: ResolutionOperator
+    assertion_kind: PredicateKind = PredicateKind.FIELD
     scope_qualifiers: tuple[str, ...] = ()
+    source_priority: tuple[str, ...] = ()
+    rights_first: Literal[True] = True
 
     @field_validator("predicate")
     @classmethod
@@ -74,6 +82,16 @@ class FieldPolicyRule(V2ContractModel):
     @classmethod
     def normalize_scope(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted({item.strip() for item in value if item.strip()}))
+
+    @field_validator("source_priority")
+    @classmethod
+    def normalize_source_priority(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(
+            require_slug(item, label="source priority") for item in value
+        )
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("source priority must not contain duplicates")
+        return normalized
 
 
 class GoldResolutionPolicy(V2ContractModel):
@@ -117,11 +135,13 @@ class GoldResolutionPolicy(V2ContractModel):
     def sort_rules(
         cls, value: tuple[FieldPolicyRule, ...]
     ) -> tuple[FieldPolicyRule, ...]:
-        return tuple(sorted(value, key=lambda item: item.predicate))
+        return tuple(
+            sorted(value, key=lambda item: (item.assertion_kind.value, item.predicate))
+        )
 
     @model_validator(mode="after")
     def validate_rules(self) -> Self:
-        predicates = [rule.predicate for rule in self.rules]
+        predicates = [(rule.assertion_kind, rule.predicate) for rule in self.rules]
         if len(predicates) != len(set(predicates)):
             raise ValueError("Gold policy contains duplicate predicate rules")
         return self
@@ -132,12 +152,23 @@ class GoldResolutionPolicy(V2ContractModel):
             self.model_dump(mode="json", by_alias=True, exclude_none=True)
         )
 
-    def rule_for(self, predicate: str) -> FieldPolicyRule:
+    def rule_for(
+        self,
+        predicate: str,
+        assertion_kind: PredicateKind = PredicateKind.FIELD,
+    ) -> FieldPolicyRule:
+        normalized_predicate = require_slug(predicate, label="predicate")
         return next(
-            (rule for rule in self.rules if rule.predicate == predicate),
+            (
+                rule
+                for rule in self.rules
+                if rule.predicate == normalized_predicate
+                and rule.assertion_kind == assertion_kind
+            ),
             FieldPolicyRule(
-                predicate=predicate,
+                predicate=normalized_predicate,
                 operator=self.default_operator,
+                assertion_kind=assertion_kind,
             ),
         )
 
@@ -158,9 +189,64 @@ def research_context(
 
 
 def research_policy() -> GoldResolutionPolicy:
+    title_priority = (
+        "imdb-non-commercial-datasets",
+        "tmdb-research",
+        "tvmaze-public-api",
+        "wikidata-json-dump",
+        "eidr-public-registry",
+        "media-catalog-v1",
+    )
+    fact_priority = (
+        "imdb-non-commercial-datasets",
+        "tmdb-research",
+        "wikidata-json-dump",
+        "tvmaze-public-api",
+        "eidr-public-registry",
+        "media-catalog-v1",
+    )
+    identifier_namespaces = (
+        "douban-subject",
+        "eidr-alternate",
+        "eidr-content",
+        "imdb-company",
+        "imdb-name",
+        "imdb-title",
+        "thetvdb-series",
+        "tmdb-movie",
+        "tmdb-person",
+        "tmdb-tv",
+        "tvrage-show",
+        "tvmaze-show",
+        "wikidata-item",
+    )
+    credit_predicates = (
+        "archive_footage",
+        "archive_sound",
+        "cast_member",
+        "composed_by",
+        "credited",
+        "directed_by",
+        "director_of_photography",
+        "film_editor",
+        "known_for",
+        "performed_in",
+        "production_company",
+        "produced_by",
+        "self",
+        "voice_actor",
+        "worked_on",
+        "written_by",
+    )
+    parent_predicates = (
+        "part_of",
+        "part_of_season",
+        "part_of_series",
+        "season",
+    )
     return GoldResolutionPolicy(
-        policy_id="research-display-v1",
-        policy_version="1.0.0",
+        policy_id="research-display-v2",
+        policy_version="2.0.0",
         requested_actions=(
             UsageAction.STORE,
             UsageAction.TRANSFORM,
@@ -171,40 +257,158 @@ def research_policy() -> GoldResolutionPolicy:
             FieldPolicyRule(
                 predicate="title",
                 operator=ResolutionOperator.SINGLE,
-                scope_qualifiers=("language", "titleRole"),
+                scope_qualifiers=("language", "region", "titleRole"),
+                source_priority=title_priority,
+            ),
+            FieldPolicyRule(
+                predicate="original_title",
+                operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("language", "region"),
+                source_priority=title_priority,
             ),
             FieldPolicyRule(
                 predicate="format",
                 operator=ResolutionOperator.SINGLE,
+                source_priority=fact_priority,
             ),
             FieldPolicyRule(
                 predicate="language",
-                operator=ResolutionOperator.SINGLE,
+                operator=ResolutionOperator.SET_UNION,
+                scope_qualifiers=("vocabulary",),
+                source_priority=fact_priority,
             ),
             FieldPolicyRule(
                 predicate="status",
                 operator=ResolutionOperator.SINGLE,
+                source_priority=fact_priority,
             ),
             FieldPolicyRule(
                 predicate="premiered",
                 operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("territory",),
+                source_priority=fact_priority,
             ),
             FieldPolicyRule(
                 predicate="ended",
                 operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("territory",),
+                source_priority=fact_priority,
+            ),
+            FieldPolicyRule(
+                predicate="release_date",
+                operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("territory", "precision"),
+                source_priority=fact_priority,
+            ),
+            FieldPolicyRule(
+                predicate="release_year",
+                operator=ResolutionOperator.SINGLE,
+                source_priority=fact_priority,
+            ),
+            FieldPolicyRule(
+                predicate="end_year",
+                operator=ResolutionOperator.SINGLE,
+                source_priority=fact_priority,
+            ),
+            FieldPolicyRule(
+                predicate="first_air_date",
+                operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("territory",),
+                source_priority=fact_priority,
+            ),
+            FieldPolicyRule(
+                predicate="last_air_date",
+                operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("territory",),
+                source_priority=fact_priority,
             ),
             FieldPolicyRule(
                 predicate="runtime_minutes",
                 operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("cut", "scope"),
+                source_priority=fact_priority,
             ),
             FieldPolicyRule(
                 predicate="average_runtime_minutes",
                 operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("scope",),
+                source_priority=fact_priority,
             ),
             FieldPolicyRule(
                 predicate="genre",
                 operator=ResolutionOperator.SET_UNION,
                 scope_qualifiers=("vocabulary",),
+                source_priority=fact_priority,
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    operator=ResolutionOperator.SINGLE,
+                    source_priority=fact_priority,
+                )
+                for predicate in (
+                    "episode_count",
+                    "episode_number",
+                    "season_count",
+                    "season_number",
+                )
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=namespace_id,
+                    assertion_kind=PredicateKind.IDENTIFIER,
+                    operator=ResolutionOperator.SET_UNION,
+                    source_priority=fact_priority,
+                )
+                for namespace_id in identifier_namespaces
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    assertion_kind=PredicateKind.RELATIONSHIP,
+                    operator=ResolutionOperator.SET_UNION,
+                    scope_qualifiers=(
+                        "category",
+                        "character",
+                        "characters",
+                        "creditId",
+                        "department",
+                        "job",
+                        "order",
+                        "ordering",
+                    ),
+                    source_priority=fact_priority,
+                )
+                for predicate in credit_predicates
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    assertion_kind=PredicateKind.RELATIONSHIP,
+                    operator=ResolutionOperator.SINGLE,
+                    scope_qualifiers=(
+                        "episodeNumber",
+                        "ordinal",
+                        "seasonNumber",
+                    ),
+                    source_priority=fact_priority,
+                )
+                for predicate in parent_predicates
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    assertion_kind=PredicateKind.RELATIONSHIP,
+                    operator=ResolutionOperator.SET_UNION,
+                    source_priority=fact_priority,
+                )
+                for predicate in ("followed_by", "follows")
+            ),
+            FieldPolicyRule(
+                predicate="related_to",
+                assertion_kind=PredicateKind.RELATIONSHIP,
+                operator=ResolutionOperator.SET_UNION,
+                source_priority=fact_priority,
             ),
         ),
     )
@@ -288,11 +492,13 @@ def _validate_counts(value: dict[str, int]) -> dict[str, int]:
 
 
 class GoldReleasePlan(V2ContractModel):
-    schema_version: str = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     release_plan_id: str
-    owner_subject: str
     policy_context: ReleasePolicyContext
-    committed_run_ids: tuple[str, ...]
+    committed_run_ids: tuple[str, ...] = ()
+    silver_epoch_id: str | None = None
+    committed_run_count: int | None = Field(default=None, gt=0)
+    committed_run_digest: str | None = None
     silver_snapshot_ids: dict[str, int | None]
     identity_snapshot_ids: dict[str, int | None]
     rights_registry_digest: str
@@ -310,15 +516,19 @@ class GoldReleasePlan(V2ContractModel):
         "resolver_digest",
         "image_digest",
         "config_digest",
+        "silver_epoch_id",
+        "committed_run_digest",
     )
     @classmethod
-    def validate_digest(cls, value: str) -> str:
-        return require_sha256(value)
+    def validate_digest(cls, value: str | None) -> str | None:
+        return None if value is None else require_sha256(value)
 
-    @field_validator("owner_subject")
+    @field_validator("committed_run_count", mode="before")
     @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
+    def validate_committed_run_count(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("committed_run_count must be a positive integer")
+        return value
 
     @field_validator("committed_run_ids")
     @classmethod
@@ -326,8 +536,6 @@ class GoldReleasePlan(V2ContractModel):
         normalized = tuple(
             sorted({require_sha256(item, label="run_id") for item in value})
         )
-        if not normalized:
-            raise ValueError("Gold release requires committed runs")
         return normalized
 
     @field_validator("silver_snapshot_ids", "identity_snapshot_ids")
@@ -355,6 +563,18 @@ class GoldReleasePlan(V2ContractModel):
     @model_validator(mode="after")
     def validate_plan(self, info: ValidationInfo) -> Self:
         context = self.policy_context
+        epoch_fields = (
+            self.silver_epoch_id,
+            self.committed_run_count,
+            self.committed_run_digest,
+        )
+        has_epoch = all(value is not None for value in epoch_fields)
+        if any(value is not None for value in epoch_fields) != has_epoch:
+            raise ValueError("Gold epoch summary fields must be provided together")
+        if bool(self.committed_run_ids) == has_epoch:
+            raise ValueError(
+                "Gold release requires either legacy run IDs or one epoch summary"
+            )
         if (
             context.context_id != RESEARCH_CONTEXT_ID
             or context.audience != RESEARCH_AUDIENCE
@@ -364,7 +584,7 @@ class GoldReleasePlan(V2ContractModel):
             raise ValueError("Gold releases must use the single research context")
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
-                "community-gold-release-plan-v2",
+                "community-gold-release-plan-v3",
                 _plan_identity(self),
             )
             if self.release_plan_id != expected:
@@ -373,13 +593,11 @@ class GoldReleasePlan(V2ContractModel):
 
 
 def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
-    return {
+    identity = {
         "schemaVersion": plan.schema_version,
-        "ownerSubject": plan.owner_subject,
         "policyContext": plan.policy_context.model_dump(
             mode="json", by_alias=True, exclude_none=True
         ),
-        "committedRunIds": plan.committed_run_ids,
         "silverSnapshotIds": plan.silver_snapshot_ids,
         "identitySnapshotIds": plan.identity_snapshot_ids,
         "rightsRegistryDigest": plan.rights_registry_digest,
@@ -390,6 +608,17 @@ def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
         "expectedCounts": plan.expected_counts,
         "plannedAt": plan.planned_at,
     }
+    if plan.silver_epoch_id is None:
+        identity["committedRunIds"] = plan.committed_run_ids
+    else:
+        identity.update(
+            {
+                "silverEpochId": plan.silver_epoch_id,
+                "committedRunCount": plan.committed_run_count,
+                "committedRunDigest": plan.committed_run_digest,
+            }
+        )
+    return identity
 
 
 def build_gold_release_plan(**values: Any) -> GoldReleasePlan:
@@ -399,7 +628,7 @@ def build_gold_release_plan(**values: Any) -> GoldReleasePlan:
     )
     normalized = provisional.model_dump(mode="python")
     normalized["release_plan_id"] = deterministic_key(
-        "community-gold-release-plan-v2",
+        "community-gold-release-plan-v3",
         _plan_identity(provisional),
     )
     return GoldReleasePlan.model_validate(normalized)

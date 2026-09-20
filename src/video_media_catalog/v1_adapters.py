@@ -26,10 +26,12 @@ from video_media_catalog.connector_publish import (
     publish_connector_capture,
 )
 from video_media_catalog.constants import (
+    DOUBAN_EXTERNAL_ID_PROPERTIES,
     ENTITY_TYPE_SEEDS,
     EXTERNAL_ID_PROPERTIES,
     RELATION_PROPERTIES,
 )
+from video_media_catalog.douban import normalize_douban_id
 from video_media_catalog.eidr import (
     iter_eidr_records,
     normalize_eidr_id,
@@ -50,6 +52,7 @@ WIKIDATA_SOURCE_SYSTEM_ID = "wikidata"
 WIKIDATA_SOURCE_PRODUCT_ID = "wikidata-json-dump"
 WIKIDATA_NAMESPACE_ID = "wikidata-item"
 WIKIDATA_CONNECTOR_ID = "wikidata-v2-adapter"
+WIKIDATA_FULL_MEDIA_CONNECTOR_ID = "wikidata-full-media-backfill"
 WIKIDATA_POLICY_ID = "wikidata-structured-data-cc0"
 
 EIDR_SOURCE_SYSTEM_ID = "eidr"
@@ -279,7 +282,7 @@ def map_wikidata_record(
         envelope=envelope,
         source_node=node,
         mapper_id="wikidata-v2-mapper",
-        mapper_version="1.0.0",
+        mapper_version="1.1.0",
     )
     builder.add_identifier(
         WIKIDATA_NAMESPACE_ID,
@@ -376,29 +379,38 @@ def map_wikidata_record(
             value = _statement_value(statement)
             if not isinstance(value, str):
                 continue
+            douban_spec = DOUBAN_EXTERNAL_ID_PROPERTIES.get(prop)
             try:
                 normalized = (
-                    normalize_imdb_id(value)
-                    if namespace == "imdb"
-                    else (normalize_eidr_id(value) if namespace == "eidr" else value)
+                    normalize_douban_id(value)
+                    if douban_spec is not None
+                    else (
+                        normalize_imdb_id(value)
+                        if namespace == "imdb"
+                        else normalize_eidr_id(value)
+                    )
                 )
             except ValueError:
                 continue
-            target_namespace = (
-                _imdb_namespace_id(normalized)
-                if namespace == "imdb"
-                else {
-                    "eidr": EIDR_NAMESPACE_ID,
-                    "douban": "douban-subject",
-                }[namespace]
-            )
+            if douban_spec is not None:
+                target_namespace, referent_kind = douban_spec
+            else:
+                target_namespace = (
+                    _imdb_namespace_id(normalized)
+                    if namespace == "imdb"
+                    else EIDR_NAMESPACE_ID
+                )
+                referent_kind = _external_identifier_referent_kind(
+                    target_namespace or "",
+                    entity_type,
+                )
             if target_namespace is None:
                 continue
             builder.add_identifier(
                 target_namespace,
                 normalized,
                 {"imdb": "IMDb", "eidr": "EIDR", "douban": "Douban"}[namespace],
-                _external_identifier_referent_kind(target_namespace, entity_type),
+                referent_kind,
                 f"/claims/{prop}/{index}/mainsnak/datavalue/value",
             )
 

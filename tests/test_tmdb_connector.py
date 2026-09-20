@@ -5,6 +5,8 @@ import json
 from datetime import date
 from io import BytesIO
 
+import pytest
+
 from video_media_catalog.connector import ConnectorRecordEnvelope, RecordOperation
 from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.rights import UsageAction
@@ -15,6 +17,7 @@ from video_media_catalog.tmdb_sync import (
     TMDBHttpClient,
     capture_tmdb_changes,
     capture_tmdb_daily_exports,
+    plan_tmdb_change_windows,
 )
 
 
@@ -226,3 +229,34 @@ def test_empty_tmdb_change_window_commits_without_fake_records(tmp_path) -> None
 
     assert result.batch_manifest.record_count == 0
     assert result.record_set_manifest.record_objects == ()
+
+
+def test_tmdb_changes_require_and_honor_explicit_bounded_window(tmp_path) -> None:
+    arguments = {
+        "window_start": date(2026, 9, 19),
+        "window_end": date(2026, 9, 20),
+        "destination_prefix": tmp_path.as_uri(),
+        "acquired_at": "2026-09-20T09:00:00Z",
+        "image_digest": "sha256:" + ("a" * 64),
+        "config_digest": "sha256:" + ("b" * 64),
+        "fetcher": FakeTMDB(),
+        "store": BoundedObjectStore(client=object()),
+        "max_changed_ids": 1,
+    }
+    with pytest.raises(RuntimeError, match="2 explicit bounded windows"):
+        capture_tmdb_changes(**arguments)
+
+    plans = plan_tmdb_change_windows(
+        {"movie": {10}, "tv": set(), "person": {20}},
+        window_start=date(2026, 9, 19),
+        window_end=date(2026, 9, 20),
+        max_changed_ids=1,
+    )
+    result = capture_tmdb_changes(
+        **arguments,
+        window_cursor=plans[0].cursor,
+    )
+
+    assert result.batch_manifest.record_count == 1
+    assert result.batch_manifest.coverage_scope["windowShardCount"] == 2
+    assert _records(result)[0].source_record_id == "10"

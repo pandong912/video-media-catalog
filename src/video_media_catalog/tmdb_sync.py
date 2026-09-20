@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -20,6 +20,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from video_media_catalog.canonical import canonical_json_bytes, deterministic_key
 from video_media_catalog.connector import (
+    CaptureWindowPlan,
     ChangeSemantics,
     Completeness,
     ConnectorRecordEnvelope,
@@ -30,6 +31,8 @@ from video_media_catalog.connector import (
     TransportKind,
     build_connector_batch_manifest,
     build_connector_record_envelope,
+    plan_bounded_capture_windows,
+    select_capture_window,
 )
 from video_media_catalog.connector_publish import (
     DEFAULT_RECORD_SHARD_BYTES,
@@ -446,6 +449,52 @@ def _retry_delay(headers: Any, attempt: int) -> float:
     return min(30.0, float(2 ** (attempt - 1)))
 
 
+def _ordered_tmdb_changed_ids(
+    changed_ids: Mapping[str, Iterable[int]],
+) -> tuple[tuple[str, int], ...]:
+    if set(changed_ids) != set(TMDB_ENTITY_KINDS):
+        raise ValueError("TMDB change plan requires movie, tv, and person IDs")
+    ordered: list[tuple[str, int]] = []
+    for kind in TMDB_ENTITY_KINDS:
+        values = tuple(changed_ids[kind])
+        if any(
+            isinstance(source_id, bool)
+            or not isinstance(source_id, int)
+            or source_id <= 0
+            for source_id in values
+        ):
+            raise ValueError("TMDB change plan contains an invalid source ID")
+        if len(values) != len(set(values)):
+            raise ValueError("TMDB change plan contains duplicate source IDs")
+        ordered.extend((kind, source_id) for source_id in sorted(values))
+    return tuple(ordered)
+
+
+def plan_tmdb_change_windows(
+    changed_ids: Mapping[str, Iterable[int]],
+    *,
+    window_start: date,
+    window_end: date,
+    max_changed_ids: int = DEFAULT_MAX_CHANGED_IDS,
+    watermark: str | None = None,
+) -> tuple[CaptureWindowPlan, ...]:
+    """Plan deterministic TMDB detail batches from a complete changed-ID set."""
+
+    if window_end < window_start or window_end - window_start > timedelta(days=13):
+        raise ValueError("TMDB change window must be between 1 and 14 inclusive days")
+    ordered = _ordered_tmdb_changed_ids(changed_ids)
+    start = f"{window_start.isoformat()}T00:00:00Z"
+    end = f"{window_end.isoformat()}T23:59:59Z"
+    return plan_bounded_capture_windows(
+        source_product_id=TMDB_SOURCE_PRODUCT_ID,
+        window_start=start,
+        window_end=end,
+        item_keys=(f"{kind}:{source_id}" for kind, source_id in ordered),
+        max_items=max_changed_ids,
+        watermark=watermark or window_end.isoformat(),
+    )
+
+
 def capture_tmdb_changes(
     *,
     window_start: date,
@@ -460,6 +509,8 @@ def capture_tmdb_changes(
     max_changed_ids: int = DEFAULT_MAX_CHANGED_IDS,
     max_api_bytes: int = DEFAULT_MAX_API_BYTES,
     record_shard_bytes: int = DEFAULT_RECORD_SHARD_BYTES,
+    window_cursor: str | None = None,
+    watermark: str | None = None,
 ) -> PublishedConnectorCapture:
     if window_end < window_start or window_end - window_start > timedelta(days=13):
         raise ValueError("TMDB change window must be between 1 and 14 inclusive days")
@@ -540,73 +591,93 @@ def capture_tmdb_changes(
             if total_pages < page or total_pages > max_change_pages:
                 raise RuntimeError("TMDB change response has an invalid page count")
             changed[kind].update(ids)
-            if sum(len(values) for values in changed.values()) > max_changed_ids:
-                raise RuntimeError("TMDB changed-ID limit reached")
             page += 1
 
+    ordered_changed = _ordered_tmdb_changed_ids(changed)
+    plans = plan_tmdb_change_windows(
+        changed,
+        window_start=window_start,
+        window_end=window_end,
+        max_changed_ids=max_changed_ids,
+    )
+    try:
+        selected_plan = select_capture_window(plans, cursor=window_cursor)
+    except ValueError as exc:
+        if window_cursor is None and len(plans) > 1:
+            cursors = ", ".join(plan.cursor for plan in plans)
+            raise RuntimeError(
+                "TMDB changed-ID inventory requires "
+                f"{len(plans)} explicit bounded windows; "
+                f"rerun with one window_cursor: {cursors}"
+            ) from exc
+        raise
+    selected_changed = ordered_changed[
+        selected_plan.item_offset : (
+            selected_plan.item_offset + selected_plan.item_count
+        )
+    ]
     records: list[_ChangedRecord] = []
     append_by_kind = {
         "movie": "credits,external_ids,translations,images",
         "tv": "credits,external_ids,translations,images",
         "person": "combined_credits,external_ids,translations,images",
     }
-    for kind in TMDB_ENTITY_KINDS:
-        for source_id in sorted(changed[kind]):
-            response = fetcher.fetch(
-                f"/3/{kind}/{source_id}",
-                {
-                    "append_to_response": append_by_kind[kind],
-                    "include_image_language": "en,null",
-                },
+    for kind, source_id in selected_changed:
+        response = fetcher.fetch(
+            f"/3/{kind}/{source_id}",
+            {
+                "append_to_response": append_by_kind[kind],
+                "include_image_language": "en,null",
+            },
+        )
+        retry_count += response.retry_count
+        rate_limit_count += response.rate_limit_count
+        if response.status not in {200, 404}:
+            raise RuntimeError(
+                f"TMDB {kind}/{source_id} returned HTTP {response.status}"
             )
-            retry_count += response.retry_count
-            rate_limit_count += response.rate_limit_count
-            if response.status not in {200, 404}:
-                raise RuntimeError(
-                    f"TMDB {kind}/{source_id} returned HTTP {response.status}"
-                )
-            body = response.body or canonical_json_bytes(
-                {
-                    "connectorObservation": "not-found",
-                    "entityKind": kind,
-                    "id": source_id,
-                    "status": response.status,
-                },
-                newline=True,
-            )
-            payload_path = None
-            if response.status == 200:
-                try:
-                    value = json.loads(body)
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise ValueError("TMDB detail must be UTF-8 JSON") from exc
-                if not isinstance(value, dict) or value.get("id") != source_id:
-                    raise ValueError("TMDB detail identity does not match request")
-                payload_path = payload_root / f"{kind}-{source_id}.json"
-                payload_path.write_bytes(
-                    canonical_json_bytes(
-                        {
-                            "capture": "changes-detail",
-                            "entityKind": kind,
-                            "detail": value,
-                        }
-                    )
-                )
-            raw_object = publish_raw(
-                body,
-                kind,
-                "details",
-                f"id={source_id}",
-            )
-            records.append(
-                _ChangedRecord(
-                    kind=kind,
-                    source_id=source_id,
-                    status=response.status,
-                    payload_path=payload_path,
-                    raw_object=raw_object,
+        body = response.body or canonical_json_bytes(
+            {
+                "connectorObservation": "not-found",
+                "entityKind": kind,
+                "id": source_id,
+                "status": response.status,
+            },
+            newline=True,
+        )
+        payload_path = None
+        if response.status == 200:
+            try:
+                value = json.loads(body)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError("TMDB detail must be UTF-8 JSON") from exc
+            if not isinstance(value, dict) or value.get("id") != source_id:
+                raise ValueError("TMDB detail identity does not match request")
+            payload_path = payload_root / f"{kind}-{source_id}.json"
+            payload_path.write_bytes(
+                canonical_json_bytes(
+                    {
+                        "capture": "changes-detail",
+                        "entityKind": kind,
+                        "detail": value,
+                    }
                 )
             )
+        raw_object = publish_raw(
+            body,
+            kind,
+            "details",
+            f"id={source_id}",
+        )
+        records.append(
+            _ChangedRecord(
+                kind=kind,
+                source_id=source_id,
+                status=response.status,
+                payload_path=payload_path,
+                raw_object=raw_object,
+            )
+        )
     batch = build_connector_batch_manifest(
         source_system_id=TMDB_SOURCE_SYSTEM_ID,
         source_product_id=TMDB_SOURCE_PRODUCT_ID,
@@ -625,12 +696,18 @@ def capture_tmdb_changes(
             "origin": TMDB_API_ORIGIN,
             "entityKinds": list(TMDB_ENTITY_KINDS),
             "capture": "changes-with-current-details",
+            "windowPlanId": selected_plan.plan_id,
+            "windowCursor": selected_plan.cursor,
+            "windowShardIndex": selected_plan.shard_index,
+            "windowShardCount": selected_plan.shard_count,
+            "windowChangedIds": selected_plan.item_count,
+            "totalChangedIds": selected_plan.total_items,
         },
         source_window=SourceWindow(
             start=f"{window_start.isoformat()}T00:00:00Z",
             end=f"{window_end.isoformat()}T23:59:59Z",
         ),
-        watermark_before=window_start.isoformat(),
+        watermark_before=watermark or window_start.isoformat(),
         watermark_after=window_end.isoformat(),
         raw_objects=tuple(raw_objects),
         acquired_at=acquired,

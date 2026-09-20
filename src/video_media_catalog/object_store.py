@@ -15,6 +15,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.storage import (
+    ImmutableObjectConflictError,
     digest_file,
     local_path,
     publish_file_immutable,
@@ -78,6 +79,86 @@ class RuntimeObjectStore(Protocol):
         object_format: str,
         max_bytes: int,
     ) -> UploadResult: ...
+
+    def publish_file_conditional(
+        self,
+        source: Path,
+        destination_uri: str,
+        *,
+        media_type: str,
+        object_format: str,
+        max_bytes: int,
+    ) -> UploadResult: ...
+
+    def publish_bytes_conditional(
+        self,
+        payload: bytes,
+        destination_uri: str,
+        *,
+        media_type: str,
+        object_format: str,
+        max_bytes: int,
+    ) -> UploadResult: ...
+
+
+def conditional_publish_bytes(
+    store: RuntimeObjectStore,
+    payload: bytes,
+    destination_uri: str,
+    *,
+    media_type: str,
+    object_format: str,
+    max_bytes: int,
+) -> UploadResult:
+    """Conditionally publish bytes and verify the returned immutable reference."""
+
+    publisher = getattr(store, "publish_bytes_conditional", None)
+    if callable(publisher):
+        result = publisher(
+            payload,
+            destination_uri,
+            media_type=media_type,
+            object_format=object_format,
+            max_bytes=max_bytes,
+        )
+    else:
+        result = store.upload_bytes(
+            payload,
+            destination_uri,
+            media_type=media_type,
+            object_format=object_format,
+            max_bytes=max_bytes,
+        )
+    expected_sha256 = hashlib.sha256(payload).hexdigest()
+    reference = result.object_ref
+    destination_scheme = urlsplit(destination_uri).scheme
+    if destination_scheme == "s3":
+        same_destination = S3Location.parse(reference.uri) == S3Location.parse(
+            destination_uri
+        )
+    else:
+        same_destination = (
+            local_path(reference.uri).resolve() == local_path(destination_uri).resolve()
+        )
+    if (
+        not same_destination
+        or reference.size_bytes != len(payload)
+        or reference.checksum.value != expected_sha256
+        or reference.media_type != media_type
+        or reference.format != object_format
+    ):
+        raise ObjectStoreError(
+            "PUBLISH_RESULT_MISMATCH",
+            "object store returned a reference that does not bind published bytes",
+        )
+    if destination_scheme == "s3" and (
+        not reference.etag or not reference.object_version
+    ):
+        raise ObjectStoreError(
+            "IMMUTABLE_METADATA_REQUIRED",
+            "conditional S3 publication requires ETag and object version",
+        )
+    return result
 
 
 def _etag(value: Any) -> str | None:
@@ -407,6 +488,23 @@ class BoundedObjectStore:
         object_format: str,
         max_bytes: int,
     ) -> UploadResult:
+        return self.publish_bytes_conditional(
+            payload,
+            destination_uri,
+            media_type=media_type,
+            object_format=object_format,
+            max_bytes=max_bytes,
+        )
+
+    def publish_bytes_conditional(
+        self,
+        payload: bytes,
+        destination_uri: str,
+        *,
+        media_type: str,
+        object_format: str,
+        max_bytes: int,
+    ) -> UploadResult:
         if len(payload) > max_bytes:
             raise ObjectStoreError(
                 "OBJECT_TOO_LARGE", "output exceeds configured limit"
@@ -414,7 +512,7 @@ class BoundedObjectStore:
         with tempfile.TemporaryDirectory(prefix="media-catalog-upload-") as directory:
             path = Path(directory) / "object"
             path.write_bytes(payload)
-            return self.upload_file(
+            return self.publish_file_conditional(
                 path,
                 destination_uri,
                 media_type=media_type,
@@ -423,6 +521,23 @@ class BoundedObjectStore:
             )
 
     def upload_file(
+        self,
+        source: Path,
+        destination_uri: str,
+        *,
+        media_type: str,
+        object_format: str,
+        max_bytes: int,
+    ) -> UploadResult:
+        return self.publish_file_conditional(
+            source,
+            destination_uri,
+            media_type=media_type,
+            object_format=object_format,
+            max_bytes=max_bytes,
+        )
+
+    def publish_file_conditional(
         self,
         source: Path,
         destination_uri: str,
@@ -522,7 +637,13 @@ class BoundedObjectStore:
             with source.open("rb") as reader, temporary.open("wb") as writer:
                 while chunk := reader.read(TRANSFER_CHUNK_BYTES):
                     writer.write(chunk)
-            reused = not publish_file_immutable(temporary, destination)
+            try:
+                reused = not publish_file_immutable(temporary, destination)
+            except ImmutableObjectConflictError as exc:
+                raise ObjectStoreError(
+                    "IMMUTABLE_OBJECT_CONFLICT",
+                    "destination exists with different immutable content",
+                ) from exc
         finally:
             temporary.unlink(missing_ok=True)
         created = (
@@ -561,6 +682,13 @@ class BoundedObjectStore:
                 "IMMUTABLE_OBJECT_CONFLICT",
                 "existing object cannot be verified",
             )
+        declared_size = response.get("ContentLength")
+        if isinstance(declared_size, int) and declared_size != expected_size:
+            body.close()
+            raise ObjectStoreError(
+                "IMMUTABLE_OBJECT_CONFLICT",
+                "destination exists with different immutable content",
+            )
         digest = hashlib.sha256()
         size = 0
         try:
@@ -568,8 +696,8 @@ class BoundedObjectStore:
                 size += len(chunk)
                 if size > max_bytes:
                     raise ObjectStoreError(
-                        "OBJECT_TOO_LARGE",
-                        "existing output exceeds configured limit",
+                        "IMMUTABLE_OBJECT_CONFLICT",
+                        "destination exists with different immutable content",
                     )
                 digest.update(chunk)
         finally:

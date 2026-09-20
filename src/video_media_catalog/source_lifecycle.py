@@ -98,21 +98,42 @@ def select_effective_membership_versions(
     )
 
 
+def _committed_run_frame(
+    *,
+    source_records: Any,
+    committed_run_ids: tuple[str, ...] | None,
+    committed_runs: Any | None,
+) -> Any:
+    if committed_runs is not None:
+        if committed_run_ids:
+            raise ValueError("provide committed_runs or committed_run_ids, not both")
+        if "run_id" not in committed_runs.columns:
+            raise ValueError("committed_runs dataframe requires run_id")
+        return committed_runs.select("run_id").dropDuplicates(["run_id"])
+    if not committed_run_ids:
+        raise ValueError("source lifecycle requires committed runs")
+    return source_records.sparkSession.createDataFrame(
+        [(run_id,) for run_id in committed_run_ids],
+        "run_id STRING",
+    )
+
+
 def bind_committed_source_records(
     *,
     source_records: Any,
     ingest_runs: Any,
-    committed_run_ids: tuple[str, ...],
+    committed_run_ids: tuple[str, ...] | None = None,
+    committed_runs: Any | None = None,
     registry: SourceRegistrySnapshot,
 ) -> Any:
     """Bind committed source records to pinned ingest-run batch metadata."""
 
     from pyspark.sql import functions as F
 
-    spark = source_records.sparkSession
-    committed = spark.createDataFrame(
-        [(run_id,) for run_id in committed_run_ids],
-        "run_id STRING",
+    committed = _committed_run_frame(
+        source_records=source_records,
+        committed_run_ids=committed_run_ids,
+        committed_runs=committed_runs,
     )
     selected_records = source_records.join(committed, "run_id", "inner")
     batch_path = "$.inputManifest.batchManifest."
@@ -497,7 +518,8 @@ def persist_latest_source_record_states(
     *,
     source_records: Any,
     ingest_runs: Any,
-    committed_run_ids: tuple[str, ...],
+    committed_run_ids: tuple[str, ...] | None = None,
+    committed_runs: Any | None = None,
     registry: SourceRegistrySnapshot,
     as_of: str,
 ) -> tuple[Any, Any]:
@@ -507,6 +529,7 @@ def persist_latest_source_record_states(
         source_records=source_records,
         ingest_runs=ingest_runs,
         committed_run_ids=committed_run_ids,
+        committed_runs=committed_runs,
         registry=registry,
     )
     bound = None
@@ -719,7 +742,8 @@ def current_upsert_envelope_keys(
     *,
     source_records: Any,
     ingest_runs: Any,
-    committed_run_ids: tuple[str, ...],
+    committed_run_ids: tuple[str, ...] | None = None,
+    committed_runs: Any | None = None,
     registry: SourceRegistrySnapshot,
     as_of: str,
 ) -> Any:
@@ -729,6 +753,7 @@ def current_upsert_envelope_keys(
         source_records=source_records,
         ingest_runs=ingest_runs,
         committed_run_ids=committed_run_ids,
+        committed_runs=committed_runs,
         registry=registry,
         as_of=as_of,
     )
@@ -745,7 +770,8 @@ def inactive_source_records(
     *,
     source_records: Any,
     ingest_runs: Any,
-    committed_run_ids: tuple[str, ...],
+    committed_run_ids: tuple[str, ...] | None = None,
+    committed_runs: Any | None = None,
     registry: SourceRegistrySnapshot,
     as_of: str,
 ) -> Any:
@@ -757,6 +783,7 @@ def inactive_source_records(
         source_records=source_records,
         ingest_runs=ingest_runs,
         committed_run_ids=committed_run_ids,
+        committed_runs=committed_runs,
         registry=registry,
         as_of=as_of,
     )

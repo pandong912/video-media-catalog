@@ -27,6 +27,7 @@ from video_media_catalog.connector import (
 )
 from video_media_catalog.identity_spark import (
     MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS,
+    IdentityResolutionConfig,
     assign_exact_blocking_component_ids,
     build_identity_resolution_dataframes,
 )
@@ -79,6 +80,24 @@ def _object(path: Path, *, media_type: str, object_format: str) -> ObjectRef:
         size_bytes=len(payload),
         created_at="2026-09-19T00:00:00Z",
     )
+
+
+def test_identity_resolution_config_is_versioned_and_digest_bound() -> None:
+    default = IdentityResolutionConfig()
+    tuned = IdentityResolutionConfig(
+        max_exact_blocking_component_size=128,
+    )
+    runtime_digest = "sha256:" + ("1" * 64)
+
+    assert default.schema_version == "1.0"
+    assert default.max_exact_blocking_component_size == 256
+    assert default.max_exact_blocking_label_iterations == 64
+    assert default.digest != tuned.digest
+    assert default.bind_runtime_config(runtime_digest) != (
+        tuned.bind_runtime_config(runtime_digest)
+    )
+    with pytest.raises(ValueError, match="must be integers"):
+        IdentityResolutionConfig(max_exact_blocking_component_size=True)
 
 
 @pytest.mark.spark
@@ -198,7 +217,7 @@ def test_exact_blocking_rejects_single_node_with_too_many_candidates(
     entity_keys = tuple(f"sha256:{index:064x}" for index in range(overflow_count))
     identity_frames = None
     try:
-        _, identity_frames = build_identity_resolution_dataframes(
+        identity_run, identity_frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=silver_frames,
             v1_external_identifiers=spark.createDataFrame(
@@ -219,6 +238,16 @@ def test_exact_blocking_rejects_single_node_with_too_many_candidates(
         assert len(conflicts) == 1
         assert conflicts[0].reason == "EXACT_BLOCKING_NODE_CANDIDATE_LIMIT_EXCEEDED"
         assert identity_frames["community_entity_membership"].count() == 0
+        assert identity_run.input_manifest["conflictCountsByReason"] == {
+            "EXACT_BLOCKING_NODE_CANDIDATE_LIMIT_EXCEEDED": 1
+        }
+        assert (
+            identity_run.input_manifest["identityResolutionConfig"][
+                "maxExactBlockingNodeCandidateKeys"
+            ]
+            == MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS
+        )
+        assert identity_run.config_digest != "sha256:" + ("6" * 64)
     finally:
         if identity_frames is not None:
             for frame in identity_frames.values():

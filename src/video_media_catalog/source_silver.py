@@ -210,6 +210,17 @@ def _build_run(
                 "completeness": batch.completeness.value,
                 "deleteCoverage": batch.delete_coverage.value,
                 "coverageScopeDigest": batch.coverage_scope_digest,
+                "sourceWindow": (
+                    None
+                    if batch.source_window is None
+                    else batch.source_window.model_dump(
+                        mode="json",
+                        by_alias=True,
+                        exclude_none=True,
+                    )
+                ),
+                "watermarkBefore": batch.watermark_before,
+                "watermarkAfter": batch.watermark_after,
                 "acquiredAt": batch.acquired_at,
                 "recordCount": batch.record_count,
             },

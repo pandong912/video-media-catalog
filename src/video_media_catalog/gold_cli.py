@@ -14,39 +14,53 @@ from video_media_catalog.canonical import canonical_json, sha256_digest
 from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_snapshot import (
     CONTROL_MAX_BYTES,
+    MAX_EPOCH_DELTA_RUNS,
+    SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
+    CommunitySilverEpochManifest,
+    CommunitySilverManifest,
     CommunitySilverSnapshotSet,
+    parse_community_silver_manifest,
 )
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.gold import (
     research_context,
     research_policy,
 )
+from video_media_catalog.gold_freshness import research_release_freshness_policy
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
     GOLD_QUALITY_MEDIA_TYPE,
     GOLD_RELEASE_COMMIT_MEDIA_TYPE,
 )
-from video_media_catalog.gold_quality import GoldQualityStatus
+from video_media_catalog.gold_quality import (
+    GoldBuildMode,
+    GoldQualityStatus,
+)
 from video_media_catalog.gold_spark_transform import build_distributed_gold
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore
+from video_media_catalog.rights import RightsTerminationFence
 from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.v2_contracts import require_oidc_subject
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-spark",
-        description="Build the owner-only research Gold release.",
+        description="Build the shared authenticated research Gold release.",
     )
     parser.add_argument("--silver-snapshot-uri", required=True)
     parser.add_argument("--silver-snapshot-hash", required=True)
     parser.add_argument("--silver-snapshot-size", type=int, required=True)
     parser.add_argument("--silver-snapshot-version", default="")
     parser.add_argument("--silver-snapshot-etag", default="")
+    parser.add_argument(
+        "--silver-snapshot-media-type",
+        choices=(SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE),
+        default=SILVER_SNAPSHOT_MEDIA_TYPE,
+    )
     parser.add_argument("--output-prefix", required=True)
     parser.add_argument("--planned-at", required=True)
     parser.add_argument("--committed-at", required=True)
@@ -72,7 +86,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     parser.add_argument("--image-digest", required=True)
-    parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--territories", default="*")
     parser.add_argument("--max-conflict-ratio", type=float, default=0.05)
     parser.add_argument(
@@ -81,6 +94,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.05,
     )
     parser.add_argument("--max-redirect-hops", type=int, default=16)
+    parser.add_argument(
+        "--build-mode",
+        choices=("release", "candidate-backfill"),
+        default="release",
+    )
+    parser.add_argument("--tmdb-freshness-slo-hours", type=int, default=36)
+    parser.add_argument("--tvmaze-freshness-slo-hours", type=int, default=36)
+    parser.add_argument("--imdb-freshness-slo-hours", type=int, default=10 * 24)
+    parser.add_argument("--wikidata-freshness-slo-hours", type=int, default=45 * 24)
+    parser.add_argument(
+        "--termination-fence-json",
+        type=Path,
+        action="append",
+        default=[],
+    )
     return parser
 
 
@@ -103,7 +131,7 @@ def _snapshot_ref(parsed: argparse.Namespace) -> ObjectRef:
     return ObjectRef(
         uri=parsed.silver_snapshot_uri,
         format="OBJECT_FORMAT_JSON",
-        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        media_type=parsed.silver_snapshot_media_type,
         checksum=Checksum(value=match.group(1).lower()),
         size_bytes=parsed.silver_snapshot_size,
         etag=etag,
@@ -111,7 +139,7 @@ def _snapshot_ref(parsed: argparse.Namespace) -> ObjectRef:
     )
 
 
-def _read_snapshot(store, reference: ObjectRef) -> CommunitySilverSnapshotSet:
+def _read_snapshot(store, reference: ObjectRef) -> CommunitySilverManifest:
     store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
     with tempfile.TemporaryDirectory(prefix="community-silver-snapshot-") as directory:
         materialized = store.download(
@@ -119,9 +147,15 @@ def _read_snapshot(store, reference: ObjectRef) -> CommunitySilverSnapshotSet:
             Path(directory) / "snapshot.json",
             max_bytes=CONTROL_MAX_BYTES,
         )
-        return CommunitySilverSnapshotSet.model_validate_json(
-            materialized.path.read_bytes()
+        manifest = parse_community_silver_manifest(materialized.path.read_bytes())
+        expected_media_type = (
+            SILVER_EPOCH_MEDIA_TYPE
+            if isinstance(manifest, CommunitySilverEpochManifest)
+            else SILVER_SNAPSHOT_MEDIA_TYPE
         )
+        if reference.media_type != expected_media_type:
+            raise ValueError("Silver manifest media type does not match schema version")
+        return manifest
 
 
 def _parse_values(value: str) -> tuple[str, ...]:
@@ -131,8 +165,14 @@ def _parse_values(value: str) -> tuple[str, ...]:
     return result
 
 
+def _read_termination_fence(path: Path) -> RightsTerminationFence:
+    payload = path.read_bytes()
+    if not 0 < len(payload) <= CONTROL_MAX_BYTES:
+        raise ValueError("termination fence must be between 1 byte and 16 MiB")
+    return RightsTerminationFence.model_validate_json(payload)
+
+
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
-    owner_subject = require_oidc_subject(parsed.owner_subject)
     if not 0 <= parsed.max_conflict_ratio <= 1:
         raise ValueError("max-conflict-ratio must be between 0 and 1")
     if not 0 <= parsed.max_unresolved_identity_ratio <= 1:
@@ -153,6 +193,31 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         client=object() if local else None,
     )
     snapshot = _read_snapshot(store, reference)
+    if (
+        isinstance(snapshot, CommunitySilverSnapshotSet)
+        and len(snapshot.committed_run_ids) > MAX_EPOCH_DELTA_RUNS
+    ):
+        raise ValueError("large Silver histories must use an epoch manifest")
+    registry = build_community_registry()
+    termination_fences = tuple(
+        _read_termination_fence(path) for path in parsed.termination_fence_json
+    )
+    if len({fence.fence_id for fence in termination_fences}) != len(termination_fences):
+        raise ValueError("termination fence list contains duplicates")
+    products = {
+        product.source_product_id: product for product in registry.source_products
+    }
+    profiles = {profile.policy_id: profile for profile in registry.rights_profiles}
+    for fence in termination_fences:
+        product = products.get(fence.source_product_id)
+        profile = profiles.get(fence.policy_id)
+        if (
+            product is None
+            or profile is None
+            or product.policy_id != fence.policy_id
+            or profile.digest != fence.policy_digest
+        ):
+            raise ValueError("termination fence is not bound to the source registry")
     silver_config = CatalogConfig(
         catalog_name=parsed.catalog_name,
         namespace=parsed.silver_namespace,
@@ -183,19 +248,39 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "max_unresolved_identity_ratio": (parsed.max_unresolved_identity_ratio),
         }
     )
+    freshness_policy = research_release_freshness_policy(
+        tmdb_slo_hours=parsed.tmdb_freshness_slo_hours,
+        tvmaze_slo_hours=parsed.tvmaze_freshness_slo_hours,
+        imdb_slo_hours=parsed.imdb_freshness_slo_hours,
+        wikidata_slo_hours=parsed.wikidata_freshness_slo_hours,
+    )
+    build_mode = (
+        GoldBuildMode.CANDIDATE_BACKFILL
+        if parsed.build_mode == "candidate-backfill"
+        else GoldBuildMode.RELEASE
+    )
     nonsecret_config = {
         "silverNamespace": parsed.silver_namespace,
         "goldNamespace": parsed.gold_namespace,
         "catalogName": parsed.catalog_name,
         "catalogType": parsed.catalog_type,
         "warehouse": parsed.warehouse,
-        "ownerSubject": owner_subject,
         "context": context.model_dump(mode="json", by_alias=True),
         "fieldPolicyDigest": policy.digest,
+        "releaseFreshnessPolicy": freshness_policy.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        ),
+        "buildMode": build_mode.value,
+        "terminationFences": [
+            fence.model_dump(mode="json", by_alias=True, exclude_none=True)
+            for fence in sorted(termination_fences, key=lambda item: item.fence_id)
+        ],
         "maxRedirectHops": parsed.max_redirect_hops,
     }
     config_digest = sha256_digest(canonical_json(nonsecret_config))
-    resolver_digest = sha256_digest("community-gold-spark-v2")
+    resolver_digest = sha256_digest("community-gold-spark-v3")
 
     from pyspark.sql import SparkSession
 
@@ -214,46 +299,61 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     build = None
     try:
         silver_tables = CommunityCatalogTables(spark, silver_config)
+        all_committed_runs = silver_tables.committed_runs_dataframe(
+            snapshot.commit_snapshot_id
+        )
+        epoch_input = isinstance(snapshot, CommunitySilverEpochManifest)
+        if epoch_input:
+            silver_tables.validate_epoch_committed_runs(
+                snapshot,
+                all_committed_runs,
+            )
+            committed_runs = all_committed_runs
+            committed_run_ids: tuple[str, ...] = ()
+        else:
+            assert isinstance(snapshot, CommunitySilverSnapshotSet)
+            selected_runs = spark.createDataFrame(
+                [(run_id,) for run_id in snapshot.committed_run_ids],
+                "run_id STRING",
+            )
+            if (
+                selected_runs.join(
+                    all_committed_runs,
+                    "run_id",
+                    "left_anti",
+                )
+                .limit(1)
+                .count()
+            ):
+                raise ValueError("Silver snapshot set references an uncommitted run")
+            committed_runs = all_committed_runs.join(
+                selected_runs,
+                "run_id",
+                "inner",
+            )
+            committed_run_ids = snapshot.committed_run_ids
         visible = silver_tables.visible_dataframes(
             data_snapshot_ids=snapshot.data_snapshot_ids,
             commit_snapshot_id=snapshot.commit_snapshot_id,
+            committed_runs=committed_runs,
         )
-        selected_runs = spark.createDataFrame(
-            [(run_id,) for run_id in snapshot.committed_run_ids],
-            "run_id STRING",
+        visible["community_ingest_run"] = silver_tables.visible_run_dataframe(
+            run_snapshot_id=snapshot.run_snapshot_id,
+            committed_runs=committed_runs,
         )
-        committed_runs = (
-            spark.read.format("iceberg")
-            .option("snapshot-id", str(snapshot.commit_snapshot_id))
-            .load(silver_tables.table_name("community_ingest_commit"))
-            .select("run_id")
-            .dropDuplicates(["run_id"])
-        )
-        if (
-            selected_runs.join(
-                committed_runs,
-                "run_id",
-                "left_anti",
-            )
-            .limit(1)
-            .count()
-        ):
-            raise ValueError("Silver snapshot set references an uncommitted run")
-        visible = {
-            table: frame.join(selected_runs, "run_id", "inner")
-            for table, frame in visible.items()
-        }
-        visible["community_ingest_run"] = spark.table(
-            silver_tables.table_name("community_ingest_run")
-        ).join(selected_runs, "run_id", "inner")
         build = build_distributed_gold(
             spark,
             visible_silver=visible,
-            registry=build_community_registry(),
+            registry=registry,
             policy_context=context,
-            owner_subject=owner_subject,
             field_policy=policy,
-            committed_run_ids=snapshot.committed_run_ids,
+            committed_run_ids=committed_run_ids,
+            committed_runs=committed_runs if epoch_input else None,
+            silver_epoch_id=snapshot.epoch_id if epoch_input else None,
+            committed_run_count=(snapshot.committed_run_count if epoch_input else None),
+            committed_run_digest=(
+                snapshot.committed_run_digest if epoch_input else None
+            ),
             silver_snapshot_ids=snapshot.data_snapshot_ids,
             identity_snapshot_ids={
                 table: snapshot.data_snapshot_ids[table]
@@ -268,6 +368,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             config_digest=config_digest,
             planned_at=parsed.planned_at,
             max_redirect_hops=parsed.max_redirect_hops,
+            freshness_policy=freshness_policy,
+            build_mode=build_mode,
+            termination_fences=termination_fences,
         )
         plan_prefix = join_uri(
             parsed.output_prefix,
@@ -282,6 +385,19 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             max_bytes=CONTROL_MAX_BYTES,
         ).object_ref
         if build.quality_report.status != GoldQualityStatus.PASS:
+            if build_mode == GoldBuildMode.CANDIDATE_BACKFILL:
+                return {
+                    "releasePlanId": build.plan.release_plan_id,
+                    "buildMode": build_mode.value,
+                    "qualityStatus": build.quality_report.status.value,
+                    "qualityReport": quality_ref.model_dump(
+                        mode="json",
+                        by_alias=True,
+                        exclude_none=True,
+                    ),
+                    "violations": build.quality_report.violations,
+                    "committed": False,
+                }
             raise ValueError("Gold quality gate failed")
         attribution_ref = store.upload_bytes(
             build.attribution_manifest.json_bytes(),
@@ -308,6 +424,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ).object_ref
         return {
             "releasePlanId": build.plan.release_plan_id,
+            "buildMode": build_mode.value,
+            "qualityStatus": build.quality_report.status.value,
+            "committed": True,
             "commitKey": commit.commit_key,
             "qualityReport": quality_ref.model_dump(
                 mode="json", by_alias=True, exclude_none=True

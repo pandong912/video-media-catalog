@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, model_validator
 
 from video_media_catalog.api_models import APIModel
-from video_media_catalog.v2_contracts import require_oidc_subject
+from video_media_catalog.douban import douban_jump_url
 
 
 class GoldTitle(APIModel):
@@ -32,6 +32,18 @@ class GoldExternalIdentifier(APIModel):
     value: str
     issuer: str
     referent_kind: str
+    url: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def validate_derived_url(self) -> Self:
+        expected = douban_jump_url(
+            self.namespace,
+            self.value,
+            self.referent_kind,
+        )
+        if self.url is not None and self.url != expected:
+            raise ValueError("external identifier URL is not a safe derived URL")
+        return self
 
 
 class GoldRelationSummary(APIModel):
@@ -111,7 +123,6 @@ class GoldCatalogEntity(APIModel):
     status: str
     release_plan_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     context_id: Literal["research"]
-    owner_subject: str
     display_name: str
     display_language: str
     titles: list[GoldTitle]
@@ -127,11 +138,6 @@ class GoldCatalogEntity(APIModel):
     source_node_count: int = Field(ge=0)
     overflow: GoldOverflow
 
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
-
 
 class GoldCatalogEntitySummary(APIModel):
     entity_key: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
@@ -141,15 +147,9 @@ class GoldCatalogEntitySummary(APIModel):
     display_language: str
     release_plan_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     context_id: Literal["research"]
-    owner_subject: str
     conflict_count: int = Field(ge=0)
     external_identifiers: list[GoldExternalIdentifier] = Field(max_length=5)
     source_badges: list[GoldSourceBadge] = Field(max_length=5)
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
 
 
 class GoldSearchResponse(APIModel):

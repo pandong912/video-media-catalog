@@ -157,7 +157,6 @@ def _plan():
     draft = _draft()
     policy = research_policy()
     return build_gold_release_plan(
-        owner_subject="owner-123",
         policy_context=research_context(
             as_of=TIMESTAMP,
         ),
@@ -338,7 +337,6 @@ def test_gold_commit_pins_own_snapshot_after_foreign_write_and_is_quality_gated(
         committed_at=TIMESTAMP,
     )
     assert commit.table_counts == plan.expected_counts
-    assert commit.owner_subject == "owner-123"
     assert commit.context_id == "research"
     assert commit.table_snapshot_ids["community_gold_entity"] == 100
     assert tables.foreign_latest["community_gold_entity"] == 999

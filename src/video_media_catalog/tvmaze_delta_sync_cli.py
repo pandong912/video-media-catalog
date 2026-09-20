@@ -31,6 +31,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--image-digest", required=True)
     parser.add_argument("--acquired-at")
     parser.add_argument("--since", choices=("day", "week", "month"), default="day")
+    parser.add_argument("--window-start")
+    parser.add_argument("--window-end")
+    parser.add_argument("--window-cursor")
+    parser.add_argument("--watermark")
     parser.add_argument("--timeout-seconds", type=float, default=30)
     parser.add_argument("--minimum-interval-seconds", type=float, default=0.55)
     parser.add_argument("--max-attempts", type=int, default=5)
@@ -57,21 +61,30 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
     acquired_at = parsed.acquired_at or datetime.now(UTC).isoformat().replace(
         "+00:00", "Z"
     )
-    config_digest = sha256_digest(
-        canonical_json(
-            {
-                "connector": "tvmaze-show-updates",
-                "version": "1.0.0",
-                "since": parsed.since,
-                "timeoutSeconds": parsed.timeout_seconds,
-                "minimumIntervalSeconds": parsed.minimum_interval_seconds,
-                "maxAttempts": parsed.max_attempts,
-                "maxPageBytes": parsed.max_page_bytes,
-                "maxUpdates": parsed.max_updates,
-                "recordShardBytes": parsed.record_shard_bytes,
-            }
-        )
+    config_values = {
+        "connector": "tvmaze-show-updates",
+        "version": "1.0.0",
+        "since": parsed.since,
+        "timeoutSeconds": parsed.timeout_seconds,
+        "minimumIntervalSeconds": parsed.minimum_interval_seconds,
+        "maxAttempts": parsed.max_attempts,
+        "maxPageBytes": parsed.max_page_bytes,
+        "maxUpdates": parsed.max_updates,
+        "recordShardBytes": parsed.record_shard_bytes,
+    }
+    config_values.update(
+        {
+            key: value
+            for key, value in {
+                "windowStart": parsed.window_start,
+                "windowEnd": parsed.window_end,
+                "windowCursor": parsed.window_cursor,
+                "watermark": parsed.watermark,
+            }.items()
+            if value is not None
+        }
     )
+    config_digest = sha256_digest(canonical_json(config_values))
     fetcher = TVMazeHttpFetcher(
         user_agent=parsed.user_agent,
         timeout_seconds=parsed.timeout_seconds,
@@ -99,6 +112,10 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
         max_page_bytes=parsed.max_page_bytes,
         max_updates=parsed.max_updates,
         record_shard_bytes=parsed.record_shard_bytes,
+        window_start=parsed.window_start,
+        window_end=parsed.window_end,
+        window_cursor=parsed.window_cursor,
+        watermark=parsed.watermark,
     )
     return {
         "batchId": capture.batch_manifest.batch_id,
@@ -112,6 +129,9 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
         "recordCount": capture.record_set_manifest.record_count,
         "retryCount": capture.batch_manifest.retry_count,
         "rateLimitCount": capture.batch_manifest.rate_limit_count,
+        "windowCursor": capture.batch_manifest.coverage_scope["windowCursor"],
+        "windowShardIndex": (capture.batch_manifest.coverage_scope["windowShardIndex"]),
+        "windowShardCount": (capture.batch_manifest.coverage_scope["windowShardCount"]),
     }
 
 

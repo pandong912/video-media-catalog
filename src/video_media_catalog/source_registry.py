@@ -199,7 +199,7 @@ class SourceNamespace(V2ContractModel):
 
     @property
     def matching_schemes(self) -> tuple[str, ...]:
-        """Return registry aliases accepted from legacy identifier tables."""
+        """Return canonical and legacy namespace/scheme values for migration."""
 
         return tuple(sorted({self.namespace_id, *self.scheme_aliases}))
 

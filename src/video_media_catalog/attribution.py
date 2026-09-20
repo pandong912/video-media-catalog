@@ -99,6 +99,20 @@ class AttributionManifest(V2ContractModel):
                 raise ValueError("manifest_id does not match attribution identity")
         return self
 
+    @property
+    def claim_counts_by_policy(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for entry in self.entries:
+            counts[entry.policy_id] = counts.get(entry.policy_id, 0) + entry.claim_count
+        return dict(sorted(counts.items()))
+
+    @property
+    def claim_counts_by_source_policy(self) -> dict[str, int]:
+        return {
+            f"{entry.source_product_id}|{entry.policy_id}": entry.claim_count
+            for entry in self.entries
+        }
+
 
 def _manifest_identity(manifest: AttributionManifest) -> dict[str, Any]:
     return {

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Protocol
@@ -23,6 +23,7 @@ from video_media_catalog.canonical import (
     sha256_digest,
 )
 from video_media_catalog.connector import (
+    CaptureWindowPlan,
     ChangeSemantics,
     Completeness,
     ConnectorBatchManifest,
@@ -31,10 +32,13 @@ from video_media_catalog.connector import (
     DeleteCoverage,
     RecordOperation,
     Serialization,
+    SourceWindow,
     TransportKind,
     build_connector_batch_manifest,
     build_connector_record_envelope,
     build_connector_record_set_manifest,
+    plan_bounded_capture_windows,
+    select_capture_window,
 )
 from video_media_catalog.connector_publish import (
     PublishedConnectorCapture,
@@ -57,6 +61,7 @@ from video_media_catalog.tvmaze import (
 )
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
+    parse_rfc3339,
     require_rfc3339,
     require_sha256,
 )
@@ -273,6 +278,10 @@ def capture_tvmaze_show_index(
     max_pages: int = DEFAULT_MAX_PAGES,
     max_page_bytes: int = DEFAULT_MAX_PAGE_BYTES,
     record_shard_bytes: int = DEFAULT_RECORD_SHARD_BYTES,
+    window_start: str | None = None,
+    window_end: str | None = None,
+    cursor: str | None = None,
+    watermark: str | None = None,
 ) -> TVMazeSyncResult:
     """Capture raw pages, then publish normalized records and commit markers."""
 
@@ -284,6 +293,17 @@ def capture_tvmaze_show_index(
         raise ValueError("destination_prefix must use file:// or s3://")
     if max_pages < 1 or max_page_bytes < 1 or record_shard_bytes < 1:
         raise ValueError("TVmaze capture limits must be positive")
+    if (window_start is None) != (window_end is None):
+        raise ValueError("TVmaze window_start and window_end must be provided together")
+    source_window = (
+        SourceWindow(start=window_start, end=window_end)
+        if window_start is not None and window_end is not None
+        else None
+    )
+    if cursor is not None:
+        cursor = cursor.strip()
+        if not cursor or len(cursor) > 1024:
+            raise ValueError("TVmaze cursor must be non-empty and bounded")
     if store is None:
         store = (
             BoundedObjectStore(client=object())
@@ -373,7 +393,10 @@ def capture_tvmaze_show_index(
                 "entityType": "show",
                 "firstPage": 0,
                 "pagination": "contiguous-until-404",
+                **({"cursor": cursor} if cursor is not None else {}),
             },
+            source_window=source_window,
+            watermark_after=watermark,
             raw_objects=tuple(raw_objects),
             acquired_at=acquired,
             record_count=record_count,
@@ -486,6 +509,111 @@ def capture_tvmaze_show_index(
         )
 
 
+def _normalize_tvmaze_updates(
+    updates: Mapping[str | int, int],
+) -> tuple[tuple[int, int], ...]:
+    normalized: dict[int, int] = {}
+    for raw_id, raw_timestamp in updates.items():
+        try:
+            show_id = int(raw_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("TVmaze update index contains an invalid show id") from exc
+        if (
+            show_id <= 0
+            or isinstance(raw_timestamp, bool)
+            or not isinstance(raw_timestamp, int)
+            or raw_timestamp <= 0
+        ):
+            raise ValueError("TVmaze update index contains an invalid timestamp")
+        if show_id in normalized:
+            raise ValueError("TVmaze update index contains a duplicate show id")
+        normalized[show_id] = raw_timestamp
+    return tuple(
+        sorted(
+            normalized.items(),
+            key=lambda item: (item[1], item[0]),
+        )
+    )
+
+
+def decode_tvmaze_update_index(
+    body: bytes,
+    *,
+    max_page_bytes: int = DEFAULT_MAX_PAGE_BYTES,
+) -> tuple[tuple[int, int], ...]:
+    """Decode the complete update inventory without applying an ID limit."""
+
+    if not body or len(body) > max_page_bytes:
+        raise ValueError("TVmaze update index is empty or exceeds its byte limit")
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("TVmaze update index must be UTF-8 JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("TVmaze update index must be a JSON object")
+    return _normalize_tvmaze_updates(payload)
+
+
+def plan_tvmaze_delta_windows(
+    updates: Mapping[str | int, int] | tuple[tuple[int, int], ...],
+    *,
+    window_start: str,
+    window_end: str,
+    max_updates: int = DEFAULT_MAX_UPDATES,
+    watermark: str | None = None,
+) -> tuple[CaptureWindowPlan, ...]:
+    """Plan deterministic, bounded TVmaze batches from a complete update index."""
+
+    if isinstance(updates, Mapping):
+        ordered = _normalize_tvmaze_updates(updates)
+    else:
+        update_mapping: dict[int, int] = {}
+        for show_id, modified in updates:
+            if show_id in update_mapping:
+                raise ValueError("TVmaze update index contains a duplicate show id")
+            update_mapping[show_id] = modified
+        ordered = _normalize_tvmaze_updates(update_mapping)
+    target_watermark = watermark
+    if target_watermark is None:
+        target_watermark = (
+            datetime.fromtimestamp(ordered[-1][1], tz=UTC)
+            .isoformat()
+            .replace("+00:00", "Z")
+            if ordered
+            else window_end
+        )
+    return plan_bounded_capture_windows(
+        source_product_id=TVMAZE_SOURCE_PRODUCT_ID,
+        window_start=window_start,
+        window_end=window_end,
+        item_keys=(
+            f"show:{show_id}:modified:{modified}" for show_id, modified in ordered
+        ),
+        max_items=max_updates,
+        watermark=target_watermark,
+    )
+
+
+def _tvmaze_window(
+    *,
+    acquired_at: str,
+    since: str,
+    window_start: str | None,
+    window_end: str | None,
+) -> SourceWindow:
+    if (window_start is None) != (window_end is None):
+        raise ValueError("TVmaze window_start and window_end must be provided together")
+    if window_start is not None and window_end is not None:
+        return SourceWindow(start=window_start, end=window_end)
+    end = parse_rfc3339(acquired_at)
+    days = {"day": 1, "week": 7, "month": 31}[since]
+    start = end - timedelta(days=days)
+    return SourceWindow(
+        start=start.isoformat().replace("+00:00", "Z"),
+        end=end.isoformat().replace("+00:00", "Z"),
+    )
+
+
 def capture_tvmaze_show_delta(
     *,
     destination_prefix: str,
@@ -498,6 +626,10 @@ def capture_tvmaze_show_delta(
     max_page_bytes: int = DEFAULT_MAX_PAGE_BYTES,
     max_updates: int = DEFAULT_MAX_UPDATES,
     record_shard_bytes: int = DEFAULT_RECORD_SHARD_BYTES,
+    window_start: str | None = None,
+    window_end: str | None = None,
+    window_cursor: str | None = None,
+    watermark: str | None = None,
 ) -> PublishedConnectorCapture:
     """Capture the official update index and current show details as one delta."""
 
@@ -509,6 +641,41 @@ def capture_tvmaze_show_delta(
     if min(max_page_bytes, max_updates, record_shard_bytes) < 1:
         raise ValueError("TVmaze delta byte limits must be positive")
     policy = tvmaze_rights_profile()
+    source_window = _tvmaze_window(
+        acquired_at=acquired,
+        since=since,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    update_result = fetcher.fetch_updates(since)
+    if update_result.status != 200:
+        raise RuntimeError(f"TVmaze show updates returned HTTP {update_result.status}")
+    ordered_updates = decode_tvmaze_update_index(
+        update_result.body,
+        max_page_bytes=max_page_bytes,
+    )
+    plans = plan_tvmaze_delta_windows(
+        ordered_updates,
+        window_start=source_window.start,
+        window_end=source_window.end,
+        max_updates=max_updates,
+    )
+    try:
+        selected_plan = select_capture_window(plans, cursor=window_cursor)
+    except ValueError as exc:
+        if window_cursor is None and len(plans) > 1:
+            cursors = ", ".join(plan.cursor for plan in plans)
+            raise RuntimeError(
+                "TVmaze update inventory requires "
+                f"{len(plans)} explicit bounded windows; "
+                f"rerun with one window_cursor: {cursors}"
+            ) from exc
+        raise
+    selected_updates = ordered_updates[
+        selected_plan.item_offset : (
+            selected_plan.item_offset + selected_plan.item_count
+        )
+    ]
     capture_id = deterministic_key(
         "tvmaze-show-updates-capture-v1",
         {
@@ -517,37 +684,11 @@ def capture_tvmaze_show_delta(
             "configDigest": config,
             "policyDigest": policy.digest,
             "since": since,
+            "windowPlanId": selected_plan.plan_id,
         },
     ).removeprefix("sha256:")
     payload_spool = TemporaryDirectory(prefix="tvmaze-delta-payloads-")
     payload_root = Path(payload_spool.name)
-    update_result = fetcher.fetch_updates(since)
-    if update_result.status != 200:
-        raise RuntimeError(f"TVmaze show updates returned HTTP {update_result.status}")
-    if not update_result.body or len(update_result.body) > max_page_bytes:
-        raise ValueError("TVmaze update index is empty or exceeds its byte limit")
-    try:
-        update_payload = json.loads(update_result.body)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("TVmaze update index must be UTF-8 JSON") from exc
-    if not isinstance(update_payload, dict):
-        raise ValueError("TVmaze update index must be a JSON object")
-    updates: dict[int, int] = {}
-    for raw_id, raw_timestamp in update_payload.items():
-        try:
-            show_id = int(raw_id)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("TVmaze update index contains an invalid show id") from exc
-        if (
-            show_id <= 0
-            or isinstance(raw_timestamp, bool)
-            or not isinstance(raw_timestamp, int)
-            or raw_timestamp <= 0
-        ):
-            raise ValueError("TVmaze update index contains an invalid timestamp")
-        updates[show_id] = raw_timestamp
-        if len(updates) > max_updates:
-            raise RuntimeError("TVmaze update count exceeds configured limit")
 
     def upload_raw(body: bytes, *parts: str) -> ObjectRef:
         digest = sha256_digest(body)
@@ -576,7 +717,7 @@ def capture_tvmaze_show_delta(
     detail_records: list[tuple[int, int, int, Path | None, ObjectRef]] = []
     retry_count = update_result.retry_count
     rate_limit_count = update_result.rate_limit_count
-    for show_id, updated in sorted(updates.items()):
+    for show_id, updated in selected_updates:
         response = fetcher.fetch_show(show_id)
         retry_count += response.retry_count
         rate_limit_count += response.rate_limit_count
@@ -626,14 +767,33 @@ def capture_tvmaze_show_delta(
             "detailEndpoint": "/shows/{id}",
             "entityType": "show",
             "since": since,
+            "windowPlanId": selected_plan.plan_id,
+            "windowCursor": selected_plan.cursor,
+            "windowShardIndex": selected_plan.shard_index,
+            "windowShardCount": selected_plan.shard_count,
+            "windowChangedIds": selected_plan.item_count,
+            "totalChangedIds": selected_plan.total_items,
         },
-        watermark_before=f"since:{since}",
+        source_window=source_window,
+        watermark_before=(
+            watermark
+            or (
+                datetime.fromtimestamp(
+                    ordered_updates[selected_plan.item_offset - 1][1],
+                    tz=UTC,
+                )
+                .isoformat()
+                .replace("+00:00", "Z")
+                if selected_plan.item_offset > 0
+                else f"since:{since}"
+            )
+        ),
         watermark_after=(
-            datetime.fromtimestamp(max(updates.values()), tz=UTC)
+            datetime.fromtimestamp(selected_updates[-1][1], tz=UTC)
             .isoformat()
             .replace("+00:00", "Z")
-            if updates
-            else acquired
+            if selected_updates
+            else source_window.end
         ),
         raw_objects=tuple(raw_objects),
         acquired_at=acquired,

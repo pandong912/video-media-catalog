@@ -17,13 +17,16 @@ from video_media_catalog.identity_v2 import (
     IdentityConflict,
     IdentityDecision,
     IdentityEvidence,
+    ParentConstraint,
     allocate_source_entity,
     build_accept_decision,
     build_entity_membership,
     build_identity_conflict,
     build_identity_evidence,
+    build_parent_constrained_evidence,
     build_reject_decision,
     build_revoke_decision,
+    close_entity_membership,
     validate_redirect_graph,
 )
 from video_media_catalog.v2_contracts import (
@@ -108,6 +111,40 @@ def referent_kinds_compatible(identifier_kind: str, blocking_kind: str) -> bool:
     )
     agent = identifier in _AGENT_BLOCKING_KINDS and blocking in _AGENT_BLOCKING_KINDS
     return editorial or agent
+
+
+def source_node_entity_compatible(
+    source_node: SourceNodeRef,
+    entity: EntityLedgerEntry,
+) -> bool:
+    """Require a source node and ledger entity to share one exact type domain."""
+
+    source_kind = canonical_referent_kind(source_node.referent_kind)
+    expected_level = {
+        "EDITORIAL_WORK": EntityLevel.EDITORIAL_WORK,
+        "SERIES": EntityLevel.SERIES,
+        "SEASON": EntityLevel.SEASON,
+        "EPISODE": EntityLevel.EPISODE,
+        "EDIT": EntityLevel.EDIT,
+        "MANIFESTATION": EntityLevel.MANIFESTATION,
+        "AGENT": EntityLevel.AGENT,
+        "ORGANIZATION": EntityLevel.AGENT,
+    }.get(source_kind)
+    if expected_level is None:
+        expected_level = next(
+            (
+                level
+                for level in EntityLevel
+                if level != EntityLevel.UNKNOWN and level.value == source_kind
+            ),
+            None,
+        )
+    if expected_level is None or entity.entity_level != expected_level:
+        return False
+    entity_kind = canonical_referent_kind(entity.entity_kind)
+    if expected_level == EntityLevel.AGENT:
+        return entity_kind == "AGENT" or entity_kind == source_kind
+    return entity_kind == source_kind
 
 
 @dataclass(frozen=True)
@@ -611,13 +648,7 @@ def revoke_identity_membership(
         decided_at=decided_at,
         reason=reason,
     )
-    closed = build_entity_membership(
-        source_node=membership.source_node,
-        entity_key=membership.entity_key,
-        decision_id=membership.decision_id,
-        valid_from=membership.valid_from,
-        valid_to=decided_at,
-    )
+    closed = close_entity_membership(membership, closed_at=decided_at)
     return IdentityResolutionResult(
         evidence=evidence,
         decisions=(decision,),
@@ -700,6 +731,57 @@ def resolve_or_allocate_source_node(
         decided_by=decided_by,
         decided_at=observed_at,
         reason=reason,
+        entities=entities,
+        evidence=(evidence,),
+    )
+
+
+def resolve_parent_constrained_source_node(
+    *,
+    source_node: SourceNodeRef,
+    entity_level: EntityLevel,
+    entity_kind: str,
+    parent_constraint: ParentConstraint,
+    assertion_keys: tuple[str, ...],
+    observed_at: str,
+    policy_id: str,
+    policy_digest: str,
+    decision_policy_version: str,
+    decided_by: str,
+    entity_key: str | None = None,
+) -> IdentityResolutionResult:
+    """Resolve a child only from an exact parent membership and ordinals."""
+
+    if entity_level != parent_constraint.child_level:
+        raise ValueError("parent constraint child level differs from source type")
+    entities: tuple[EntityLedgerEntry, ...] = ()
+    if entity_key is None:
+        entity = allocate_source_entity(
+            source_node=source_node,
+            entity_level=entity_level,
+            entity_kind=entity_kind,
+            first_observed_at=observed_at,
+        )
+        entity_key = entity.entity_key
+        entities = (entity,)
+    evidence = build_parent_constrained_evidence(
+        source_node=source_node,
+        candidate_entity_key=entity_key,
+        parent_constraint=parent_constraint,
+        assertion_keys=assertion_keys,
+        observed_at=observed_at,
+        policy_id=policy_id,
+        policy_digest=policy_digest,
+        confidence=1.0,
+    )
+    return accept_identity_candidate(
+        source_node=source_node,
+        entity_key=entity_key,
+        evidence_keys=(evidence.evidence_key,),
+        policy_version=decision_policy_version,
+        decided_by=decided_by,
+        decided_at=observed_at,
+        reason="exact parent membership and ordinal constraint",
         entities=entities,
         evidence=(evidence,),
     )

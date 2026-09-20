@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from video_media_catalog.community_ingest import (
@@ -9,11 +11,14 @@ from video_media_catalog.community_ingest import (
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.research_silver_cli import (
-    MAX_COMMITTED_RUNS,
+    MAX_EXPLICIT_RUN_IDS,
     _control_object_ref,
     _models_by_run,
     _normalize_run_ids,
+    _optional_control_object_ref,
+    _parse_source_watermarks,
     _require_immutable_snapshot_output,
+    _validate_source_watermark_changes,
     build_parser,
 )
 
@@ -83,6 +88,11 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     assert identity.namespace == "video_media_catalog"
     assert identity.source_run_ids == ["sha256:" + ("c" * 64)]
     assert identity.s3_credentials_provider == "default"
+    assert identity.silver_snapshot_media_type.endswith("silver-snapshot-set.v2+json")
+    assert identity.identity_max_label_iterations == 64
+    assert identity.identity_max_component_size == 256
+    assert identity.identity_max_node_candidate_keys == 256
+    assert identity.identity_max_component_candidate_keys == 256
 
     publication = build_parser().parse_args(
         [
@@ -101,6 +111,27 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     )
     assert publication.command == "publish-snapshot"
     assert publication.namespace == "video_media_catalog"
+
+    epoch = build_parser().parse_args(
+        [
+            "publish-epoch",
+            "--delta-run-id",
+            "sha256:" + ("f" * 64),
+            "--source-watermark",
+            "tvmaze-public-api=since:20",
+            "--epoch-uri",
+            "file:///tmp/silver-epoch.json",
+            "--created-at",
+            "2026-09-20T00:02:00Z",
+            "--catalog-type",
+            "hadoop",
+            "--warehouse",
+            "file:///tmp/warehouse",
+        ]
+    )
+    assert epoch.command == "publish-epoch"
+    assert epoch.parent_epoch_uri is None
+    assert epoch.delta_run_ids == ["sha256:" + ("f" * 64)]
 
 
 def test_control_object_requires_pinned_s3_version_and_etag() -> None:
@@ -143,7 +174,7 @@ def test_run_selection_is_bounded_unique_and_canonical() -> None:
         _normalize_run_ids((first, first), label="test")
     with pytest.raises(ValueError, match="at most"):
         _normalize_run_ids(
-            tuple(first for _ in range(MAX_COMMITTED_RUNS + 1)),
+            tuple(first for _ in range(MAX_EXPLICIT_RUN_IDS + 1)),
             label="test",
         )
 
@@ -193,3 +224,60 @@ def test_s3_snapshot_output_requires_version_and_etag() -> None:
     )
     with pytest.raises(RuntimeError, match="bucket versioning"):
         _require_immutable_snapshot_output(reference)
+
+
+def test_epoch_parent_object_ref_is_all_or_none() -> None:
+    parsed = build_parser().parse_args(
+        [
+            "publish-epoch",
+            "--epoch-uri",
+            "file:///tmp/silver-epoch.json",
+            "--created-at",
+            "2026-09-20T00:02:00Z",
+            "--parent-epoch-uri",
+            "file:///tmp/parent.json",
+            "--catalog-type",
+            "hadoop",
+            "--warehouse",
+            "file:///tmp/warehouse",
+        ]
+    )
+    with pytest.raises(ValueError, match="provided together"):
+        _optional_control_object_ref(
+            parsed,
+            "parent_epoch",
+            media_type="application/vnd.example+json",
+        )
+
+
+def test_source_watermarks_are_unique_and_canonical() -> None:
+    assert _parse_source_watermarks(
+        ("tvmaze-public-api=since:20", "tmdb-research=2026-09-20")
+    ) == {
+        "tmdb-research": "2026-09-20",
+        "tvmaze-public-api": "since:20",
+    }
+    with pytest.raises(ValueError, match="duplicate"):
+        _parse_source_watermarks(
+            ("tvmaze-public-api=since:20", "tvmaze-public-api=since:21")
+        )
+
+
+def test_parent_watermark_change_requires_source_delta_run() -> None:
+    parent = SimpleNamespace(source_watermarks={"tvmaze-public-api": "since:20"})
+    with pytest.raises(ValueError, match="without a source delta"):
+        _validate_source_watermark_changes(
+            parent=parent,
+            source_watermarks={"tvmaze-public-api": "since:21"},
+            delta_runs={},
+        )
+    _validate_source_watermark_changes(
+        parent=parent,
+        source_watermarks={"tvmaze-public-api": "since:21"},
+        delta_runs={
+            "run": SimpleNamespace(
+                source_product_id="tvmaze-public-api",
+                run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+            )
+        },
+    )

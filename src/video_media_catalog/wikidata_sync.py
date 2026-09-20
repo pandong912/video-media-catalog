@@ -21,9 +21,15 @@ from urllib.request import (
     build_opener,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from video_media_catalog.connector import (
+    CaptureWindowPlan,
+    SourceWindow,
+    plan_bounded_capture_windows,
+)
 from video_media_catalog.object_store import S3Location, _etag
+from video_media_catalog.v2_contracts import require_rfc3339
 
 DEFAULT_MAX_DUMP_BYTES = 200 * 1024**3
 DEFAULT_UPLOAD_PART_BYTES = 64 * 1024**2
@@ -37,6 +43,7 @@ MAX_MULTIPART_PARTS = 10_000
 STREAM_CHUNK_BYTES = 1024 * 1024
 MAX_CHECKSUM_BYTES = 64 * 1024
 OFFICIAL_DUMP_HOST = "dumps.wikimedia.org"
+WIKIDATA_SOURCE_PRODUCT_ID = "wikidata-json-dump"
 
 _DUMP_FILENAME = re.compile(r"^wikidata-([0-9]{8})-all\.json\.bz2$")
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
@@ -102,6 +109,38 @@ def validate_official_dump_url(url: str) -> OfficialDump:
             "dump URL path must be /wikidatawiki/entities/YYYYMMDD/<dated filename>"
         )
     return OfficialDump(url, date, filename)
+
+
+def plan_wikidata_dump_window(
+    source_url: str,
+    *,
+    window_start: str | None = None,
+    window_end: str | None = None,
+    watermark: str | None = None,
+) -> CaptureWindowPlan:
+    """Plan one dated dump window without contacting the upstream host."""
+
+    dump = validate_official_dump_url(source_url)
+    if (window_start is None) != (window_end is None):
+        raise ValueError(
+            "Wikidata window_start and window_end must be provided together"
+        )
+    if window_start is None or window_end is None:
+        day = datetime.strptime(dump.date, "%Y%m%d")
+        window = SourceWindow(
+            start=f"{day.date().isoformat()}T00:00:00Z",
+            end=f"{day.date().isoformat()}T23:59:59Z",
+        )
+    else:
+        window = SourceWindow(start=window_start, end=window_end)
+    return plan_bounded_capture_windows(
+        source_product_id=WIKIDATA_SOURCE_PRODUCT_ID,
+        window_start=window.start,
+        window_end=window.end,
+        item_keys=(dump.source_url,),
+        max_items=1,
+        watermark=watermark or dump.date,
+    )[0]
 
 
 def _validate_checksum_url(url: str, dump: OfficialDump) -> None:
@@ -393,6 +432,10 @@ class WikidataSyncResult(BaseModel):
     upstream_sha1: str = Field(alias="upstreamSha1")
     dump_date: str = Field(alias="dumpDate")
     reused: bool = False
+    window_start: str | None = Field(default=None, alias="windowStart")
+    window_end: str | None = Field(default=None, alias="windowEnd")
+    cursor: str | None = None
+    watermark: str | None = None
 
     @field_validator("sha256")
     @classmethod
@@ -416,6 +459,29 @@ class WikidataSyncResult(BaseModel):
         if not value:
             raise ValueError("S3 VersionId and ETag are required")
         return value
+
+    @field_validator("window_start", "window_end")
+    @classmethod
+    def validate_window_timestamp(cls, value: str | None) -> str | None:
+        return None if value is None else require_rfc3339(value)
+
+    @field_validator("cursor", "watermark")
+    @classmethod
+    def validate_control_position(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized or len(normalized) > 1024:
+            raise ValueError("capture position must be non-empty and bounded")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_window(self) -> WikidataSyncResult:
+        if (self.window_start is None) != (self.window_end is None):
+            raise ValueError("Wikidata result requires both window bounds")
+        if self.window_start is not None and self.window_end is not None:
+            SourceWindow(start=self.window_start, end=self.window_end)
+        return self
 
 
 def _error_code(exc: BaseException) -> tuple[str, int | None]:
@@ -969,10 +1035,36 @@ def sync_official_dump(
     retry_max_backoff_seconds: float = DEFAULT_RETRY_MAX_BACKOFF_SECONDS,
     sleeper: Callable[[float], None] | None = None,
     staging_token_factory: Callable[[], str] | None = None,
+    window_start: str | None = None,
+    window_end: str | None = None,
+    cursor: str | None = None,
+    watermark: str | None = None,
 ) -> WikidataSyncResult:
     """Range-download, verify, and immutably publish one official dated dump."""
 
     dump = validate_official_dump_url(source_url)
+    control_requested = any(
+        value is not None for value in (window_start, window_end, cursor, watermark)
+    )
+    control: dict[str, str | None] = {}
+    if control_requested:
+        normalized_cursor = cursor.strip() if cursor is not None else None
+        if normalized_cursor is not None and (
+            not normalized_cursor or len(normalized_cursor) > 1024
+        ):
+            raise ValueError("Wikidata cursor must be non-empty and bounded")
+        plan = plan_wikidata_dump_window(
+            source_url,
+            window_start=window_start,
+            window_end=window_end,
+            watermark=watermark,
+        )
+        control = {
+            "window_start": plan.window_start,
+            "window_end": plan.window_end,
+            "cursor": normalized_cursor or plan.cursor,
+            "watermark": plan.watermark,
+        }
     prefix = S3Location.parse(destination_prefix.rstrip("/") + "/placeholder")
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
@@ -1016,7 +1108,7 @@ def sync_official_dump(
         max_bytes=max_bytes,
     )
     if existing is not None:
-        return existing
+        return existing.model_copy(update=control)
 
     metadata = _head_official_dump(
         dump,
@@ -1054,7 +1146,7 @@ def sync_official_dump(
         )
         staging_completed = True
         staging_version = completed.get("VersionId")
-        return _copy_staging_to_final(
+        result = _copy_staging_to_final(
             s3=s3,
             staging=staging,
             staging_version=staging_version,
@@ -1066,6 +1158,7 @@ def sync_official_dump(
             copy_part_bytes=copy_part_bytes,
             max_bytes=max_bytes,
         )
+        return result.model_copy(update=control)
     finally:
         if staging_completed:
             request: dict[str, Any] = {

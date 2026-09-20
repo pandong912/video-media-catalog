@@ -71,6 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
     _common(changes)
     changes.add_argument("--window-start", required=True)
     changes.add_argument("--window-end", required=True)
+    changes.add_argument("--window-cursor")
+    changes.add_argument("--watermark")
     changes.add_argument("--timeout-seconds", type=float, default=30)
     changes.add_argument("--minimum-interval-seconds", type=float, default=0.05)
     changes.add_argument("--max-attempts", type=int, default=5)
@@ -173,29 +175,36 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
             raise ValueError("MEDIA_CATALOG_TMDB_API_READ_TOKEN is required")
         window_start = _date(parsed.window_start, label="window-start")
         window_end = _date(parsed.window_end, label="window-end")
-        config_digest = sha256_digest(
-            canonical_json(
-                {
-                    "connector": "tmdb-changes-detail",
-                    "version": "1.0.0",
-                    "windowStart": window_start.isoformat(),
-                    "windowEnd": window_end.isoformat(),
-                    "entityKinds": list(TMDB_ENTITY_KINDS),
-                    "appendToResponse": {
-                        "movie": "credits,external_ids,translations,images",
-                        "tv": "credits,external_ids,translations,images",
-                        "person": ("combined_credits,external_ids,translations,images"),
-                    },
-                    "timeoutSeconds": parsed.timeout_seconds,
-                    "minimumIntervalSeconds": parsed.minimum_interval_seconds,
-                    "maxAttempts": parsed.max_attempts,
-                    "maxApiBytes": parsed.max_api_bytes,
-                    "maxChangePages": parsed.max_change_pages,
-                    "maxChangedIds": parsed.max_changed_ids,
-                    "recordShardBytes": parsed.record_shard_bytes,
-                }
-            )
+        config_values = {
+            "connector": "tmdb-changes-detail",
+            "version": "1.0.0",
+            "windowStart": window_start.isoformat(),
+            "windowEnd": window_end.isoformat(),
+            "entityKinds": list(TMDB_ENTITY_KINDS),
+            "appendToResponse": {
+                "movie": "credits,external_ids,translations,images",
+                "tv": "credits,external_ids,translations,images",
+                "person": ("combined_credits,external_ids,translations,images"),
+            },
+            "timeoutSeconds": parsed.timeout_seconds,
+            "minimumIntervalSeconds": parsed.minimum_interval_seconds,
+            "maxAttempts": parsed.max_attempts,
+            "maxApiBytes": parsed.max_api_bytes,
+            "maxChangePages": parsed.max_change_pages,
+            "maxChangedIds": parsed.max_changed_ids,
+            "recordShardBytes": parsed.record_shard_bytes,
+        }
+        config_values.update(
+            {
+                key: value
+                for key, value in {
+                    "windowCursor": parsed.window_cursor,
+                    "watermark": parsed.watermark,
+                }.items()
+                if value is not None
+            }
         )
+        config_digest = sha256_digest(canonical_json(config_values))
         capture = capture_tmdb_changes(
             window_start=window_start,
             window_end=window_end,
@@ -216,6 +225,8 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
             max_changed_ids=parsed.max_changed_ids,
             max_api_bytes=parsed.max_api_bytes,
             record_shard_bytes=parsed.record_shard_bytes,
+            window_cursor=parsed.window_cursor,
+            watermark=parsed.watermark,
         )
     return {
         "batchId": capture.batch_manifest.batch_id,
@@ -229,6 +240,13 @@ def run(parsed: argparse.Namespace) -> dict[str, object]:
         "recordCount": capture.record_set_manifest.record_count,
         "retryCount": capture.batch_manifest.retry_count,
         "rateLimitCount": capture.batch_manifest.rate_limit_count,
+        "windowCursor": capture.batch_manifest.coverage_scope.get("windowCursor"),
+        "windowShardIndex": (
+            capture.batch_manifest.coverage_scope.get("windowShardIndex")
+        ),
+        "windowShardCount": (
+            capture.batch_manifest.coverage_scope.get("windowShardCount")
+        ),
     }
 
 

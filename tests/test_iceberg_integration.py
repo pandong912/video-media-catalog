@@ -359,7 +359,6 @@ def test_gold_release_commit_hides_uncommitted_plan_rows(
         )
         policy = research_policy()
         plan = build_gold_release_plan(
-            owner_subject="owner-123",
             policy_context=research_context(
                 as_of="2026-09-19T00:00:00Z",
             ),

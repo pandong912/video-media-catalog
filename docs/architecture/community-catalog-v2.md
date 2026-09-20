@@ -3,7 +3,7 @@
 ## Status
 
 This document defines the v2 supplier-neutral source strategy and its unified
-owner-only research serving context. It does not change the published
+shared authenticated research serving context. It does not change the published
 Wikidata/EIDR v1 contracts.
 V1 remains the compatibility source for existing entity keys, snapshots,
 OpenSearch indexes, and API responses.
@@ -21,11 +21,13 @@ It also defines the deterministic Gold identity/rights/field-resolution
 semantics, quality report, attribution binding, and release-fenced Gold tables
 in
 [`contracts/parquet/community_catalog_gold.v2.md`](../../contracts/parquet/community_catalog_gold.v2.md).
-The distributed identity stage and Silver-to-Gold transform now consume exact
-snapshot sets and committed run IDs without driver collection. A bounded,
-strict-mapping OpenSearch projection publishes only to
-`media-catalog-research-read`. Owner-only `/api/v2/research` routes require
-`governance.read`, exact configured OIDC subject equality, and pagination
+The distributed identity stage and Silver-to-Gold transform consume exact
+Silver epoch snapshots. They derive committed runs from the pinned Iceberg
+commit snapshot and bind the release by epoch count/digest without collecting
+historical run IDs to the driver. A bounded, strict-mapping OpenSearch
+projection publishes only to
+`media-catalog-research-read`. Shared `/api/v2/research` routes require
+`governance.read`, bearer-token authentication, and pagination
 cursors bound to one concrete immutable index; v1 routes and alias remain
 unchanged.
 
@@ -59,7 +61,7 @@ source product
   -> source-native record envelopes
   -> typed assertions and citations
   -> identity evidence and decisions
-  -> owner-only research Gold release
+  -> shared research Gold release
   -> bounded OpenSearch projection / analytical Iceberg views
 ```
 
@@ -157,7 +159,7 @@ distribution crosswalks. None of them is copied wholesale into physical tables.
 
 ## Unified research Gold
 
-V2 publishes one owner-only `research` Gold. It does not build parallel
+V2 publishes one shared authenticated `research` Gold. It does not build parallel
 variants or a runtime mode switch. Open, public-registry, and
 registered research-private assertions can coexist only after their individual
 rights profiles permit research storage, transformation, display, and
@@ -173,7 +175,7 @@ Each selected value retains its winning assertion and resolution trace.
 The research catalog reuses the existing 100k baseline S3, Glue, EMR, IAM, and
 OpenSearch infrastructure. It creates no separate warehouse, role, cluster, or
 domain. Existing `video_media_catalog` Glue namespace tables, release commits,
-owner checks, and the fixed `media-catalog-research-*` index family provide
+release isolation, and the fixed `media-catalog-research-*` index family provide
 logical boundaries. Policy metadata remains mandatory for expiry, attribution,
 and removal.
 
@@ -209,14 +211,14 @@ quality reports, and separate affected/total row counts.
 3. Add TVmaze as the first community adapter because it offers a documented
    full index, update indexes, stable IDs, and CC BY-SA API terms.
 4. Add MADB and Bangumi only after their field-level policy maps are reviewed.
-5. Build the single owner-only research Gold and research index.
+5. Build the single shared research Gold and research index.
 6. Run a representative scale test before replacing the current small
    OpenSearch development domain.
 
 ## Non-goals for this slice
 
 - no IMDb/TMDB webpage scraping or redistribution beyond source terms;
-- no public serving or redistribution of the owner-only research catalog;
+- no public serving or redistribution of the authenticated research catalog;
 - no automatic fuzzy entity merge;
 - no assumption that a metadata license also clears images or video;
 - no full-platform YouTube, anime-site, or streaming-provider crawl;

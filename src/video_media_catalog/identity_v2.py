@@ -67,9 +67,12 @@ class EvidenceKind(StrEnum):
 
 
 _HIERARCHY_REFERENT_KINDS = {
-    EntityLevel.SERIES: {"SERIES", "TV_SERIES"},
-    EntityLevel.SEASON: {"SEASON", "TV_SEASON"},
-    EntityLevel.EPISODE: {"EPISODE", "TV_EPISODE"},
+    # Some source namespaces (notably IMDb title IDs) use one broad
+    # EDITORIAL_WORK referent kind. Production resolution additionally joins
+    # the source's exact entity-type assertion before constructing a constraint.
+    EntityLevel.SERIES: {"EDITORIAL_WORK", "SERIES", "TV_SERIES"},
+    EntityLevel.SEASON: {"EDITORIAL_WORK", "SEASON", "TV_SEASON"},
+    EntityLevel.EPISODE: {"EDITORIAL_WORK", "EPISODE", "TV_EPISODE"},
 }
 
 
@@ -854,6 +857,27 @@ def build_entity_membership(
         decision_id=decision_id,
         valid_from=normalized_from,
         valid_to=normalized_to,
+    )
+
+
+def close_entity_membership(
+    membership: EntityMembership,
+    *,
+    closed_at: str,
+) -> EntityMembership:
+    """Emit the immutable closed version of one active membership."""
+
+    if membership.valid_to is not None:
+        raise ValueError("only an active membership can be closed")
+    normalized_time = require_rfc3339(closed_at, label="closed_at")
+    if parse_rfc3339(normalized_time) < parse_rfc3339(membership.valid_from):
+        raise ValueError("membership closure cannot precede valid_from")
+    return build_entity_membership(
+        source_node=membership.source_node,
+        entity_key=membership.entity_key,
+        decision_id=membership.decision_id,
+        valid_from=membership.valid_from,
+        valid_to=normalized_time,
     )
 
 

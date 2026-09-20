@@ -24,6 +24,7 @@ class IngestRunKind(StrEnum):
     SOURCE_ASSERTIONS = "SOURCE_ASSERTIONS"
     V1_KEY_MIGRATION = "V1_KEY_MIGRATION"
     IDENTITY_RESOLUTION = "IDENTITY_RESOLUTION"
+    IDENTITY_CURATION = "IDENTITY_CURATION"
 
 
 def _validate_counts(value: dict[str, int], *, label: str) -> dict[str, int]:

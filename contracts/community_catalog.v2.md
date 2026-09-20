@@ -26,6 +26,21 @@ A rights profile is a versioned machine policy. It contains:
 Absence of a permission means denial. `ml_training` is never inferred from
 `commercial`, `derivatives`, or an open-source software license.
 
+### Termination fence and removal
+
+Termination is represented by an immutable `RightsTerminationFence` that binds
+the source product, policy ID/digest, effective time, blocked actions, purge
+duty, reason, and creation time. It is a deny fence: Gold must apply it before
+source priority and resolution.
+
+`SourceRemovalPlan` is dry-run by default and records affected assertions,
+entities, releases, indexes, re-Gold/re-index actions, and restricted
+raw/derived purge targets. A non-dry plan requires an exact source-product
+confirmation and an explicit component-aware URI-prefix allowlist. Only
+planned `file://` or `s3://` targets may be passed to an execution backend.
+Execution installs the fence before purge and emits a deterministic
+`SourceRemovalReceipt`; dry-run plans cannot emit receipts.
+
 ## Source registry
 
 The source registry contains:
@@ -42,8 +57,11 @@ and may change without changing those IDs.
 
 The bootstrap registry includes:
 
-- Wikidata structured JSON under CC0;
-- EIDR public-registry records, without a default network search client;
+- Wikidata structured JSON under CC0, including Wikidata-observed external
+  identifiers;
+- EIDR public-registry records, without a default network search client.
+  Discovered-ID exact lookup is a second connector on the same product and
+  never treats an unauthorized registry dump as a complete mirror;
 - TVmaze public API under its free API share-alike policy;
 - IMDb's seven official non-commercial TSV datasets, restricted to the
   `research_private` research audience and purpose;
@@ -84,6 +102,42 @@ Required captured output:
 `batchId` is derived from immutable source identity, objects, policy, connector,
 coverage, acquisition time, and counters. A re-run with the same identity must
 produce the same manifest bytes. A leased batch requires `replayableUntil`.
+
+## SourceWatermark and CaptureWindowReceipt v1
+
+Application-side acquisition control uses two frozen lower-camel JSON contracts
+with `schemaVersion = "1.0"`:
+
+- `SourceWatermark` binds `sourceProductId`, an inclusive `windowStart` /
+  `windowEnd`, at least one opaque `cursor` or `watermark`, and exact
+  `configDigest`, `imageDigest`, and `policyDigest`.
+- `CaptureWindowReceipt` binds the same control identity plus terminal `status`
+  and the immutable connector batch-manifest `batchObject`.
+
+`COMMITTED` and `EMPTY` receipts require a non-empty `file://` or `s3://`
+connector-batch JSON `ObjectRef`; S3 references require both ETag and VersionId.
+`FAILED` receipts must not carry a batch object and cannot advance a source
+watermark or be published as a commit marker.
+
+`watermarkId`, window-plan `planId`, generated window cursors, and `receiptId`
+are domain-separated SHA-256 identities over canonical JSON. Parsing verifies
+those identities again, so changing a digest, status, window, cursor, watermark,
+or any `ObjectRef` field is a validation failure rather than a new
+interpretation of the same object.
+
+Changed-record inventories are ordered and digest-bound before partitioning.
+Every plan records `itemOffset`, `itemCount`, `totalItems`, `maxItems`,
+`shardIndex`, and `shardCount`; an empty inventory still produces one explicit
+empty window. If more than one plan exists, capture requires one generated
+cursor. Missing or stale cursors fail closed, and no planner path truncates at
+the per-window limit.
+
+Control publication is conditional for both file and S3 stores. Replaying
+identical bytes at a key returns the pinned existing `ObjectRef`; different
+bytes at that key raise `IMMUTABLE_OBJECT_CONFLICT`. Publication verifies the
+batch first, writes the content-addressed watermark second, and writes the
+stable window-slot receipt last. Orphaned raw objects or watermarks are not
+commits.
 
 Official API/dataset acquisition and Spark mapping are separate trust
 boundaries. Acquisition may access only explicitly allowlisted official
@@ -148,7 +202,12 @@ Concrete deletion rules are fail-closed:
 - IMDb deletion inference is permitted only between complete seven-file
   snapshots with equal coverage;
 - Wikidata deletion inference requires equal caller-declared coverage;
-- EIDR defaults to partial coverage and no deletion inference;
+- EIDR defaults to partial coverage and no deletion inference.
+  Discovered-ID exact lookup publishes one immutable connector capture, one
+  ordinal window receipt, and one append-only watermark per authorized batch.
+  The source semaphore is 1; a failed batch must not advance the watermark.
+  Complete/snapshot-diff semantics require an explicit authorized complete-feed
+  proof bound to the same lookup range;
 - TMDB daily ID exports are inventory seeds and never imply deletion;
 - TMDB and TVmaze API deltas emit DELETE only from an explicit not-found detail
   observation captured in the same batch.
@@ -201,11 +260,16 @@ Provider identifiers are never key inputs. A redirect may not form a cycle.
 Exact-ID blocking is driven by the pinned source-registry snapshot rather than
 resolver code constants. A `SourceNamespace` defines accepted legacy scheme
 aliases, validation, case handling, and compatible referent kinds. The
-bootstrap registry covers Wikidata items, IMDb titles/names, TMDB
-movies/TV/people, EIDR content, TVmaze shows, and TheTVDB series.
+bootstrap registry covers Wikidata items, distinct `douban-work` and
+`douban-person` identifiers, IMDb titles/names/companies, TMDB movies/TV/people,
+EIDR content, TVmaze shows, and TheTVDB series. The legacy `douban` scheme and
+`douban-subject` namespace are migration aliases selected by referent kind;
+they are not a shared canonical namespace.
 Registering matching metadata does not activate a connector or grant source
 rights; identifier assertions still carry the policy of the source that
-observed them.
+observed them. In particular, P4529/P5284 assertions remain
+`wikidata-json-dump`/CC0 lineage and do not imply a Douban feed, API call, or
+web-page acquisition.
 
 `ExternalIdIndexEntry` materializes the blocking tuple
 `(namespaceId, normalizedValue, referentKind)` and the candidate entity,
@@ -215,10 +279,34 @@ zero candidates allocate a new internal entity; more than one candidate emits
 an immutable `IdentityConflict` for review and does not create a decision or
 membership.
 
+Every production resolution run binds a versioned `IdentityResolutionConfig`.
+Version `1.0` defaults to 256 nodes per exact component, 256 candidate keys per
+node/component, and 64 label-propagation iterations. The effective run
+`configDigest` binds both the caller runtime digest and the complete resolver
+configuration. Raising a limit therefore creates a different materialization
+and run identity. A node/component that exceeds a configured bound remains
+fail-closed and emits a reason-specific conflict; the run manifest reports
+`conflictCountsByReason`.
+
 `PARENT_CONSTRAINED` evidence is valid only for a season or episode. It binds
 the child to a resolved parent source node/entity/membership, the hierarchy
 relationship assertion, and the season/episode ordinal assertions. Parent
 identity or numbering alone is insufficient.
+
+Production resolution is ordered: non-hierarchy work/series nodes first,
+seasons second, and episodes last. The parent join is a distributed relational
+join. A child is accepted only when exactly one type-compatible active parent
+membership and an unambiguous required ordinal are present. Missing,
+type-incompatible, or multiple parent bindings emit conflicts and no
+membership. Child groups may share an entity only through the exact parent
+entity plus season/episode ordinals (or through one compatible exact ID);
+titles and fuzzy similarity never trigger an automatic merge.
+
+Active memberships are immutable inputs to incremental resolution. When later
+exact identifiers introduce a candidate other than the currently assigned
+entity, the resolver emits `EXISTING_MEMBERSHIP_EXACT_ID_CONFLICT` and records
+that membership rewriting was suppressed. It does not silently replace or
+close the existing membership.
 
 Review decisions are immutable `ACCEPT`, `REJECT`, `UNCERTAIN`, or `REVOKE`
 events. `ACCEPT` opens a membership, `REJECT` creates none, and `REVOKE`
@@ -226,6 +314,20 @@ closes the accepted membership interval without deleting history. Merge events
 select the earliest stable entity as survivor and emit acyclic redirects for
 all retired keys. Split events never guess a redirect: they record explicit
 source-node-to-target assignments and preserve the original key in history.
+
+Human review is submitted through the immutable
+`IdentityCurationManifest` contract in `identity_curation.v2.md`. It pins one
+exact `CommunitySilverSnapshotSet` ObjectRef, conflict and deterministic
+decision keys, the exact OIDC operator subject, reason, operation time, config
+digest, and image digest. `ACCEPT`, `REJECT`, `MERGE`, `SPLIT`, and `REDIRECT`
+are applied only when every referenced conflict and entity is present in that
+snapshot. Candidate types, stable merge survival, complete non-duplicated split
+assignments, and the combined redirect graph are validated fail closed.
+
+The resulting run uses `runKind=IDENTITY_CURATION`. New ledger rows, human
+evidence, decisions, membership versions, redirects, and merge/split events
+share one commit-last boundary. Replaying the same manifest is idempotent and
+returns the already verified run commit.
 
 ## Unified research release
 
@@ -244,3 +346,10 @@ Readers may only use the final release commit. Research-private assertions are
 eligible only after their registered policy passes the requested action,
 audience, purpose, territory, expiry/cache, attribution, and digest checks.
 There is no parallel public release or public serving alias in v2.
+
+The Gold config digest also binds the release freshness/coverage policy. The
+quality report carries each source's latest complete/delta/partial watermark,
+coverage digest, age, required/optional status, and SLO result. TMDB and
+TVmaze default to 36 hours, IMDb to 10 days, and Wikidata to 45 days. EIDR
+partial input is never reported as complete; Douban identifier-only mode does
+not require a separate feed watermark.

@@ -6,6 +6,7 @@ from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_ingest import (
     CommunityIngestCommit,
     IngestRunKind,
+    build_community_ingest_commit,
     build_community_ingest_run,
 )
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS, TABLE_COLUMNS
@@ -238,6 +239,33 @@ class RecordingTables(CommunityCatalogTables):
         )
 
 
+class ConcurrentWinnerTables(RecordingTables):
+    def merge_insert_only(
+        self,
+        table: str,
+        dataframe,
+        *,
+        snapshot_properties=None,
+    ) -> int:
+        if table != "community_ingest_commit":
+            return super().merge_insert_only(
+                table,
+                dataframe,
+                snapshot_properties=snapshot_properties,
+            )
+        proposed = CommunityIngestCommit.model_validate_json(
+            dataframe[0]["commit_json"]
+        )
+        self.events.append(table)
+        self.commit = build_community_ingest_commit(
+            run_id=proposed.run_id,
+            committed_at="2026-09-20T00:00:30Z",
+            table_counts=proposed.table_counts,
+            table_snapshot_ids=proposed.table_snapshot_ids,
+        )
+        return 1
+
+
 def test_run_commit_pins_own_snapshot_after_another_writer_and_is_reused() -> None:
     counts = {table: 0 for table in DATA_TABLE_COLUMNS}
     counts["community_source_record"] = 1
@@ -277,3 +305,73 @@ def test_run_commit_pins_own_snapshot_after_another_writer_and_is_reused() -> No
         == commit
     )
     assert len(tables.events) == event_count + 2
+
+
+def test_duplicate_identity_curation_run_reuses_commit_without_restaging() -> None:
+    counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+    counts["community_identity_decision"] = 1
+    run = build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_CURATION,
+        source_product_id="identity-curation-v2",
+        input_id="sha256:" + ("1" * 64),
+        policy_id="identity-human-curation",
+        policy_digest="sha256:" + ("2" * 64),
+        image_digest="sha256:" + ("3" * 64),
+        config_digest="sha256:" + ("2" * 64),
+        started_at="2026-09-20T00:00:00Z",
+        expected_counts=counts,
+        input_manifest={
+            "curationManifest": {
+                "manifestId": "sha256:" + ("1" * 64),
+            }
+        },
+    )
+    frames = {table: StageFrame(count, run.run_id) for table, count in counts.items()}
+    tables = RecordingTables(counts)
+
+    first = tables.stage_and_commit(
+        run=run,
+        dataframes=frames,
+        committed_at="2026-09-20T00:01:00Z",
+    )
+    event_count = len(tables.events)
+    replay = tables.stage_and_commit(
+        run=run,
+        dataframes=frames,
+        committed_at="2026-09-20T00:02:00Z",
+    )
+
+    assert replay == first
+    assert len(tables.events) == event_count + 2
+    assert tables.events[-2:] == ["create", "verify-run"]
+
+
+def test_concurrent_duplicate_submit_returns_verified_commit_winner() -> None:
+    counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+    run = build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_CURATION,
+        source_product_id="identity-curation-v2",
+        input_id="sha256:" + ("4" * 64),
+        policy_id="identity-human-curation",
+        policy_digest="sha256:" + ("5" * 64),
+        image_digest="sha256:" + ("6" * 64),
+        config_digest="sha256:" + ("5" * 64),
+        started_at="2026-09-20T00:00:00Z",
+        expected_counts=counts,
+        input_manifest={
+            "curationManifest": {
+                "manifestId": "sha256:" + ("4" * 64),
+            }
+        },
+    )
+    frames = {table: StageFrame(count, run.run_id) for table, count in counts.items()}
+    tables = ConcurrentWinnerTables(counts)
+
+    commit = tables.stage_and_commit(
+        run=run,
+        dataframes=frames,
+        committed_at="2026-09-20T00:01:00Z",
+    )
+
+    assert commit.committed_at == "2026-09-20T00:00:30Z"
+    assert tables.events[-2:] == ["community_ingest_commit", "verify-run"]

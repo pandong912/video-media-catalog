@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from video_media_catalog.constants import (
+    DOUBAN_LEGACY_NAMESPACE_ID,
+    DOUBAN_LEGACY_SCHEME,
+    DOUBAN_PERSON_NAMESPACE_ID,
+    DOUBAN_WORK_NAMESPACE_ID,
+)
+from video_media_catalog.douban import DOUBAN_IDENTIFIER_PATTERN
 from video_media_catalog.imdb import (
     IMDB_COMPANY_NAMESPACE_ID,
     IMDB_NAME_NAMESPACE_ID,
@@ -28,7 +35,10 @@ from video_media_catalog.tvmaze import (
 from video_media_catalog.v1_adapters import (
     EIDR_CONNECTOR_ID,
     WIKIDATA_CONNECTOR_ID,
+    WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
 )
+
+EIDR_EXACT_LOOKUP_CONNECTOR_ID = "eidr-discovered-id-exact-lookup"
 
 
 def _open_actions() -> tuple[UsageAction, ...]:
@@ -152,7 +162,10 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Wikidata JSON entity dump",
         kind=SourceProductKind.KNOWLEDGE_GRAPH,
         policy_id="wikidata-structured-data-cc0",
-        connector_ids=(WIKIDATA_CONNECTOR_ID,),
+        connector_ids=(
+            WIKIDATA_CONNECTOR_ID,
+            WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
+        ),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
     eidr_product = SourceProduct(
@@ -161,7 +174,10 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="EIDR public registry records",
         kind=SourceProductKind.IDENTIFIER_REGISTRY,
         policy_id="eidr-public-registry",
-        connector_ids=(EIDR_CONNECTOR_ID,),
+        connector_ids=(
+            EIDR_CONNECTOR_ID,
+            EIDR_EXACT_LOOKUP_CONNECTOR_ID,
+        ),
         documentation_url="https://www.eidr.org/faq",
     )
     v1_product = SourceProduct(
@@ -235,11 +251,31 @@ def build_community_registry() -> SourceRegistrySnapshot:
             ),
             tvmaze_namespace,
             SourceNamespace(
-                namespace_id="douban-subject",
+                namespace_id=DOUBAN_WORK_NAMESPACE_ID,
                 source_product_id="wikidata-json-dump",
                 issuer="Douban",
-                referent_kinds=("EDITORIAL_WORK", "PERSON"),
-                identifier_pattern=r"[0-9]+",
+                referent_kinds=(
+                    "EDITORIAL_WORK",
+                    "SERIES",
+                    "SEASON",
+                    "EPISODE",
+                ),
+                scheme_aliases=(
+                    DOUBAN_LEGACY_NAMESPACE_ID,
+                    DOUBAN_LEGACY_SCHEME,
+                ),
+                identifier_pattern=DOUBAN_IDENTIFIER_PATTERN,
+            ),
+            SourceNamespace(
+                namespace_id=DOUBAN_PERSON_NAMESPACE_ID,
+                source_product_id="wikidata-json-dump",
+                issuer="Douban",
+                referent_kinds=("AGENT",),
+                scheme_aliases=(
+                    DOUBAN_LEGACY_NAMESPACE_ID,
+                    DOUBAN_LEGACY_SCHEME,
+                ),
+                identifier_pattern=DOUBAN_IDENTIFIER_PATTERN,
             ),
             SourceNamespace(
                 namespace_id="eidr-alternate",

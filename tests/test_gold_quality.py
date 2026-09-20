@@ -23,7 +23,6 @@ def _counts(**overrides: int) -> dict[str, int]:
 def _plan(counts: dict[str, int]):
     policy = research_policy()
     return build_gold_release_plan(
-        owner_subject="owner-123",
         policy_context=research_context(as_of="2026-09-20T00:00:00Z"),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},

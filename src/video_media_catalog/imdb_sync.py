@@ -14,6 +14,7 @@ from video_media_catalog.connector import (
     DeleteCoverage,
     RecordOperation,
     Serialization,
+    SourceWindow,
     TransportKind,
     build_connector_batch_manifest,
     build_connector_record_envelope,
@@ -63,6 +64,10 @@ def capture_imdb_snapshot(
     rate_limit_count: int = 0,
     max_dataset_bytes: int = DEFAULT_MAX_DATASET_BYTES,
     record_shard_bytes: int = DEFAULT_RECORD_SHARD_BYTES,
+    window_start: str | None = None,
+    window_end: str | None = None,
+    cursor: str | None = None,
+    watermark: str | None = None,
 ) -> PublishedConnectorCapture:
     """Publish all seven official files as one complete replayable snapshot."""
 
@@ -73,6 +78,17 @@ def capture_imdb_snapshot(
         raise ValueError("IMDb snapshot requires all official datasets in fixed order")
     if max_dataset_bytes < 1 or retry_count < 0 or rate_limit_count < 0:
         raise ValueError("IMDb capture limits and counters are invalid")
+    if (window_start is None) != (window_end is None):
+        raise ValueError("IMDb window_start and window_end must be provided together")
+    source_window = (
+        SourceWindow(start=window_start, end=window_end)
+        if window_start is not None and window_end is not None
+        else None
+    )
+    if cursor is not None:
+        cursor = cursor.strip()
+        if not cursor or len(cursor) > 1024:
+            raise ValueError("IMDb cursor must be non-empty and bounded")
     policy = imdb_rights_profile()
     capture_id = deterministic_key(
         "imdb-official-tsv-capture-v1",
@@ -130,7 +146,10 @@ def capture_imdb_snapshot(
             "origin": IMDB_DATASET_ORIGIN,
             "datasets": list(IMDB_DATASET_FILES),
             "usage": "research",
+            **({"cursor": cursor} if cursor is not None else {}),
         },
+        source_window=source_window,
+        watermark_after=watermark,
         raw_objects=tuple(raw_objects),
         acquired_at=acquired,
         record_count=sum(record_counts.values()),

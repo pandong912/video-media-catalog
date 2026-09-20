@@ -9,7 +9,11 @@ from typing import ClassVar
 import pytest
 
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.object_store import BoundedObjectStore, ObjectStoreError
+from video_media_catalog.object_store import (
+    BoundedObjectStore,
+    ObjectStoreError,
+    conditional_publish_bytes,
+)
 
 
 class FakeClient:
@@ -51,6 +55,17 @@ class PreconditionFailure(Exception):
 class ConflictClient(FakeClient):
     def put_object(self, **request):
         raise PreconditionFailure
+
+
+class UnversionedClient(FakeClient):
+    def put_object(self, **request):
+        self.payload = request["Body"].read()
+        return {"ETag": '"etag-1"'}
+
+    def head_object(self, **request):
+        response = super().head_object(**request)
+        response.pop("VersionId")
+        return response
 
 
 def _ref(payload: bytes) -> ObjectRef:
@@ -132,3 +147,63 @@ def test_conditional_write_conflict_reverifies_existing_bytes(
     assert result.reused
     assert result.object_ref.checksum.value == hashlib.sha256(payload).hexdigest()
     assert client.last_body is not None and client.last_body.closed
+
+
+def test_s3_conditional_write_rejects_same_key_with_different_bytes(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "output"
+    source.write_bytes(b"new-output")
+    client = ConflictClient(b"existing-output")
+    store = BoundedObjectStore(client=client)
+
+    with pytest.raises(ObjectStoreError) as raised:
+        store.publish_file_conditional(
+            source,
+            "s3://bucket/output",
+            media_type="application/json",
+            object_format="OBJECT_FORMAT_JSON",
+            max_bytes=1024,
+        )
+
+    assert raised.value.code == "IMMUTABLE_OBJECT_CONFLICT"
+    assert client.last_body is not None and client.last_body.closed
+
+
+def test_file_conditional_write_reuses_identical_and_rejects_conflict(
+    tmp_path: Path,
+) -> None:
+    store = BoundedObjectStore(client=object())
+    destination = (tmp_path / "output.json").as_uri()
+    arguments = {
+        "destination_uri": destination,
+        "media_type": "application/json",
+        "object_format": "OBJECT_FORMAT_JSON",
+        "max_bytes": 1024,
+    }
+
+    first = store.publish_bytes_conditional(b"same", **arguments)
+    repeated = store.publish_bytes_conditional(b"same", **arguments)
+    assert not first.reused
+    assert repeated.reused
+
+    with pytest.raises(ObjectStoreError) as raised:
+        store.publish_bytes_conditional(b"different", **arguments)
+    assert raised.value.code == "IMMUTABLE_OBJECT_CONFLICT"
+
+
+def test_conditional_s3_control_publish_requires_versioned_object_ref() -> None:
+    payload = b"control"
+    store = BoundedObjectStore(client=UnversionedClient(payload))
+
+    with pytest.raises(ObjectStoreError) as raised:
+        conditional_publish_bytes(
+            store,
+            payload,
+            "s3://bucket/control.json",
+            media_type="application/json",
+            object_format="OBJECT_FORMAT_JSON",
+            max_bytes=1024,
+        )
+
+    assert raised.value.code == "IMMUTABLE_METADATA_REQUIRED"

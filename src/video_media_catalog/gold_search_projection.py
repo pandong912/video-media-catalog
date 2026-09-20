@@ -8,12 +8,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.douban import douban_jump_url
 from video_media_catalog.gold import (
     RESEARCH_CONTEXT_ID,
     GoldAssertionLineage,
     assertion_lineage_from_trace,
 )
-from video_media_catalog.v2_contracts import require_oidc_subject
 
 DISPLAY_LANGUAGES = ("zh-hans", "zh-hant", "zh", "en", "und")
 MAX_TITLES = 64
@@ -79,9 +79,8 @@ def _lineage(value: dict[str, Any]) -> tuple[GoldAssertionLineage, ...]:
     return assertion_lineage_from_trace(trace)
 
 
-def project_gold_entity(row: Any, *, owner_subject: str) -> dict[str, Any]:
+def project_gold_entity(row: Any) -> dict[str, Any]:
     value = _dict(row)
-    owner = require_oidc_subject(owner_subject)
     titles = []
     attributes: dict[str, set[str]] = {
         name: set() for name in _ATTRIBUTE_PREDICATES.values()
@@ -226,6 +225,7 @@ def project_gold_entity(row: Any, *, owner_subject: str) -> dict[str, Any]:
             "value": identifier,
             "issuer": issuer,
             "referentKind": referent_kind,
+            "url": douban_jump_url(namespace, identifier, referent_kind),
         }
         for namespace, identifier, issuer, referent_kind in identifiers[
             :MAX_IDENTIFIERS
@@ -356,7 +356,6 @@ def project_gold_entity(row: Any, *, owner_subject: str) -> dict[str, Any]:
         "status": str(value["status"]),
         "releasePlanId": str(value["release_plan_id"]),
         "contextId": RESEARCH_CONTEXT_ID,
-        "ownerSubject": owner,
         "displayName": display,
         "displayLanguage": display_language,
         "titles": titles,
@@ -407,7 +406,6 @@ def projection_schema():
             StructField("status", string, False),
             StructField("releasePlanId", string, False),
             StructField("contextId", string, False),
-            StructField("ownerSubject", string, False),
             StructField("displayName", string, False),
             StructField("displayLanguage", string, False),
             StructField(
@@ -447,6 +445,7 @@ def projection_schema():
                             StructField("value", string, False),
                             StructField("issuer", string, False),
                             StructField("referentKind", string, False),
+                            StructField("url", string, True),
                         ]
                     ),
                     False,
@@ -616,17 +615,42 @@ def build_gold_search_projection(
     *,
     gold_tables: Mapping[str, Any],
     release_plan_id: str,
-    owner_subject: str,
+    affected_entity_keys: Any | None = None,
 ):
     from pyspark.sql import functions as F
 
-    owner = require_oidc_subject(owner_subject)
-    entities = gold_tables["community_gold_entity"].where(
-        F.col("release_plan_id") == release_plan_id
+    keys = (
+        None
+        if affected_entity_keys is None
+        else F.broadcast(
+            affected_entity_keys.select(
+                F.col("entity_key").alias("_affected_entity_key")
+            ).dropDuplicates()
+        )
+    )
+
+    def affected(frame: Any, column: str) -> Any:
+        if keys is None:
+            return frame
+        return frame.join(
+            keys,
+            frame[column] == keys["_affected_entity_key"],
+            "inner",
+        ).drop("_affected_entity_key")
+
+    entities = affected(
+        gold_tables["community_gold_entity"].where(
+            F.col("release_plan_id") == release_plan_id
+        ),
+        "entity_key",
     )
     fields = (
-        gold_tables["community_gold_field"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_field"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "entity_key",
+        )
         .groupBy("entity_key")
         .agg(
             F.sort_array(
@@ -646,8 +670,12 @@ def build_gold_search_projection(
         )
     )
     identifiers = (
-        gold_tables["community_gold_identifier"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_identifier"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "entity_key",
+        )
         .groupBy("entity_key")
         .agg(
             F.sort_array(
@@ -665,8 +693,12 @@ def build_gold_search_projection(
         )
     )
     relation_summary = (
-        gold_tables["community_gold_relation"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_relation"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "subject_entity_key",
+        )
         .groupBy("subject_entity_key", "predicate")
         .count()
         .groupBy("subject_entity_key")
@@ -677,8 +709,12 @@ def build_gold_search_projection(
         )
     )
     conflicts = (
-        gold_tables["community_gold_conflict"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_conflict"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "entity_key",
+        )
         .groupBy("entity_key")
         .agg(
             F.count(F.lit(1)).alias("conflict_count"),
@@ -708,6 +744,6 @@ def build_gold_search_projection(
         .join(conflicts, "entity_key", "left")
     )
     return spark.createDataFrame(
-        joined.rdd.map(lambda row: project_gold_entity(row, owner_subject=owner)),
+        joined.rdd.map(project_gold_entity),
         schema=projection_schema(),
     )

@@ -439,7 +439,7 @@ def build_identity_resolution_dataframes(
             F.min("policy_digest").alias("policy_digest"),
             F.countDistinct("policy_id").alias("policy_count"),
         )
-        .persist()
+        .localCheckpoint(eager=True)
     )
     invalid_type = type_groups.where(
         (F.size("entity_types") != 1) | (F.col("policy_count") != 1)
@@ -469,7 +469,7 @@ def build_identity_resolution_dataframes(
             ),
             "left_anti",
         )
-        .persist()
+        .localCheckpoint(eager=True)
     )
 
     from pyspark.sql.types import BooleanType
@@ -525,6 +525,7 @@ def build_identity_resolution_dataframes(
             F.col("n.referent_kind").alias("referent_kind"),
         )
         .dropDuplicates()
+        .localCheckpoint(eager=True)
     )
 
     assigned_identifier_index = (
@@ -798,9 +799,9 @@ def build_identity_resolution_dataframes(
                 )
             )
             bounded_work = _resolution_work_columns(
-                unassigned.join(bounded_node_keys, source_columns, "inner")
-                .join(candidates, source_columns, "left")
-                .join(bounded_node_keys, source_columns, "left")
+                unassigned.join(bounded_node_keys, source_columns, "inner").join(
+                    candidates, source_columns, "left"
+                )
             )
             bounded_work = bounded_work.withColumn("node_id", node_id_expr)
             dag_nodes = bounded_work.select("node_id").distinct()
@@ -1319,6 +1320,7 @@ def build_identity_resolution_dataframes(
         index_entries.unpersist()
         results.unpersist()
         unassigned.unpersist()
+        registered_identifiers.unpersist()
         type_groups.unpersist()
         latest_source_record_states.unpersist()
         bound_source_records.unpersist()

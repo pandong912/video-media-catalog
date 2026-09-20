@@ -311,8 +311,6 @@ def build_source_lifecycle_events(
                     <= F.to_timestamp("b._batch_acquired_at")
                 )
                 & (F.col("p.run_id") != F.col("b.run_id"))
-                & (F.col("p._change_semantics") == "FULL_SNAPSHOT")
-                & (F.col("p._completeness") == "COMPLETE")
             ),
             "inner",
         )
@@ -505,19 +503,25 @@ def persist_latest_source_record_states(
 ) -> tuple[Any, Any]:
     """Build and persist the shared as-of latest source record lifecycle projection."""
 
-    bound = bind_committed_source_records(
+    raw_bound = bind_committed_source_records(
         source_records=source_records,
         ingest_runs=ingest_runs,
         committed_run_ids=committed_run_ids,
         registry=registry,
     )
+    bound = None
     try:
+        bound = raw_bound.localCheckpoint(eager=True)
+        raw_bound.unpersist()
         events = build_source_lifecycle_events(bound, as_of=as_of)
-        latest = latest_source_record_states(events, as_of=as_of).persist()
-        latest.count()
+        latest = latest_source_record_states(events, as_of=as_of).localCheckpoint(
+            eager=True
+        )
         return bound, latest
     except Exception:
-        bound.unpersist()
+        raw_bound.unpersist()
+        if bound is not None:
+            bound.unpersist()
         raise
 
 

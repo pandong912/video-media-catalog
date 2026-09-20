@@ -447,6 +447,7 @@ def build_parent_constrained_work(
 ) -> Any:
     """Build parent-constrained child work with vectorized Spark joins."""
 
+    from pyspark.sql import Window
     from pyspark.sql import functions as F
 
     config = config or DEFAULT_IDENTITY_RESOLUTION_CONFIG
@@ -942,49 +943,49 @@ def build_parent_constrained_work(
             ).otherwise(F.col("parent_resolution_mode")),
         )
     )
-    ready = prepared.where(F.col("parent_resolution_mode") == "READY").withColumn(
-        "component_id",
-        F.sha2(
-            F.concat_ws(
-                "\x1f",
-                F.lit("parent-constrained-v1"),
-                F.lit(child_level.value),
-                "parent_entity_key",
-                "parent_level",
-                F.coalesce("season_number", F.lit("")),
-                F.coalesce("episode_number", F.lit("")),
-            ),
-            256,
-        ),
-    )
-    anchors = ready.groupBy("component_id").agg(
-        F.min("node_id").alias("allocation_anchor_id")
-    )
-    ready_stats = (
-        build_exact_blocking_component_stats(ready, config=config)
-        .join(anchors, "component_id", "left")
+    ready = (
+        prepared.where(F.col("parent_resolution_mode") == "READY")
         .withColumn(
-            "resolution_mode",
-            F.when(
-                F.col("component_node_count")
-                > F.lit(config.max_exact_blocking_component_size),
-                F.lit("CONFLICT_OVERSIZED"),
-            )
-            .when(
-                F.col("component_candidate_count")
-                > F.lit(config.max_exact_blocking_component_candidate_keys),
-                F.lit("CONFLICT_COMPONENT_CANDIDATES"),
-            )
-            .when(
-                F.size("component_candidate_keys") > 1,
-                F.lit("CONFLICT_MULTI"),
-            )
-            .when(
-                F.size("component_candidate_keys") == 1,
-                F.lit("ACCEPT"),
-            )
-            .otherwise(F.lit("BOOTSTRAP")),
+            "component_id",
+            F.sha2(
+                F.concat_ws(
+                    "\x1f",
+                    F.lit("parent-constrained-v1"),
+                    F.lit(child_level.value),
+                    "parent_entity_key",
+                    "parent_level",
+                    F.coalesce("season_number", F.lit("")),
+                    F.coalesce("episode_number", F.lit("")),
+                ),
+                256,
+            ),
         )
+        .withColumn(
+            "allocation_anchor_id",
+            F.min("node_id").over(Window.partitionBy("component_id")),
+        )
+    )
+    ready_stats = build_exact_blocking_component_stats(ready, config=config).withColumn(
+        "resolution_mode",
+        F.when(
+            F.col("component_node_count")
+            > F.lit(config.max_exact_blocking_component_size),
+            F.lit("CONFLICT_OVERSIZED"),
+        )
+        .when(
+            F.col("component_candidate_count")
+            > F.lit(config.max_exact_blocking_component_candidate_keys),
+            F.lit("CONFLICT_COMPONENT_CANDIDATES"),
+        )
+        .when(
+            F.size("component_candidate_keys") > 1,
+            F.lit("CONFLICT_MULTI"),
+        )
+        .when(
+            F.size("component_candidate_keys") == 1,
+            F.lit("ACCEPT"),
+        )
+        .otherwise(F.lit("BOOTSTRAP")),
     )
     not_ready = (
         prepared.where(F.col("parent_resolution_mode") != "READY")

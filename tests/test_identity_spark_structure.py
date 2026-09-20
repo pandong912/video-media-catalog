@@ -102,6 +102,8 @@ def test_parent_membership_join_is_vectorized_and_ordered() -> None:
     assert ".rdd" not in parent_block
     assert "parent_memberships" in parent_block
     assert "resolved_parent_membership_count" in parent_block
+    assert 'Window.partitionBy("component_id")' in parent_block
+    assert ".join(anchors" not in parent_block
     assert "PARENT_MEMBERSHIP_UNRESOLVED" in source
     assert "PARENT_MEMBERSHIP_AMBIGUOUS" in source
     assert source.index("season_results =") < source.index("episode_results =")

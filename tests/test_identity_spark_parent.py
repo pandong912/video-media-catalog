@@ -38,7 +38,8 @@ def _parent_work(
                 "type",
                 "ordinal",
             )
-        ],
+        ]
+        + [("imdb-title", "tt-child-unique-peer", "EDITORIAL_WORK")],
         (
             "subject_namespace_id STRING, subject_source_id STRING, "
             "subject_referent_kind STRING"
@@ -66,6 +67,19 @@ def _parent_work(
                     "ordinal",
                 ),
                 start=1,
+            )
+        ]
+        + [
+            (
+                "sha256:" + f"{6:064x}",
+                "imdb-title",
+                "tt-child-unique-peer",
+                "EDITORIAL_WORK",
+                "PART_OF_SERIES",
+                "imdb-title",
+                "tt-parent-unique",
+                "EDITORIAL_WORK",
+                '{"episodeNumber":2,"seasonNumber":1}',
             )
         ],
         (
@@ -177,6 +191,12 @@ def test_parent_join_requires_one_compatible_membership(
     assert unique.resolved_parent_membership_count == 1
     assert unique.season_number == "1"
     assert unique.episode_number == "2"
+    unique_peer = rows["tt-child-unique-peer"]
+    assert unique_peer.resolution_mode == "BOOTSTRAP"
+    assert unique_peer.component_id == unique.component_id
+    assert unique_peer.component_node_count == unique.component_node_count == 2
+    assert unique_peer.allocation_anchor_id == unique.allocation_anchor_id
+    assert unique.allocation_anchor_id == min(unique.node_id, unique_peer.node_id)
 
     unresolved = rows["tt-child-unresolved"]
     assert unresolved.resolution_mode == "CONFLICT_PARENT_UNRESOLVED"

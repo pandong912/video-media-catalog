@@ -310,6 +310,21 @@ def test_search_builds_fixed_query_and_signed_search_after_cursor() -> None:
     assert second.status_code == 200
     first_body = search.search_requests[0]["body"]
     assert "query_string" not in str(first_body)
+    assert first_body["track_total_hits"] == 10_000
+    external_identifier_query = first_body["query"]["bool"]["must"][0]["bool"][
+        "should"
+    ][1]
+    assert external_identifier_query == {
+        "nested": {
+            "path": "externalIdentifiers",
+            "score_mode": "max",
+            "query": {
+                "term": {
+                    "externalIdentifiers.value": 'title:example OR "*"',
+                }
+            },
+        }
+    }
     assert first_body["query"]["bool"]["filter"][0] == {"term": {"entityType": "MOVIE"}}
     assert search.search_requests[1]["body"]["search_after"] == [2.5, ENTITY_KEY]
     assert all(request["method"] == "GET" for request in search.search_requests)
@@ -422,6 +437,7 @@ def test_empty_or_missing_query_browses_with_match_all() -> None:
     }
     for request in search.search_requests:
         assert request["method"] == "GET"
+        assert request["body"]["track_total_hits"] is True
         assert request["body"]["query"]["bool"]["must"] == [{"match_all": {}}]
 
 

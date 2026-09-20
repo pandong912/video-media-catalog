@@ -133,6 +133,17 @@ def build_search_query(
             },
             {
                 "nested": {
+                    "path": "externalIdentifiers",
+                    "score_mode": "max",
+                    "query": {
+                        "term": {
+                            "externalIdentifiers.value": parameters.q,
+                        }
+                    },
+                }
+            },
+            {
+                "nested": {
                     "path": "names",
                     "score_mode": "max",
                     "query": {
@@ -211,7 +222,9 @@ def build_search_query(
         )
     body: dict[str, Any] = {
         "size": parameters.page_size,
-        "track_total_hits": 10_000,
+        # Browsing the catalog drives the UI's total entity count. Text search
+        # stays capped to keep arbitrary queries bounded.
+        "track_total_hits": True if not parameters.q else 10_000,
         "track_scores": True,
         "timeout": f"{timeout_ms}ms",
         "_source": list(SEARCH_SOURCE_FIELDS),

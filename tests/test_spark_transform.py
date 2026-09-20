@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,12 @@ from pyspark.sql import SparkSession
 from video_media_catalog.eidr import iter_eidr_records
 from video_media_catalog.spark_transform import transform_landing
 from video_media_catalog.wikidata import iter_wikidata_records
+
+
+def test_type_closure_truncates_iterative_spark_lineage() -> None:
+    source = inspect.getsource(transform_landing)
+    assert ".localCheckpoint(eager=True)" in source
+    assert "delta.take(1)" not in source
 
 
 @pytest.fixture(scope="module")

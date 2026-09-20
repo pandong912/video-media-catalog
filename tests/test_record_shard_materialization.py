@@ -369,6 +369,7 @@ def test_materialize_s3_shard_uses_version_id_after_latest_overwrite(
     staged_payload = upload_client.staged[staged_key]
     assert staged_payload == original
     assert staged_payload != overwritten
+    assert not (tmp_path / f"download-sha256={reference.checksum.value[:16]}").exists()
 
 
 def test_materialize_reuses_existing_staging_with_matching_checksum(

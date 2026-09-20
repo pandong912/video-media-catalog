@@ -34,7 +34,8 @@ from video_media_catalog.source_silver import (
 )
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
-DEFAULT_RECORD_OBJECT_MAX_BYTES = 16 * 1024 * 1024
+MAX_RECORD_OBJECT_MAX_BYTES = 128 * 1024 * 1024
+DEFAULT_RECORD_OBJECT_MAX_BYTES = MAX_RECORD_OBJECT_MAX_BYTES
 DEFAULT_RAW_OBJECT_MAX_BYTES = 32 * 1024**3
 
 
@@ -154,8 +155,10 @@ def _read_model[T: (ConnectorBatchManifest, ConnectorRecordSetManifest)](
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if min(parsed.max_record_object_bytes, parsed.max_raw_object_bytes) < 1:
         raise ValueError("raw and record object byte limits must be positive")
-    if parsed.max_record_shards < 1:
-        raise ValueError("max-record-shards must be positive")
+    if parsed.max_record_object_bytes > MAX_RECORD_OBJECT_MAX_BYTES:
+        raise ValueError("max-record-object-bytes exceeds the reviewed 128 MiB cap")
+    if not 1 <= parsed.max_record_shards <= MAX_RECORD_SHARD_COUNT:
+        raise ValueError("max-record-shards is outside the reviewed bound")
     if parsed.shuffle_partitions is not None and parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
     batch_ref = _object_ref(

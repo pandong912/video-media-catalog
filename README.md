@@ -163,12 +163,26 @@ coverage 的完整快照差异推断。
 video-media-catalog-imdb-sync \
   --destination-prefix s3://bucket/research-captures \
   --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --acquired-at 2026-09-20T00:00:00Z \
+  --dataset-parallelism 7 \
+  --record-shard-bytes 134217728 \
   --image-digest sha256:<hex>
 ```
 
 调度器可选传入成对的 `--window-start/--window-end` 以及 `--cursor`、
 `--watermark`；这些值进入 coverage/source-window 和确定性 batch identity。
-不传时保持原有 snapshot CLI 行为。
+dataset-parallel 模式要求显式固定 `--acquired-at`，使失败重试命中同一 batch。
+七个 dataset 分别执行精确 SQLite 去重并发布不可变 partition manifest；只有七个
+分区全部完成后才写 flat v2.0 `record-set.json`。重试会验证并复用已完成分区。
+单 Pod workflow semaphore 仍为 1，进程并行不会放大调度并发。
+
+本地吞吐基准同时验证串/并行逻辑记录摘要：
+
+```bash
+video-media-catalog-imdb-capture-benchmark \
+  --rows-per-dataset 100000 \
+  --parallelism 7
+```
 
 IMDb 数据固定进入 `research_private`，只允许 `audience=research`、
 `purpose=research` 的 store/transform/display/search/derive；不授予

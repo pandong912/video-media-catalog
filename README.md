@@ -292,13 +292,54 @@ video-media-catalog-research-silver resolve-identity \
   --aws-region us-east-1
 ```
 
-`publish-snapshot` 保留为 v2 兼容入口，适合显式且有界的 run 列表：
+人工 identity 决策使用
+[`IdentityCurationManifest`](contracts/identity_curation.v2.md)。manifest
+固定一个包含 conflict 的 Silver snapshot ObjectRef/snapshotSetId、原始
+conflict/assertion keys、确定性 decision keys、OIDC operator subject、理由、
+操作时间和 image/config digests。先发布包含 identity run 的 review snapshot，
+再把完整 manifest 不可变发布并提交；S3 的 manifest 与 snapshot 均必须带
+VersionId 和 ETag：
+
+```bash
+video-media-catalog-identity-curation publish \
+  --manifest-file /secure/control/identity-curation.json \
+  --destination-uri s3://bucket/research-silver/curation/<manifest-id>.json \
+  --aws-region us-east-1
+
+video-media-catalog-identity-curation apply \
+  --review-manifest-uri s3://bucket/research-silver/curation/<manifest-id>.json \
+  --review-manifest-hash sha256:<hex> \
+  --review-manifest-size <bytes> \
+  --review-manifest-version <VersionId> \
+  --review-manifest-etag <ETag> \
+  --operator-subject <exact-oidc-sub> \
+  --image-digest sha256:<image-hex> \
+  --config-digest sha256:<config-hex> \
+  --committed-at 2026-09-20T01:24:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+`ACCEPT`、`REJECT`、`MERGE`、`SPLIT`、`REDIRECT` 都先验证 conflict 仍存在于
+pinned snapshot；候选类型、merge survivor、split 全覆盖/不重复和 redirect
+无环任一不满足即失败。stage 原子生成 human evidence、decision、membership
+版本、redirect、merge/split event 和必要的新 ledger entity，再以
+`IDENTITY_CURATION` run 走现有 `CommunityCatalogTables` commit-last。相同
+manifest 重试得到相同 run/row keys，并直接复用已验证 commit。
+
+完成自动或人工 identity 后，再发布包含 source、migration、identity 和可选
+curation run 的快照供 `video-media-catalog-gold-spark` 使用。
+`publish-snapshot` 保留为 v2 兼容入口，适合显式且有界的 run 列表。发布器先
+固定 ingest-run/commit/data snapshot IDs，再逐 run 核对 manifest、commit 和
+每表行数；最多可显式选择 4,096 个 run。S3 目标若未返回 VersionId 或 ETag
+会失败，不会向下游提供 “latest” 引用：
 
 ```bash
 video-media-catalog-research-silver publish-snapshot \
   --run-id sha256:<source-run> \
   --run-id sha256:<migration-run> \
   --run-id sha256:<identity-run> \
+  --run-id sha256:<identity-curation-run> \
   --snapshot-uri s3://bucket/research-silver/gold-input.json \
   --created-at 2026-09-20T01:25:00Z \
   --warehouse s3://bucket/catalog-warehouse \
@@ -441,6 +482,14 @@ Citation table，因此此切片稳定暴露 citation keys 与 source record/pat
 - `GET /api/v2/research/search`
 - `GET /api/v2/research/entities/{entityKey}`
 - `GET /api/v2/research/external-identifiers/{namespace}/{value}`
+- `GET /api/v2/research/identity-conflicts`
+- `GET /api/v2/research/identity-curation/requests/{requestId}`
+- `GET /api/v2/research/identity-curation/requests/{requestId}/manifest`
+
+review routes 复用同一个 OIDC verifier、`governance.read` scope 与 exact owner
+subject。它们只消费 `IdentityReviewReader` 的 status/manifest/conflict
+只读投影；API 不提供 POST，也不获得 S3/Silver 写权限。curation request 的
+提交和执行仅走上述 control-plane CLI，部署方可把结果投影到现有只读边界。
 
 v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和过期时间，
 因此 alias 切换不会造成跨版本错页。TTL 使用
@@ -989,6 +1038,11 @@ HTTP 契约：
   assertion/citation keys、rights/attribution 与 conflict summaries。
 - `GET /api/v2/research/external-identifiers/{namespace}/{value}`：在唯一
   research alias 中精确解析。
+- `GET /api/v2/research/identity-conflicts`：读取 owner-only identity review
+  queue。
+- `GET /api/v2/research/identity-curation/requests/{requestId}` 与
+  `/manifest`：读取 immutable request 状态和 manifest。API 无对应写路由；
+  submit/apply 由 batch control-plane CLI 完成。
 
 分页 cursor 是绑定原查询的 HMAC 签名 opaque `search_after`，篡改或跨查询复用
 返回 Problem Details。所有查询由固定结构构造，不接受 OpenSearch DSL。

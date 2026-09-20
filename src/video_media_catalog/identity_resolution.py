@@ -24,6 +24,7 @@ from video_media_catalog.identity_v2 import (
     build_identity_evidence,
     build_reject_decision,
     build_revoke_decision,
+    close_entity_membership,
     validate_redirect_graph,
 )
 from video_media_catalog.v2_contracts import (
@@ -108,6 +109,40 @@ def referent_kinds_compatible(identifier_kind: str, blocking_kind: str) -> bool:
     )
     agent = identifier in _AGENT_BLOCKING_KINDS and blocking in _AGENT_BLOCKING_KINDS
     return editorial or agent
+
+
+def source_node_entity_compatible(
+    source_node: SourceNodeRef,
+    entity: EntityLedgerEntry,
+) -> bool:
+    """Require a source node and ledger entity to share one exact type domain."""
+
+    source_kind = canonical_referent_kind(source_node.referent_kind)
+    expected_level = {
+        "EDITORIAL_WORK": EntityLevel.EDITORIAL_WORK,
+        "SERIES": EntityLevel.SERIES,
+        "SEASON": EntityLevel.SEASON,
+        "EPISODE": EntityLevel.EPISODE,
+        "EDIT": EntityLevel.EDIT,
+        "MANIFESTATION": EntityLevel.MANIFESTATION,
+        "AGENT": EntityLevel.AGENT,
+        "ORGANIZATION": EntityLevel.AGENT,
+    }.get(source_kind)
+    if expected_level is None:
+        expected_level = next(
+            (
+                level
+                for level in EntityLevel
+                if level != EntityLevel.UNKNOWN and level.value == source_kind
+            ),
+            None,
+        )
+    if expected_level is None or entity.entity_level != expected_level:
+        return False
+    entity_kind = canonical_referent_kind(entity.entity_kind)
+    if expected_level == EntityLevel.AGENT:
+        return entity_kind == "AGENT" or entity_kind == source_kind
+    return entity_kind == source_kind
 
 
 @dataclass(frozen=True)
@@ -611,13 +646,7 @@ def revoke_identity_membership(
         decided_at=decided_at,
         reason=reason,
     )
-    closed = build_entity_membership(
-        source_node=membership.source_node,
-        entity_key=membership.entity_key,
-        decision_id=membership.decision_id,
-        valid_from=membership.valid_from,
-        valid_to=decided_at,
-    )
+    closed = close_entity_membership(membership, closed_at=decided_at)
     return IdentityResolutionResult(
         evidence=evidence,
         decisions=(decision,),

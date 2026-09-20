@@ -169,10 +169,7 @@ class CommunityCatalogTables:
         self.create_tables()
         existing = self.read_commit(run.run_id)
         if existing is not None:
-            if existing.table_counts != run.expected_counts:
-                raise RuntimeError("existing run commit conflicts with expected counts")
-            self._verify_run_manifest(run)
-            return existing
+            return self._reuse_existing_commit(run, existing)
 
         run_frame = self.spark.createDataFrame([ingest_run_row(run)])
         self.merge_insert_only("community_ingest_run", run_frame)
@@ -224,8 +221,24 @@ class CommunityCatalogTables:
         self.merge_insert_only("community_ingest_commit", commit_frame)
         published = self.read_commit(run.run_id)
         if published != commit:
-            raise RuntimeError("community ingest commit could not be verified")
+            if published is None:
+                raise RuntimeError("community ingest commit could not be verified")
+            return self._reuse_existing_commit(run, published)
         return published
+
+    def _reuse_existing_commit(
+        self,
+        run: CommunityIngestRun,
+        existing: CommunityIngestCommit,
+    ) -> CommunityIngestCommit:
+        """Return the winner of an exact retry or concurrent duplicate submit."""
+
+        if existing.run_id != run.run_id:
+            raise RuntimeError("existing run commit belongs to another run")
+        if existing.table_counts != run.expected_counts:
+            raise RuntimeError("existing run commit conflicts with expected counts")
+        self._verify_run_manifest(run)
+        return existing
 
     def read_commit(self, run_id: str) -> CommunityIngestCommit | None:
         run_id = require_sha256(run_id, label="run_id")

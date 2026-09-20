@@ -857,6 +857,27 @@ def build_entity_membership(
     )
 
 
+def close_entity_membership(
+    membership: EntityMembership,
+    *,
+    closed_at: str,
+) -> EntityMembership:
+    """Emit the immutable closed version of one active membership."""
+
+    if membership.valid_to is not None:
+        raise ValueError("only an active membership can be closed")
+    normalized_time = require_rfc3339(closed_at, label="closed_at")
+    if parse_rfc3339(normalized_time) < parse_rfc3339(membership.valid_from):
+        raise ValueError("membership closure cannot precede valid_from")
+    return build_entity_membership(
+        source_node=membership.source_node,
+        entity_key=membership.entity_key,
+        decision_id=membership.decision_id,
+        valid_from=membership.valid_from,
+        valid_to=normalized_time,
+    )
+
+
 class LegacyKeyMap(V2ContractModel):
     legacy_key: str
     legacy_kind: str

@@ -90,7 +90,8 @@ fields and may not resolve an unversioned latest key.
 
 ## Production stages
 
-`video-media-catalog-research-silver` provides four auditable Spark stages:
+`video-media-catalog-research-silver` and
+`video-media-catalog-identity-curation` provide five auditable Spark stages:
 
 1. `migrate-v1` verifies an immutable v1 `SnapshotSet`, time-travels all six
    declared v1 table snapshots, preserves every legacy key, and commits the v2
@@ -100,15 +101,29 @@ fields and may not resolve an unversioned latest key.
    time-travels the pinned v1 entity/external-ID snapshots, and delegates to
    the registry-driven identity implementation. All identity tables, including
    empty redirect/merge/split frames, share one commit-last run boundary.
-3. `publish-snapshot` remains the v2 compatibility publisher for a bounded,
+3. `identity-curation apply` verifies an immutable curation manifest and its
+   pinned Silver snapshot, materializes `ACCEPT`, `REJECT`, `MERGE`, `SPLIT`,
+   or `REDIRECT` outputs, and writes one `IDENTITY_CURATION` run through the
+   same commit-last boundary.
+4. `publish-snapshot` remains the v2 compatibility publisher for a bounded,
    explicitly selected run list.
-4. `publish-epoch` validates a parent epoch, bounded delta, source watermarks,
+5. `publish-epoch` validates a parent epoch, bounded delta, source watermarks,
    all distributed commit/data counts, and publishes the exact v3 epoch
    consumed by Identity and Gold.
 
 All stages default to the existing `video_media_catalog` namespace and use the
 AWS default credential chain, including an EMR Serverless execution role. They
 do not accept static credentials or provision infrastructure.
+
+The curation manifest uses
+`application/vnd.video-media-catalog.identity-curation-manifest.v2+json` and
+contains its pinned Silver ObjectRef/snapshot ID, exact conflict and generated
+decision keys, OIDC operator subject, reason, operation timestamp, image
+digest, and config digest. S3 manifest and snapshot ObjectRefs require
+VersionId and ETag. The stage rejects stale conflicts, missing or incompatible
+entities, non-deterministic merge survival, incomplete/duplicate split
+assignments, and any redirect cycle. An exact retry derives the same run and
+returns the existing verified commit without rewriting data tables.
 
 ## Iceberg maintenance
 

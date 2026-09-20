@@ -66,6 +66,13 @@ from video_media_catalog.gold_search_index import (
     RESEARCH_INDEX_PREFIX,
     RESEARCH_READ_ALIAS,
 )
+from video_media_catalog.identity_curation import IdentityCurationManifest
+from video_media_catalog.identity_review import (
+    EmptyIdentityReviewReader,
+    IdentityConflictQueuePage,
+    IdentityCurationRequestStatus,
+    IdentityReviewReader,
+)
 from video_media_catalog.opensearch_client import (
     OpenSearchConnection,
     create_opensearch_client,
@@ -567,6 +574,7 @@ def create_app(
     *,
     client: Any | None = None,
     verifier: TokenVerifier | None = None,
+    review_reader: IdentityReviewReader | None = None,
 ) -> FastAPI:
     """Create the API; production configuration is validated before startup."""
 
@@ -584,6 +592,7 @@ def create_app(
     research_owner_subject = require_oidc_subject(
         settings.oidc_owner_subject or "test-owner"
     )
+    review_reader = review_reader or EmptyIdentityReviewReader()
     timeout_ms = int(settings.request_timeout_seconds * 1000)
 
     @asynccontextmanager
@@ -1161,5 +1170,139 @@ def create_app(
                 detail="Research external identifier resolves to multiple entities",
             )
         return sources[0]
+
+    @app.get(
+        "/api/v2/research/identity-conflicts",
+        tags=["identity-review-v2"],
+        summary="List the owner-only identity conflict review queue",
+        response_model=IdentityConflictQueuePage,
+        responses=_AUTHENTICATED_ERRORS,
+    )
+    def list_identity_conflicts(
+        request: Request,
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        cursor: Annotated[
+            str | None,
+            Query(min_length=1, max_length=4096),
+        ] = None,
+    ) -> IdentityConflictQueuePage:
+        _validate_query_parameters(request, {"limit", "cursor"})
+        try:
+            page = review_reader.list_conflicts(
+                owner_subject=principal.subject,
+                limit=limit,
+                cursor=cursor,
+            )
+        except Exception as exc:
+            raise UpstreamFailure(
+                502,
+                "Bad Gateway",
+                "Identity review projection is invalid",
+            ) from exc
+        if any(
+            item.owner_subject != principal.subject
+            or item.owner_subject != research_owner_subject
+            for item in page.items
+        ):
+            raise UpstreamFailure(
+                502,
+                "Bad Gateway",
+                "Identity review owner does not match the API identity",
+            )
+        return page
+
+    @app.get(
+        "/api/v2/research/identity-curation/requests/{requestId}",
+        tags=["identity-review-v2"],
+        summary="Get immutable identity curation request status",
+        response_model=IdentityCurationRequestStatus,
+        responses={
+            **_AUTHENTICATED_ERRORS,
+            404: {"model": ProblemDetails},
+        },
+    )
+    def get_identity_curation_request(
+        request: Request,
+        request_id: Annotated[
+            str,
+            Path(alias="requestId", pattern=_ENTITY_KEY),
+        ],
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
+    ) -> IdentityCurationRequestStatus:
+        _validate_query_parameters(request, set())
+        try:
+            status = review_reader.get_request(
+                owner_subject=principal.subject,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            raise UpstreamFailure(
+                502,
+                "Bad Gateway",
+                "Identity curation status projection is invalid",
+            ) from exc
+        if status is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Identity curation request was not found",
+            )
+        if (
+            status.operator_subject != principal.subject
+            or status.operator_subject != research_owner_subject
+        ):
+            raise UpstreamFailure(
+                502,
+                "Bad Gateway",
+                "Identity curation owner does not match the API identity",
+            )
+        return status
+
+    @app.get(
+        "/api/v2/research/identity-curation/requests/{requestId}/manifest",
+        tags=["identity-review-v2"],
+        summary="Get one immutable identity curation manifest",
+        response_model=IdentityCurationManifest,
+        responses={
+            **_AUTHENTICATED_ERRORS,
+            404: {"model": ProblemDetails},
+        },
+    )
+    def get_identity_curation_manifest(
+        request: Request,
+        request_id: Annotated[
+            str,
+            Path(alias="requestId", pattern=_ENTITY_KEY),
+        ],
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
+    ) -> IdentityCurationManifest:
+        _validate_query_parameters(request, set())
+        try:
+            manifest = review_reader.get_manifest(
+                owner_subject=principal.subject,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            raise UpstreamFailure(
+                502,
+                "Bad Gateway",
+                "Identity curation manifest projection is invalid",
+            ) from exc
+        if manifest is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Identity curation manifest was not found",
+            )
+        if (
+            manifest.manifest_id != request_id
+            or manifest.operator_subject != principal.subject
+            or manifest.operator_subject != research_owner_subject
+        ):
+            raise UpstreamFailure(
+                502,
+                "Bad Gateway",
+                "Identity curation manifest owner or identity is invalid",
+            )
+        return manifest
 
     return app

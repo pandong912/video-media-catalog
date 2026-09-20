@@ -17,6 +17,8 @@
 - `parquet/community_catalog_silver.v2.md`：v2 run visibility、source/
   assertion/identity Iceberg 表、commit-last、兼容 v2 snapshot、可扩展 v3
   epoch manifest，以及 dry-run-first Iceberg maintenance 安全规则。
+- `identity_curation.v2.md`：人工 identity review/curation manifest、
+  snapshot pinning、五类操作、幂等提交和只读 API 边界。
 - `parquet/community_catalog_gold.v2.md`：research Gold 实体、字段、
   identifier、relation、conflict、来源/许可 serving projection 与
   release commit-last 规则。

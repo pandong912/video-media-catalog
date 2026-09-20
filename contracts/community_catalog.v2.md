@@ -269,6 +269,20 @@ select the earliest stable entity as survivor and emit acyclic redirects for
 all retired keys. Split events never guess a redirect: they record explicit
 source-node-to-target assignments and preserve the original key in history.
 
+Human review is submitted through the immutable
+`IdentityCurationManifest` contract in `identity_curation.v2.md`. It pins one
+exact `CommunitySilverSnapshotSet` ObjectRef, conflict and deterministic
+decision keys, the exact OIDC operator subject, reason, operation time, config
+digest, and image digest. `ACCEPT`, `REJECT`, `MERGE`, `SPLIT`, and `REDIRECT`
+are applied only when every referenced conflict and entity is present in that
+snapshot. Candidate types, stable merge survival, complete non-duplicated split
+assignments, and the combined redirect graph are validated fail closed.
+
+The resulting run uses `runKind=IDENTITY_CURATION`. New ledger rows, human
+evidence, decisions, membership versions, redirects, and merge/split events
+share one commit-last boundary. Replaying the same manifest is idempotent and
+returns the already verified run commit.
+
 ## Unified research release
 
 The serving release has one fixed context, `research`, and one configured OIDC

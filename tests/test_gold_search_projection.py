@@ -105,9 +105,7 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
                 "predicate": "status",
                 "scope_hash": "sha256:" + ("8" * 64),
                 "reason": "MULTIPLE_ELIGIBLE_VALUES",
-                "assertion_ids_json": canonical_json(
-                    ["sha256:" + f"{1004:064x}"]
-                ),
+                "assertion_ids_json": canonical_json(["sha256:" + f"{1004:064x}"]),
                 "candidate_values_json": '["Ended","Running"]',
                 "trace_json": _trace(
                     "sha256:" + f"{1004:064x}",
@@ -125,7 +123,7 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     assert document["attributes"]["runtimeMinutes"] == ["45"]
     assert document["externalIdentifiers"][0]["value"] == "tt0000001"
     assert document["conflictPredicates"] == ["status"]
-    assert document["contextId"] == "personal-research"
+    assert document["contextId"] == "research"
     assert document["sourceBadges"][0]["sourceProductId"] == "tvmaze-public-api"
     assert document["winningAssertions"][0]["citationKeys"]
     assert document["rights"][0]["attributionText"].startswith("TV data")

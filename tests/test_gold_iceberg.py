@@ -11,8 +11,8 @@ from video_media_catalog.attribution import (
 )
 from video_media_catalog.gold import (
     build_gold_release_plan,
-    personal_research_context,
-    personal_research_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
@@ -155,10 +155,10 @@ def _draft() -> GoldResolutionDraft:
 
 def _plan():
     draft = _draft()
-    policy = personal_research_policy()
+    policy = research_policy()
     return build_gold_release_plan(
         owner_subject="owner-123",
-        policy_context=personal_research_context(
+        policy_context=research_context(
             as_of=TIMESTAMP,
         ),
         committed_run_ids=("sha256:" + ("a" * 64),),
@@ -247,7 +247,7 @@ class RecordingGoldTables(CommunityGoldTables):
 def test_gold_release_commit_is_last_and_quality_gated() -> None:
     draft = _draft()
     plan = _plan()
-    policy = personal_research_policy()
+    policy = research_policy()
     quality = build_gold_quality_report(
         plan=plan,
         draft=draft,
@@ -275,9 +275,7 @@ def test_gold_release_commit_is_last_and_quality_gated() -> None:
     tables = RecordingGoldTables(plan.expected_counts)
     mismatched_attribution = build_attribution_manifest(
         release_id=plan.release_plan_id,
-        entries=(
-            attribution.entries[0].model_copy(update={"claim_count": 2}),
-        ),
+        entries=(attribution.entries[0].model_copy(update={"claim_count": 2}),),
         created_at=TIMESTAMP,
     )
     with pytest.raises(ValueError, match="cover every eligible assertion"):
@@ -313,5 +311,5 @@ def test_gold_release_commit_is_last_and_quality_gated() -> None:
     )
     assert commit.table_counts == plan.expected_counts
     assert commit.owner_subject == "owner-123"
-    assert commit.context_id == "personal-research"
+    assert commit.context_id == "research"
     assert tables.events[-1] == "community_gold_release_commit"

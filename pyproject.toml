@@ -1,7 +1,7 @@
 [project]
 name = "video-media-catalog"
 version = "0.1.0"
-description = "Deterministic Wikidata and EIDR film and television catalog pipeline"
+description = "Deterministic multi-source global film and television research catalog"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "Apache-2.0" }

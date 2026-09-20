@@ -36,6 +36,9 @@ def test_gold_cli_builds_local_snapshot_reference() -> None:
     assert reference.uri == "file:///tmp/silver.json"
     assert reference.object_version is None
     assert parsed.owner_subject == "owner-123"
+    assert parsed.silver_namespace == "video_media_catalog"
+    assert parsed.gold_namespace == "video_media_catalog"
+    assert parsed.app_name == "media-catalog-research-gold"
     assert not hasattr(parsed, "context_id")
     assert not hasattr(parsed, "allowed_zones")
 

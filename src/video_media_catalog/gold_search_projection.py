@@ -9,7 +9,7 @@ from typing import Any
 
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.gold import (
-    PERSONAL_RESEARCH_CONTEXT_ID,
+    RESEARCH_CONTEXT_ID,
     GoldAssertionLineage,
     assertion_lineage_from_trace,
 )
@@ -105,9 +105,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         assertion_ids = _assertion_ids(field)
         selected = field.get("selected_assertion_id")
         winner_ids = (
-            (selected,)
-            if field["resolution_status"] == "SELECTED"
-            else assertion_ids
+            (selected,) if field["resolution_status"] == "SELECTED" else assertion_ids
         )
         if not all(isinstance(item, str) for item in winner_ids):
             raise ValueError("selected Gold field has invalid assertion lineage")
@@ -249,9 +247,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         conflict_lineage = _lineage(conflict)
         register_lineage(conflict_lineage)
         assertion_ids = _assertion_ids(conflict)
-        if set(assertion_ids) - {
-            item.assertion_id for item in conflict_lineage
-        }:
+        if set(assertion_ids) - {item.assertion_id for item in conflict_lineage}:
             raise ValueError("Gold conflict has incomplete assertion lineage")
         candidates = json.loads(conflict["candidate_values_json"])
         if not isinstance(candidates, list):
@@ -288,9 +284,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
     reported_conflict_count = int(value.get("conflict_count") or 0)
     if reported_conflict_count != len(conflict_documents):
         raise ValueError("Gold conflict count differs from conflict lineage")
-    conflict_predicates = sorted(
-        {item["predicate"] for item in conflict_documents}
-    )
+    conflict_predicates = sorted({item["predicate"] for item in conflict_documents})
 
     badge_counts: dict[str, set[str]] = defaultdict(set)
     winning_badge_counts: dict[str, set[str]] = defaultdict(set)
@@ -359,7 +353,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         "entityKind": str(value["entity_kind"]),
         "status": str(value["status"]),
         "releasePlanId": str(value["release_plan_id"]),
-        "contextId": PERSONAL_RESEARCH_CONTEXT_ID,
+        "contextId": RESEARCH_CONTEXT_ID,
         "displayName": display,
         "displayLanguage": display_language,
         "titles": titles,

@@ -46,9 +46,9 @@ The bootstrap registry includes:
 - EIDR public-registry records, without a default network search client;
 - TVmaze public API under its free API share-alike policy;
 - IMDb's seven official non-commercial TSV datasets, restricted to the
-  `research_private` personal-research audience and purpose;
+  `research_private` research audience and purpose;
 - TMDB official daily ID exports and v3 API responses, restricted to the same
-  personal-research context and carrying TMDB attribution duties.
+  research context and carrying TMDB attribution duties.
 
 IMDb/TMDB profiles intentionally omit export, redistribution, embedding, and
 ML permissions. Absence remains denial. Image references never inherit a

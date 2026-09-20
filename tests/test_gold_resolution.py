@@ -14,8 +14,8 @@ from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
     GoldResolutionStatus,
     build_gold_release_plan,
-    personal_research_context,
-    personal_research_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_resolution import resolve_gold_draft
 from video_media_catalog.identity_resolution import (
@@ -70,7 +70,7 @@ def _provenance(node: SourceNodeRef, path: str) -> AssertionProvenance:
 
 
 def _context() -> ReleasePolicyContext:
-    return personal_research_context(
+    return research_context(
         as_of=TIMESTAMP,
     )
 
@@ -144,7 +144,7 @@ def test_gold_resolution_selects_sets_and_preserves_conflicts() -> None:
             provenance=_provenance(first_node, "/related/0"),
         ),
     )
-    policy = personal_research_policy().model_copy(
+    policy = research_policy().model_copy(
         update={"max_conflict_ratio": 1.0, "max_unresolved_identity_ratio": 1.0}
     )
     draft = resolve_gold_draft(
@@ -158,7 +158,7 @@ def test_gold_resolution_selects_sets_and_preserves_conflicts() -> None:
     )
     draft.validate_quality(policy)
     with pytest.raises(ValueError, match="conflict ratio"):
-        draft.validate_quality(personal_research_policy())
+        draft.validate_quality(research_policy())
     assert len(draft.conflicts) == 1
     assert sum(field.status == GoldResolutionStatus.SET for field in draft.fields) == 2
     assert draft.identifiers[0].value == "tt0000001"
@@ -209,11 +209,11 @@ def test_gold_resolution_fails_closed_on_policy_digest_mismatch() -> None:
             relationship_assertions=(),
             rights_profiles=(tvmaze_rights_profile(),),
             policy_context=_context(),
-            field_policy=personal_research_policy(),
+            field_policy=research_policy(),
         )
 
 
-def test_personal_research_allows_registered_research_source_but_checks_scope() -> None:
+def test_research_allows_registered_research_source_but_checks_scope() -> None:
     node = _node("1")
     resolved = _resolved(node)
     index = build_identity_index(
@@ -234,7 +234,7 @@ def test_personal_research_allows_registered_research_source_but_checks_scope() 
             UsageAction.DISPLAY,
             UsageAction.SEARCH,
         ),
-        audiences=("personal",),
+        audiences=("research",),
         purposes=("research",),
     )
 
@@ -262,7 +262,7 @@ def test_personal_research_allows_registered_research_source_but_checks_scope() 
         relationship_assertions=(),
         rights_profiles=(profile,),
         policy_context=_context(),
-        field_policy=personal_research_policy(),
+        field_policy=research_policy(),
     )
     assert len(accepted.fields) == 1
 
@@ -274,7 +274,7 @@ def test_personal_research_allows_registered_research_source_but_checks_scope() 
         relationship_assertions=(),
         rights_profiles=(wrong_audience,),
         policy_context=_context(),
-        field_policy=personal_research_policy(),
+        field_policy=research_policy(),
     )
     assert not withheld.fields
     assert withheld.withheld_assertion_count == 1
@@ -333,7 +333,7 @@ def test_gold_resolution_withholds_expired_leased_assertion() -> None:
         relationship_assertions=(),
         rights_profiles=(profile,),
         policy_context=context,
-        field_policy=personal_research_policy(),
+        field_policy=research_policy(),
     )
     assert not draft.fields
     assert draft.withheld_assertion_count == 1

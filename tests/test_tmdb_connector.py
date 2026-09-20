@@ -183,13 +183,13 @@ def test_tmdb_rights_require_personal_noncommercial_context() -> None:
     policy = tmdb_rights_profile()
     assert policy.allows(
         UsageAction.DISPLAY,
-        audience="personal-research",
-        purpose="personal-research",
+        audience="research",
+        purpose="research",
     )
     assert not policy.allows(
         UsageAction.DISPLAY,
         audience="*",
-        purpose="personal-research",
+        purpose="research",
     )
     assert UsageAction.REDISTRIBUTE not in policy.permissions
 

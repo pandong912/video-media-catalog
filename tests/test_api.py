@@ -76,7 +76,7 @@ class FakeOpenSearch:
             "entityKind": "TV_SERIES",
             "status": "ACTIVE",
             "releasePlanId": "sha256:" + ("2" * 64),
-            "contextId": "personal-research",
+            "contextId": "research",
             "displayName": "Gold Example",
             "displayLanguage": "en",
             "titles": [
@@ -678,10 +678,7 @@ def test_research_search_cursor_stays_on_concrete_index() -> None:
     assert first.status_code == 200
     assert first.json()["items"][0]["displayName"] == "Gold Example"
     assert second.status_code == 200
-    assert (
-        search.search_requests[0]["url"]
-        == "/media-catalog-research-read/_search"
-    )
+    assert search.search_requests[0]["url"] == "/media-catalog-research-read/_search"
     assert search.search_requests[1]["url"] == f"/{concrete_index}/_search"
     assert search.search_requests[1]["body"]["search_after"] == [
         2.5,
@@ -708,10 +705,8 @@ def test_research_detail_and_external_identifier_use_research_alias() -> None:
 
     assert detail.status_code == 200
     assert detail.json()["releasePlanId"].startswith("sha256:")
-    assert detail.json()["contextId"] == "personal-research"
-    assert detail.json()["sourceBadges"][0]["sourceProductId"] == (
-        "tvmaze-public-api"
-    )
+    assert detail.json()["contextId"] == "research"
+    assert detail.json()["sourceBadges"][0]["sourceProductId"] == ("tvmaze-public-api")
     assert detail.json()["rights"][0]["attributionText"].startswith("TV data")
     assert search.get_requests[0]["index"] == "media-catalog-research-read"
     assert external.status_code == 200

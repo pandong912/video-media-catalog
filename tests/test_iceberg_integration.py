@@ -27,8 +27,8 @@ from video_media_catalog.community_spark import create_community_dataframes
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.gold import (
     build_gold_release_plan,
-    personal_research_context,
-    personal_research_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
@@ -286,7 +286,7 @@ def test_gold_release_commit_hides_uncommitted_plan_rows(
     )
     config = CatalogConfig(
         catalog_name="gold_it",
-        namespace="community_gold_v2",
+        namespace="video_media_catalog",
         warehouse=(tmp_path / "gold-warehouse").as_uri(),
     )
     spark = config.configure_builder(
@@ -319,10 +319,10 @@ def test_gold_release_commit_hides_uncommitted_plan_rows(
             withheld_assertion_count=0,
             unresolved_identity_count=0,
         )
-        policy = personal_research_policy()
+        policy = research_policy()
         plan = build_gold_release_plan(
             owner_subject="owner-123",
-            policy_context=personal_research_context(
+            policy_context=research_context(
                 as_of="2026-09-19T00:00:00Z",
             ),
             committed_run_ids=("sha256:" + ("a" * 64),),

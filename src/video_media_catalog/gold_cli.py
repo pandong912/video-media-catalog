@@ -15,8 +15,8 @@ from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_snapshot import CommunitySilverSnapshotSet
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.gold import (
-    personal_research_context,
-    personal_research_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
@@ -41,9 +41,7 @@ SILVER_SNAPSHOT_MEDIA_TYPE = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-spark",
-        description=(
-            "Build the owner-only personal-research Gold release."
-        ),
+        description="Build the owner-only research Gold release.",
     )
     parser.add_argument("--silver-snapshot-uri", required=True)
     parser.add_argument("--silver-snapshot-hash", required=True)
@@ -54,8 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--planned-at", required=True)
     parser.add_argument("--committed-at", required=True)
     parser.add_argument("--catalog-name", default="media")
-    parser.add_argument("--silver-namespace", default="community_catalog_v2")
-    parser.add_argument("--gold-namespace", default="community_gold_v2")
+    parser.add_argument("--silver-namespace", default="video_media_catalog")
+    parser.add_argument("--gold-namespace", default="video_media_catalog")
     parser.add_argument(
         "--catalog-type",
         choices=("hadoop", "glue"),
@@ -66,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--s3-endpoint")
     parser.add_argument("--s3-path-style-access", action="store_true")
     parser.add_argument("--master")
-    parser.add_argument("--app-name", default="media-catalog-personal-research-gold")
+    parser.add_argument("--app-name", default="media-catalog-research-gold")
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     parser.add_argument("--image-digest", required=True)
@@ -169,11 +167,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         s3_endpoint=parsed.s3_endpoint,
         s3_path_style_access=parsed.s3_path_style_access,
     )
-    context = personal_research_context(
+    context = research_context(
         as_of=parsed.planned_at,
         territories=_parse_values(parsed.territories),
     )
-    policy = personal_research_policy().model_copy(
+    policy = research_policy().model_copy(
         update={
             "max_conflict_ratio": parsed.max_conflict_ratio,
             "max_unresolved_identity_ratio": (parsed.max_unresolved_identity_ratio),

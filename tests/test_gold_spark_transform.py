@@ -23,8 +23,8 @@ from video_media_catalog.connector import (
     build_connector_record_set_manifest,
 )
 from video_media_catalog.gold import (
-    personal_research_context,
-    personal_research_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_quality import GoldQualityStatus
 from video_media_catalog.gold_spark_transform import build_distributed_gold
@@ -181,11 +181,11 @@ def test_distributed_silver_identity_and_gold_pipeline(
             spark,
             visible_silver=combined,
             registry=build_community_registry(),
-            policy_context=personal_research_context(
+            policy_context=research_context(
                 as_of="2026-09-19T00:00:00Z",
             ),
             owner_subject="owner-123",
-            field_policy=personal_research_policy(),
+            field_policy=research_policy(),
             committed_run_ids=(silver_run.run_id, identity_run.run_id),
             silver_snapshot_ids={"community_field_assertion": 10},
             identity_snapshot_ids={"community_entity_membership": 11},

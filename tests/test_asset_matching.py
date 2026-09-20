@@ -180,7 +180,7 @@ def test_gold_api_entity_adapts_to_bounded_match_record() -> None:
         entity_kind="MOVIE",
         status="ACTIVE",
         release_plan_id=RELEASE_PLAN_ID,
-        context_id="personal-research",
+        context_id="research",
         display_name="Hero",
         display_language="en",
         titles=[

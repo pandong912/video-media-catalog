@@ -55,7 +55,7 @@ INDEX_MANIFEST_MEDIA_TYPE = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-index",
-        description="Build the owner-only personal-research Gold v2 index.",
+        description="Build the owner-only research Gold v2 index.",
     )
     parser.add_argument("--release-commit-uri", required=True)
     parser.add_argument("--release-commit-hash", required=True)
@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--image-digest", required=True)
     parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--catalog-name", default="media")
-    parser.add_argument("--namespace", default="community_gold_v2")
+    parser.add_argument("--namespace", default="video_media_catalog")
     parser.add_argument(
         "--catalog-type",
         choices=("hadoop", "glue"),
@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--request-timeout-seconds", type=float, default=30)
     parser.add_argument("--allow-insecure-opensearch", action="store_true")
     parser.add_argument("--master")
-    parser.add_argument("--app-name", default="media-catalog-personal-research-index")
+    parser.add_argument("--app-name", default="media-catalog-research-index")
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     return parser
@@ -166,8 +166,8 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     commit = _read_commit(store, reference)
     if commit.owner_subject != owner_subject:
         raise ValueError("release commit belongs to another OIDC subject")
-    if commit.context_id != "personal-research":
-        raise ValueError("release commit is not a personal-research release")
+    if commit.context_id != "research":
+        raise ValueError("release commit is not a research release")
     embedded = (commit.quality_report, commit.attribution_manifest)
     if local and any(urlsplit(item.uri).scheme == "s3" for item in embedded):
         store = BoundedObjectStore(

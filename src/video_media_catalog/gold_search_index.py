@@ -11,7 +11,7 @@ from typing import Any, Literal, Self
 from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.canonical import canonical_json_bytes
-from video_media_catalog.gold import PERSONAL_RESEARCH_CONTEXT_ID
+from video_media_catalog.gold import RESEARCH_CONTEXT_ID
 from video_media_catalog.gold_ingest import (
     GOLD_RELEASE_COMMIT_MEDIA_TYPE,
     GoldReleaseCommit,
@@ -223,7 +223,7 @@ def gold_index_config_digest(
     payload = {
         "projectionVersion": PROJECTION_VERSION,
         "mappingDigest": MAPPING_DIGEST,
-        "contextId": PERSONAL_RESEARCH_CONTEXT_ID,
+        "contextId": RESEARCH_CONTEXT_ID,
         "ownerSubject": require_oidc_subject(owner_subject),
         "readAlias": _safe_name(read_alias, label="read alias"),
         "indexPrefix": _safe_name(index_prefix, label="index prefix"),
@@ -335,7 +335,7 @@ class GoldIndexBuildManifest(V2ContractModel):
     build_id: str
     release_plan_id: str
     owner_subject: str
-    context_id: Literal["personal-research"] = PERSONAL_RESEARCH_CONTEXT_ID
+    context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     release_commit: ObjectRef
     table_snapshot_ids: dict[str, int | None]
     mapping_digest: str

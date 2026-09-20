@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_object_args(parser, "record_set_manifest")
     parser.add_argument("--committed-at", required=True)
     parser.add_argument("--catalog-name", default="media")
-    parser.add_argument("--namespace", default="community_catalog_v2")
+    parser.add_argument("--namespace", default="video_media_catalog")
     parser.add_argument(
         "--catalog-type",
         choices=("hadoop", "glue"),

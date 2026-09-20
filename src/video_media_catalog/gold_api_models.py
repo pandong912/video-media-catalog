@@ -109,7 +109,7 @@ class GoldCatalogEntity(APIModel):
     entity_kind: str
     status: str
     release_plan_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    context_id: Literal["personal-research"]
+    context_id: Literal["research"]
     display_name: str
     display_language: str
     titles: list[GoldTitle]
@@ -133,7 +133,7 @@ class GoldCatalogEntitySummary(APIModel):
     display_name: str
     display_language: str
     release_plan_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    context_id: Literal["personal-research"]
+    context_id: Literal["research"]
     conflict_count: int = Field(ge=0)
     external_identifiers: list[GoldExternalIdentifier] = Field(max_length=5)
     source_badges: list[GoldSourceBadge] = Field(max_length=5)

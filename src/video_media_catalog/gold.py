@@ -29,10 +29,10 @@ from video_media_catalog.v2_contracts import (
 )
 
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
-PERSONAL_RESEARCH_CONTEXT_ID = "personal-research"
-PERSONAL_RESEARCH_AUDIENCE = "personal"
-PERSONAL_RESEARCH_PURPOSE = "research"
-PERSONAL_RESEARCH_ALLOWED_ZONES = tuple(
+RESEARCH_CONTEXT_ID = "research"
+RESEARCH_AUDIENCE = "research"
+RESEARCH_PURPOSE = "research"
+RESEARCH_ALLOWED_ZONES = tuple(
     sorted(
         (
             PolicyZone.OPEN_CC0,
@@ -142,24 +142,24 @@ class GoldResolutionPolicy(V2ContractModel):
         )
 
 
-def personal_research_context(
+def research_context(
     *,
     as_of: str,
     territories: tuple[str, ...] = ("*",),
 ) -> ReleasePolicyContext:
     return ReleasePolicyContext(
-        context_id=PERSONAL_RESEARCH_CONTEXT_ID,
-        audience=PERSONAL_RESEARCH_AUDIENCE,
-        purpose=PERSONAL_RESEARCH_PURPOSE,
+        context_id=RESEARCH_CONTEXT_ID,
+        audience=RESEARCH_AUDIENCE,
+        purpose=RESEARCH_PURPOSE,
         territories=territories,
         as_of=as_of,
-        allowed_zones=PERSONAL_RESEARCH_ALLOWED_ZONES,
+        allowed_zones=RESEARCH_ALLOWED_ZONES,
     )
 
 
-def personal_research_policy() -> GoldResolutionPolicy:
+def research_policy() -> GoldResolutionPolicy:
     return GoldResolutionPolicy(
-        policy_id="personal-research-display-v1",
+        policy_id="research-display-v1",
         policy_version="1.0.0",
         requested_actions=(
             UsageAction.STORE,
@@ -356,14 +356,12 @@ class GoldReleasePlan(V2ContractModel):
     def validate_plan(self, info: ValidationInfo) -> Self:
         context = self.policy_context
         if (
-            context.context_id != PERSONAL_RESEARCH_CONTEXT_ID
-            or context.audience != PERSONAL_RESEARCH_AUDIENCE
-            or context.purpose != PERSONAL_RESEARCH_PURPOSE
-            or context.allowed_zones != PERSONAL_RESEARCH_ALLOWED_ZONES
+            context.context_id != RESEARCH_CONTEXT_ID
+            or context.audience != RESEARCH_AUDIENCE
+            or context.purpose != RESEARCH_PURPOSE
+            or context.allowed_zones != RESEARCH_ALLOWED_ZONES
         ):
-            raise ValueError(
-                "Gold releases must use the single personal-research context"
-            )
+            raise ValueError("Gold releases must use the single research context")
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
                 "community-gold-release-plan-v2",

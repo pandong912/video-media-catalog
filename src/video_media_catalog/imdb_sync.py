@@ -129,7 +129,7 @@ def capture_imdb_snapshot(
         coverage_scope={
             "origin": IMDB_DATASET_ORIGIN,
             "datasets": list(IMDB_DATASET_FILES),
-            "usage": "individual-personal-research",
+            "usage": "research",
         },
         raw_objects=tuple(raw_objects),
         acquired_at=acquired,

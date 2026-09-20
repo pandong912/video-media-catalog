@@ -53,7 +53,7 @@ class GoldReleaseCommit(V2ContractModel):
     commit_key: str
     release_plan_id: str
     owner_subject: str
-    context_id: Literal["personal-research"] = "personal-research"
+    context_id: Literal["research"] = "research"
     committed_at: str
     table_counts: dict[str, int]
     table_snapshot_ids: dict[str, int | None]

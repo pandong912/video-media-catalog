@@ -129,13 +129,13 @@ def test_imdb_rights_are_owner_only_and_non_exportable() -> None:
     policy = imdb_rights_profile()
     assert policy.allows(
         UsageAction.SEARCH,
-        audience="personal-research",
-        purpose="personal-research",
+        audience="research",
+        purpose="research",
     )
     assert not policy.allows(
         UsageAction.SEARCH,
         audience="internal",
-        purpose="personal-research",
+        purpose="research",
     )
     assert UsageAction.EXPORT not in policy.permissions
     assert UsageAction.REDISTRIBUTE not in policy.permissions

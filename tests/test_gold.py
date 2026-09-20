@@ -6,8 +6,8 @@ from video_media_catalog.gold import (
     GoldResolutionStatus,
     build_gold_field,
     build_gold_release_plan,
-    personal_research_context,
-    personal_research_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 
@@ -19,10 +19,10 @@ def _counts(**overrides) -> dict[str, int]:
 
 
 def test_gold_policy_and_plan_are_deterministic() -> None:
-    policy = personal_research_policy()
+    policy = research_policy()
     plan = build_gold_release_plan(
         owner_subject="owner-123",
-        policy_context=personal_research_context(
+        policy_context=research_context(
             as_of="2026-09-19T00:00:00Z",
         ),
         committed_run_ids=("sha256:" + ("a" * 64),),
@@ -48,13 +48,13 @@ def test_gold_policy_and_plan_are_deterministic() -> None:
     assert "research_private" in {
         zone.value for zone in plan.policy_context.allowed_zones
     }
-    assert plan.policy_context.context_id == "personal-research"
+    assert plan.policy_context.context_id == "research"
     assert plan.owner_subject == "owner-123"
     invalid = plan.model_dump(mode="python")
     invalid["policy_context"] = plan.policy_context.model_copy(
         update={"context_id": "public-sharealike"}
     )
-    with pytest.raises(ValueError, match="single personal-research"):
+    with pytest.raises(ValueError, match="single research"):
         type(plan).model_validate(invalid)
 
 

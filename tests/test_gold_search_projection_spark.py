@@ -106,5 +106,5 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
     assert len(documents) == 1
     assert documents[0].entityKey == entity_key
     assert documents[0].displayName == "Example"
-    assert documents[0].contextId == "personal-research"
+    assert documents[0].contextId == "research"
     assert documents[0].sourceBadges[0].sourceProductId == "tvmaze-public-api"

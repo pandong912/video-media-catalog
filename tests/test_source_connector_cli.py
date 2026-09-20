@@ -71,7 +71,7 @@ def test_source_registry_cli_emits_digest_and_private_products() -> None:
         item["sourceProductId"] for item in result["registry"]["sourceProducts"]
     }
     assert "imdb-non-commercial-datasets" in products
-    assert "tmdb-personal-research" in products
+    assert "tmdb-research" in products
 
 
 def test_official_dataset_downloader_rejects_website_scraping_urls() -> None:

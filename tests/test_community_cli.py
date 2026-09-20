@@ -38,6 +38,7 @@ def test_community_cli_builds_bounded_control_object_ref() -> None:
     assert reference.uri == "file:///tmp/batch.json"
     assert reference.checksum.value == "a" * 64
     assert reference.object_version is None
+    assert parsed.namespace == "video_media_catalog"
 
 
 def test_community_cli_requires_s3_immutability_fields() -> None:

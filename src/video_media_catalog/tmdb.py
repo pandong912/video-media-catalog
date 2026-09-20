@@ -1,4 +1,4 @@
-"""TMDB personal-research registry, rights policy, and source mapper."""
+"""TMDB research registry, rights policy, and source mapper."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from video_media_catalog.source_registry import (
 )
 
 TMDB_SOURCE_SYSTEM_ID = "tmdb"
-TMDB_SOURCE_PRODUCT_ID = "tmdb-personal-research"
+TMDB_SOURCE_PRODUCT_ID = "tmdb-research"
 TMDB_DAILY_SOURCE_PRODUCT_ID = TMDB_SOURCE_PRODUCT_ID
 TMDB_API_SOURCE_PRODUCT_ID = TMDB_SOURCE_PRODUCT_ID
 TMDB_MOVIE_NAMESPACE_ID = "tmdb-movie"
@@ -26,7 +26,7 @@ TMDB_TV_NAMESPACE_ID = "tmdb-tv"
 TMDB_PERSON_NAMESPACE_ID = "tmdb-person"
 TMDB_DAILY_CONNECTOR_ID = "tmdb-daily-id-export"
 TMDB_CHANGES_CONNECTOR_ID = "tmdb-changes-detail"
-TMDB_POLICY_ID = "tmdb-personal-noncommercial"
+TMDB_POLICY_ID = "tmdb-research-noncommercial"
 TMDB_FILES_ORIGIN = "https://files.tmdb.org"
 TMDB_API_ORIGIN = "https://api.themoviedb.org"
 
@@ -62,8 +62,8 @@ def tmdb_rights_profile() -> RightsProfile:
             UsageAction.SEARCH,
             UsageAction.DERIVE,
         ),
-        audiences=("personal-research",),
-        purposes=("personal-research",),
+        audiences=("research",),
+        purposes=("research",),
         territories=("*",),
         attribution_text=(
             "This product uses the TMDB API but is not endorsed or certified by TMDB."
@@ -342,7 +342,7 @@ def map_tmdb_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
     builder = AssertionBuilder(
         envelope=envelope,
         source_node=node,
-        mapper_id="tmdb-personal-research-mapper",
+        mapper_id="tmdb-research-mapper",
         mapper_version="1.0.0",
     )
     if envelope.operation != RecordOperation.UPSERT:

@@ -1,6 +1,7 @@
 # video-media-catalog
 
-基于 Wikidata JSON dump 与离线 EIDR XML 的全球影视目录。生产流水线分为：
+基于 Wikidata、EIDR、TVmaze、IMDb 与 TMDB 的多来源全球影视研究目录。
+现有 v1 生产流水线分为：
 
 1. `video-media-catalog`：严格控制面 runtime 模式，验证 JobSpec 的 immutable
    Parquet source manifest，从 S3/file 有界物化源对象，发布 landing。
@@ -18,7 +19,7 @@ Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重
 ## Community catalog v2 foundation
 
 方案 2 使用供应商中立的 v2 基础契约，把不同许可来源统一到 owner-only
-personal-research 目录，同时保留逐来源 policy 门禁：
+research 目录，同时保留逐来源 policy 门禁：
 
 - `source_registry.py`：区分 source system、product、ID namespace、native
   schema 与 rights profile；
@@ -30,7 +31,11 @@ personal-research 目录，同时保留逐来源 policy 门禁：
   evidence、可逆 decision、membership、redirect 和全部 v1 key；
 - `attribution.py`：为 CC BY/BY-SA 发布生成确定性、可审计的来源与许可清单；
 - `community_release.py`：定义 release 边界；serving Gold 固定为
-  personal-research，并绑定 owner、exact input/policy/quality identity。
+  research，并绑定 owner、exact input/policy/quality identity。
+
+V2 不创建独立基础设施：Silver、Gold、EMR、S3、Glue、IAM 和 OpenSearch
+均复用当前 10 万基线资源。默认 Glue namespace 为 `video_media_catalog`；
+表名、release commit 和固定的 research 索引族提供逻辑边界。
 
 现有 v1 pipeline、六表、算法摘要和 API 不变。完整设计与边界见
 [`docs/architecture/community-catalog-v2.md`](docs/architecture/community-catalog-v2.md)
@@ -115,13 +120,13 @@ coverage 的完整快照差异推断。
 
 ```bash
 video-media-catalog-imdb-sync \
-  --destination-prefix s3://bucket/personal-research-captures \
+  --destination-prefix s3://bucket/research-captures \
   --user-agent 'video-media-catalog/0.1 contact@example.com' \
   --image-digest sha256:<hex>
 ```
 
-IMDb 数据固定进入 `research_private`，只允许 `audience=personal-research`、
-`purpose=personal-research` 的 store/transform/display/search/derive；不授予
+IMDb 数据固定进入 `research_private`，只允许 `audience=research`、
+`purpose=research` 的 store/transform/display/search/derive；不授予
 export、redistribute 或 ML 权限，并保留 IMDb 要求的署名。该入口不需要凭据，
 但需要能访问官方 dataset host。
 
@@ -134,7 +139,7 @@ inventory。TMDB 明确说明它不是完整 metadata export，因此 connector 
 ```bash
 video-media-catalog-tmdb-sync daily-export \
   --export-date 2026-09-20 \
-  --destination-prefix s3://bucket/personal-research-captures \
+  --destination-prefix s3://bucket/research-captures \
   --user-agent 'video-media-catalog/0.1 contact@example.com' \
   --image-digest sha256:<hex>
 ```
@@ -148,7 +153,7 @@ config digest：
 export MEDIA_CATALOG_TMDB_API_READ_TOKEN='<API Read Access Token>'
 video-media-catalog-tmdb-sync changes \
   --window-start 2026-09-19 --window-end 2026-09-20 \
-  --destination-prefix s3://bucket/personal-research-captures \
+  --destination-prefix s3://bucket/research-captures \
   --user-agent 'video-media-catalog/0.1 contact@example.com' \
   --image-digest sha256:<hex>
 ```
@@ -156,7 +161,7 @@ video-media-catalog-tmdb-sync changes \
 changes 默认最多 20,000 个 changed IDs，超限会在发布 batch/record-set 前失败；
 调度器应缩短窗口重试，不能静默截断。
 
-TMDB facts 固定进入 `research_private` personal-research policy。image path 只作为
+TMDB facts 固定进入 `research_private` research policy。image path 只作为
 `assetReviewRequired=true` 的来源 assertion，不能据此发布图片。任何 UI 使用还
 必须展示 approved TMDB logo 和
 “This product uses the TMDB API but is not endorsed or certified by TMDB.”
@@ -180,7 +185,7 @@ video-media-catalog-community-spark \
   --committed-at 2026-09-19T00:00:00Z \
   --catalog-type glue \
   --catalog-name media \
-  --namespace community_catalog_v2 \
+  --namespace video_media_catalog \
   --warehouse s3://bucket/community-warehouse
 ```
 
@@ -189,8 +194,8 @@ Silver 表全部带确定性 `run_id`。source/assertion/identity 行只有在
 Gold。`v1_migration.py` 从 snapshot-pinned 六表导入全部既有 key，原样保存
 `entity_key`，不会按新规则重新计算。
 
-Gold v2 只发布一个 `personal-research` context，不再生成 public/personal
-双 release。release plan、release commit 和 index build manifest 都绑定同一个
+Gold v2 只发布一个 `research` context，不再生成平行 release。release plan、
+release commit 和 index build manifest 都绑定同一个
 精确 OIDC `sub`：
 
 - `identity_resolution.py`：精确匹配只接受唯一候选，未匹配 source node 分配一次
@@ -198,7 +203,7 @@ Gold v2 只发布一个 `personal-research` context，不再生成 public/person
 - `identity_spark.py`：分布式读取 active type/identifier assertions，优先与 v1
   external identifiers 做类型兼容的精确连接，未匹配项再分配内部实体；多候选
   直接阻断而不是猜测；
-- `gold.py` / `gold_resolution.py`：固定 audience=`personal`、
+- `gold.py` / `gold_resolution.py`：固定 audience=`research`、
   purpose=`research`，默认允许 open、public registry 与已登记
   `research_private` zone；每条 assertion 仍须同时通过
   STORE/TRANSFORM/DISPLAY/SEARCH、territory、有效期和 policy digest 门禁；
@@ -747,7 +752,7 @@ HTTP 契约：
 - `GET /api/v1/catalog/entities/{entityKey}`：按稳定实体键读取。
 - `GET /api/v1/catalog/external-identifiers/{scheme}/{value}`：精确解析并返回
   单个实体；零条为 404，多条为 409。
-- `GET /api/v2/research/search`：owner-only personal-research 搜索，支持
+- `GET /api/v2/research/search`：owner-only research 搜索，支持
   `entityLevel`、`entityKind`、`language`、`hasConflicts` 和 concrete-index
   cursor。
 - `GET /api/v2/research/entities/{entityKey}`：返回来源 badges、获胜

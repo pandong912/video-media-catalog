@@ -104,7 +104,7 @@ def test_gold_index_manifest_binds_release_commit() -> None:
         build_id="b" * 64,
         release_plan_id="sha256:" + ("c" * 64),
         owner_subject="owner-123",
-        context_id="personal-research",
+        context_id="research",
         release_commit=reference,
         table_snapshot_ids={
             table: (10 if table == "community_gold_entity" else None)

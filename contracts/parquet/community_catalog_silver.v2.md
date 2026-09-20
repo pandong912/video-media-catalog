@@ -12,7 +12,7 @@ the repository's canonical UTF-8 JSON encoding. Digests and logical keys use
 
 The shared Spark mapper registry accepts committed record sets for
 `wikidata-json-dump`, `eidr-public-registry`, `tvmaze-public-api`,
-`imdb-non-commercial-datasets`, and `tmdb-personal-research`. Mapping is
+`imdb-non-commercial-datasets`, and `tmdb-research`. Mapping is
 source-owned and deterministic. Spark executors read only immutable record
 objects and never call source APIs or receive source credentials.
 

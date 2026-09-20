@@ -27,7 +27,7 @@ IMDB_RECORD_NAMESPACE_ID = "imdb-record"
 IMDB_TITLE_NAMESPACE_ID = "imdb-title"
 IMDB_NAME_NAMESPACE_ID = "imdb-name"
 IMDB_CONNECTOR_ID = "imdb-official-tsv"
-IMDB_POLICY_ID = "imdb-personal-noncommercial"
+IMDB_POLICY_ID = "imdb-research-noncommercial"
 IMDB_DATASET_ORIGIN = "https://datasets.imdbws.com"
 
 IMDB_DATASET_FILES = (
@@ -116,8 +116,8 @@ def imdb_rights_profile() -> RightsProfile:
             UsageAction.SEARCH,
             UsageAction.DERIVE,
         ),
-        audiences=("personal-research",),
-        purposes=("personal-research",),
+        audiences=("research",),
+        purposes=("research",),
         territories=("*",),
         attribution_text=(
             "Information courtesy of IMDb (https://www.imdb.com). Used with permission."

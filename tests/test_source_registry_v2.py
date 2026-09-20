@@ -19,7 +19,7 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "identity-resolution-v2",
         "imdb-non-commercial-datasets",
         "media-catalog-v1",
-        "tmdb-personal-research",
+        "tmdb-research",
         "tvmaze-public-api",
     }
     wikidata = next(
@@ -36,8 +36,8 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "tmdb-person",
     } <= namespaces
     policies = {item.policy_id: item for item in first.rights_profiles}
-    assert policies["imdb-personal-noncommercial"].zone.value == "research_private"
-    assert policies["tmdb-personal-noncommercial"].zone.value == "research_private"
+    assert policies["imdb-research-noncommercial"].zone.value == "research_private"
+    assert policies["tmdb-research-noncommercial"].zone.value == "research_private"
 
 
 def test_registry_rejects_dangling_product_references() -> None:

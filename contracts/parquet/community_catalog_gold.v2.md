@@ -1,13 +1,13 @@
-# Personal research catalog Gold v2
+# Research catalog Gold v2
 
 ## Scope
 
 Gold is the release-isolated resolution of committed Silver assertions for the
-single `personal-research` context. This contract does not publish parallel
+single `research` context. This contract does not publish parallel
 public, attributed, commercial, or ML Gold variants.
 
 Gold never changes v1 keys. Research-private data is eligible only when its
-registered policy explicitly permits the required personal research actions.
+registered policy explicitly permits the required research actions.
 
 ## Release plan
 
@@ -24,7 +24,7 @@ Before Gold rows are written, the builder publishes an immutable release plan:
 Every Gold row contains `release_plan_id`. A final release commit is visible
 only after all expected rows are present and quality gates pass. The release
 plan and final release commit both bind `owner_subject` and the literal
-`context_id = personal-research`.
+`context_id = research`.
 
 ## Tables
 
@@ -111,7 +111,7 @@ Uniqueness key: `release_plan_id`.
 
 Each assertion must resolve to a registered rights profile and registered
 source product. Before field resolution, `STORE`, `TRANSFORM`, `DISPLAY`, and
-`SEARCH` permissions are evaluated for audience `personal`, purpose `research`,
+`SEARCH` permissions are evaluated for audience `research`, purpose `research`,
 territory, as-of time, expiry, cache age, policy digest, and allowed zone.
 
 The default context permits open zones, `public_registry`, and
@@ -146,7 +146,7 @@ Blocking checks include:
 Rows are staged first. The release commit is inserted last. Search indexing
 reads exact Gold snapshots plus the exact commit-table snapshot.
 
-## Personal research serving projection
+## Research serving projection
 
 The only v2 serving index is isolated from v1:
 
@@ -181,4 +181,4 @@ owner `sub`. Building or switching the research alias never modifies
 No UI source is present in this repository. A future read-only catalog UI must
 consume the stable fields `sourceBadges`, `winningAssertions`, `rights`,
 `conflicts`, and `overflow`; it must not infer licensing from provider names or
-offer a public/personal mode switch.
+offer parallel serving modes.

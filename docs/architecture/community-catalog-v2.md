@@ -3,19 +3,19 @@
 ## Status
 
 This document defines the v2 supplier-neutral source strategy and its unified
-owner-only personal research serving context. It does not change the published
+owner-only research serving context. It does not change the published
 Wikidata/EIDR v1 contracts.
 V1 remains the compatibility source for existing entity keys, snapshots,
 OpenSearch indexes, and API responses.
 
 The v2 goal is one supplier-neutral processing platform and one
-`personal-research` Gold/serving output. Sources share code, Silver, identity,
+`research` Gold/serving output. Sources share code, Silver, identity,
 Gold, and the research index while retaining source-level policy, attribution,
 expiry, and removal duties.
 
 The current implementation includes the source/rights/connector/identity
-contracts, TVmaze capture and assertion mapping, and the run-fenced Silver
-Iceberg tables defined in
+contracts, Wikidata/EIDR adapters, TVmaze full/delta capture, IMDb TSV and TMDB
+capture/mapping, and the run-fenced Silver Iceberg tables defined in
 [`contracts/parquet/community_catalog_silver.v2.md`](../../contracts/parquet/community_catalog_silver.v2.md).
 It also defines the deterministic Gold identity/rights/field-resolution
 semantics, quality report, attribution binding, and release-fenced Gold tables
@@ -59,7 +59,7 @@ source product
   -> source-native record envelopes
   -> typed assertions and citations
   -> identity evidence and decisions
-  -> owner-only personal-research Gold release
+  -> owner-only research Gold release
   -> bounded OpenSearch projection / analytical Iceberg views
 ```
 
@@ -155,12 +155,12 @@ key. Splits preserve history and require an explicit decision.
 Schema.org is an output mapping. EBUCorePlus and MovieLabs MDDF are semantic and
 distribution crosswalks. None of them is copied wholesale into physical tables.
 
-## Unified personal research Gold
+## Unified research Gold
 
-V2 publishes one owner-only `personal-research` Gold. It does not build public
-and personal variants or a runtime mode switch. Open, public-registry, and
+V2 publishes one owner-only `research` Gold. It does not build parallel
+variants or a runtime mode switch. Open, public-registry, and
 registered research-private assertions can coexist only after their individual
-rights profiles permit personal research storage, transformation, display, and
+rights profiles permit research storage, transformation, display, and
 search.
 
 Resolution first evaluates rights eligibility, then entity level, locale,
@@ -168,13 +168,14 @@ territory and valid time, then field-specific authority, evidence, precision,
 freshness, and deterministic tie-breaks. There is no global provider priority.
 Each selected value retains its winning assertion and resolution trace.
 
-## Physical isolation and removal
+## Infrastructure reuse and removal
 
-The research catalog remains isolated from other systems with dedicated
-S3/warehouse boundaries, KMS, service accounts, lifecycle rules, and one
-`media-catalog-research-*` OpenSearch family. Sources are not split into
-parallel public/personal warehouses; policy metadata remains mandatory for
-expiry, attribution, and removal.
+The research catalog reuses the existing 100k baseline S3, Glue, EMR, IAM, and
+OpenSearch infrastructure. It creates no separate warehouse, role, cluster, or
+domain. Existing `video_media_catalog` Glue namespace tables, release commits,
+owner checks, and the fixed `media-catalog-research-*` index family provide
+logical boundaries. Policy metadata remains mandatory for expiry, attribution,
+and removal.
 
 Source removal:
 
@@ -208,13 +209,13 @@ quality reports, and separate affected/total row counts.
 3. Add TVmaze as the first community adapter because it offers a documented
    full index, update indexes, stable IDs, and CC BY-SA API terms.
 4. Add MADB and Bangumi only after their field-level policy maps are reviewed.
-5. Build the single owner-only personal-research Gold and research index.
+5. Build the single owner-only research Gold and research index.
 6. Run a representative scale test before replacing the current small
    OpenSearch development domain.
 
 ## Non-goals for this slice
 
-- no IMDb, TMDB, or commercial-provider ingestion;
+- no IMDb/TMDB webpage scraping or redistribution beyond source terms;
 - no public serving or redistribution of the owner-only research catalog;
 - no automatic fuzzy entity merge;
 - no assumption that a metadata license also clears images or video;

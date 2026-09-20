@@ -11,8 +11,8 @@ from video_media_catalog.attribution import (
 from video_media_catalog.gold import (
     GoldResolutionStatus,
     build_gold_release_plan,
-    personal_research_context,
-    personal_research_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
@@ -35,7 +35,7 @@ TIMESTAMP = "2026-09-19T00:00:00Z"
 
 
 def _context():
-    return personal_research_context(
+    return research_context(
         as_of=TIMESTAMP,
     )
 
@@ -93,7 +93,7 @@ def _draft(*, conflict: bool = False) -> GoldResolutionDraft:
 
 
 def _plan(draft: GoldResolutionDraft):
-    policy = personal_research_policy()
+    policy = research_policy()
     return build_gold_release_plan(
         owner_subject="owner-123",
         policy_context=_context(),
@@ -123,7 +123,7 @@ def _ref(payload: bytes, media_type: str, name: str) -> ObjectRef:
 def test_gold_quality_and_release_commit_are_bound() -> None:
     draft = _draft()
     plan = _plan(draft)
-    policy = personal_research_policy()
+    policy = research_policy()
     quality = build_gold_quality_report(
         plan=plan,
         draft=draft,
@@ -177,7 +177,7 @@ def test_gold_quality_reports_policy_failure() -> None:
     report = build_gold_quality_report(
         plan=plan,
         draft=draft,
-        policy=personal_research_policy(),
+        policy=research_policy(),
         created_at=TIMESTAMP,
     )
     assert report.status == GoldQualityStatus.FAILED
@@ -192,7 +192,7 @@ def test_gold_commit_requires_snapshot_for_nonempty_table() -> None:
         build_gold_release_commit(
             release_plan_id="sha256:" + ("a" * 64),
             owner_subject="owner-123",
-            context_id="personal-research",
+            context_id="research",
             committed_at=TIMESTAMP,
             table_counts=counts,
             table_snapshot_ids={table: None for table in GOLD_DATA_COLUMNS},

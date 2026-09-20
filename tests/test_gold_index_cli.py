@@ -38,6 +38,8 @@ def test_gold_index_cli_builds_local_release_reference() -> None:
     assert reference.object_version is None
     assert parsed.read_alias == "media-catalog-research-read"
     assert parsed.index_prefix == "media-catalog-research"
+    assert parsed.namespace == "video_media_catalog"
+    assert parsed.app_name == "media-catalog-research-index"
 
 
 def test_gold_index_cli_requires_immutable_s3_release() -> None:

@@ -578,7 +578,7 @@ def create_app(
             request,
             status=403,
             title="Forbidden",
-            detail="The personal research catalog is owner-only",
+            detail="The research catalog is owner-only",
             code="OWNER_ONLY",
             retryable=False,
         )
@@ -891,8 +891,8 @@ def create_app(
 
     @app.get(
         "/api/v2/research/search",
-        tags=["personal-research-v2"],
-        summary="Search the owner-only personal research catalog",
+        tags=["research-v2"],
+        summary="Search the owner-only research catalog",
         dependencies=[Depends(require_research_principal)],
         response_model=GoldSearchResponse,
         responses=_AUTHENTICATED_ERRORS,
@@ -996,8 +996,8 @@ def create_app(
 
     @app.get(
         "/api/v2/research/entities/{entityKey}",
-        tags=["personal-research-v2"],
-        summary="Get one owner-only personal research entity",
+        tags=["research-v2"],
+        summary="Get one owner-only research entity",
         dependencies=[Depends(require_research_principal)],
         response_model=GoldCatalogEntity,
         responses={
@@ -1041,8 +1041,8 @@ def create_app(
 
     @app.get(
         "/api/v2/research/external-identifiers/{namespace}/{value:path}",
-        tags=["personal-research-v2"],
-        summary="Resolve one personal research external identifier",
+        tags=["research-v2"],
+        summary="Resolve one research external identifier",
         dependencies=[Depends(require_research_principal)],
         response_model=GoldCatalogEntity,
         responses={

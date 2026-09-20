@@ -150,7 +150,7 @@ def imdb_registry_entries() -> tuple[
         name="IMDb Non-Commercial Datasets",
         kind=SourceProductKind.COMMERCIAL_FEED,
         policy_id=IMDB_POLICY_ID,
-        connector_id=IMDB_CONNECTOR_ID,
+        connector_ids=(IMDB_CONNECTOR_ID,),
         documentation_url="https://developer.imdb.com/non-commercial-datasets/",
     )
     namespaces = (

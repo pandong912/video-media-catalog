@@ -188,7 +188,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         "maxRedirectHops": parsed.max_redirect_hops,
     }
     config_digest = sha256_digest(canonical_json(nonsecret_config))
-    resolver_digest = sha256_digest("community-gold-spark-v1")
+    resolver_digest = sha256_digest("community-gold-spark-v2")
 
     from pyspark.sql import SparkSession
 
@@ -236,6 +236,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             table: frame.join(selected_runs, "run_id", "inner")
             for table, frame in visible.items()
         }
+        visible["community_ingest_run"] = spark.table(
+            silver_tables.table_name("community_ingest_run")
+        ).join(selected_runs, "run_id", "inner")
         build = build_distributed_gold(
             spark,
             visible_silver=visible,

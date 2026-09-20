@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 
 from pydantic import field_validator, model_validator
 
@@ -73,7 +73,7 @@ class SourceProduct(V2ContractModel):
     name: str
     kind: SourceProductKind
     policy_id: str
-    connector_id: str
+    connector_ids: tuple[str, ...]
     documentation_url: str
     status: RegistryStatus = RegistryStatus.ACTIVE
 
@@ -81,11 +81,40 @@ class SourceProduct(V2ContractModel):
         "source_product_id",
         "source_system_id",
         "policy_id",
-        "connector_id",
     )
     @classmethod
     def validate_ids(cls, value: str) -> str:
         return require_slug(value, label="source product reference")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_connector_id(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        legacy_keys = [key for key in ("connector_id", "connectorId") if key in value]
+        current_keys = [
+            key for key in ("connector_ids", "connectorIds") if key in value
+        ]
+        if legacy_keys and current_keys:
+            raise ValueError("source product cannot mix connector_id and connector_ids")
+        if not legacy_keys:
+            return value
+        migrated = dict(value)
+        legacy = migrated.pop(legacy_keys[0])
+        migrated["connector_ids"] = (legacy,)
+        return migrated
+
+    @field_validator("connector_ids")
+    @classmethod
+    def normalize_connector_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(
+            sorted(
+                {require_slug(item, label="source product connector") for item in value}
+            )
+        )
+        if not normalized:
+            raise ValueError("source product requires at least one connector")
+        return normalized
 
     @field_validator("name")
     @classmethod

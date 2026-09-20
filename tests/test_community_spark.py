@@ -12,6 +12,7 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
+from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import (
     ChangeSemantics,
     Completeness,
@@ -153,6 +154,7 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
     )
     run, frames = build_source_silver_dataframes(
         spark,
+        registry=build_community_registry(),
         batch=batch,
         record_set=record_set,
     )

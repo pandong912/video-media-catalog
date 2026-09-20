@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.community_iceberg import CommunityCatalogTables
+from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import (
     ConnectorBatchManifest,
     ConnectorRecordSetManifest,
@@ -202,6 +203,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     try:
         ingest_run, frames = build_source_silver_dataframes(
             spark,
+            registry=build_community_registry(),
             batch=batch,
             record_set=record_set,
         )

@@ -4,7 +4,19 @@ import pytest
 
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.identity_spark import exact_id_namespace_rows
-from video_media_catalog.source_registry import SourceRegistrySnapshot
+from video_media_catalog.source_registry import (
+    SourceProduct,
+    SourceProductKind,
+    SourceRegistrySnapshot,
+)
+from video_media_catalog.tmdb import (
+    TMDB_CHANGES_CONNECTOR_ID,
+    TMDB_DAILY_CONNECTOR_ID,
+)
+from video_media_catalog.tvmaze import (
+    TVMAZE_CONNECTOR_ID,
+    TVMAZE_DELTA_CONNECTOR_ID,
+)
 
 
 def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
@@ -38,6 +50,39 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     policies = {item.policy_id: item for item in first.rights_profiles}
     assert policies["imdb-research-noncommercial"].zone.value == "research_private"
     assert policies["tmdb-research-noncommercial"].zone.value == "research_private"
+
+
+def test_registry_declares_every_source_product_connector() -> None:
+    products = {
+        item.source_product_id: item
+        for item in build_community_registry().source_products
+    }
+
+    assert set(products["tmdb-research"].connector_ids) == {
+        TMDB_DAILY_CONNECTOR_ID,
+        TMDB_CHANGES_CONNECTOR_ID,
+    }
+    assert set(products["tvmaze-public-api"].connector_ids) == {
+        TVMAZE_CONNECTOR_ID,
+        TVMAZE_DELTA_CONNECTOR_ID,
+    }
+
+
+def test_source_product_accepts_legacy_single_connector_field() -> None:
+    product = SourceProduct.model_validate(
+        {
+            "sourceProductId": "legacy-research-product",
+            "sourceSystemId": "legacy-research-system",
+            "name": "Legacy research product",
+            "kind": SourceProductKind.PLATFORM_API,
+            "policyId": "legacy-research-policy",
+            "connectorId": "legacy-research-connector",
+            "documentationUrl": "https://example.com/research",
+        }
+    )
+
+    assert product.connector_ids == ("legacy-research-connector",)
+    assert "connectorIds" in product.model_dump(mode="json", by_alias=True)
 
 
 def test_registry_rejects_dangling_product_references() -> None:

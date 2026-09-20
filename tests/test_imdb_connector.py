@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import gzip
 
+from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import ConnectorRecordEnvelope
 from video_media_catalog.imdb import (
     IMDB_DATASET_COLUMNS,
@@ -122,6 +123,7 @@ def test_imdb_official_snapshot_is_replayable_and_maps_all_row_families(
         for assertion in item.relationship_assertions
     )
     run, rows = build_source_silver_rows(
+        registry=build_community_registry(),
         batch=result.batch_manifest,
         record_set=result.record_set_manifest,
         envelopes=records,

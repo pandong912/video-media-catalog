@@ -95,7 +95,10 @@ def tvmaze_registry_entries() -> tuple[
         name="TVmaze public API",
         kind=SourceProductKind.COMMUNITY_DATABASE,
         policy_id=TVMAZE_POLICY_ID,
-        connector_id=TVMAZE_CONNECTOR_ID,
+        connector_ids=(
+            TVMAZE_CONNECTOR_ID,
+            TVMAZE_DELTA_CONNECTOR_ID,
+        ),
         documentation_url="https://www.tvmaze.com/api",
     )
     namespace = SourceNamespace(

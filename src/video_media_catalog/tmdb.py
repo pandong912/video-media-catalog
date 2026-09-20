@@ -95,7 +95,10 @@ def tmdb_registry_entries() -> tuple[
         name="TMDB API and daily ID exports",
         kind=SourceProductKind.PLATFORM_API,
         policy_id=TMDB_POLICY_ID,
-        connector_id="tmdb-replayable-capture",
+        connector_ids=(
+            TMDB_DAILY_CONNECTOR_ID,
+            TMDB_CHANGES_CONNECTOR_ID,
+        ),
         documentation_url="https://developer.themoviedb.org/docs/getting-started",
     )
     namespaces = tuple(

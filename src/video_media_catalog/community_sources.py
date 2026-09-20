@@ -142,7 +142,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Wikidata JSON entity dump",
         kind=SourceProductKind.KNOWLEDGE_GRAPH,
         policy_id="wikidata-structured-data-cc0",
-        connector_id=WIKIDATA_CONNECTOR_ID,
+        connector_ids=(WIKIDATA_CONNECTOR_ID,),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
     eidr_product = SourceProduct(
@@ -151,7 +151,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="EIDR public registry records",
         kind=SourceProductKind.IDENTIFIER_REGISTRY,
         policy_id="eidr-public-registry",
-        connector_id=EIDR_CONNECTOR_ID,
+        connector_ids=(EIDR_CONNECTOR_ID,),
         documentation_url="https://www.eidr.org/faq",
     )
     v1_product = SourceProduct(
@@ -160,7 +160,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Published Wikidata/EIDR v1 catalog",
         kind=SourceProductKind.INTERNAL_CATALOG,
         policy_id="internal-key-continuity",
-        connector_id="media-catalog-v1-key-migration",
+        connector_ids=("media-catalog-v1-key-migration",),
         documentation_url=("https://github.com/pandong912/video-media-catalog"),
     )
     identity_product = SourceProduct(
@@ -169,7 +169,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Community identity resolution v2",
         kind=SourceProductKind.INTERNAL_CATALOG,
         policy_id="internal-key-continuity",
-        connector_id="community-identity-spark-v2",
+        connector_ids=("community-identity-spark-v2",),
         documentation_url=("https://github.com/pandong912/video-media-catalog"),
     )
     return SourceRegistrySnapshot(

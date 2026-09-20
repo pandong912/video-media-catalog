@@ -70,13 +70,29 @@ def _resolved_memberships(
     as_of: str,
     max_redirect_hops: int,
 ):
+    from pyspark.sql import Window
     from pyspark.sql import functions as F
 
     if max_redirect_hops < 1:
         raise ValueError("max_redirect_hops must be positive")
     as_of_timestamp = F.to_timestamp(F.lit(as_of))
+    membership_window = Window.partitionBy(
+        "source_namespace_id",
+        "source_id",
+        "source_referent_kind",
+        "entity_key",
+        "decision_id",
+        "valid_from",
+    ).orderBy(
+        F.when(F.col("valid_to").isNotNull(), F.lit(1)).otherwise(F.lit(0)).desc(),
+        F.col("valid_to").asc_nulls_last(),
+        F.col("membership_key").desc(),
+    )
     memberships = (
         silver["community_entity_membership"]
+        .withColumn("_membership_version", F.row_number().over(membership_window))
+        .where(F.col("_membership_version") == 1)
+        .drop("_membership_version")
         .where(
             (F.to_timestamp("valid_from") <= as_of_timestamp)
             & (
@@ -253,6 +269,7 @@ def _source_products_frame(spark: Any, registry: SourceRegistrySnapshot):
         [
             (
                 product.source_product_id,
+                product.policy_id,
                 product.name,
                 product.documentation_url,
             )
@@ -260,16 +277,443 @@ def _source_products_frame(spark: Any, registry: SourceRegistrySnapshot):
         ],
         """
         source_product_id STRING,
+        source_product_policy_id STRING,
         source_name STRING,
         source_documentation_url STRING
         """,
     )
 
 
+def _validate_assertion_product_policies(
+    frame: Any,
+    *,
+    source_records: Any,
+    source_products: Any,
+) -> None:
+    """Validate assertion policy ownership even for non-published assertion kinds."""
+
+    from pyspark.sql import functions as F
+
+    active = frame.where(F.col("status") == "ACTIVE").withColumn(
+        "envelope_key",
+        F.get_json_object("provenance_json", "$.envelopeKey"),
+    )
+    source_metadata = (
+        source_records.select(
+            "envelope_key",
+            "source_product_id",
+            F.col("policy_id").alias("record_policy_id"),
+            F.col("policy_digest").alias("record_policy_digest"),
+        )
+        .join(source_products, "source_product_id", "inner")
+        .select(
+            "envelope_key",
+            "record_policy_id",
+            "record_policy_digest",
+            "source_product_policy_id",
+        )
+    )
+    bound = active.alias("a").join(
+        source_metadata.alias("s"),
+        "envelope_key",
+        "inner",
+    )
+    if bound.count() != active.count():
+        raise ValueError("assertion provenance cannot resolve source record")
+    if (
+        bound.where(
+            (F.col("a.policy_id") != F.col("s.record_policy_id"))
+            | (F.col("a.policy_digest") != F.col("s.record_policy_digest"))
+        )
+        .limit(1)
+        .count()
+    ):
+        raise ValueError("assertion and source record policies differ")
+    if (
+        bound.where(F.col("a.policy_id") != F.col("s.source_product_policy_id"))
+        .limit(1)
+        .count()
+    ):
+        raise ValueError("assertion does not bind its source product rights policy")
+
+
+def _current_source_envelope_keys(
+    *,
+    source_records: Any,
+    ingest_runs: Any,
+    committed_run_ids: tuple[str, ...],
+    registry: SourceRegistrySnapshot,
+    as_of: str,
+):
+    """Resolve committed source-record operations into an as-of active set."""
+
+    from pyspark.sql import Window
+    from pyspark.sql import functions as F
+
+    spark = source_records.sparkSession
+    committed = spark.createDataFrame(
+        [(run_id,) for run_id in committed_run_ids],
+        "run_id STRING",
+    )
+    selected_records = source_records.join(committed, "run_id", "inner")
+    batch_path = "$.inputManifest.batchManifest."
+    metadata = (
+        ingest_runs.where(F.col("run_kind") == "SOURCE_ASSERTIONS")
+        .join(committed, "run_id", "inner")
+        .select(
+            "run_id",
+            F.col("source_product_id").alias("_run_source_product_id"),
+            F.get_json_object("manifest_json", "$.inputManifest.registryDigest").alias(
+                "_registry_digest"
+            ),
+            F.get_json_object("manifest_json", batch_path + "batchId").alias(
+                "_batch_id"
+            ),
+            F.get_json_object("manifest_json", batch_path + "sourceSystemId").alias(
+                "_batch_source_system_id"
+            ),
+            F.get_json_object("manifest_json", batch_path + "sourceProductId").alias(
+                "_batch_source_product_id"
+            ),
+            F.get_json_object("manifest_json", batch_path + "policyId").alias(
+                "_batch_policy_id"
+            ),
+            F.get_json_object("manifest_json", batch_path + "policyDigest").alias(
+                "_batch_policy_digest"
+            ),
+            F.get_json_object("manifest_json", batch_path + "changeSemantics").alias(
+                "_change_semantics"
+            ),
+            F.get_json_object("manifest_json", batch_path + "completeness").alias(
+                "_completeness"
+            ),
+            F.get_json_object("manifest_json", batch_path + "deleteCoverage").alias(
+                "_delete_coverage"
+            ),
+            F.get_json_object(
+                "manifest_json", batch_path + "coverageScopeDigest"
+            ).alias("_coverage_scope_digest"),
+            F.get_json_object("manifest_json", batch_path + "acquiredAt").alias(
+                "_batch_acquired_at"
+            ),
+            F.get_json_object("manifest_json", batch_path + "recordCount")
+            .cast("long")
+            .alias("_batch_record_count"),
+        )
+        .persist()
+    )
+    bound = None
+    required_metadata = (
+        "_registry_digest",
+        "_batch_id",
+        "_batch_source_system_id",
+        "_batch_source_product_id",
+        "_batch_policy_id",
+        "_batch_policy_digest",
+        "_change_semantics",
+        "_completeness",
+        "_delete_coverage",
+        "_coverage_scope_digest",
+        "_batch_acquired_at",
+        "_batch_record_count",
+    )
+    try:
+        invalid_metadata = F.lit(False)
+        for column in required_metadata:
+            invalid_metadata = invalid_metadata | F.col(column).isNull()
+        if metadata.where(invalid_metadata).limit(1).count():
+            raise ValueError("source ingest run lacks pinned batch metadata")
+        if (
+            metadata.where(F.col("_registry_digest") != F.lit(registry.digest))
+            .limit(1)
+            .count()
+        ):
+            raise ValueError("source ingest run used another registry snapshot")
+        if (
+            metadata.where(
+                F.col("_run_source_product_id") != F.col("_batch_source_product_id")
+            )
+            .limit(1)
+            .count()
+        ):
+            raise ValueError("source ingest run and batch products differ")
+        if (
+            metadata.groupBy("run_id")
+            .count()
+            .where(F.col("count") != 1)
+            .limit(1)
+            .count()
+        ):
+            raise ValueError("source ingest run metadata is duplicated")
+
+        actual_counts = selected_records.groupBy("run_id").count()
+        if (
+            metadata.join(actual_counts, "run_id", "left")
+            .fillna(0, subset=["count"])
+            .where(F.col("count") != F.col("_batch_record_count"))
+            .limit(1)
+            .count()
+        ):
+            raise ValueError("committed source run does not contain its complete batch")
+
+        bound = (
+            selected_records.alias("r")
+            .join(metadata.alias("m"), "run_id", "inner")
+            .select(
+                "r.*",
+                *(
+                    F.col(f"m.{column}").alias(column)
+                    for column in required_metadata
+                    if column != "_registry_digest"
+                ),
+            )
+            .persist()
+        )
+        if bound.count() != selected_records.count():
+            raise ValueError("source record has no committed ingest-run metadata")
+        if (
+            bound.where(
+                (F.col("batch_id") != F.col("_batch_id"))
+                | (F.col("source_system_id") != F.col("_batch_source_system_id"))
+                | (F.col("source_product_id") != F.col("_batch_source_product_id"))
+                | (F.col("policy_id") != F.col("_batch_policy_id"))
+                | (F.col("policy_digest") != F.col("_batch_policy_digest"))
+            )
+            .limit(1)
+            .count()
+        ):
+            raise ValueError("source record does not bind its committed batch")
+
+        as_of_timestamp = F.to_timestamp(F.lit(as_of))
+        metadata_as_of = metadata.where(
+            F.to_timestamp("_batch_acquired_at") <= as_of_timestamp
+        )
+        full_window = Window.partitionBy(
+            "_batch_source_system_id",
+            "_batch_source_product_id",
+            "_coverage_scope_digest",
+        ).orderBy(
+            F.to_timestamp("_batch_acquired_at"),
+            "_batch_id",
+            "run_id",
+        )
+        full_snapshots = (
+            metadata_as_of.where(
+                (F.col("_change_semantics") == "FULL_SNAPSHOT")
+                & (F.col("_completeness") == "COMPLETE")
+            )
+            .withColumn("_previous_run_id", F.lag("run_id").over(full_window))
+            .withColumn(
+                "_previous_batch_id",
+                F.lag("_batch_id").over(full_window),
+            )
+            .withColumn(
+                "_previous_acquired_at",
+                F.lag("_batch_acquired_at").over(full_window),
+            )
+        )
+        snapshot_diffs = full_snapshots.where(
+            F.col("_delete_coverage") == "SNAPSHOT_DIFF"
+        ).persist()
+        try:
+            baselines = snapshot_diffs.where(F.col("_previous_run_id").isNull()).select(
+                "run_id",
+                "_batch_source_system_id",
+                "_batch_source_product_id",
+                "_coverage_scope_digest",
+                "_batch_acquired_at",
+            )
+            prior_same_coverage = baselines.alias("b").join(
+                metadata_as_of.alias("p"),
+                (
+                    (
+                        F.col("b._batch_source_system_id")
+                        == F.col("p._batch_source_system_id")
+                    )
+                    & (
+                        F.col("b._batch_source_product_id")
+                        == F.col("p._batch_source_product_id")
+                    )
+                    & (
+                        F.to_timestamp("p._batch_acquired_at")
+                        <= F.to_timestamp("b._batch_acquired_at")
+                    )
+                    & (F.col("p.run_id") != F.col("b.run_id"))
+                ),
+                "inner",
+            )
+            if prior_same_coverage.limit(1).count():
+                raise ValueError(
+                    "snapshot-diff requires a prior complete snapshot for its coverage"
+                )
+
+            valid_inferred_runs = snapshot_diffs.where(
+                F.col("_previous_run_id").isNotNull()
+            ).select("run_id")
+            if (
+                bound.where(F.col("operation") == "INFERRED_ABSENCE")
+                .select("run_id")
+                .join(valid_inferred_runs, "run_id", "left_anti")
+                .limit(1)
+                .count()
+            ):
+                raise ValueError(
+                    "inferred absence requires a prior complete snapshot for coverage"
+                )
+
+            record_identity = (
+                "source_system_id",
+                "source_product_id",
+                "source_namespace_id",
+                "source_record_id",
+            )
+            snapshot_pairs = snapshot_diffs.where(
+                F.col("_previous_run_id").isNotNull()
+            ).select(
+                F.col("run_id").alias("_snapshot_run_id"),
+                "_previous_run_id",
+                "_batch_id",
+                "_batch_acquired_at",
+                "_batch_source_system_id",
+                "_batch_source_product_id",
+                "_previous_acquired_at",
+            )
+            previous_ids = (
+                snapshot_pairs.alias("p")
+                .join(
+                    bound.alias("r"),
+                    (
+                        (
+                            F.col("p._batch_source_system_id")
+                            == F.col("r.source_system_id")
+                        )
+                        & (
+                            F.col("p._batch_source_product_id")
+                            == F.col("r.source_product_id")
+                        )
+                        & (
+                            F.to_timestamp("r._batch_acquired_at")
+                            >= F.to_timestamp("p._previous_acquired_at")
+                        )
+                        & (
+                            F.to_timestamp("r._batch_acquired_at")
+                            <= F.to_timestamp("p._batch_acquired_at")
+                        )
+                    ),
+                    "inner",
+                )
+                .where(F.col("r.operation") == "UPSERT")
+                .select(
+                    "p._snapshot_run_id",
+                    "p._batch_id",
+                    "p._batch_acquired_at",
+                    *(F.col(f"r.{column}").alias(column) for column in record_identity),
+                )
+                .dropDuplicates(["_snapshot_run_id", *record_identity])
+            )
+            current_ids = (
+                snapshot_pairs.alias("p")
+                .join(
+                    bound.alias("r"),
+                    F.col("p._snapshot_run_id") == F.col("r.run_id"),
+                    "inner",
+                )
+                .where(F.col("r.operation") == "UPSERT")
+                .select(
+                    "p._snapshot_run_id",
+                    *(F.col(f"r.{column}").alias(column) for column in record_identity),
+                )
+                .dropDuplicates(["_snapshot_run_id", *record_identity])
+            )
+            missing = previous_ids.join(
+                current_ids,
+                ["_snapshot_run_id", *record_identity],
+                "left_anti",
+            )
+            inferred_events = missing.select(
+                F.lit(None).cast("string").alias("envelope_key"),
+                *record_identity,
+                F.lit("INFERRED_ABSENCE").alias("operation"),
+                F.col("_batch_acquired_at").alias("observed_at"),
+                F.col("_batch_acquired_at").alias("ingested_at"),
+                F.lit(None).cast("string").alias("valid_from"),
+                F.lit(None).cast("string").alias("valid_to"),
+                F.lit(None).cast("string").alias("expires_at"),
+                F.col("_batch_id").alias("batch_id"),
+            )
+
+            actual_events = bound.where(
+                F.to_timestamp("_batch_acquired_at") <= as_of_timestamp
+            ).select(
+                "envelope_key",
+                *record_identity,
+                "operation",
+                "observed_at",
+                "ingested_at",
+                "valid_from",
+                "valid_to",
+                "expires_at",
+                "batch_id",
+            )
+            events = (
+                actual_events.unionByName(inferred_events)
+                .withColumn(
+                    "_effective_at",
+                    F.coalesce(
+                        F.to_timestamp("valid_from"),
+                        F.to_timestamp("observed_at"),
+                    ),
+                )
+                .where(F.col("_effective_at") <= as_of_timestamp)
+                .withColumn(
+                    "_operation_priority",
+                    F.when(F.col("operation") == "UPSERT", F.lit(0)).otherwise(
+                        F.lit(1)
+                    ),
+                )
+            )
+            event_window = Window.partitionBy(*record_identity).orderBy(
+                F.col("_effective_at").desc(),
+                F.to_timestamp("observed_at").desc(),
+                F.to_timestamp("ingested_at").desc(),
+                F.col("_operation_priority").desc(),
+                F.col("batch_id").desc(),
+                F.col("envelope_key").desc_nulls_last(),
+            )
+            latest = (
+                events.withColumn("_record_version", F.row_number().over(event_window))
+                .where(F.col("_record_version") == 1)
+                .drop("_record_version")
+            )
+            current = (
+                latest.where(F.col("operation") == "UPSERT")
+                .where(
+                    F.col("valid_to").isNull()
+                    | (F.to_timestamp("valid_to") > as_of_timestamp)
+                )
+                .where(
+                    F.col("expires_at").isNull()
+                    | (F.to_timestamp("expires_at") > as_of_timestamp)
+                )
+                .select("envelope_key")
+                .dropDuplicates(["envelope_key"])
+                .persist()
+            )
+            current.count()
+            return current
+        finally:
+            snapshot_diffs.unpersist()
+    finally:
+        if bound is not None:
+            bound.unpersist()
+        metadata.unpersist()
+
+
 def _eligible_assertions(
     frame: Any,
     *,
     source_records: Any,
+    current_source_envelope_keys: Any,
     source_products: Any,
     memberships: Any,
     rights: Any,
@@ -277,8 +721,60 @@ def _eligible_assertions(
 ):
     from pyspark.sql import functions as F
 
-    active = frame.where(F.col("status") == "ACTIVE").persist()
-    known = active.alias("a").join(
+    source_metadata = source_records.select(
+        "envelope_key",
+        "source_product_id",
+        "source_record_id",
+        "citation_keys_json",
+        F.col("policy_id").alias("record_policy_id"),
+        F.col("policy_digest").alias("record_policy_digest"),
+    ).join(source_products, "source_product_id", "inner")
+    active = (
+        frame.where(F.col("status") == "ACTIVE")
+        .withColumn(
+            "envelope_key",
+            F.get_json_object("provenance_json", "$.envelopeKey"),
+        )
+        .persist()
+    )
+    bound = active.alias("a").join(
+        source_metadata.select(
+            "envelope_key",
+            "source_product_id",
+            "source_name",
+            "source_documentation_url",
+            "source_record_id",
+            "citation_keys_json",
+            "record_policy_id",
+            "record_policy_digest",
+            "source_product_policy_id",
+        ).alias("s"),
+        "envelope_key",
+        "inner",
+    )
+    active_count = active.count()
+    if bound.count() != active_count:
+        active.unpersist()
+        raise ValueError("assertion provenance cannot resolve source record")
+    if (
+        bound.where(
+            (F.col("a.policy_id") != F.col("s.record_policy_id"))
+            | (F.col("a.policy_digest") != F.col("s.record_policy_digest"))
+        )
+        .limit(1)
+        .count()
+    ):
+        active.unpersist()
+        raise ValueError("assertion and source record policies differ")
+    if (
+        bound.where(F.col("a.policy_id") != F.col("s.source_product_policy_id"))
+        .limit(1)
+        .count()
+    ):
+        active.unpersist()
+        raise ValueError("assertion does not bind its source product rights policy")
+
+    known = bound.alias("a").join(
         rights.alias("p"),
         (F.col("a.policy_id") == F.col("p.rights_policy_id"))
         & (F.col("a.policy_digest") == F.col("p.rights_policy_digest")),
@@ -305,53 +801,15 @@ def _eligible_assertions(
                 > F.lit(as_of_epoch)
             )
         )
-        .withColumn(
-            "envelope_key",
-            F.get_json_object("a.provenance_json", "$.envelopeKey"),
-        )
         .persist()
     )
-    active_count = active.count()
-    rights_count = rights_eligible.count()
-    withheld = active_count - rights_count
-
-    source_metadata = source_records.select(
-        "envelope_key",
-        "source_product_id",
-        "source_record_id",
-        "citation_keys_json",
-        F.col("policy_id").alias("record_policy_id"),
-        F.col("policy_digest").alias("record_policy_digest"),
-    ).join(source_products, "source_product_id", "inner")
-    with_source = rights_eligible.alias("a").join(
-        source_metadata.select(
-            "envelope_key",
-            "source_product_id",
-            "source_name",
-            "source_documentation_url",
-            "source_record_id",
-            "citation_keys_json",
-            "record_policy_id",
-            "record_policy_digest",
-        ).alias("s"),
+    with_source = rights_eligible.join(
+        current_source_envelope_keys,
         "envelope_key",
         "inner",
     )
-    if with_source.count() != rights_count:
-        rights_eligible.unpersist()
-        active.unpersist()
-        raise ValueError("assertion provenance cannot resolve source record")
-    if (
-        with_source.where(
-            (F.col("a.policy_id") != F.col("s.record_policy_id"))
-            | (F.col("a.policy_digest") != F.col("s.record_policy_digest"))
-        )
-        .limit(1)
-        .count()
-    ):
-        rights_eligible.unpersist()
-        active.unpersist()
-        raise ValueError("assertion and source record policies differ")
+    current_count = with_source.count()
+    withheld = active_count - current_count
 
     resolved = (
         with_source.alias("a")
@@ -365,7 +823,7 @@ def _eligible_assertions(
         .persist()
     )
     resolved_count = resolved.count()
-    unresolved = rights_count - resolved_count
+    unresolved = current_count - resolved_count
     rights_eligible.unpersist()
     active.unpersist()
     return resolved, withheld, unresolved
@@ -609,10 +1067,12 @@ def build_distributed_gold(
     max_redirect_hops: int = 16,
 ) -> GoldSparkBuild:
     required = {
+        "community_ingest_run",
         "community_source_record",
         "community_field_assertion",
         "community_identifier_assertion",
         "community_relationship_assertion",
+        "community_entity_type_assertion",
         "community_entity_ledger",
         "community_entity_membership",
         "community_entity_redirect",
@@ -621,34 +1081,69 @@ def build_distributed_gold(
         raise ValueError("Gold build is missing required Silver tables")
     from pyspark.sql import functions as F
 
-    memberships = _resolved_memberships(
-        silver=visible_silver,
-        as_of=policy_context.as_of,
-        max_redirect_hops=max_redirect_hops,
+    selected_runs = spark.createDataFrame(
+        [(run_id,) for run_id in committed_run_ids],
+        "run_id STRING",
     )
-    rights = _rights_frame(
-        spark,
+    committed_silver = {
+        table: (
+            frame.join(selected_runs, "run_id", "inner")
+            if "run_id" in frame.columns
+            else frame
+        )
+        for table, frame in visible_silver.items()
+    }
+    current_source_envelope_keys = _current_source_envelope_keys(
+        source_records=committed_silver["community_source_record"],
+        ingest_runs=committed_silver["community_ingest_run"],
+        committed_run_ids=committed_run_ids,
         registry=registry,
-        context=policy_context,
-        policy=field_policy,
+        as_of=policy_context.as_of,
     )
-    source_products = _source_products_frame(spark, registry)
-    intermediates = [memberships]
+    try:
+        memberships = _resolved_memberships(
+            silver=committed_silver,
+            as_of=policy_context.as_of,
+            max_redirect_hops=max_redirect_hops,
+        )
+    except Exception:
+        current_source_envelope_keys.unpersist()
+        raise
+    try:
+        rights = _rights_frame(
+            spark,
+            registry=registry,
+            context=policy_context,
+            policy=field_policy,
+        )
+        source_products = _source_products_frame(spark, registry)
+    except Exception:
+        memberships.unpersist()
+        current_source_envelope_keys.unpersist()
+        raise
+    intermediates = [current_source_envelope_keys, memberships]
     field_drafts = None
     identifier_drafts = None
     relation_drafts = None
     try:
+        _validate_assertion_product_policies(
+            committed_silver["community_entity_type_assertion"],
+            source_records=committed_silver["community_source_record"],
+            source_products=source_products,
+        )
         resolved_fields, field_withheld, field_unresolved = _eligible_assertions(
-            visible_silver["community_field_assertion"],
-            source_records=visible_silver["community_source_record"],
+            committed_silver["community_field_assertion"],
+            source_records=committed_silver["community_source_record"],
+            current_source_envelope_keys=current_source_envelope_keys,
             source_products=source_products,
             memberships=memberships,
             rights=rights,
             context=policy_context,
         )
         resolved_identifiers, id_withheld, id_unresolved = _eligible_assertions(
-            visible_silver["community_identifier_assertion"],
-            source_records=visible_silver["community_source_record"],
+            committed_silver["community_identifier_assertion"],
+            source_records=committed_silver["community_source_record"],
+            current_source_envelope_keys=current_source_envelope_keys,
             source_products=source_products,
             memberships=memberships,
             rights=rights,
@@ -735,8 +1230,9 @@ def build_distributed_gold(
 
         resolved_relation_subjects, rel_withheld, rel_subject_unresolved = (
             _eligible_assertions(
-                visible_silver["community_relationship_assertion"],
-                source_records=visible_silver["community_source_record"],
+                committed_silver["community_relationship_assertion"],
+                source_records=committed_silver["community_source_record"],
+                current_source_envelope_keys=current_source_envelope_keys,
                 source_products=source_products,
                 memberships=memberships,
                 rights=rights,
@@ -898,7 +1394,7 @@ def build_distributed_gold(
                     source_node_count=int(row["source_node_count"]),
                     trace={
                         "sourceNodeCount": int(row["source_node_count"]),
-                        "resolver": "community-gold-spark-v1",
+                        "resolver": "community-gold-spark-v2",
                     },
                 )
             )

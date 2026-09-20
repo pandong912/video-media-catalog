@@ -44,13 +44,12 @@ from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.rights import RightsTerminationFence
 from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.v2_contracts import require_oidc_subject
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-spark",
-        description="Build the owner-only research Gold release.",
+        description="Build the shared authenticated research Gold release.",
     )
     parser.add_argument("--silver-snapshot-uri", required=True)
     parser.add_argument("--silver-snapshot-hash", required=True)
@@ -87,7 +86,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     parser.add_argument("--image-digest", required=True)
-    parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--territories", default="*")
     parser.add_argument("--max-conflict-ratio", type=float, default=0.05)
     parser.add_argument(
@@ -175,7 +173,6 @@ def _read_termination_fence(path: Path) -> RightsTerminationFence:
 
 
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
-    owner_subject = require_oidc_subject(parsed.owner_subject)
     if not 0 <= parsed.max_conflict_ratio <= 1:
         raise ValueError("max-conflict-ratio must be between 0 and 1")
     if not 0 <= parsed.max_unresolved_identity_ratio <= 1:
@@ -268,7 +265,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         "catalogName": parsed.catalog_name,
         "catalogType": parsed.catalog_type,
         "warehouse": parsed.warehouse,
-        "ownerSubject": owner_subject,
         "context": context.model_dump(mode="json", by_alias=True),
         "fieldPolicyDigest": policy.digest,
         "releaseFreshnessPolicy": freshness_policy.model_dump(
@@ -350,7 +346,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             visible_silver=visible,
             registry=registry,
             policy_context=context,
-            owner_subject=owner_subject,
             field_policy=policy,
             committed_run_ids=committed_run_ids,
             committed_runs=committed_runs if epoch_input else None,

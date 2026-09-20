@@ -13,7 +13,7 @@
   connector envelope、SourceWatermark/capture-window receipt、assertion、
   identity ledger 与 policy-specific release 边界，以及
   Wikidata/EIDR/TVmaze/IMDb/TMDB acquisition、条件发布、重放和删除语义。
-  V2 仅发布一套 owner-only `research` release；它是并行契约，不改变 v1。
+  V2 仅发布一套共享授权的 `research` release；它是并行契约，不改变 v1。
 - `parquet/community_catalog_silver.v2.md`：v2 run visibility、source/
   assertion/identity Iceberg 表、commit-last、兼容 v2 snapshot、可扩展 v3
   epoch manifest，以及 dry-run-first Iceberg maintenance 安全规则。

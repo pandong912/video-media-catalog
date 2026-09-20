@@ -262,7 +262,6 @@ def _gold(
         visible_silver=visible,
         registry=build_community_registry(),
         policy_context=research_context(as_of=as_of),
-        owner_subject="owner-temporal-test",
         field_policy=research_policy(),
         committed_run_ids=committed_run_ids,
         silver_snapshot_ids={"community_field_assertion": 20},
@@ -395,7 +394,6 @@ def test_distributed_silver_identity_and_gold_pipeline(
             policy_context=research_context(
                 as_of="2026-09-19T00:00:00Z",
             ),
-            owner_subject="owner-123",
             field_policy=research_policy(),
             committed_run_ids=(silver_run.run_id, identity_run.run_id),
             silver_snapshot_ids={"community_field_assertion": 10},

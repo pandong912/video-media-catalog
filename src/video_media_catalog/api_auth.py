@@ -59,10 +59,6 @@ class ResearchScopeAuthorizationError(AuthorizationError):
     """The principal lacks the fixed research-catalog scope."""
 
 
-class OwnerAuthorizationError(AuthorizationError):
-    """The principal is not the configured research-catalog owner."""
-
-
 @dataclass(frozen=True)
 class Principal:
     subject: str
@@ -100,16 +96,9 @@ class TokenVerifier(Protocol):
     def verify(self, token: str) -> Principal: ...
 
 
-def authorize_research_principal(
-    principal: Principal,
-    *,
-    owner_subject: str,
-) -> Principal:
-    expected = require_oidc_subject(owner_subject)
+def authorize_research_principal(principal: Principal) -> Principal:
     if REQUIRED_SCOPE not in principal.scopes:
         raise ResearchScopeAuthorizationError("research scope is missing")
-    if principal.subject != expected:
-        raise OwnerAuthorizationError("research catalog is owner-only")
     return principal
 
 

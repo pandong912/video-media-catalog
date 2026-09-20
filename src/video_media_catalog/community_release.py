@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Any, Self
+from typing import Any, Literal, Self
 from urllib.parse import unquote, urlsplit
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
@@ -14,7 +14,6 @@ from video_media_catalog.models import ObjectRef
 from video_media_catalog.rights import PolicyZone, RightsTerminationFence
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
-    require_oidc_subject,
     require_rfc3339,
     require_sha256,
     require_slug,
@@ -448,9 +447,8 @@ def build_restricted_purge_target(
 
 
 class SourceRemovalPlan(V2ContractModel):
-    schema_version: str = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     plan_id: str
-    owner_subject: str
     rights_fence: RightsTerminationFence
     impact: SourceRemovalImpact
     actions: tuple[RemovalAction, ...]
@@ -463,11 +461,6 @@ class SourceRemovalPlan(V2ContractModel):
     @classmethod
     def validate_plan_id(cls, value: str) -> str:
         return require_sha256(value)
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
 
     @field_validator("actions")
     @classmethod
@@ -541,7 +534,7 @@ class SourceRemovalPlan(V2ContractModel):
                 raise ValueError("purge target is outside the execution allowlist")
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
-                "source-removal-plan-v2",
+                "source-removal-plan-v3",
                 _source_removal_plan_identity(self),
             )
             if self.plan_id != expected:
@@ -552,7 +545,6 @@ class SourceRemovalPlan(V2ContractModel):
 def _source_removal_plan_identity(plan: SourceRemovalPlan) -> dict[str, Any]:
     return {
         "schemaVersion": plan.schema_version,
-        "ownerSubject": plan.owner_subject,
         "rightsFence": plan.rights_fence.model_dump(
             mode="json", by_alias=True, exclude_none=True
         ),
@@ -570,7 +562,6 @@ def _source_removal_plan_identity(plan: SourceRemovalPlan) -> dict[str, Any]:
 
 def build_source_removal_plan(
     *,
-    owner_subject: str,
     rights_fence: RightsTerminationFence,
     impact: SourceRemovalImpact,
     purge_targets: tuple[RestrictedPurgeTarget, ...] = (),
@@ -596,7 +587,6 @@ def build_source_removal_plan(
         actions.add(RemovalAction.PURGE_RESTRICTED)
     values = {
         "plan_id": _ZERO_DIGEST,
-        "owner_subject": owner_subject,
         "rights_fence": rights_fence,
         "impact": impact,
         "actions": tuple(actions),
@@ -610,7 +600,7 @@ def build_source_removal_plan(
         context={"skip_identity": True},
     )
     values["plan_id"] = deterministic_key(
-        "source-removal-plan-v2",
+        "source-removal-plan-v3",
         _source_removal_plan_identity(provisional),
     )
     return SourceRemovalPlan.model_validate(values)
@@ -623,7 +613,7 @@ class RemovalReceiptStatus(StrEnum):
 
 
 class SourceRemovalReceipt(V2ContractModel):
-    schema_version: str = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     receipt_id: str
     plan: SourceRemovalPlan
     status: RemovalReceiptStatus
@@ -703,7 +693,7 @@ class SourceRemovalReceipt(V2ContractModel):
             raise ValueError("non-completed removal receipt requires errors")
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
-                "source-removal-receipt-v2",
+                "source-removal-receipt-v3",
                 _source_removal_receipt_identity(self),
             )
             if self.receipt_id != expected:
@@ -735,7 +725,7 @@ def build_source_removal_receipt(**values: Any) -> SourceRemovalReceipt:
     )
     normalized = provisional.model_dump(mode="python")
     normalized["receipt_id"] = deterministic_key(
-        "source-removal-receipt-v2",
+        "source-removal-receipt-v3",
         _source_removal_receipt_identity(provisional),
     )
     return SourceRemovalReceipt.model_validate(normalized)

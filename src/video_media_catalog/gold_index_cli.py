@@ -64,7 +64,6 @@ from video_media_catalog.search_index import (
     index_document_count,
     switch_read_alias,
 )
-from video_media_catalog.v2_contracts import require_oidc_subject
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
 INDEX_MANIFEST_MEDIA_TYPE = (
@@ -75,7 +74,7 @@ INDEX_MANIFEST_MEDIA_TYPE = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-index",
-        description="Build the owner-only research Gold v2 index.",
+        description="Build the shared authenticated research Gold v2 index.",
     )
     parser.add_argument("--release-commit-uri", required=True)
     parser.add_argument("--release-commit-hash", required=True)
@@ -85,7 +84,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest-prefix", required=True)
     parser.add_argument("--completed-at", required=True)
     parser.add_argument("--image-digest", required=True)
-    parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--catalog-name", default="media")
     parser.add_argument("--namespace", default="video_media_catalog")
     parser.add_argument(
@@ -298,19 +296,6 @@ def _close(client: Any) -> None:
         transport.close()
 
 
-def _validate_projection_owner(documents: Any, *, owner_subject: str) -> None:
-    from pyspark.sql import functions as F
-
-    owner = require_oidc_subject(owner_subject)
-    mismatched = documents.where(
-        F.col("ownerSubject").isNull() | (F.col("ownerSubject") != F.lit(owner))
-    ).limit(1)
-    if mismatched.count():
-        raise RuntimeError(
-            "Gold search projection contains missing or mismatched document owners"
-        )
-
-
 def _sizing_result(parsed: argparse.Namespace) -> dict[str, Any]:
     _validate_bulk_settings(parsed)
     scales = parsed.scale or list(SYNTHETIC_SCALE_DOCUMENTS)
@@ -335,7 +320,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     ):
         raise ValueError("research index and alias names are fixed")
     _validate_bulk_settings(parsed)
-    owner_subject = require_oidc_subject(parsed.owner_subject)
     reference = _release_ref(parsed)
     affected_reference = _affected_ref(parsed)
     if urlsplit(parsed.manifest_prefix).scheme not in {"file", "s3"}:
@@ -359,8 +343,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         client=object() if local else None,
     )
     commit = _read_commit(store, reference)
-    if commit.owner_subject != owner_subject:
-        raise ValueError("release commit belongs to another OIDC subject")
     if commit.context_id != "research":
         raise ValueError("release commit is not a research release")
     affected_manifest = (
@@ -374,7 +356,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             manifest_reference=affected_reference,
             release_commit=commit,
             release_commit_reference=reference,
-            owner_subject=owner_subject,
         )
     embedded = (commit.quality_report, commit.attribution_manifest)
     if local and any(urlsplit(item.uri).scheme == "s3" for item in embedded):
@@ -398,7 +379,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     config_identity = gold_index_config_identity(
         read_alias=parsed.read_alias,
         index_prefix=parsed.index_prefix,
-        owner_subject=owner_subject,
         shards=parsed.shards,
         replicas=parsed.replicas,
         bulk_chunk_size=parsed.bulk_chunk_size,
@@ -440,7 +420,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ensure_gold_index(
             client,
             index_name=index_name,
-            owner_subject=commit.owner_subject,
             shards=parsed.shards,
             replicas=parsed.replicas,
         )
@@ -474,13 +453,8 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 spark,
                 gold_tables=frames,
                 release_plan_id=commit.release_plan_id,
-                owner_subject=commit.owner_subject,
             ).persist()
             persisted.append(documents)
-            _validate_projection_owner(
-                documents,
-                owner_subject=commit.owner_subject,
-            )
             projected_document_count = documents.count()
             result = distributed_gold_bulk_index(
                 documents,
@@ -587,14 +561,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 spark,
                 gold_tables=frames,
                 release_plan_id=commit.release_plan_id,
-                owner_subject=commit.owner_subject,
                 affected_entity_keys=upsert_key_frame,
             ).persist()
             persisted.append(documents)
-            _validate_projection_owner(
-                documents,
-                owner_subject=commit.owner_subject,
-            )
             projected_document_count = documents.count()
             upsert_result = distributed_gold_bulk_index(
                 documents,
@@ -671,7 +640,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         actual_count = validate_gold_index_contents(
             client,
             index_name=index_name,
-            owner_subject=commit.owner_subject,
             release_plan_id=commit.release_plan_id,
             expected_document_count=gold_entity_count,
         )
@@ -680,7 +648,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             build_mode=build_mode,
             build_id=build_id,
             release_plan_id=commit.release_plan_id,
-            owner_subject=commit.owner_subject,
             context_id=commit.context_id,
             release_commit=reference,
             affected_entity_manifest=affected_reference,
@@ -713,7 +680,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         pre_alias_count = validate_gold_index_contents(
             client,
             index_name=index_name,
-            owner_subject=commit.owner_subject,
             release_plan_id=commit.release_plan_id,
             expected_document_count=gold_entity_count,
         )

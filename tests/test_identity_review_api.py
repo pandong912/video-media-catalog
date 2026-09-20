@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from video_media_catalog.api import APISettings, create_app
@@ -51,7 +52,7 @@ class StaticVerifier:
     def __init__(
         self,
         *,
-        subject: str = "owner-1",
+        subject: str = "reviewer-1",
         scopes: frozenset[str] = frozenset({"governance.read"}),
     ) -> None:
         self.subject = subject
@@ -62,7 +63,7 @@ class StaticVerifier:
 
 
 class StaticReviewReader:
-    def __init__(self, *, owner_subject: str = "owner-1") -> None:
+    def __init__(self, *, operator_subject: str = "operator-1") -> None:
         source_node = SourceNodeRef(
             namespace_id="tvmaze-show",
             source_id="1",
@@ -98,7 +99,7 @@ class StaticReviewReader:
         self.manifest = build_identity_curation_manifest(
             pinned_silver_snapshot=pinned,
             operations=(operation,),
-            operator_subject=owner_subject,
+            operator_subject=operator_subject,
             reason="reviewed exact identifiers",
             operated_at="2026-09-20T00:00:00Z",
             config_digest=_digest("7"),
@@ -119,13 +120,12 @@ class StaticReviewReader:
             request_id=self.manifest.manifest_id,
             status=IdentityCurationRequestState.APPLIED,
             manifest=manifest_ref,
-            operator_subject=owner_subject,
+            operator_subject=operator_subject,
             submitted_at="2026-09-20T00:00:00Z",
             run_id=_digest("a"),
             commit_key=_digest("b"),
         )
         self.item = IdentityConflictQueueItem(
-            owner_subject=owner_subject,
             snapshot_set_id=pinned.snapshot_set_id,
             conflict=self.conflict,
         )
@@ -153,11 +153,10 @@ def _settings() -> APISettings:
         oidc_issuer="https://issuer.example",
         oidc_jwks_uri="https://issuer.example/jwks.json",
         oidc_audience="media-catalog-api",
-        oidc_owner_subject="owner-1",
     )
 
 
-def test_review_read_endpoints_reuse_owner_scope_and_subject() -> None:
+def test_review_read_endpoints_require_governance_scope() -> None:
     reader = StaticReviewReader()
     search = FakeOpenSearch()
     app = create_app(
@@ -188,38 +187,36 @@ def test_review_read_endpoints_reuse_owner_scope_and_subject() -> None:
     assert status.status_code == 200
     assert status.json()["status"] == "APPLIED"
     assert manifest.status_code == 200
-    assert manifest.json()["operatorSubject"] == "owner-1"
+    assert manifest.json()["operatorSubject"] == "operator-1"
     assert write_attempt.status_code == 405
     assert search.transport.requests == []
 
 
-def test_review_routes_fail_closed_for_wrong_owner_and_scope() -> None:
+def test_review_routes_fail_closed_for_missing_scope() -> None:
     reader = StaticReviewReader()
-    for verifier, expected_code in (
-        (StaticVerifier(subject="another-owner"), "OWNER_ONLY"),
-        (StaticVerifier(scopes=frozenset({"profile"})), "INSUFFICIENT_SCOPE"),
-    ):
-        app = create_app(
-            _settings(),
-            client=FakeOpenSearch(),
-            verifier=verifier,
-            review_reader=reader,
-        )
-        with TestClient(app) as client:
-            response = client.get(
-                "/api/v2/research/identity-conflicts",
-                headers={"Authorization": "Bearer signed-token"},
-            )
-        assert response.status_code == 403
-        assert response.json()["code"] == expected_code
-
-
-def test_review_projection_rejects_cross_owner_data() -> None:
     app = create_app(
         _settings(),
         client=FakeOpenSearch(),
-        verifier=StaticVerifier(),
-        review_reader=StaticReviewReader(owner_subject="another-owner"),
+        verifier=StaticVerifier(scopes=frozenset({"profile"})),
+        review_reader=reader,
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v2/research/identity-conflicts",
+            headers={"Authorization": "Bearer signed-token"},
+        )
+    assert response.status_code == 403
+    assert response.json()["code"] == "INSUFFICIENT_SCOPE"
+
+
+@pytest.mark.parametrize("subject", ["reviewer-a", "reviewer-b"])
+def test_any_scoped_principal_can_read_shared_review_queue(subject: str) -> None:
+    reader = StaticReviewReader(operator_subject="original-operator")
+    app = create_app(
+        _settings(),
+        client=FakeOpenSearch(),
+        verifier=StaticVerifier(subject=subject),
+        review_reader=reader,
     )
     with TestClient(app) as client:
         response = client.get(
@@ -227,5 +224,7 @@ def test_review_projection_rejects_cross_owner_data() -> None:
             headers={"Authorization": "Bearer signed-token"},
         )
 
-    assert response.status_code == 502
-    assert "another-owner" not in response.text
+    assert response.status_code == 200
+    assert response.json()["items"][0]["conflict"]["conflictKey"] == (
+        reader.conflict.conflict_key
+    )

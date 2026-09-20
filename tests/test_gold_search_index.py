@@ -25,7 +25,7 @@ from video_media_catalog.gold_search_index import (
     gold_index_config_identity,
     gold_index_name,
     reconcile_full_gold_index_counts,
-    validate_gold_index_owner,
+    validate_gold_index_contents,
 )
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.models import Checksum, ObjectRef
@@ -53,11 +53,11 @@ class FakeClient:
     def __init__(self) -> None:
         self.indices = FakeIndices()
         self.total_count = 0
-        self.owner_count = 0
+        self.filtered_count = 0
 
     def count(self, *, index: str, body=None):
         assert index in self.indices.created
-        return {"count": self.total_count if body is None else self.owner_count}
+        return {"count": self.total_count if body is None else self.filtered_count}
 
 
 def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
@@ -67,7 +67,6 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     digest = gold_index_config_digest(
         read_alias=RESEARCH_READ_ALIAS,
         index_prefix=RESEARCH_INDEX_PREFIX,
-        owner_subject="owner-123",
         shards=1,
         replicas=0,
         bulk_chunk_size=100,
@@ -80,14 +79,14 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     )
     assert digest.startswith("sha256:")
     assert digest == (
-        "sha256:a9905f2abd12cfcd8bd098018216e5dc3b3af2dc719faf47b94b66bc0507ad55"
+        "sha256:dd34f7c7d21d6bb1f559bafb690381a925ebde3e262119e6bda0ab6a2ccb1ec7"
     )
     assert name.startswith("media-catalog-research-")
     assert "sourceBadges" in INDEX_MAPPINGS["properties"]
     assert "winningAssertions" in INDEX_MAPPINGS["properties"]
     assert "rights" in INDEX_MAPPINGS["properties"]
     assert "conflicts" in INDEX_MAPPINGS["properties"]
-    assert "ownerSubject" in INDEX_MAPPINGS["properties"]
+    assert "ownerSubject" not in INDEX_MAPPINGS["properties"]
     assert INDEX_MAPPINGS["properties"]["externalIdentifiers"]["properties"]["url"] == {
         "type": "keyword",
         "index": False,
@@ -96,7 +95,6 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
         gold_index_config_digest(
             read_alias="media-catalog-community-v2-shadow-read",
             index_prefix="media-catalog-community-v2",
-            owner_subject="owner-123",
             shards=1,
             replicas=0,
             bulk_chunk_size=100,
@@ -111,55 +109,45 @@ def test_gold_index_creation_reuses_compatible_mapping() -> None:
     assert ensure_gold_index(
         client,
         index_name="media-catalog-research-build",
-        owner_subject="owner-123",
         shards=1,
         replicas=0,
     )
     assert not ensure_gold_index(
         client,
         index_name="media-catalog-research-build",
-        owner_subject="owner-123",
         shards=1,
         replicas=0,
     )
     metadata = client.indices.created["media-catalog-research-build"]["mappings"][
         "_meta"
     ]
-    assert metadata["ownerSubject"] == "owner-123"
-    with pytest.raises(RuntimeError, match="owner"):
-        ensure_gold_index(
-            client,
-            index_name="media-catalog-research-build",
-            owner_subject="owner-456",
-            shards=1,
-            replicas=0,
-        )
+    assert metadata["mappingDigest"] == MAPPING_DIGEST
+    assert "ownerSubject" not in metadata
 
 
-def test_gold_index_owner_validation_rejects_mixed_documents() -> None:
+def test_gold_index_contents_validation_rejects_mixed_release_plans() -> None:
     client = FakeClient()
     ensure_gold_index(
         client,
         index_name="media-catalog-research-build",
-        owner_subject="owner-123",
         shards=1,
         replicas=0,
     )
     client.total_count = 2
-    client.owner_count = 1
-    with pytest.raises(RuntimeError, match="document owners"):
-        validate_gold_index_owner(
+    client.filtered_count = 1
+    with pytest.raises(RuntimeError, match="another release plan"):
+        validate_gold_index_contents(
             client,
             index_name="media-catalog-research-build",
-            owner_subject="owner-123",
+            release_plan_id="sha256:" + ("a" * 64),
             expected_document_count=2,
         )
-    client.owner_count = 2
+    client.filtered_count = 2
     assert (
-        validate_gold_index_owner(
+        validate_gold_index_contents(
             client,
             index_name="media-catalog-research-build",
-            owner_subject="owner-123",
+            release_plan_id="sha256:" + ("a" * 64),
             expected_document_count=2,
         )
         == 2
@@ -179,7 +167,6 @@ def test_gold_index_manifest_binds_release_commit() -> None:
     config_identity = gold_index_config_identity(
         read_alias=RESEARCH_READ_ALIAS,
         index_prefix=RESEARCH_INDEX_PREFIX,
-        owner_subject="owner-123",
         shards=1,
         replicas=0,
         bulk_chunk_size=100,
@@ -189,7 +176,6 @@ def test_gold_index_manifest_binds_release_commit() -> None:
     manifest = GoldIndexBuildManifest(
         build_id="b" * 64,
         release_plan_id="sha256:" + ("c" * 64),
-        owner_subject="owner-123",
         context_id="research",
         release_commit=reference,
         table_snapshot_ids={
@@ -211,11 +197,18 @@ def test_gold_index_manifest_binds_release_commit() -> None:
         completed_at="2026-09-19T00:00:00Z",
     )
     assert manifest == type(manifest).model_validate_json(manifest.json_bytes())
-    invalid = manifest.model_copy(
-        update={"owner_subject": "owner-456"},
-    ).model_dump(mode="python")
+    with pytest.raises(ValueError, match="research index family"):
+        GoldIndexBuildManifest.model_validate(
+            manifest.model_copy(
+                update={"alias": "media-catalog-wrong-alias"}
+            ).model_dump(mode="python")
+        )
     with pytest.raises(ValueError, match="config identity"):
-        GoldIndexBuildManifest.model_validate(invalid)
+        GoldIndexBuildManifest.model_validate(
+            manifest.model_copy(
+                update={"config_digest": "sha256:" + ("0" * 64)}
+            ).model_dump(mode="python")
+        )
 
 
 class _Transport:
@@ -312,7 +305,6 @@ def test_partition_receipt_is_immutable_and_content_bound(tmp_path: Path) -> Non
     config = gold_index_config_identity(
         read_alias=RESEARCH_READ_ALIAS,
         index_prefix=RESEARCH_INDEX_PREFIX,
-        owner_subject="owner-123",
         shards=1,
         replicas=0,
         bulk_chunk_size=100,
@@ -358,7 +350,6 @@ def test_affected_entity_manifest_is_sorted_unique_and_explicit(
     release = _release_reference(tmp_path / "release.json")
     manifest = GoldAffectedEntityManifest(
         release_plan_id="sha256:" + ("1" * 64),
-        owner_subject="owner-123",
         release_commit=release,
         base_index="media-catalog-research-base",
         base_release_plan_id="sha256:" + ("2" * 64),
@@ -394,7 +385,6 @@ class _IncrementalIndices:
                 "mappings": {
                     "_meta": {
                         "mappingDigest": MAPPING_DIGEST,
-                        "ownerSubject": "owner-123",
                     }
                 }
             }
@@ -469,7 +459,6 @@ def test_incremental_baseline_copies_to_new_index_and_resumes(
     target_release = "sha256:" + ("1" * 64)
     affected = GoldAffectedEntityManifest(
         release_plan_id=target_release,
-        owner_subject="owner-123",
         release_commit=release,
         base_index="media-catalog-research-base",
         base_release_plan_id="sha256:" + ("2" * 64),
@@ -480,7 +469,6 @@ def test_incremental_baseline_copies_to_new_index_and_resumes(
     config = gold_index_config_identity(
         read_alias=RESEARCH_READ_ALIAS,
         index_prefix=RESEARCH_INDEX_PREFIX,
-        owner_subject="owner-123",
         shards=1,
         replicas=0,
         bulk_chunk_size=100,

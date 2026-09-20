@@ -166,7 +166,6 @@ def test_gold_resolution_selects_sets_and_preserves_conflicts() -> None:
     assert len(draft.relations) == 1
 
     plan = build_gold_release_plan(
-        owner_subject="owner-123",
         policy_context=_context(),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},

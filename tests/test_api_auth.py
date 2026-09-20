@@ -12,7 +12,6 @@ from video_media_catalog.api_auth import (
     AuthorizationError,
     OIDCConfig,
     OIDCJWTVerifier,
-    OwnerAuthorizationError,
     Principal,
     ResearchScopeAuthorizationError,
     authorize_research_principal,
@@ -174,25 +173,13 @@ def test_oidc_enforces_configured_required_scope(oidc_keys) -> None:
     assert "catalog.read" in principal.scopes
 
 
-def test_research_authorization_requires_exact_owner_and_governance_scope() -> None:
+def test_research_authorization_requires_governance_scope() -> None:
     principal = Principal(
-        subject="owner-123",
+        subject="researcher-a",
         scopes=frozenset({"governance.read"}),
     )
-    assert (
-        authorize_research_principal(
-            principal,
-            owner_subject="owner-123",
-        )
-        == principal
-    )
-    with pytest.raises(OwnerAuthorizationError):
-        authorize_research_principal(
-            principal,
-            owner_subject="OWNER-123",
-        )
+    assert authorize_research_principal(principal) == principal
     with pytest.raises(ResearchScopeAuthorizationError):
         authorize_research_principal(
-            Principal(subject="owner-123", scopes=frozenset({"catalog.read"})),
-            owner_subject="owner-123",
+            Principal(subject="researcher-b", scopes=frozenset({"catalog.read"})),
         )

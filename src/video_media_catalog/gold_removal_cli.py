@@ -27,7 +27,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--rights-profile-json", type=Path, required=True)
     parser.add_argument("--source-product-id", required=True)
-    parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--effective-at", required=True)
     parser.add_argument("--planned-at", required=True)
     parser.add_argument("--reason", required=True)
@@ -107,7 +106,6 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ]
     )
     plan = build_source_removal_plan(
-        owner_subject=parsed.owner_subject,
         rights_fence=fence,
         impact=impact,
         purge_targets=targets,

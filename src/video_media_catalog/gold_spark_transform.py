@@ -835,7 +835,6 @@ def build_distributed_gold(
     visible_silver: dict[str, Any],
     registry: SourceRegistrySnapshot,
     policy_context: ReleasePolicyContext,
-    owner_subject: str,
     field_policy: GoldResolutionPolicy,
     committed_run_ids: tuple[str, ...] = (),
     committed_runs: Any | None = None,
@@ -1305,7 +1304,6 @@ def build_distributed_gold(
             "community_gold_conflict": conflict_count,
         }
         plan = build_gold_release_plan(
-            owner_subject=owner_subject,
             policy_context=policy_context,
             committed_run_ids=committed_run_ids,
             silver_epoch_id=silver_epoch_id,

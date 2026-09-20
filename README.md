@@ -18,7 +18,7 @@ Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重
 
 ## Community catalog v2 foundation
 
-方案 2 使用供应商中立的 v2 基础契约，把不同许可来源统一到 owner-only
+方案 2 使用供应商中立的 v2 基础契约，把不同许可来源统一到共享授权的
 research 目录，同时保留逐来源 policy 门禁：
 
 - `source_registry.py`：区分 source system、product、ID namespace、native
@@ -31,7 +31,7 @@ research 目录，同时保留逐来源 policy 门禁：
   evidence、可逆 decision、membership、redirect 和全部 v1 key；
 - `attribution.py`：为 CC BY/BY-SA 发布生成确定性、可审计的来源与许可清单；
 - `community_release.py`：定义 release 边界；serving Gold 固定为
-  research，并绑定 owner、exact input/policy/quality identity。
+  research，并绑定 exact input/policy/quality identity。
 
 V2 不创建独立基础设施：Silver、Gold、EMR、S3、Glue、IAM 和 OpenSearch
 均复用当前 10 万基线资源。默认 Glue namespace 为 `video_media_catalog`；
@@ -419,7 +419,6 @@ video-media-catalog-gold-spark \
   --committed-at 2026-09-20T01:45:00Z \
   --build-mode release \
   --image-digest sha256:<image-hex> \
-  --owner-subject <exact-oidc-sub> \
   --warehouse s3://bucket/catalog-warehouse \
   --aws-region us-east-1
 ```
@@ -450,8 +449,8 @@ video-media-catalog-iceberg-maintenance \
 过期窗口的 snapshot 都会令计划 fail closed。
 
 Gold v2 只发布一个 `research` context，不再生成平行 release。release plan、
-release commit 和 index build manifest 都绑定同一个
-精确 OIDC `sub`：
+release commit 和 index build manifest 都绑定该共享 research context，
+不再绑定固定 owner subject：
 
 - `identity_resolution.py`：精确匹配只接受唯一候选，未匹配 source node 分配一次
   内部 UUIDv7，歧义进入 conflict，membership/redirect 可按 as-of 重放；
@@ -485,8 +484,8 @@ release commit 和 index build manifest 都绑定同一个
 [`contracts/parquet/community_catalog_gold.v2.md`](contracts/parquet/community_catalog_gold.v2.md)。
 `video-media-catalog-gold-spark` 验证 immutable
 `CommunitySilverSnapshotSet`，按列出的 committed runs time-travel Silver，
-发布 quality/attribution 对象并 commit Gold。`--owner-subject` 为必填参数；
-不再接受可切换的 context/audience/allowed-zone 参数。v2 使用唯一 research
+发布 quality/attribution 对象并 commit Gold。不再接受可切换的
+context/audience/allowed-zone 参数，也不再要求固定 owner subject。v2 使用唯一 research
 OpenSearch family，不替换 v1：
 
 候选 backfill 可使用 `--build-mode candidate-backfill`。FAILED 时 CLI 会返回并
@@ -500,7 +499,6 @@ Source termination/removal 使用独立 dry-run-first planner。rights profile J
 video-media-catalog-gold-removal \
   --rights-profile-json /secure/control/tmdb-rights.json \
   --source-product-id tmdb-research \
-  --owner-subject <exact-oidc-sub> \
   --effective-at 2026-09-20T02:00:00Z \
   --planned-at 2026-09-20T01:50:00Z \
   --reason "terms terminated" \
@@ -531,7 +529,6 @@ video-media-catalog-gold-index \
   --manifest-prefix s3://bucket/gold-index-builds \
   --completed-at 2026-09-19T00:00:00Z \
   --image-digest sha256:<hex> \
-  --owner-subject <exact-oidc-sub> \
   --catalog-type glue \
   --warehouse s3://bucket/community-warehouse \
   --opensearch-endpoint https://search.example.com \
@@ -554,7 +551,7 @@ titles/identifiers/attributes/relation summary 外，还提供稳定 UI 契约�
 
 完整 assertions 和 relation edges 仍留在 Iceberg；当前 Silver 没有独立
 Citation table，因此此切片稳定暴露 citation keys 与 source record/path 摘要。
-当前仓库没有 UI 源码，因此本切片只发布以上稳定 API 契约。v2 owner-only 路由为：
+当前仓库没有 UI 源码，因此本切片只发布以上稳定 API 契约。v2 共享授权 research 路由为：
 
 - `GET /api/v2/research/search`
 - `GET /api/v2/research/entities/{entityKey}`
@@ -563,17 +560,18 @@ Citation table，因此此切片稳定暴露 citation keys 与 source record/pat
 - `GET /api/v2/research/identity-curation/requests/{requestId}`
 - `GET /api/v2/research/identity-curation/requests/{requestId}/manifest`
 
-review routes 复用同一个 OIDC verifier、`governance.read` scope 与 exact owner
-subject。它们只消费 `IdentityReviewReader` 的 status/manifest/conflict
-只读投影；API 不提供 POST，也不获得 S3/Silver 写权限。curation request 的
-提交和执行仅走上述 control-plane CLI，部署方可把结果投影到现有只读边界。
+review routes 复用同一个 OIDC verifier 与 `governance.read` scope，向所有
+通过鉴权的调用方暴露同一份共享队列。它们只消费 `IdentityReviewReader` 的
+status/manifest/conflict 只读投影；API 不提供 POST，也不获得 S3/Silver
+写权限。curation request 的提交和执行仅走上述 control-plane CLI，部署方可把
+结果投影到现有只读边界。operator subject 仅作为 audit 字段保留。
 
 v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和过期时间，
 因此 alias 切换不会造成跨版本错页。TTL 使用
 `MEDIA_CATALOG_RESEARCH_CURSOR_TTL_SECONDS`；index/alias 名称固定，不能切回
-community/public family。每个 v2 research 请求除 `governance.read` 外，还必须
-满足 `sub == MEDIA_CATALOG_OIDC_OWNER_SUBJECT`（也接受部署环境名
-`OIDC_OWNER_SUBJECT`）。v1 alias 和 API 契约不变。
+community/public family。每个 v2 research 请求必须持有有效 Bearer token，
+并包含 `governance.read`；无/坏 token 返回 401，缺 scope 返回 403。查询不再
+按 owner 过滤。v1 alias 和 API 契约不变。
 
 Gold 全量索引默认把投影按 `entityKey` 稳定重分为 32 个 partition，每个 Spark
 task 内使用 2 个独立 SigV4 OpenSearch client 并发发送。`--bulk-partitions` 与
@@ -592,7 +590,7 @@ mapping/config/image digest、目标 concrete index、partition 数、输入数�
 
 - Gold entity count 等于投影文档数；
 - 成功 bulk 文档数等于 Gold entity count，失败数为零；
-- concrete index 的总数、owner 数及目标 `releasePlanId` 数均等于 Gold entity
+- concrete index 的总数及目标 `releasePlanId` 数均等于 Gold entity
   count。
 
 核对失败不会写完成 manifest，也不会切换 alias。完成 manifest 记录上述计数和
@@ -600,7 +598,7 @@ mapping/config/image digest、目标 concrete index、partition 数、输入数�
 
 affected-entity 增量路径默认关闭。只有显式传入 `--enable-incremental` 及完整的
 immutable `--affected-entity-manifest-*` ObjectRef 才会启用。manifest 提供排序、
-去重且互斥的 `UPSERT`/`DELETE` entity 操作，并绑定目标 release commit、owner、
+去重且互斥的 `UPSERT`/`DELETE` entity 操作，并绑定目标 release commit、
 base concrete index、base release 和 base count。实现会 server-side copy 到新的
 versioned index，统一更新 release provenance，再对受影响实体执行有 receipt 的
 upsert/delete；旧 concrete index 不变，因此已有 v2 cursor 继续指向不可变旧版本。
@@ -1075,14 +1073,12 @@ MEDIA_CATALOG_OIDC_ISSUER=https://issuer.example
 MEDIA_CATALOG_OIDC_JWKS_URI=https://issuer.example/.well-known/jwks.json
 MEDIA_CATALOG_OIDC_AUDIENCE=media-catalog-api
 MEDIA_CATALOG_OIDC_REQUIRED_SCOPE=governance.read
-MEDIA_CATALOG_OIDC_OWNER_SUBJECT=<exact-oidc-sub>
 AWS_REGION=us-east-1
 ```
 
 应用也接受 GitOps 的固定未加前缀契约：
 `OPENSEARCH_ENDPOINT`、`REGION`、`INDEX_ALIAS`、`OIDC_ISSUER`、
-`OIDC_JWKS_URI`、`OIDC_AUDIENCE`、`OIDC_REQUIRED_SCOPE`、
-`OIDC_OWNER_SUBJECT`。
+`OIDC_JWKS_URI`、`OIDC_AUDIENCE`、`OIDC_REQUIRED_SCOPE`。
 issuer 必须为 HTTPS；JWKS 可为 HTTPS，或仅对 hostname 等于
 `svc.cluster.local`/以 `.svc.cluster.local` 结尾的集群服务允许 HTTP。
 所有 OIDC URL 都拒绝 credentials、query 和 fragment。
@@ -1108,15 +1104,14 @@ HTTP 契约：
 - `GET /api/v1/catalog/entities/{entityKey}`：按稳定实体键读取。
 - `GET /api/v1/catalog/external-identifiers/{scheme}/{value}`：精确解析并返回
   单个实体；零条为 404，多条为 409。
-- `GET /api/v2/research/search`：owner-only research 搜索，支持
+- `GET /api/v2/research/search`：共享 research 搜索，支持
   `entityLevel`、`entityKind`、`language`、`hasConflicts` 和 concrete-index
   cursor。
 - `GET /api/v2/research/entities/{entityKey}`：返回来源 badges、获胜
   assertion/citation keys、rights/attribution 与 conflict summaries。
 - `GET /api/v2/research/external-identifiers/{namespace}/{value}`：在唯一
   research alias 中精确解析。
-- `GET /api/v2/research/identity-conflicts`：读取 owner-only identity review
-  queue。
+- `GET /api/v2/research/identity-conflicts`：读取共享 identity review queue。
 - `GET /api/v2/research/identity-curation/requests/{requestId}` 与
   `/manifest`：读取 immutable request 状态和 manifest。API 无对应写路由；
   submit/apply 由 batch control-plane CLI 完成。

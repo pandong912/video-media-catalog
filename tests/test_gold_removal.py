@@ -55,7 +55,6 @@ def _targets():
 
 def test_removal_planner_defaults_to_dry_run_with_full_impact() -> None:
     plan = build_source_removal_plan(
-        owner_subject="owner-123",
         rights_fence=_fence(),
         impact=_impact(),
         purge_targets=_targets(),
@@ -70,6 +69,8 @@ def test_removal_planner_defaults_to_dry_run_with_full_impact() -> None:
     }
     assert plan.impact.affected_assertion_count == 12
     assert plan == type(plan).model_validate_json(plan.json_bytes())
+    assert plan.schema_version == "2.1"
+    assert "ownerSubject" not in plan.model_dump(mode="json", by_alias=True)
 
 
 def test_executable_removal_requires_confirmation_and_component_allowlist() -> None:
@@ -81,7 +82,6 @@ def test_executable_removal_requires_confirmation_and_component_allowlist() -> N
         )
     with pytest.raises(ValueError, match="exact source product"):
         build_source_removal_plan(
-            owner_subject="owner-123",
             rights_fence=_fence(),
             impact=_impact(),
             purge_targets=_targets(),
@@ -91,7 +91,6 @@ def test_executable_removal_requires_confirmation_and_component_allowlist() -> N
         )
     with pytest.raises(ValueError, match="outside"):
         build_source_removal_plan(
-            owner_subject="owner-123",
             rights_fence=_fence(),
             impact=_impact(),
             purge_targets=_targets(),
@@ -104,7 +103,6 @@ def test_executable_removal_requires_confirmation_and_component_allowlist() -> N
 
 def test_removal_execution_returns_immutable_receipt() -> None:
     plan = build_source_removal_plan(
-        owner_subject="owner-123",
         rights_fence=_fence(),
         impact=_impact(),
         purge_targets=_targets(),
@@ -142,8 +140,6 @@ def test_removal_cli_is_dry_run_by_default() -> None:
             "/tmp/profile.json",
             "--source-product-id",
             "tmdb-research",
-            "--owner-subject",
-            "owner-123",
             "--effective-at",
             TIMESTAMP,
             "--planned-at",

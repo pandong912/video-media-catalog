@@ -21,7 +21,6 @@ def _counts(**overrides) -> dict[str, int]:
 def test_gold_policy_and_plan_are_deterministic() -> None:
     policy = research_policy()
     plan = build_gold_release_plan(
-        owner_subject="owner-123",
         policy_context=research_context(
             as_of="2026-09-19T00:00:00Z",
         ),
@@ -49,7 +48,12 @@ def test_gold_policy_and_plan_are_deterministic() -> None:
         zone.value for zone in plan.policy_context.allowed_zones
     }
     assert plan.policy_context.context_id == "research"
-    assert plan.owner_subject == "owner-123"
+    assert plan.schema_version == "2.1"
+    assert "ownerSubject" not in plan.model_dump(mode="json", by_alias=True)
+    with pytest.raises(ValueError):
+        type(plan).model_validate(
+            {**plan.model_dump(mode="python"), "owner_subject": "legacy-owner"}
+        )
     invalid = plan.model_dump(mode="python")
     invalid["policy_context"] = plan.policy_context.model_copy(
         update={"context_id": "public-sharealike"}
@@ -78,7 +82,6 @@ def test_gold_field_binds_scope_status_and_lineage() -> None:
 def test_gold_plan_binds_epoch_summary_without_historical_run_list() -> None:
     policy = research_policy()
     plan = build_gold_release_plan(
-        owner_subject="owner-123",
         policy_context=research_context(
             as_of="2026-09-19T00:00:00Z",
         ),

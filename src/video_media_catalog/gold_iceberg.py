@@ -233,7 +233,6 @@ class CommunityGoldTables:
         }
         commit = build_gold_release_commit(
             release_plan_id=plan.release_plan_id,
-            owner_subject=plan.owner_subject,
             context_id=plan.policy_context.context_id,
             committed_at=committed,
             table_counts=counts,

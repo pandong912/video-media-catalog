@@ -27,14 +27,8 @@ class IdentityCurationRequestState(StrEnum):
 
 
 class IdentityConflictQueueItem(V2ContractModel):
-    owner_subject: str
     snapshot_set_id: str
     conflict: IdentityConflict
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value, label="owner_subject")
 
     @field_validator("snapshot_set_id")
     @classmethod
@@ -116,7 +110,6 @@ class IdentityReviewReader(Protocol):
     def list_conflicts(
         self,
         *,
-        owner_subject: str,
         limit: int,
         cursor: str | None,
     ) -> IdentityConflictQueuePage: ...
@@ -124,14 +117,12 @@ class IdentityReviewReader(Protocol):
     def get_request(
         self,
         *,
-        owner_subject: str,
         request_id: str,
     ) -> IdentityCurationRequestStatus | None: ...
 
     def get_manifest(
         self,
         *,
-        owner_subject: str,
         request_id: str,
     ) -> IdentityCurationManifest | None: ...
 
@@ -142,11 +133,9 @@ class EmptyIdentityReviewReader:
     def list_conflicts(
         self,
         *,
-        owner_subject: str,
         limit: int,
         cursor: str | None,
     ) -> IdentityConflictQueuePage:
-        require_oidc_subject(owner_subject)
         if not 1 <= limit <= 100 or (cursor is not None and len(cursor) > 4_096):
             raise ValueError("empty review reader received invalid pagination")
         return IdentityConflictQueuePage(items=())
@@ -154,19 +143,15 @@ class EmptyIdentityReviewReader:
     def get_request(
         self,
         *,
-        owner_subject: str,
         request_id: str,
     ) -> IdentityCurationRequestStatus | None:
-        require_oidc_subject(owner_subject)
         require_sha256(request_id, label="request_id")
         return None
 
     def get_manifest(
         self,
         *,
-        owner_subject: str,
         request_id: str,
     ) -> IdentityCurationManifest | None:
-        require_oidc_subject(owner_subject)
         require_sha256(request_id, label="request_id")
         return None

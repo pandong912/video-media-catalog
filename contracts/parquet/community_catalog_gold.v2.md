@@ -14,7 +14,6 @@ registered policy explicitly permits the required research actions.
 Before Gold rows are written, the builder publishes an immutable release plan:
 
 - `release_plan_id`;
-- exact owner OIDC subject;
 - policy context, as-of time, territories, and allowed policy zones;
 - either the bounded legacy v2 committed Silver run IDs, or the v3 Silver
   `epochId` plus committed-run count/digest;
@@ -26,8 +25,7 @@ Before Gold rows are written, the builder publishes an immutable release plan:
 
 Every Gold row contains `release_plan_id`. A final release commit is visible
 only after all expected rows are present and quality gates pass. The release
-plan and final release commit both bind `owner_subject` and the literal
-`context_id = research`.
+plan and final release commit both bind the literal `context_id = research`.
 
 For a v3 epoch, Gold constructs the committed-runs relation directly from the
 pinned commit snapshot and joins it to exact data/run snapshots. The release
@@ -202,8 +200,7 @@ report identity.
 A source termination creates an immutable rights fence before any purge or
 source priority decision. The dry-run-first removal plan binds:
 
-- exact owner, source product, policy digest, effective time, and blocked
-  actions;
+- exact source product, policy digest, effective time, and blocked actions;
 - affected assertion counts, entity count, release plans, and indexes;
 - required re-Gold and re-index actions;
 - restricted raw and derived purge target URIs.
@@ -250,7 +247,7 @@ input digest is a hard conflict.
 Before an index build can be completed, Gold entity count, projected document
 count, successful action count, zero failed actions, and concrete index document
 count must reconcile. The concrete index must additionally contain only the
-bound owner and target release plan. Any drift prevents alias publication.
+bound target release plan and context. Any drift prevents alias publication.
 
 Documents contain bounded titles, external identifiers, selected attributes,
 relation counts, `sourceBadges`, `winningAssertions` with citation keys,
@@ -273,14 +270,15 @@ does not fetch or store Douban titles, ratings, reviews, or images, and lineage
 and rights remain Wikidata.
 
 Release commit, index config digest, and index build manifest bind the exact
-owner OIDC subject. Serving routes are only:
+research release identity. Serving routes are only:
 
 - `GET /api/v2/research/search`;
 - `GET /api/v2/research/entities/{entityKey}`;
 - `GET /api/v2/research/external-identifiers/{namespace}/{value}`.
 
-Every v2 route requires `governance.read` and exact equality with the configured
-owner `sub`. Building or switching the research alias never modifies
+Every v2 route requires bearer-token authentication and the fixed
+`governance.read` scope. All authorized principals share one research catalog.
+Building or switching the research alias never modifies
 `media-catalog-entities-read`.
 
 ## Optional affected-entity indexing
@@ -288,7 +286,7 @@ owner `sub`. Building or switching the research alias never modifies
 Incremental indexing is disabled by default and requires an explicit immutable
 affected-entity manifest. The manifest contains:
 
-- target release plan, owner, context, and exact release-commit `ObjectRef`;
+- target release plan, context, and exact release-commit `ObjectRef`;
 - base concrete index, base release plan, and base document count;
 - a unique entity-key-sorted list of `UPSERT` or `DELETE` operations;
 - an RFC3339 generation timestamp.
@@ -297,7 +295,7 @@ The incremental path never mutates the concrete index currently serving the
 read alias. It copies the manifest-bound base into the target release's new
 versioned index, updates release provenance, applies partitioned upsert/delete
 actions, verifies every affected ID, then performs the same full target
-owner/release/count checks before an atomic alias switch. This preserves the v2
+release/count checks before an atomic alias switch. This preserves the v2
 cursor contract: cursors already issued against the base continue querying that
 unchanged concrete index. The next weekly full rebuild remains authoritative.
 

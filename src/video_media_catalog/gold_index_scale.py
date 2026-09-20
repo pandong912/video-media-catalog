@@ -65,7 +65,6 @@ def synthetic_gold_document(sequence: int) -> dict[str, Any]:
         "status": "ACTIVE",
         "releasePlanId": "sha256:" + ("a" * 64),
         "contextId": "research",
-        "ownerSubject": "synthetic-sizing-owner",
         "displayName": title,
         "displayLanguage": "en",
         "titles": [

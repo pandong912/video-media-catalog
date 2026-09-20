@@ -25,8 +25,6 @@ def _arguments() -> list[str]:
         "2026-09-19T00:00:00Z",
         "--image-digest",
         "sha256:" + ("b" * 64),
-        "--owner-subject",
-        "owner-123",
         "--catalog-type",
         "hadoop",
         "--warehouse",

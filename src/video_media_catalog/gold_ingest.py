@@ -12,7 +12,6 @@ from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
-    require_oidc_subject,
     require_rfc3339,
     require_sha256,
 )
@@ -49,10 +48,9 @@ def _validate_object_ref(
 
 
 class GoldReleaseCommit(V2ContractModel):
-    schema_version: str = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     commit_key: str
     release_plan_id: str
-    owner_subject: str
     context_id: Literal["research"] = "research"
     committed_at: str
     table_counts: dict[str, int]
@@ -64,11 +62,6 @@ class GoldReleaseCommit(V2ContractModel):
     @classmethod
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
 
     @field_validator("committed_at")
     @classmethod
@@ -113,7 +106,7 @@ class GoldReleaseCommit(V2ContractModel):
                 raise ValueError(f"{table} has rows but no snapshot ID")
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
-                "community-gold-release-commit-v2",
+                "community-gold-release-commit-v3",
                 _commit_identity(self),
             )
             if self.commit_key != expected:
@@ -125,7 +118,6 @@ def _commit_identity(commit: GoldReleaseCommit) -> dict[str, Any]:
     return {
         "schemaVersion": commit.schema_version,
         "releasePlanId": commit.release_plan_id,
-        "ownerSubject": commit.owner_subject,
         "contextId": commit.context_id,
         "committedAt": commit.committed_at,
         "tableCounts": commit.table_counts,
@@ -146,7 +138,7 @@ def build_gold_release_commit(**values: Any) -> GoldReleaseCommit:
     )
     normalized = provisional.model_dump(mode="python")
     normalized["commit_key"] = deterministic_key(
-        "community-gold-release-commit-v2",
+        "community-gold-release-commit-v3",
         _commit_identity(provisional),
     )
     return GoldReleaseCommit.model_validate(normalized)

@@ -176,7 +176,6 @@ def test_quality_report_blocks_governance_failures_in_backfill_mode() -> None:
         community_gold_conflict=1,
     )
     plan = build_gold_release_plan(
-        owner_subject="owner-123",
         policy_context=research_context(as_of=TIMESTAMP),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},

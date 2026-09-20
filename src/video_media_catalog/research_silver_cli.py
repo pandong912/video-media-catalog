@@ -1,4 +1,4 @@
-"""Production Spark stages for the owner-only research Silver chain."""
+"""Production Spark stages for the shared authenticated research Silver chain."""
 
 from __future__ import annotations
 

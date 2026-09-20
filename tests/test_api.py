@@ -77,7 +77,6 @@ class FakeOpenSearch:
             "status": "ACTIVE",
             "releasePlanId": "sha256:" + ("2" * 64),
             "contextId": "research",
-            "ownerSubject": "test-owner",
             "displayName": "Gold Example",
             "displayLanguage": "en",
             "titles": [
@@ -217,7 +216,6 @@ def authenticated_settings() -> APISettings:
         oidc_issuer="https://issuer.example",
         oidc_jwks_uri="https://issuer.example/jwks.json",
         oidc_audience="media-catalog-api",
-        oidc_owner_subject="user-1",
     )
 
 
@@ -230,16 +228,22 @@ def test_production_settings_fail_closed_without_oidc() -> None:
         )
 
 
-def test_settings_require_one_owner_subject_when_auth_is_enabled() -> None:
-    with pytest.raises(ValueError, match="owner subject"):
+def test_settings_require_oidc_when_auth_is_enabled() -> None:
+    with pytest.raises(ValueError, match="OIDC"):
         APISettings(
             opensearch_endpoint="https://search.example",
             cursor_secret="x" * 32,
             aws_region="us-east-1",
-            oidc_issuer="https://issuer.example",
-            oidc_jwks_uri="https://issuer.example/jwks.json",
-            oidc_audience="media-catalog-api",
         )
+    settings = APISettings(
+        opensearch_endpoint="https://search.example",
+        cursor_secret="x" * 32,
+        aws_region="us-east-1",
+        oidc_issuer="https://issuer.example",
+        oidc_jwks_uri="https://issuer.example/jwks.json",
+        oidc_audience="media-catalog-api",
+    )
+    assert settings.oidc_issuer == "https://issuer.example"
 
 
 def test_settings_accept_infrastructure_environment_contract(
@@ -254,16 +258,12 @@ def test_settings_accept_infrastructure_environment_contract(
         "http://logto.logto.svc.cluster.local:3001/oidc/jwks",
     )
     monkeypatch.setenv("OIDC_AUDIENCE", "media-catalog-api")
-    monkeypatch.setenv("OIDC_OWNER_SUBJECT", "owner-123")
-    monkeypatch.setenv("OIDC_REQUIRED_SCOPE", "catalog.read")
     monkeypatch.setenv("MEDIA_CATALOG_CURSOR_SECRET", "x" * 32)
 
     settings = APISettings.from_env()
 
     assert settings.opensearch_endpoint == "https://search.example"
-    assert settings.oidc_required_scope == "catalog.read"
-    assert settings.oidc_owner_subject == "owner-123"
-    assert settings.oidc_config().required_scope == "catalog.read"
+    assert settings.oidc_config().required_scope == "governance.read"
 
 
 def test_health_is_public_while_catalog_requires_bearer() -> None:
@@ -291,24 +291,11 @@ def test_health_is_public_while_catalog_requires_bearer() -> None:
     assert verifier.tokens == ["signed-token"]
 
 
-@pytest.mark.parametrize(
-    ("verifier", "expected_code"),
-    [
-        (AcceptingVerifier(subject="another-user"), "OWNER_ONLY"),
-        (
-            AcceptingVerifier(scopes=frozenset({"profile"})),
-            "INSUFFICIENT_SCOPE",
-        ),
-    ],
-)
-def test_v2_research_routes_require_scope_and_exact_owner(
-    verifier: AcceptingVerifier,
-    expected_code: str,
-) -> None:
+def test_v2_research_routes_require_governance_scope() -> None:
     app = create_app(
         authenticated_settings(),
         client=FakeOpenSearch(),
-        verifier=verifier,
+        verifier=AcceptingVerifier(scopes=frozenset({"profile"})),
     )
 
     with TestClient(app) as client:
@@ -318,7 +305,7 @@ def test_v2_research_routes_require_scope_and_exact_owner(
         )
 
     assert denied.status_code == 403
-    assert denied.json()["code"] == expected_code
+    assert denied.json()["code"] == "INSUFFICIENT_SCOPE"
 
 
 def test_openapi_documents_bearer_security_and_public_health() -> None:
@@ -701,9 +688,9 @@ def test_research_search_cursor_stays_on_concrete_index() -> None:
         2.5,
         ENTITY_KEY,
     ]
-    assert search.search_requests[0]["body"]["query"]["bool"]["filter"][0] == {
-        "term": {"ownerSubject": "test-owner"}
-    }
+    filters = search.search_requests[0]["body"]["query"]["bool"]["filter"]
+    assert {"term": {"entityLevel": "SERIES"}} in filters
+    assert "ownerSubject" not in str(search.search_requests[0]["body"])
 
 
 def test_research_detail_and_external_identifier_use_research_alias() -> None:
@@ -726,14 +713,14 @@ def test_research_detail_and_external_identifier_use_research_alias() -> None:
     assert detail.status_code == 200
     assert detail.json()["releasePlanId"].startswith("sha256:")
     assert detail.json()["contextId"] == "research"
-    assert detail.json()["ownerSubject"] == "test-owner"
+    assert "ownerSubject" not in detail.json()
     assert detail.json()["sourceBadges"][0]["sourceProductId"] == ("tvmaze-public-api")
     assert detail.json()["rights"][0]["attributionText"].startswith("TV data")
     assert search.get_requests[0]["index"] == "media-catalog-research-read"
     assert external.status_code == 200
     filters = search.search_requests[0]["body"]["query"]["bool"]["filter"]
-    assert filters[0] == {"term": {"ownerSubject": "test-owner"}}
-    nested_filters = filters[1]["nested"]["query"]["bool"]["filter"]
+    assert "ownerSubject" not in str(search.search_requests[0]["body"])
+    nested_filters = filters[0]["nested"]["query"]["bool"]["filter"]
     assert nested_filters == [
         {"term": {"externalIdentifiers.namespace": "imdb-title"}},
         {"term": {"externalIdentifiers.value": "tt0000001"}},
@@ -813,16 +800,12 @@ def test_research_api_rebuilds_douban_urls_and_drops_injected_urls() -> None:
         "/api/v2/research/external-identifiers/imdb-title/tt0000001",
     ],
 )
-@pytest.mark.parametrize("document_owner", [None, "user-b"])
-def test_owner_a_api_rejects_owner_b_or_unowned_documents(
+@pytest.mark.parametrize("subject", ["user-a", "user-b"])
+def test_shared_research_catalog_allows_any_scoped_principal(
     path: str,
-    document_owner: str | None,
+    subject: str,
 ) -> None:
     search = FakeOpenSearch()
-    if document_owner is None:
-        search.gold_entity.pop("ownerSubject")
-    else:
-        search.gold_entity["ownerSubject"] = document_owner
     if not path.startswith("/api/v2/research/entities/"):
         search.search_responses = [
             {
@@ -836,7 +819,7 @@ def test_owner_a_api_rejects_owner_b_or_unowned_documents(
     app = create_app(
         authenticated_settings(),
         client=search,
-        verifier=AcceptingVerifier(subject="user-1"),
+        verifier=AcceptingVerifier(subject=subject),
     )
 
     with TestClient(app) as client:
@@ -845,42 +828,45 @@ def test_owner_a_api_rejects_owner_b_or_unowned_documents(
             headers={"Authorization": "Bearer signed-token"},
         )
 
-    assert response.status_code == 502
-    assert "Gold Example" not in response.text
-    assert "user-b" not in response.text
+    assert response.status_code == 200
+    assert "Gold Example" in response.text
+    if path == "/api/v2/research/search":
+        assert "ownerSubject" not in str(search.search_requests[0]["body"])
 
 
 @pytest.mark.parametrize(
     "path",
     [
         "/api/v2/research/search",
-        "/api/v2/research/external-identifiers/imdb-title/tt0000001",
+        f"/api/v2/research/entities/{ENTITY_KEY}",
     ],
 )
-def test_owner_a_api_rejects_mixed_owner_result_sets(path: str) -> None:
-    search = FakeOpenSearch()
-    owner_a = {**search.gold_entity, "ownerSubject": "user-1"}
-    owner_b = {**search.gold_entity, "ownerSubject": "user-b"}
-    search.search_responses = [
-        {
-            "timed_out": False,
-            "hits": {
-                "total": {"value": 2, "relation": "eq"},
-                "hits": [{"_source": owner_a}, {"_source": owner_b}],
-            },
-        }
-    ]
+def test_research_routes_reject_missing_token(path: str) -> None:
     app = create_app(
         authenticated_settings(),
-        client=search,
-        verifier=AcceptingVerifier(subject="user-1"),
+        client=FakeOpenSearch(),
+        verifier=AcceptingVerifier(),
+    )
+
+    with TestClient(app) as client:
+        missing = client.get(path)
+
+    assert missing.status_code == 401
+    assert missing.json()["code"] == "AUTHENTICATION_REQUIRED"
+
+
+def test_research_routes_reject_missing_governance_scope() -> None:
+    app = create_app(
+        authenticated_settings(),
+        client=FakeOpenSearch(),
+        verifier=AcceptingVerifier(scopes=frozenset({"catalog.read"})),
     )
 
     with TestClient(app) as client:
         response = client.get(
-            path,
+            "/api/v2/research/search",
             headers={"Authorization": "Bearer signed-token"},
         )
 
-    assert response.status_code == 502
-    assert "Gold Example" not in response.text
+    assert response.status_code == 403
+    assert response.json()["code"] == "INSUFFICIENT_SCOPE"

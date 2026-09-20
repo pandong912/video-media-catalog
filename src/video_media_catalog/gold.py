@@ -22,7 +22,6 @@ from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,
     require_https_url,
-    require_oidc_subject,
     require_rfc3339,
     require_sha256,
     require_slug,
@@ -493,9 +492,8 @@ def _validate_counts(value: dict[str, int]) -> dict[str, int]:
 
 
 class GoldReleasePlan(V2ContractModel):
-    schema_version: str = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     release_plan_id: str
-    owner_subject: str
     policy_context: ReleasePolicyContext
     committed_run_ids: tuple[str, ...] = ()
     silver_epoch_id: str | None = None
@@ -531,11 +529,6 @@ class GoldReleasePlan(V2ContractModel):
         if isinstance(value, bool):
             raise ValueError("committed_run_count must be a positive integer")
         return value
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
 
     @field_validator("committed_run_ids")
     @classmethod
@@ -591,7 +584,7 @@ class GoldReleasePlan(V2ContractModel):
             raise ValueError("Gold releases must use the single research context")
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
-                "community-gold-release-plan-v2",
+                "community-gold-release-plan-v3",
                 _plan_identity(self),
             )
             if self.release_plan_id != expected:
@@ -602,7 +595,6 @@ class GoldReleasePlan(V2ContractModel):
 def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
     identity = {
         "schemaVersion": plan.schema_version,
-        "ownerSubject": plan.owner_subject,
         "policyContext": plan.policy_context.model_dump(
             mode="json", by_alias=True, exclude_none=True
         ),
@@ -636,7 +628,7 @@ def build_gold_release_plan(**values: Any) -> GoldReleasePlan:
     )
     normalized = provisional.model_dump(mode="python")
     normalized["release_plan_id"] = deterministic_key(
-        "community-gold-release-plan-v2",
+        "community-gold-release-plan-v3",
         _plan_identity(provisional),
     )
     return GoldReleasePlan.model_validate(normalized)

@@ -31,7 +31,6 @@ from video_media_catalog.api_auth import (
     AuthorizationError,
     OIDCConfig,
     OIDCJWTVerifier,
-    OwnerAuthorizationError,
     Principal,
     ResearchScopeAuthorizationError,
     TokenVerifier,
@@ -78,7 +77,6 @@ from video_media_catalog.opensearch_client import (
     create_opensearch_client,
 )
 from video_media_catalog.search_index import READ_ALIAS
-from video_media_catalog.v2_contracts import require_oidc_subject
 
 _LANGUAGE = re.compile(r"^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$")
 _CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
@@ -145,8 +143,6 @@ class APISettings:
     oidc_issuer: str | None = None
     oidc_jwks_uri: str | None = None
     oidc_audience: str | None = None
-    oidc_required_scope: str = REQUIRED_SCOPE
-    oidc_owner_subject: str | None = None
     allow_insecure_opensearch: bool = False
 
     def __post_init__(self) -> None:
@@ -195,16 +191,12 @@ class APISettings:
                 self.oidc_issuer,
                 self.oidc_jwks_uri,
                 self.oidc_audience,
-                self.oidc_owner_subject,
             )
         ):
             raise ValueError(
-                "OIDC issuer, JWKS URI, audience, and owner subject are required "
-                "when auth is enabled"
+                "OIDC issuer, JWKS URI, and audience are required when auth is enabled"
             )
         if not self.auth_disabled:
-            assert self.oidc_owner_subject is not None
-            require_oidc_subject(self.oidc_owner_subject)
             self.oidc_config()
 
     @classmethod
@@ -264,16 +256,6 @@ class APISettings:
                 "MEDIA_CATALOG_OIDC_AUDIENCE",
             )
             or None,
-            oidc_required_scope=_environment_value(
-                "OIDC_REQUIRED_SCOPE",
-                "MEDIA_CATALOG_OIDC_REQUIRED_SCOPE",
-                default=REQUIRED_SCOPE,
-            ),
-            oidc_owner_subject=_environment_value(
-                "OIDC_OWNER_SUBJECT",
-                "MEDIA_CATALOG_OIDC_OWNER_SUBJECT",
-            )
-            or None,
             allow_insecure_opensearch=_environment_bool(
                 "MEDIA_CATALOG_ALLOW_INSECURE_OPENSEARCH"
             ),
@@ -295,7 +277,6 @@ class APISettings:
             issuer=self.oidc_issuer,
             jwks_uri=self.oidc_jwks_uri,
             audience=self.oidc_audience,
-            required_scope=self.oidc_required_scope,
         )
 
 
@@ -490,26 +471,6 @@ def _summary(
     }
 
 
-def _require_gold_owner(
-    source: dict[str, Any],
-    *,
-    principal_subject: str,
-    configured_owner_subject: str,
-) -> dict[str, Any]:
-    owner = source.get("ownerSubject")
-    if (
-        not isinstance(owner, str)
-        or owner != principal_subject
-        or owner != configured_owner_subject
-    ):
-        raise UpstreamFailure(
-            502,
-            "Bad Gateway",
-            "Research document owner does not match the API identity",
-        )
-    return source
-
-
 def _gold_identifier_urls(identifiers: list[Any]) -> list[Any]:
     result: list[Any] = []
     for identifier in identifiers:
@@ -548,7 +509,6 @@ def _gold_summary(source: dict[str, Any]) -> dict[str, Any]:
         "displayLanguage": source.get("displayLanguage"),
         "releasePlanId": source.get("releasePlanId"),
         "contextId": source.get("contextId"),
-        "ownerSubject": source.get("ownerSubject"),
         "conflictCount": source.get("conflictCount", 0),
         "externalIdentifiers": (
             _gold_identifier_urls(identifiers[:_SUMMARY_IDENTIFIER_LIMIT])
@@ -589,9 +549,6 @@ def create_app(
         ttl_seconds=settings.research_cursor_ttl_seconds,
         index_prefix=settings.research_index_prefix,
     )
-    research_owner_subject = require_oidc_subject(
-        settings.oidc_owner_subject or "test-owner"
-    )
     review_reader = review_reader or EmptyIdentityReviewReader()
     timeout_ms = int(settings.request_timeout_seconds * 1000)
 
@@ -630,19 +587,6 @@ def create_app(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    @app.exception_handler(OwnerAuthorizationError)
-    async def owner_authorization_problem(
-        request: Request, _: OwnerAuthorizationError
-    ) -> JSONResponse:
-        return _problem(
-            request,
-            status=403,
-            title="Forbidden",
-            detail="The research catalog is owner-only",
-            code="OWNER_ONLY",
-            retryable=False,
-        )
-
     @app.exception_handler(ResearchScopeAuthorizationError)
     async def research_scope_problem(
         request: Request, _: ResearchScopeAuthorizationError
@@ -664,7 +608,7 @@ def create_app(
             request,
             status=403,
             title="Forbidden",
-            detail=f"The {settings.oidc_required_scope} scope is required",
+            detail=f"The {REQUIRED_SCOPE} scope is required",
             code="INSUFFICIENT_SCOPE",
             retryable=False,
         )
@@ -737,7 +681,7 @@ def create_app(
     ) -> Principal:
         if settings.auth_disabled:
             return Principal(
-                subject=settings.oidc_owner_subject or "test-owner",
+                subject="test-principal",
                 scopes=frozenset({REQUIRED_SCOPE}),
             )
         if (
@@ -752,10 +696,7 @@ def create_app(
     def require_research_principal(
         principal=Depends(require_principal),  # noqa: B008
     ) -> Principal:
-        return authorize_research_principal(
-            principal,
-            owner_subject=settings.oidc_owner_subject or "test-owner",
-        )
+        return authorize_research_principal(principal)
 
     @app.get(
         "/openapi.json",
@@ -952,7 +893,7 @@ def create_app(
     @app.get(
         "/api/v2/research/search",
         tags=["research-v2"],
-        summary="Search the owner-only research catalog",
+        summary="Search the shared authenticated research catalog",
         response_model=GoldSearchResponse,
         responses=_AUTHENTICATED_ERRORS,
     )
@@ -1021,7 +962,6 @@ def create_app(
                 ),
                 body=build_gold_search_query(
                     parameters,
-                    owner_subject=research_owner_subject,
                     search_after=(state.sort if state is not None else None),
                     timeout_ms=timeout_ms,
                 ),
@@ -1029,16 +969,7 @@ def create_app(
             )
         )
         hits, total = _hits(response)
-        sources = [
-            _gold_entity_with_identifier_urls(
-                _require_gold_owner(
-                    _source(hit),
-                    principal_subject=principal.subject,
-                    configured_owner_subject=research_owner_subject,
-                )
-            )
-            for hit in hits
-        ]
+        sources = [_gold_entity_with_identifier_urls(_source(hit)) for hit in hits]
         next_cursor = None
         if len(hits) == page_size:
             indexes = {hit.get("_index") for hit in hits if isinstance(hit, dict)}
@@ -1068,7 +999,7 @@ def create_app(
     @app.get(
         "/api/v2/research/entities/{entityKey}",
         tags=["research-v2"],
-        summary="Get one owner-only research entity",
+        summary="Get one shared authenticated research entity",
         response_model=GoldCatalogEntity,
         responses={
             **_AUTHENTICATED_ERRORS,
@@ -1108,13 +1039,7 @@ def create_app(
                 "Bad Gateway",
                 "Research entity response is invalid",
             )
-        return _gold_entity_with_identifier_urls(
-            _require_gold_owner(
-                response["_source"],
-                principal_subject=principal.subject,
-                configured_owner_subject=research_owner_subject,
-            )
-        )
+        return _gold_entity_with_identifier_urls(response["_source"])
 
     @app.get(
         "/api/v2/research/external-identifiers/{namespace}/{value:path}",
@@ -1142,23 +1067,13 @@ def create_app(
                 body=build_gold_external_identifier_query(
                     namespace=namespace,
                     value=identifier,
-                    owner_subject=research_owner_subject,
                     timeout_ms=timeout_ms,
                 ),
                 timeout_seconds=settings.request_timeout_seconds,
             )
         )
         hits, total = _hits(response)
-        sources = [
-            _gold_entity_with_identifier_urls(
-                _require_gold_owner(
-                    _source(hit),
-                    principal_subject=principal.subject,
-                    configured_owner_subject=research_owner_subject,
-                )
-            )
-            for hit in hits
-        ]
+        sources = [_gold_entity_with_identifier_urls(_source(hit)) for hit in hits]
         if total["value"] == 0 or not hits:
             raise HTTPException(
                 status_code=404,
@@ -1174,7 +1089,7 @@ def create_app(
     @app.get(
         "/api/v2/research/identity-conflicts",
         tags=["identity-review-v2"],
-        summary="List the owner-only identity conflict review queue",
+        summary="List the shared authenticated identity conflict review queue",
         response_model=IdentityConflictQueuePage,
         responses=_AUTHENTICATED_ERRORS,
     )
@@ -1190,7 +1105,6 @@ def create_app(
         _validate_query_parameters(request, {"limit", "cursor"})
         try:
             page = review_reader.list_conflicts(
-                owner_subject=principal.subject,
                 limit=limit,
                 cursor=cursor,
             )
@@ -1200,16 +1114,6 @@ def create_app(
                 "Bad Gateway",
                 "Identity review projection is invalid",
             ) from exc
-        if any(
-            item.owner_subject != principal.subject
-            or item.owner_subject != research_owner_subject
-            for item in page.items
-        ):
-            raise UpstreamFailure(
-                502,
-                "Bad Gateway",
-                "Identity review owner does not match the API identity",
-            )
         return page
 
     @app.get(
@@ -1233,7 +1137,6 @@ def create_app(
         _validate_query_parameters(request, set())
         try:
             status = review_reader.get_request(
-                owner_subject=principal.subject,
                 request_id=request_id,
             )
         except Exception as exc:
@@ -1246,15 +1149,6 @@ def create_app(
             raise HTTPException(
                 status_code=404,
                 detail="Identity curation request was not found",
-            )
-        if (
-            status.operator_subject != principal.subject
-            or status.operator_subject != research_owner_subject
-        ):
-            raise UpstreamFailure(
-                502,
-                "Bad Gateway",
-                "Identity curation owner does not match the API identity",
             )
         return status
 
@@ -1279,7 +1173,6 @@ def create_app(
         _validate_query_parameters(request, set())
         try:
             manifest = review_reader.get_manifest(
-                owner_subject=principal.subject,
                 request_id=request_id,
             )
         except Exception as exc:
@@ -1293,15 +1186,11 @@ def create_app(
                 status_code=404,
                 detail="Identity curation manifest was not found",
             )
-        if (
-            manifest.manifest_id != request_id
-            or manifest.operator_subject != principal.subject
-            or manifest.operator_subject != research_owner_subject
-        ):
+        if manifest.manifest_id != request_id:
             raise UpstreamFailure(
                 502,
                 "Bad Gateway",
-                "Identity curation manifest owner or identity is invalid",
+                "Identity curation manifest identity is invalid",
             )
         return manifest
 

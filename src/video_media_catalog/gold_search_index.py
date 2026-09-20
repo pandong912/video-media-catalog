@@ -41,14 +41,13 @@ from video_media_catalog.search_index import BulkResult, current_alias_indices
 from video_media_catalog.storage import ImmutableObjectConflictError, local_path
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
-    require_oidc_subject,
     require_rfc3339,
     require_sha256,
 )
 
 RESEARCH_READ_ALIAS = "media-catalog-research-read"
 RESEARCH_INDEX_PREFIX = "media-catalog-research"
-PROJECTION_VERSION = "5"
+PROJECTION_VERSION = "6"
 DEFAULT_GOLD_BULK_PARTITIONS = 32
 DEFAULT_GOLD_BULK_WORKERS = 2
 MAX_GOLD_BULK_PARTITIONS = 4096
@@ -75,7 +74,6 @@ _MAPPINGS: dict[str, Any] = {
         "status": {"type": "keyword"},
         "releasePlanId": {"type": "keyword"},
         "contextId": {"type": "keyword"},
-        "ownerSubject": {"type": "keyword"},
         "displayName": {
             "type": "text",
             "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
@@ -240,10 +238,9 @@ def _safe_name(value: str, *, label: str) -> str:
 
 
 class GoldIndexConfigIdentity(V2ContractModel):
-    projection_version: Literal["5"] = PROJECTION_VERSION
+    projection_version: Literal["6"] = PROJECTION_VERSION
     mapping_digest: str = MAPPING_DIGEST
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
-    owner_subject: str
     read_alias: str
     index_prefix: str
     shards: int = Field(ge=1)
@@ -256,11 +253,6 @@ class GoldIndexConfigIdentity(V2ContractModel):
     @classmethod
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
 
     @field_validator("read_alias", "index_prefix")
     @classmethod
@@ -288,7 +280,6 @@ def gold_index_config_identity(
     *,
     read_alias: str,
     index_prefix: str,
-    owner_subject: str,
     shards: int,
     replicas: int,
     bulk_chunk_size: int,
@@ -296,7 +287,6 @@ def gold_index_config_identity(
     image_digest: str,
 ) -> GoldIndexConfigIdentity:
     return GoldIndexConfigIdentity(
-        owner_subject=owner_subject,
         read_alias=read_alias,
         index_prefix=index_prefix,
         shards=shards,
@@ -311,7 +301,6 @@ def gold_index_config_digest(
     *,
     read_alias: str,
     index_prefix: str,
-    owner_subject: str,
     shards: int,
     replicas: int,
     bulk_chunk_size: int,
@@ -321,7 +310,6 @@ def gold_index_config_digest(
     return gold_index_config_identity(
         read_alias=read_alias,
         index_prefix=index_prefix,
-        owner_subject=owner_subject,
         shards=shards,
         replicas=replicas,
         bulk_chunk_size=bulk_chunk_size,
@@ -361,9 +349,8 @@ class GoldAffectedEntityOperation(V2ContractModel):
 class GoldAffectedEntityManifest(V2ContractModel):
     """Immutable affected-entity set for the opt-in incremental build path."""
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     release_plan_id: str
-    owner_subject: str
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     release_commit: ObjectRef
     base_index: str
@@ -376,11 +363,6 @@ class GoldAffectedEntityManifest(V2ContractModel):
     @classmethod
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
 
     @field_validator("base_index")
     @classmethod
@@ -437,7 +419,7 @@ class GoldAffectedEntityManifest(V2ContractModel):
 class GoldIndexPartitionReceipt(V2ContractModel):
     """One immutable, content-bound receipt for a deterministic Spark partition."""
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     status: Literal["COMPLETED"] = "COMPLETED"
     build_id: str
     partition_id: int = Field(ge=0)
@@ -522,7 +504,6 @@ def derive_gold_build_id(
             {
                 "commitKey": commit.commit_key,
                 "releasePlanId": commit.release_plan_id,
-                "ownerSubject": commit.owner_subject,
                 "contextId": commit.context_id,
                 "tableSnapshotIds": commit.table_snapshot_ids,
                 "mappingDigest": MAPPING_DIGEST,
@@ -541,14 +522,11 @@ def gold_index_name(prefix: str, build_id: str) -> str:
 
 def gold_index_definition(
     *,
-    owner_subject: str,
     shards: int,
     replicas: int,
 ) -> dict[str, Any]:
     if shards < 1 or replicas < 0:
         raise ValueError("invalid shard or replica count")
-    mappings = copy.deepcopy(INDEX_MAPPINGS)
-    mappings["_meta"]["ownerSubject"] = require_oidc_subject(owner_subject)
     return {
         "settings": {
             "index": {
@@ -556,7 +534,7 @@ def gold_index_definition(
                 "number_of_replicas": replicas,
             }
         },
-        "mappings": mappings,
+        "mappings": copy.deepcopy(INDEX_MAPPINGS),
     }
 
 
@@ -591,13 +569,10 @@ def _has_compatible_mapping(
     client: Any,
     *,
     index_name: str,
-    owner_subject: str,
 ) -> bool:
     metadata = _existing_mapping_metadata(client, index_name)
     return bool(
-        metadata is not None
-        and metadata.get("mappingDigest") == MAPPING_DIGEST
-        and metadata.get("ownerSubject") == owner_subject
+        metadata is not None and metadata.get("mappingDigest") == MAPPING_DIGEST
     )
 
 
@@ -605,24 +580,20 @@ def ensure_gold_index(
     client: Any,
     *,
     index_name: str,
-    owner_subject: str,
     shards: int,
     replicas: int,
 ) -> bool:
-    owner = require_oidc_subject(owner_subject)
     if client.indices.exists(index=index_name):
         if not _has_compatible_mapping(
             client,
             index_name=index_name,
-            owner_subject=owner,
         ):
-            raise RuntimeError("existing Gold index mapping or owner is incompatible")
+            raise RuntimeError("existing Gold index mapping is incompatible")
         return False
     try:
         client.indices.create(
             index=index_name,
             body=gold_index_definition(
-                owner_subject=owner,
                 shards=shards,
                 replicas=replicas,
             ),
@@ -636,10 +607,9 @@ def ensure_gold_index(
         if not _has_compatible_mapping(
             client,
             index_name=index_name,
-            owner_subject=owner,
         ):
             raise RuntimeError(
-                "concurrently created Gold index mapping or owner is incompatible"
+                "concurrently created Gold index mapping is incompatible"
             ) from exc
         return False
 
@@ -1358,19 +1328,15 @@ def validate_gold_affected_entity_manifest(
     manifest_reference: ObjectRef,
     release_commit: GoldReleaseCommit,
     release_commit_reference: ObjectRef,
-    owner_subject: str,
 ) -> None:
     _validate_immutable_control_ref(
         manifest_reference,
         media_type=GOLD_AFFECTED_ENTITY_MANIFEST_MEDIA_TYPE,
         label="affected-entity manifest",
     )
-    owner = require_oidc_subject(owner_subject)
     if (
         manifest.release_commit != release_commit_reference
         or manifest.release_plan_id != release_commit.release_plan_id
-        or manifest.owner_subject != owner
-        or manifest.owner_subject != release_commit.owner_subject
         or manifest.context_id != release_commit.context_id
     ):
         raise ValueError(
@@ -1546,7 +1512,6 @@ def ensure_incremental_gold_baseline(
             validate_gold_index_contents(
                 client,
                 index_name=affected_manifest.base_index,
-                owner_subject=affected_manifest.owner_subject,
                 release_plan_id=affected_manifest.base_release_plan_id,
                 expected_document_count=affected_manifest.base_document_count,
             )
@@ -1558,7 +1523,6 @@ def ensure_incremental_gold_baseline(
     validate_gold_index_contents(
         client,
         index_name=affected_manifest.base_index,
-        owner_subject=affected_manifest.owner_subject,
         release_plan_id=affected_manifest.base_release_plan_id,
         expected_document_count=affected_manifest.base_document_count,
     )
@@ -1571,7 +1535,6 @@ def ensure_incremental_gold_baseline(
                 "query": {
                     "bool": {
                         "filter": [
-                            {"term": {"ownerSubject": affected_manifest.owner_subject}},
                             {
                                 "term": {
                                     "releasePlanId": (
@@ -1579,6 +1542,7 @@ def ensure_incremental_gold_baseline(
                                     )
                                 }
                             },
+                            {"term": {"contextId": affected_manifest.context_id}},
                         ]
                     }
                 },
@@ -1605,7 +1569,18 @@ def ensure_incremental_gold_baseline(
         index=index_name,
         body={
             "query": {
-                "term": {"ownerSubject": affected_manifest.owner_subject},
+                "bool": {
+                    "filter": [
+                        {
+                            "term": {
+                                "releasePlanId": (
+                                    affected_manifest.base_release_plan_id
+                                )
+                            }
+                        },
+                        {"term": {"contextId": affected_manifest.context_id}},
+                    ]
+                }
             },
             "script": {
                 "lang": "painless",
@@ -1637,7 +1612,6 @@ def ensure_incremental_gold_baseline(
     validate_gold_index_contents(
         client,
         index_name=index_name,
-        owner_subject=affected_manifest.owner_subject,
         release_plan_id=release_commit.release_plan_id,
         expected_document_count=affected_manifest.base_document_count,
     )
@@ -1684,14 +1658,12 @@ def validate_affected_entity_results(
                 )
 
 
-def validate_gold_index_owner(
+def validate_gold_index_document_count(
     client: Any,
     *,
     index_name: str,
-    owner_subject: str,
     expected_document_count: int,
 ) -> int:
-    owner = require_oidc_subject(owner_subject)
     if (
         isinstance(expected_document_count, bool)
         or not isinstance(expected_document_count, int)
@@ -1701,34 +1673,21 @@ def validate_gold_index_owner(
     if not _has_compatible_mapping(
         client,
         index_name=index_name,
-        owner_subject=owner,
     ):
-        raise RuntimeError("Gold shadow index owner metadata mismatch")
+        raise RuntimeError("Gold shadow index mapping metadata mismatch")
     client.indices.refresh(index=index_name)
     total_response = client.count(index=index_name)
-    owner_response = client.count(
-        index=index_name,
-        body={"query": {"term": {"ownerSubject": owner}}},
-    )
-    if not isinstance(total_response, Mapping) or not isinstance(
-        owner_response, Mapping
-    ):
+    if not isinstance(total_response, Mapping):
         raise RuntimeError("OpenSearch count response is invalid")
     total_count = total_response.get("count")
-    owner_count = owner_response.get("count")
     if (
         not isinstance(total_count, int)
         or isinstance(total_count, bool)
-        or not isinstance(owner_count, int)
-        or isinstance(owner_count, bool)
         or total_count < 0
-        or owner_count < 0
     ):
         raise RuntimeError("OpenSearch count response is invalid")
-    if total_count != expected_document_count or owner_count != total_count:
-        raise RuntimeError(
-            "Gold shadow index contains missing or mismatched document owners"
-        )
+    if total_count != expected_document_count:
+        raise RuntimeError("Gold shadow index document count mismatch")
     return total_count
 
 
@@ -1736,18 +1695,15 @@ def validate_gold_index_contents(
     client: Any,
     *,
     index_name: str,
-    owner_subject: str,
     release_plan_id: str,
     expected_document_count: int,
 ) -> int:
-    """Require one concrete index to contain only the expected owner/release."""
+    """Require one concrete index to contain only the expected research release."""
 
-    owner = require_oidc_subject(owner_subject)
     release_plan = require_sha256(release_plan_id, label="release_plan_id")
-    total_count = validate_gold_index_owner(
+    total_count = validate_gold_index_document_count(
         client,
         index_name=index_name,
-        owner_subject=owner,
         expected_document_count=expected_document_count,
     )
     release_response = client.count(
@@ -1756,8 +1712,8 @@ def validate_gold_index_contents(
             "query": {
                 "bool": {
                     "filter": [
-                        {"term": {"ownerSubject": owner}},
                         {"term": {"releasePlanId": release_plan}},
+                        {"term": {"contextId": RESEARCH_CONTEXT_ID}},
                     ]
                 }
             }
@@ -1832,12 +1788,11 @@ def reconcile_full_gold_index_counts(
 
 
 class GoldIndexBuildManifest(V2ContractModel):
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     status: Literal["COMPLETED"] = "COMPLETED"
     build_mode: Literal["FULL", "INCREMENTAL"] = "FULL"
     build_id: str
     release_plan_id: str
-    owner_subject: str
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     release_commit: ObjectRef
     affected_entity_manifest: ObjectRef | None = None
@@ -1875,11 +1830,6 @@ class GoldIndexBuildManifest(V2ContractModel):
         if value is None:
             return None
         return require_sha256(value)
-
-    @field_validator("owner_subject")
-    @classmethod
-    def validate_owner_subject(cls, value: str) -> str:
-        return require_oidc_subject(value)
 
     @field_validator("index", "alias")
     @classmethod
@@ -1955,13 +1905,12 @@ class GoldIndexBuildManifest(V2ContractModel):
         if (
             self.mapping_digest != MAPPING_DIGEST
             or self.config_identity.mapping_digest != self.mapping_digest
-            or self.config_identity.owner_subject != self.owner_subject
             or self.config_identity.context_id != self.context_id
             or self.config_identity.read_alias != self.alias
             or self.config_digest != self.config_identity.digest
         ):
             raise ValueError(
-                "index manifest config identity does not match its owner or contract"
+                "index manifest config identity does not match its contract"
             )
         if (
             (

@@ -84,14 +84,14 @@ publish a commit.
 
 ## API and submission boundary
 
-The FastAPI deployment remains read-only. The owner-only endpoints are:
+The FastAPI deployment remains read-only. The shared authenticated endpoints are:
 
 - `GET /api/v2/research/identity-conflicts`;
 - `GET /api/v2/research/identity-curation/requests/{requestId}`;
 - `GET /api/v2/research/identity-curation/requests/{requestId}/manifest`.
 
-They reuse the existing bearer-token verification, `governance.read` scope,
-and exact configured owner subject. They consume a read projection through the
+They reuse the existing bearer-token verification and fixed `governance.read`
+scope. Any authorized principal may read the shared review projection through the
 `IdentityReviewReader` boundary and perform no writes.
 
 Submission and application belong to the existing batch control plane:
@@ -105,5 +105,5 @@ Submission and application belong to the existing batch control plane:
 
 Deployments may project request status and manifests into an existing readable
 projection. The API service account must retain only its existing read
-permissions; it must not receive Silver, S3 control-write, or owner-auth bypass
+permissions; it must not receive Silver, S3 control-write, or auth bypass
 permissions.

@@ -95,7 +95,6 @@ def _draft(*, conflict: bool = False) -> GoldResolutionDraft:
 def _plan(draft: GoldResolutionDraft):
     policy = research_policy()
     return build_gold_release_plan(
-        owner_subject="owner-123",
         policy_context=_context(),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},
@@ -152,7 +151,6 @@ def test_gold_quality_and_release_commit_are_bound() -> None:
     }
     commit = build_gold_release_commit(
         release_plan_id=plan.release_plan_id,
-        owner_subject=plan.owner_subject,
         context_id=plan.policy_context.context_id,
         committed_at=TIMESTAMP,
         table_counts=plan.expected_counts,
@@ -169,6 +167,12 @@ def test_gold_quality_and_release_commit_are_bound() -> None:
         ),
     )
     assert commit == type(commit).model_validate_json(commit.json_bytes())
+    assert commit.schema_version == "2.1"
+    assert "ownerSubject" not in commit.model_dump(mode="json", by_alias=True)
+    with pytest.raises(ValueError):
+        type(commit).model_validate(
+            {**commit.model_dump(mode="python"), "owner_subject": "legacy-owner"}
+        )
 
 
 def test_gold_quality_reports_policy_failure() -> None:
@@ -191,7 +195,6 @@ def test_gold_commit_requires_snapshot_for_nonempty_table() -> None:
     with pytest.raises(ValueError, match="no snapshot"):
         build_gold_release_commit(
             release_plan_id="sha256:" + ("a" * 64),
-            owner_subject="owner-123",
             context_id="research",
             committed_at=TIMESTAMP,
             table_counts=counts,

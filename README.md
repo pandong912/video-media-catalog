@@ -382,6 +382,7 @@ video-media-catalog-gold-spark \
   --output-prefix s3://bucket/research-gold \
   --planned-at 2026-09-20T01:30:00Z \
   --committed-at 2026-09-20T01:45:00Z \
+  --build-mode release \
   --image-digest sha256:<image-hex> \
   --owner-subject <exact-oidc-sub> \
   --warehouse s3://bucket/catalog-warehouse \
@@ -426,11 +427,18 @@ release commit 和 index build manifest 都绑定同一个
   purpose=`research`，默认允许 open、public registry 与已登记
   `research_private` zone；每条 assertion 仍须同时通过
   STORE/TRANSFORM/DISPLAY/SEARCH、territory、有效期和 policy digest 门禁；
-  rights eligibility 先于字段选择；
-  `SINGLE` 冲突不任意选供应商，`SET_UNION` 保留多值及 assertion lineage；
+  rights eligibility 先于字段选择；字段、关系和 identifier 的显式 matrix
+  绑定 SINGLE/SET_UNION/NEVER_RESOLVE、qualifier scope 与 source priority，
+  未登记 predicate 默认 fail-closed；`SINGLE` 只在最高 eligible source tier
+  内选值，同 tier 冲突进入 conflict，`SET_UNION` 保留多值及 assertion lineage；
 - `gold_spark_transform.py`：分布式 join active membership、rights/TTL、source
   provenance，生成 entity/field/identifier/relation/conflict 五类 Gold frames；
-- `gold_quality.py`：冲突率、未解析身份率和 rights gate 形成不可变报告；
+- `gold_freshness.py`：每个 source 记录 latest complete/delta/partial watermark、
+  age、coverage digest、required/optional 与 SLO；TMDB/TVmaze 为 36h、IMDb
+  为 10d、Wikidata 为 45d，EIDR partial 不会成为 complete，豆瓣 ID-only
+  不要求独立 feed freshness；policy 全量进入 config digest；
+- `gold_quality.py`：冲突、未解析、orphan episode/season、duplicate external
+  ID、attribution counts 和 freshness gate 形成不可变报告；
 - `gold_iceberg.py`：entity/field/identifier/relation/conflict 五表按 release plan
   隔离，质量 PASS 后才发布 commit marker；
 - attribution 与 quality ObjectRef 必须绑定实际 payload，且 attribution 的
@@ -443,6 +451,38 @@ release commit 和 index build manifest 都绑定同一个
 发布 quality/attribution 对象并 commit Gold。`--owner-subject` 为必填参数；
 不再接受可切换的 context/audience/allowed-zone 参数。v2 使用唯一 research
 OpenSearch family，不替换 v1：
+
+候选 backfill 可使用 `--build-mode candidate-backfill`。FAILED 时 CLI 会返回并
+保留 quality report，但不会写 release commit；任何模式都只有 PASS 才能进入
+commit-last。
+
+Source termination/removal 使用独立 dry-run-first planner。rights profile JSON
+是已登记 profile 的不可变内容；下面命令只输出计划，不删除对象：
+
+```bash
+video-media-catalog-gold-removal \
+  --rights-profile-json /secure/control/tmdb-rights.json \
+  --source-product-id tmdb-research \
+  --owner-subject <exact-oidc-sub> \
+  --effective-at 2026-09-20T02:00:00Z \
+  --planned-at 2026-09-20T01:50:00Z \
+  --reason "terms terminated" \
+  --assertion-count field=1200 \
+  --assertion-count identifier=300 \
+  --affected-entity-count 950 \
+  --affected-release-plan-id sha256:<release-plan-hex> \
+  --affected-index media-catalog-research-old \
+  --raw-target s3://bucket/restricted/tmdb/raw/batch.json \
+  --derived-target s3://bucket/restricted/tmdb/derived/assertions.parquet
+```
+
+生成 executable plan 还必须同时提供 `--execute-plan`、
+`--confirm-source-product-id tmdb-research` 和覆盖每个 target 的
+`--allow-prefix`。planner 本身不连接或修改云资源；执行端使用
+`execute_source_removal`，按 rights fence → restricted purge → re-Gold →
+re-index 顺序执行并生成 immutable removal receipt。重新构建时可将已安装的
+fence 通过 Gold CLI 可重复的 `--termination-fence-json <fence.json>` 传入；
+fence 同样进入 config digest，且在 source priority 前生效。
 
 ```bash
 video-media-catalog-gold-index \

@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 
-from pydantic import Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    Field,
+    ValidationInfo,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
+from video_media_catalog.canonical import deterministic_key
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,
@@ -17,6 +24,8 @@ from video_media_catalog.v2_contracts import (
     require_sha256,
     require_slug,
 )
+
+_ZERO_DIGEST = "sha256:" + ("0" * 64)
 
 
 class PolicyZone(StrEnum):
@@ -178,6 +187,135 @@ class RightsProfile(V2ContractModel):
             and ("*" in self.purposes or purpose in self.purposes)
             and ("*" in self.territories or territory in self.territories)
         )
+
+
+class RightsTerminationFence(V2ContractModel):
+    """Immutable deny fence applied before source priority or resolution."""
+
+    schema_version: str = "2.0"
+    fence_id: str
+    source_product_id: str
+    policy_id: str
+    policy_digest: str
+    effective_at: str
+    blocked_actions: tuple[UsageAction, ...] = tuple(UsageAction)
+    purge_required: bool
+    reason: str
+    created_at: str
+
+    @field_validator("fence_id", "policy_digest")
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("source_product_id", "policy_id")
+    @classmethod
+    def validate_reference(cls, value: str) -> str:
+        return require_slug(value, label="rights termination reference")
+
+    @field_validator("effective_at", "created_at")
+    @classmethod
+    def validate_timestamp(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @field_validator("blocked_actions")
+    @classmethod
+    def normalize_blocked_actions(
+        cls,
+        value: tuple[UsageAction, ...],
+    ) -> tuple[UsageAction, ...]:
+        normalized = tuple(sorted(set(value), key=str))
+        if not normalized:
+            raise ValueError("termination fence must block at least one action")
+        return normalized
+
+    @field_serializer("blocked_actions", when_used="json")
+    def serialize_blocked_actions(
+        self,
+        value: tuple[UsageAction, ...],
+    ) -> list[str]:
+        return [item.value for item in value]
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 2000:
+            raise ValueError("termination reason must be non-empty and bounded")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_identity(self, info: ValidationInfo) -> Self:
+        if not (info.context or {}).get("skip_identity"):
+            expected = deterministic_key(
+                "rights-termination-fence-v2",
+                _termination_fence_identity(self),
+            )
+            if self.fence_id != expected:
+                raise ValueError("fence_id does not match termination fence")
+        return self
+
+    def blocks(
+        self,
+        *,
+        source_product_id: str,
+        policy_id: str,
+        action: UsageAction,
+        at: datetime,
+    ) -> bool:
+        return (
+            source_product_id == self.source_product_id
+            and policy_id == self.policy_id
+            and action in self.blocked_actions
+            and at.astimezone(UTC) >= parse_rfc3339(self.effective_at)
+        )
+
+
+def _termination_fence_identity(
+    fence: RightsTerminationFence,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": fence.schema_version,
+        "sourceProductId": fence.source_product_id,
+        "policyId": fence.policy_id,
+        "policyDigest": fence.policy_digest,
+        "effectiveAt": fence.effective_at,
+        "blockedActions": [item.value for item in fence.blocked_actions],
+        "purgeRequired": fence.purge_required,
+        "reason": fence.reason,
+        "createdAt": fence.created_at,
+    }
+
+
+def build_rights_termination_fence(
+    *,
+    profile: RightsProfile,
+    source_product_id: str,
+    effective_at: str,
+    reason: str,
+    created_at: str,
+    blocked_actions: tuple[UsageAction, ...] = tuple(UsageAction),
+) -> RightsTerminationFence:
+    values = {
+        "fence_id": _ZERO_DIGEST,
+        "source_product_id": source_product_id,
+        "policy_id": profile.policy_id,
+        "policy_digest": profile.digest,
+        "effective_at": effective_at,
+        "blocked_actions": blocked_actions,
+        "purge_required": profile.purge_on_termination,
+        "reason": reason,
+        "created_at": created_at,
+    }
+    provisional = RightsTerminationFence.model_validate(
+        values,
+        context={"skip_identity": True},
+    )
+    values["fence_id"] = deterministic_key(
+        "rights-termination-fence-v2",
+        _termination_fence_identity(provisional),
+    )
+    return RightsTerminationFence.model_validate(values)
 
 
 class RightsEvaluation(V2ContractModel):

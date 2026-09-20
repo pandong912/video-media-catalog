@@ -21,7 +21,8 @@
   snapshot pinning、五类操作、幂等提交和只读 API 边界。
 - `parquet/community_catalog_gold.v2.md`：research Gold 实体、字段、
   identifier、relation、conflict、来源/许可 serving projection 与
-  release commit-last 规则。
+  release commit-last 规则，以及 predicate/freshness quality matrix、
+  source termination/removal plan 与 immutable receipt。
 - `reference_catalog_selection.v1.md`：10 万内容实体、独立 agent budget、
   asset demand profile、层级闭包优先和 selection audit 规则。
 - `catalog_asset_match.v1.md`：AssetVersion 匹配请求、候选 Manifest、显式确认

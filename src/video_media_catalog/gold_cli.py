@@ -27,17 +27,22 @@ from video_media_catalog.gold import (
     research_context,
     research_policy,
 )
+from video_media_catalog.gold_freshness import research_release_freshness_policy
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
     GOLD_QUALITY_MEDIA_TYPE,
     GOLD_RELEASE_COMMIT_MEDIA_TYPE,
 )
-from video_media_catalog.gold_quality import GoldQualityStatus
+from video_media_catalog.gold_quality import (
+    GoldBuildMode,
+    GoldQualityStatus,
+)
 from video_media_catalog.gold_spark_transform import build_distributed_gold
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore
+from video_media_catalog.rights import RightsTerminationFence
 from video_media_catalog.runtime_args import join_uri
 from video_media_catalog.v2_contracts import require_oidc_subject
 
@@ -91,6 +96,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.05,
     )
     parser.add_argument("--max-redirect-hops", type=int, default=16)
+    parser.add_argument(
+        "--build-mode",
+        choices=("release", "candidate-backfill"),
+        default="release",
+    )
+    parser.add_argument("--tmdb-freshness-slo-hours", type=int, default=36)
+    parser.add_argument("--tvmaze-freshness-slo-hours", type=int, default=36)
+    parser.add_argument("--imdb-freshness-slo-hours", type=int, default=10 * 24)
+    parser.add_argument("--wikidata-freshness-slo-hours", type=int, default=45 * 24)
+    parser.add_argument(
+        "--termination-fence-json",
+        type=Path,
+        action="append",
+        default=[],
+    )
     return parser
 
 
@@ -147,6 +167,13 @@ def _parse_values(value: str) -> tuple[str, ...]:
     return result
 
 
+def _read_termination_fence(path: Path) -> RightsTerminationFence:
+    payload = path.read_bytes()
+    if not 0 < len(payload) <= CONTROL_MAX_BYTES:
+        raise ValueError("termination fence must be between 1 byte and 16 MiB")
+    return RightsTerminationFence.model_validate_json(payload)
+
+
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
     owner_subject = require_oidc_subject(parsed.owner_subject)
     if not 0 <= parsed.max_conflict_ratio <= 1:
@@ -174,6 +201,26 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         and len(snapshot.committed_run_ids) > MAX_EPOCH_DELTA_RUNS
     ):
         raise ValueError("large Silver histories must use an epoch manifest")
+    registry = build_community_registry()
+    termination_fences = tuple(
+        _read_termination_fence(path) for path in parsed.termination_fence_json
+    )
+    if len({fence.fence_id for fence in termination_fences}) != len(termination_fences):
+        raise ValueError("termination fence list contains duplicates")
+    products = {
+        product.source_product_id: product for product in registry.source_products
+    }
+    profiles = {profile.policy_id: profile for profile in registry.rights_profiles}
+    for fence in termination_fences:
+        product = products.get(fence.source_product_id)
+        profile = profiles.get(fence.policy_id)
+        if (
+            product is None
+            or profile is None
+            or product.policy_id != fence.policy_id
+            or profile.digest != fence.policy_digest
+        ):
+            raise ValueError("termination fence is not bound to the source registry")
     silver_config = CatalogConfig(
         catalog_name=parsed.catalog_name,
         namespace=parsed.silver_namespace,
@@ -204,6 +251,17 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "max_unresolved_identity_ratio": (parsed.max_unresolved_identity_ratio),
         }
     )
+    freshness_policy = research_release_freshness_policy(
+        tmdb_slo_hours=parsed.tmdb_freshness_slo_hours,
+        tvmaze_slo_hours=parsed.tvmaze_freshness_slo_hours,
+        imdb_slo_hours=parsed.imdb_freshness_slo_hours,
+        wikidata_slo_hours=parsed.wikidata_freshness_slo_hours,
+    )
+    build_mode = (
+        GoldBuildMode.CANDIDATE_BACKFILL
+        if parsed.build_mode == "candidate-backfill"
+        else GoldBuildMode.RELEASE
+    )
     nonsecret_config = {
         "silverNamespace": parsed.silver_namespace,
         "goldNamespace": parsed.gold_namespace,
@@ -213,10 +271,20 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         "ownerSubject": owner_subject,
         "context": context.model_dump(mode="json", by_alias=True),
         "fieldPolicyDigest": policy.digest,
+        "releaseFreshnessPolicy": freshness_policy.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        ),
+        "buildMode": build_mode.value,
+        "terminationFences": [
+            fence.model_dump(mode="json", by_alias=True, exclude_none=True)
+            for fence in sorted(termination_fences, key=lambda item: item.fence_id)
+        ],
         "maxRedirectHops": parsed.max_redirect_hops,
     }
     config_digest = sha256_digest(canonical_json(nonsecret_config))
-    resolver_digest = sha256_digest("community-gold-spark-v2")
+    resolver_digest = sha256_digest("community-gold-spark-v3")
 
     from pyspark.sql import SparkSession
 
@@ -280,7 +348,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         build = build_distributed_gold(
             spark,
             visible_silver=visible,
-            registry=build_community_registry(),
+            registry=registry,
             policy_context=context,
             owner_subject=owner_subject,
             field_policy=policy,
@@ -305,6 +373,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             config_digest=config_digest,
             planned_at=parsed.planned_at,
             max_redirect_hops=parsed.max_redirect_hops,
+            freshness_policy=freshness_policy,
+            build_mode=build_mode,
+            termination_fences=termination_fences,
         )
         plan_prefix = join_uri(
             parsed.output_prefix,
@@ -319,6 +390,19 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             max_bytes=CONTROL_MAX_BYTES,
         ).object_ref
         if build.quality_report.status != GoldQualityStatus.PASS:
+            if build_mode == GoldBuildMode.CANDIDATE_BACKFILL:
+                return {
+                    "releasePlanId": build.plan.release_plan_id,
+                    "buildMode": build_mode.value,
+                    "qualityStatus": build.quality_report.status.value,
+                    "qualityReport": quality_ref.model_dump(
+                        mode="json",
+                        by_alias=True,
+                        exclude_none=True,
+                    ),
+                    "violations": build.quality_report.violations,
+                    "committed": False,
+                }
             raise ValueError("Gold quality gate failed")
         attribution_ref = store.upload_bytes(
             build.attribution_manifest.json_bytes(),
@@ -345,6 +429,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ).object_ref
         return {
             "releasePlanId": build.plan.release_plan_id,
+            "buildMode": build_mode.value,
+            "qualityStatus": build.quality_report.status.value,
+            "committed": True,
             "commitKey": commit.commit_key,
             "qualityReport": quality_ref.model_dump(
                 mode="json", by_alias=True, exclude_none=True

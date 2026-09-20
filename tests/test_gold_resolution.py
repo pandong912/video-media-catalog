@@ -27,6 +27,7 @@ from video_media_catalog.rights import (
     PolicyZone,
     RightsProfile,
     UsageAction,
+    build_rights_termination_fence,
 )
 from video_media_catalog.tvmaze import tvmaze_rights_profile
 
@@ -211,6 +212,112 @@ def test_gold_resolution_fails_closed_on_policy_digest_mismatch() -> None:
             policy_context=_context(),
             field_policy=research_policy(),
         )
+
+
+def test_single_resolution_uses_source_priority_after_rights() -> None:
+    node = _node("1")
+    resolved = _resolved(node)
+    index = build_identity_index(
+        entities=resolved.entities,
+        memberships=resolved.memberships,
+        redirects=(),
+        as_of=TIMESTAMP,
+    )
+    base_policy = research_policy()
+    policy = base_policy.model_copy(
+        update={
+            "rules": tuple(
+                rule.model_copy(
+                    update={
+                        "source_priority": (
+                            "preferred-mapper",
+                            "fallback-mapper",
+                        )
+                    }
+                )
+                if rule.predicate == "title"
+                else rule
+                for rule in base_policy.rules
+            ),
+            "max_conflict_ratio": 1.0,
+        }
+    )
+    fallback = build_field_assertion(
+        subject=node,
+        predicate="title",
+        value_type=ValueType.STRING,
+        value="Fallback",
+        qualifiers={"language": "en", "titleRole": "PRIMARY"},
+        provenance=_provenance(node, "/fallback").model_copy(
+            update={
+                "mapper_id": "fallback-mapper",
+                "envelope_key": "sha256:" + ("4" * 64),
+            }
+        ),
+    )
+    preferred = build_field_assertion(
+        subject=node,
+        predicate="title",
+        value_type=ValueType.STRING,
+        value="Preferred",
+        qualifiers={"language": "en", "titleRole": "PRIMARY"},
+        provenance=_provenance(node, "/preferred").model_copy(
+            update={
+                "mapper_id": "preferred-mapper",
+                "envelope_key": "sha256:" + ("5" * 64),
+            }
+        ),
+    )
+    draft = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(fallback, preferred),
+        identifier_assertions=(),
+        relationship_assertions=(),
+        rights_profiles=(tvmaze_rights_profile(),),
+        policy_context=_context(),
+        field_policy=policy,
+    )
+    assert not draft.conflicts
+    assert draft.fields[0].value == "Preferred"
+    assert draft.fields[0].selected_assertion_id == preferred.assertion_id
+
+
+def test_gold_resolution_applies_termination_fence_before_priority() -> None:
+    node = _node("1")
+    resolved = _resolved(node)
+    index = build_identity_index(
+        entities=resolved.entities,
+        memberships=resolved.memberships,
+        redirects=(),
+        as_of=TIMESTAMP,
+    )
+    profile = tvmaze_rights_profile()
+    assertion = build_field_assertion(
+        subject=node,
+        predicate="title",
+        value_type=ValueType.STRING,
+        value="Fenced",
+        provenance=_provenance(node, "/name"),
+    )
+    fence = build_rights_termination_fence(
+        profile=profile,
+        source_product_id="tvmaze-public-api",
+        effective_at=TIMESTAMP,
+        reason="source retired",
+        created_at=TIMESTAMP,
+    )
+    draft = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(assertion,),
+        identifier_assertions=(),
+        relationship_assertions=(),
+        rights_profiles=(profile,),
+        policy_context=_context(),
+        field_policy=research_policy(),
+        termination_fences=(fence,),
+    )
+    assert not draft.fields
+    assert draft.withheld_assertion_count == 1
 
 
 def test_research_allows_registered_research_source_but_checks_scope() -> None:

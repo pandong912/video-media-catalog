@@ -13,6 +13,7 @@ from video_media_catalog.attribution import (
     build_attribution_manifest,
 )
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.community_ingest import CommunityIngestRun
 from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
     GoldAssertionLineage,
@@ -20,6 +21,7 @@ from video_media_catalog.gold import (
     GoldResolutionPolicy,
     GoldResolutionStatus,
     GoldRightsLineage,
+    PredicateKind,
     ResolutionOperator,
     build_gold_conflict,
     build_gold_entity,
@@ -29,7 +31,13 @@ from video_media_catalog.gold import (
     build_gold_release_plan,
     trace_with_assertion_lineage,
 )
+from video_media_catalog.gold_freshness import (
+    ReleaseFreshnessPolicy,
+    build_release_freshness_matrix,
+    disabled_release_freshness_policy,
+)
 from video_media_catalog.gold_quality import (
+    GoldBuildMode,
     GoldQualityReport,
     build_gold_quality_report_from_metrics,
 )
@@ -48,6 +56,7 @@ from video_media_catalog.gold_rows import (
 )
 from video_media_catalog.gold_spark import gold_table_schema
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
+from video_media_catalog.rights import RightsTerminationFence
 from video_media_catalog.source_lifecycle import (
     current_upsert_envelope_keys,
     select_effective_membership_versions,
@@ -330,6 +339,8 @@ def _eligible_assertions(
     memberships: Any,
     rights: Any,
     context: ReleasePolicyContext,
+    requested_actions: tuple[Any, ...] = (),
+    termination_fences: tuple[RightsTerminationFence, ...] = (),
 ):
     from pyspark.sql import functions as F
 
@@ -386,7 +397,31 @@ def _eligible_assertions(
         active.unpersist()
         raise ValueError("assertion does not bind its source product rights policy")
 
-    known = bound.alias("a").join(
+    active_fences = tuple(
+        fence
+        for fence in termination_fences
+        if parse_rfc3339(fence.effective_at) <= parse_rfc3339(context.as_of)
+        and set(fence.blocked_actions) & set(requested_actions)
+    )
+    fenced = F.lit(False)
+    for fence in active_fences:
+        source_match = (F.col("a.source_product_id") == fence.source_product_id) & (
+            F.col("a.policy_id") == fence.policy_id
+        )
+        if (
+            bound.alias("a")
+            .where(
+                source_match & (F.col("a.record_policy_digest") != fence.policy_digest)
+            )
+            .limit(1)
+            .count()
+        ):
+            active.unpersist()
+            raise ValueError("termination fence policy digest differs from registry")
+        fenced = fenced | source_match
+    rights_candidates = bound.alias("a").where(~fenced)
+
+    known = rights_candidates.alias("a").join(
         rights.alias("p"),
         (F.col("a.policy_id") == F.col("p.rights_policy_id"))
         & (F.col("a.policy_digest") == F.col("p.rights_policy_digest")),
@@ -491,24 +526,38 @@ def _normalize_lineage(values: Any) -> tuple[GoldAssertionLineage, ...]:
     return tuple(by_assertion[key] for key in sorted(by_assertion))
 
 
-def _field_rule_udf(policy: GoldResolutionPolicy):
+def _field_rule_udf(
+    policy: GoldResolutionPolicy,
+    assertion_kind: PredicateKind = PredicateKind.FIELD,
+):
     from pyspark.sql import functions as F
-    from pyspark.sql.types import StringType, StructField, StructType
+    from pyspark.sql.types import BooleanType, StringType, StructField, StructType
 
     rules = {
         rule.predicate: (
             rule.operator.value,
             rule.scope_qualifiers,
+            rule.source_priority,
+            rule.rights_first,
         )
         for rule in policy.rules
+        if rule.assertion_kind == assertion_kind
     }
     default = policy.default_operator.value
 
     def resolve_rule(predicate: str, qualifiers_json: str):
-        operator, keys = rules.get(predicate, (default, ()))
+        operator, keys, source_priority, rights_first = rules.get(
+            predicate,
+            (default, (), (), True),
+        )
         qualifiers = json.loads(qualifiers_json)
         scope = {key: qualifiers.get(key) for key in keys}
-        return operator, canonical_json(scope)
+        return (
+            operator,
+            canonical_json(scope),
+            canonical_json(source_priority),
+            rights_first,
+        )
 
     return F.udf(
         resolve_rule,
@@ -516,34 +565,80 @@ def _field_rule_udf(policy: GoldResolutionPolicy):
             [
                 StructField("operator", StringType(), False),
                 StructField("scope_json", StringType(), False),
+                StructField("source_priority_json", StringType(), False),
+                StructField("rights_first", BooleanType(), False),
             ]
         ),
     )
 
 
 def _resolve_field_group(item):
-    (entity_key, predicate, scope_json, operator), raw_values = item
-    by_value: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
-    for value_type, value_json, assertion_id, lineage_json in raw_values:
-        by_value[(value_type, value_json)].append((assertion_id, lineage_json))
+    (
+        (
+            entity_key,
+            predicate,
+            scope_json,
+            operator,
+            source_priority_json,
+        ),
+        raw_values,
+    ) = item
+    by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
+    values = list(raw_values)
+    for value_type, value_json, assertion_id, lineage_json, source_product_id in values:
+        by_value[(value_type, value_json)].append(
+            (assertion_id, lineage_json, source_product_id)
+        )
     ordered = sorted(by_value)
     all_ids = tuple(
         sorted(
             assertion_id
             for assertions in by_value.values()
-            for assertion_id, _ in assertions
+            for assertion_id, _, _ in assertions
         )
     )
     all_lineage = _normalize_lineage(
         lineage_json
         for assertions in by_value.values()
-        for _, lineage_json in assertions
+        for _, lineage_json, _ in assertions
     )
     scope = json.loads(scope_json)
-    trace = {"operator": operator}
+    source_priority = tuple(json.loads(source_priority_json))
+    trace = {
+        "operator": operator,
+        "rightsFirst": True,
+        "sourcePriority": source_priority,
+    }
     if operator == ResolutionOperator.SINGLE.value:
-        if len(ordered) == 1:
-            value_type, value_json = ordered[0]
+        ranks = {source: rank for rank, source in enumerate(source_priority)}
+        selected_rank = min(
+            (
+                ranks.get(source_product_id, len(source_priority))
+                for *_, source_product_id in values
+            ),
+            default=len(source_priority),
+        )
+        selected_values = [
+            value
+            for value, assertions in by_value.items()
+            if any(
+                ranks.get(source_product_id, len(source_priority)) == selected_rank
+                for _, _, source_product_id in assertions
+            )
+        ]
+        trace["selectedSourceRank"] = selected_rank
+        if len(selected_values) == 1:
+            value_type, value_json = selected_values[0]
+            selected_ids = tuple(
+                sorted(
+                    assertion_id
+                    for assertion_id, _, source_product_id in by_value[
+                        selected_values[0]
+                    ]
+                    if ranks.get(source_product_id, len(source_priority))
+                    == selected_rank
+                )
+            )
             return [
                 (
                     "field",
@@ -555,13 +650,15 @@ def _resolve_field_group(item):
                         qualifiers=scope,
                         status=GoldResolutionStatus.SELECTED,
                         assertion_ids=all_ids,
-                        selected_assertion_id=min(all_ids),
+                        selected_assertion_id=min(selected_ids),
                         trace=trace,
                         lineage=all_lineage,
                     ),
                 )
             ]
-        candidates = [json.loads(value_json) for _, value_json in ordered]
+        candidates = [
+            json.loads(value_json) for _, value_json in sorted(selected_values)
+        ]
         return [
             (
                 "field",
@@ -595,7 +692,7 @@ def _resolve_field_group(item):
     result = []
     for value_type, value_json in ordered:
         supporting = by_value[(value_type, value_json)]
-        ids = tuple(sorted(assertion_id for assertion_id, _ in supporting))
+        ids = tuple(sorted(assertion_id for assertion_id, _, _ in supporting))
         result.append(
             (
                 "field",
@@ -610,7 +707,7 @@ def _resolve_field_group(item):
                     selected_assertion_id=None,
                     trace=trace,
                     lineage=_normalize_lineage(
-                        lineage_json for _, lineage_json in supporting
+                        lineage_json for _, lineage_json, _ in supporting
                     ),
                 ),
             )
@@ -640,25 +737,96 @@ def _identifier_draft(
     )
 
 
-def _relation_draft(
-    item: Any,
-    *,
-    policy_id: str,
-    policy_version: str,
-) -> RelationDraft:
-    values = list(item[1])
-    return RelationDraft(
-        subject_entity_key=item[0][0],
-        predicate=item[0][1],
-        object_entity_key=item[0][2],
-        qualifiers=json.loads(item[0][3]),
-        assertion_ids=tuple(sorted({assertion_id for assertion_id, _ in values})),
-        trace={
-            "policyId": policy_id,
-            "policyVersion": policy_version,
-        },
-        lineage=_normalize_lineage(lineage_json for _, lineage_json in values),
-    )
+def _resolve_relation_group(item: Any):
+    (
+        (
+            subject,
+            predicate,
+            scope_json,
+            operator,
+            source_priority_json,
+        ),
+        raw_values,
+    ) = item
+    values = list(raw_values)
+    scope = json.loads(scope_json)
+    source_priority = tuple(json.loads(source_priority_json))
+    ranks = {source: rank for rank, source in enumerate(source_priority)}
+    all_ids = tuple(sorted({value[1] for value in values}))
+    all_lineage = _normalize_lineage(value[2] for value in values)
+    trace = {
+        "operator": operator,
+        "rightsFirst": True,
+        "sourcePriority": source_priority,
+    }
+    if operator == ResolutionOperator.SINGLE.value:
+        selected_rank = min(
+            (
+                ranks.get(source_product_id, len(source_priority))
+                for _, _, _, source_product_id in values
+            ),
+            default=len(source_priority),
+        )
+        preferred = [
+            value
+            for value in values
+            if ranks.get(value[3], len(source_priority)) == selected_rank
+        ]
+        object_keys = sorted({value[0] for value in preferred})
+        trace["selectedSourceRank"] = selected_rank
+        if len(object_keys) == 1:
+            return [
+                (
+                    "relation",
+                    RelationDraft(
+                        subject_entity_key=subject,
+                        predicate=predicate,
+                        object_entity_key=object_keys[0],
+                        qualifiers=scope,
+                        assertion_ids=all_ids,
+                        trace=trace,
+                        lineage=all_lineage,
+                    ),
+                )
+            ]
+        return [
+            (
+                "conflict",
+                ConflictDraft(
+                    entity_key=subject,
+                    predicate=predicate,
+                    qualifiers=scope,
+                    reason="MULTIPLE_ELIGIBLE_RELATION_TARGETS",
+                    assertion_ids=all_ids,
+                    candidate_values=object_keys,
+                    trace=trace,
+                    lineage=all_lineage,
+                ),
+            )
+        ]
+
+    by_object: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    for object_key, assertion_id, lineage_json, source_product_id in values:
+        by_object[object_key].append((assertion_id, lineage_json, source_product_id))
+    return [
+        (
+            "relation",
+            RelationDraft(
+                subject_entity_key=subject,
+                predicate=predicate,
+                object_entity_key=object_key,
+                qualifiers=scope,
+                assertion_ids=tuple(
+                    sorted(assertion_id for assertion_id, _, _ in supporting)
+                ),
+                trace=trace,
+                lineage=_normalize_lineage(
+                    lineage_json for _, lineage_json, _ in supporting
+                ),
+            ),
+        )
+        for object_key, supporting in sorted(by_object.items())
+    ]
 
 
 def build_distributed_gold(
@@ -681,6 +849,9 @@ def build_distributed_gold(
     config_digest: str,
     planned_at: str,
     max_redirect_hops: int = 16,
+    freshness_policy: ReleaseFreshnessPolicy | None = None,
+    build_mode: GoldBuildMode = GoldBuildMode.RELEASE,
+    termination_fences: tuple[RightsTerminationFence, ...] = (),
 ) -> GoldSparkBuild:
     required = {
         "community_ingest_run",
@@ -695,6 +866,24 @@ def build_distributed_gold(
     }
     if not required.issubset(visible_silver):
         raise ValueError("Gold build is missing required Silver tables")
+    if len({fence.fence_id for fence in termination_fences}) != len(termination_fences):
+        raise ValueError("Gold build contains duplicate termination fences")
+    source_products_by_id = {
+        product.source_product_id: product for product in registry.source_products
+    }
+    rights_profiles_by_id = {
+        profile.policy_id: profile for profile in registry.rights_profiles
+    }
+    for fence in termination_fences:
+        product = source_products_by_id.get(fence.source_product_id)
+        profile = rights_profiles_by_id.get(fence.policy_id)
+        if (
+            product is None
+            or profile is None
+            or product.policy_id != fence.policy_id
+            or profile.digest != fence.policy_digest
+        ):
+            raise ValueError("termination fence is not bound to the source registry")
     from pyspark.sql import functions as F
 
     if committed_runs is None:
@@ -782,6 +971,8 @@ def build_distributed_gold(
             memberships=memberships,
             rights=rights,
             context=policy_context,
+            requested_actions=field_policy.requested_actions,
+            termination_fences=termination_fences,
         )
         resolved_identifiers, id_withheld, id_unresolved = _eligible_assertions(
             committed_silver["community_identifier_assertion"],
@@ -791,6 +982,8 @@ def build_distributed_gold(
             memberships=memberships,
             rights=rights,
             context=policy_context,
+            requested_actions=field_policy.requested_actions,
+            termination_fences=termination_fences,
         )
         intermediates.extend((resolved_fields, resolved_identifiers))
 
@@ -802,6 +995,10 @@ def build_distributed_gold(
             )
             .withColumn("resolution_operator", F.col("_rule.operator"))
             .withColumn("scope_json", F.col("_rule.scope_json"))
+            .withColumn(
+                "source_priority_json",
+                F.col("_rule.source_priority_json"),
+            )
             .drop("_rule")
             .persist()
         )
@@ -820,12 +1017,14 @@ def build_distributed_gold(
                         row["predicate"],
                         row["scope_json"],
                         row["resolution_operator"],
+                        row["source_priority_json"],
                     ),
                     (
                         row["value_type"],
                         row["value_json"],
                         row["assertion_id"],
                         _lineage_json(row),
+                        row["source_product_id"],
                     ),
                 )
             )
@@ -834,21 +1033,38 @@ def build_distributed_gold(
             .persist()
         )
 
-        collision = (
-            resolved_identifiers.groupBy(
+        identifier_rule_udf = _field_rule_udf(
+            field_policy,
+            PredicateKind.IDENTIFIER,
+        )
+        ruled_identifiers = (
+            resolved_identifiers.withColumn(
+                "_rule",
+                identifier_rule_udf("namespace_id", F.lit("{}")),
+            )
+            .withColumn("resolution_operator", F.col("_rule.operator"))
+            .drop("_rule")
+            .persist()
+        )
+        intermediates.append(ruled_identifiers)
+        identifier_never_count = ruled_identifiers.where(
+            F.col("resolution_operator") == ResolutionOperator.NEVER_RESOLVE.value
+        ).count()
+        resolvable_identifiers = ruled_identifiers.where(
+            F.col("resolution_operator") != ResolutionOperator.NEVER_RESOLVE.value
+        )
+        duplicate_external_id_count = (
+            resolvable_identifiers.groupBy(
                 "namespace_id",
                 "value",
                 "referent_kind",
             )
             .agg(F.countDistinct("resolved_entity_key").alias("entity_count"))
             .where(F.col("entity_count") > 1)
-            .limit(1)
             .count()
         )
-        if collision:
-            raise ValueError("eligible identifier resolves to multiple Gold entities")
         identifier_drafts = (
-            resolved_identifiers.rdd.map(
+            resolvable_identifiers.rdd.map(
                 lambda row: (
                     (
                         row["resolved_entity_key"],
@@ -880,11 +1096,38 @@ def build_distributed_gold(
                 memberships=memberships,
                 rights=rights,
                 context=policy_context,
+                requested_actions=field_policy.requested_actions,
+                termination_fences=termination_fences,
             )
         )
         intermediates.append(resolved_relation_subjects)
+        relation_rule_udf = _field_rule_udf(
+            field_policy,
+            PredicateKind.RELATIONSHIP,
+        )
+        ruled_relation_subjects = (
+            resolved_relation_subjects.withColumn(
+                "_rule",
+                relation_rule_udf("predicate", "qualifiers_json"),
+            )
+            .withColumn("resolution_operator", F.col("_rule.operator"))
+            .withColumn("scope_json", F.col("_rule.scope_json"))
+            .withColumn(
+                "source_priority_json",
+                F.col("_rule.source_priority_json"),
+            )
+            .drop("_rule")
+            .persist()
+        )
+        intermediates.append(ruled_relation_subjects)
+        relation_never_count = ruled_relation_subjects.where(
+            F.col("resolution_operator") == ResolutionOperator.NEVER_RESOLVE.value
+        ).count()
+        resolvable_relation_subjects = ruled_relation_subjects.where(
+            F.col("resolution_operator") != ResolutionOperator.NEVER_RESOLVE.value
+        )
         resolved_relations = (
-            resolved_relation_subjects.alias("r")
+            resolvable_relation_subjects.alias("r")
             .join(
                 memberships.alias("o"),
                 (F.col("r.object_namespace_id") == F.col("o.source_namespace_id"))
@@ -900,7 +1143,7 @@ def build_distributed_gold(
         )
         intermediates.append(resolved_relations)
         rel_object_unresolved = (
-            resolved_relation_subjects.count() - resolved_relations.count()
+            resolvable_relation_subjects.count() - resolved_relations.count()
         )
         relation_drafts = (
             resolved_relations.rdd.map(
@@ -908,20 +1151,20 @@ def build_distributed_gold(
                     (
                         row["resolved_entity_key"],
                         row["predicate"],
-                        row["object_resolved_entity_key"],
-                        row["qualifiers_json"],
+                        row["scope_json"],
+                        row["resolution_operator"],
+                        row["source_priority_json"],
                     ),
-                    (row["assertion_id"], _lineage_json(row)),
+                    (
+                        row["object_resolved_entity_key"],
+                        row["assertion_id"],
+                        _lineage_json(row),
+                        row["source_product_id"],
+                    ),
                 )
             )
             .groupByKey()
-            .map(
-                lambda item: _relation_draft(
-                    item,
-                    policy_id=field_policy.policy_id,
-                    policy_version=field_policy.policy_version,
-                )
-            )
+            .flatMap(_resolve_relation_group)
             .persist()
         )
 
@@ -929,11 +1172,16 @@ def build_distributed_gold(
             field_drafts.map(lambda item: (item[1].entity_key,))
             .union(identifier_drafts.map(lambda item: (item.entity_key,)))
             .union(
-                relation_drafts.flatMap(
+                relation_drafts.filter(lambda item: item[0] == "relation").flatMap(
                     lambda item: (
-                        (item.subject_entity_key,),
-                        (item.object_entity_key,),
+                        (item[1].subject_entity_key,),
+                        (item[1].object_entity_key,),
                     )
+                )
+            )
+            .union(
+                relation_drafts.filter(lambda item: item[0] == "conflict").map(
+                    lambda item: (item[1].entity_key,)
                 )
             )
             .distinct()
@@ -973,6 +1221,43 @@ def build_distributed_gold(
         ):
             raise ValueError("Gold entity has inconsistent ledger classification")
 
+        parent_relations = spark.createDataFrame(
+            relation_drafts.filter(lambda item: item[0] == "relation").map(
+                lambda item: (
+                    item[1].subject_entity_key,
+                    item[1].predicate,
+                )
+            ),
+            "entity_key STRING, predicate STRING",
+        ).dropDuplicates(["entity_key", "predicate"])
+        orphan_episode_count = (
+            entity_summary.where(F.col("entity_level") == "EPISODE")
+            .join(
+                parent_relations.where(
+                    F.col("predicate").isin(
+                        "part_of",
+                        "part_of_season",
+                        "part_of_series",
+                        "season",
+                    )
+                ).select("entity_key"),
+                "entity_key",
+                "left_anti",
+            )
+            .count()
+        )
+        orphan_season_count = (
+            entity_summary.where(F.col("entity_level") == "SEASON")
+            .join(
+                parent_relations.where(
+                    F.col("predicate").isin("part_of", "part_of_series")
+                ).select("entity_key"),
+                "entity_key",
+                "left_anti",
+            )
+            .count()
+        )
+
         policy_usage = (
             resolvable_fields.select(
                 "source_product_id",
@@ -980,7 +1265,7 @@ def build_distributed_gold(
                 "assertion_id",
             )
             .unionByName(
-                resolved_identifiers.select(
+                resolvable_identifiers.select(
                     "source_product_id",
                     "policy_id",
                     "assertion_id",
@@ -1000,9 +1285,17 @@ def build_distributed_gold(
         )
 
         field_count = field_drafts.filter(lambda item: item[0] == "field").count()
-        conflict_count = field_drafts.filter(lambda item: item[0] == "conflict").count()
+        field_conflict_count = field_drafts.filter(
+            lambda item: item[0] == "conflict"
+        ).count()
+        relation_conflict_count = relation_drafts.filter(
+            lambda item: item[0] == "conflict"
+        ).count()
+        conflict_count = field_conflict_count + relation_conflict_count
         identifier_count = identifier_drafts.count()
-        relation_count = relation_drafts.count()
+        relation_count = relation_drafts.filter(
+            lambda item: item[0] == "relation"
+        ).count()
         entity_count = entity_summary.count()
         table_counts = {
             "community_gold_entity": entity_count,
@@ -1040,7 +1333,7 @@ def build_distributed_gold(
                     source_node_count=int(row["source_node_count"]),
                     trace={
                         "sourceNodeCount": int(row["source_node_count"]),
-                        "resolver": "community-gold-spark-v2",
+                        "resolver": "community-gold-spark-v3",
                     },
                 )
             )
@@ -1068,24 +1361,50 @@ def build_distributed_gold(
                 )
             )
         )
-        conflict_rows = field_drafts.filter(lambda item: item[0] == "conflict").map(
-            lambda item: gold_conflict_row(
-                build_gold_conflict(
-                    release_plan_id=plan.release_plan_id,
-                    entity_key=item[1].entity_key,
-                    predicate=item[1].predicate,
-                    qualifiers=item[1].qualifiers,
-                    reason=item[1].reason,
-                    assertion_ids=item[1].assertion_ids,
-                    candidate_values=item[1].candidate_values,
-                    trace=trace_with_assertion_lineage(
-                        {
-                            **item[1].trace,
-                            "policyId": field_policy.policy_id,
-                            "policyVersion": field_policy.policy_version,
-                        },
-                        item[1].lineage,
-                    ),
+        conflict_rows = (
+            field_drafts.filter(lambda item: item[0] == "conflict")
+            .map(
+                lambda item: gold_conflict_row(
+                    build_gold_conflict(
+                        release_plan_id=plan.release_plan_id,
+                        entity_key=item[1].entity_key,
+                        predicate=item[1].predicate,
+                        qualifiers=item[1].qualifiers,
+                        reason=item[1].reason,
+                        assertion_ids=item[1].assertion_ids,
+                        candidate_values=item[1].candidate_values,
+                        trace=trace_with_assertion_lineage(
+                            {
+                                **item[1].trace,
+                                "policyId": field_policy.policy_id,
+                                "policyVersion": field_policy.policy_version,
+                            },
+                            item[1].lineage,
+                        ),
+                    )
+                )
+            )
+            .union(
+                relation_drafts.filter(lambda item: item[0] == "conflict").map(
+                    lambda item: gold_conflict_row(
+                        build_gold_conflict(
+                            release_plan_id=plan.release_plan_id,
+                            entity_key=item[1].entity_key,
+                            predicate=item[1].predicate,
+                            qualifiers=item[1].qualifiers,
+                            reason=item[1].reason,
+                            assertion_ids=item[1].assertion_ids,
+                            candidate_values=item[1].candidate_values,
+                            trace=trace_with_assertion_lineage(
+                                {
+                                    **item[1].trace,
+                                    "policyId": field_policy.policy_id,
+                                    "policyVersion": field_policy.policy_version,
+                                },
+                                item[1].lineage,
+                            ),
+                        )
+                    )
                 )
             )
         )
@@ -1106,18 +1425,22 @@ def build_distributed_gold(
                 )
             )
         )
-        relation_rows = relation_drafts.map(
+        relation_rows = relation_drafts.filter(lambda item: item[0] == "relation").map(
             lambda item: gold_relation_row(
                 build_gold_relation(
                     release_plan_id=plan.release_plan_id,
-                    subject_entity_key=item.subject_entity_key,
-                    predicate=item.predicate,
-                    object_entity_key=item.object_entity_key,
-                    qualifiers=item.qualifiers,
-                    assertion_ids=item.assertion_ids,
+                    subject_entity_key=item[1].subject_entity_key,
+                    predicate=item[1].predicate,
+                    object_entity_key=item[1].object_entity_key,
+                    qualifiers=item[1].qualifiers,
+                    assertion_ids=item[1].assertion_ids,
                     trace=trace_with_assertion_lineage(
-                        item.trace,
-                        item.lineage,
+                        {
+                            **item[1].trace,
+                            "policyId": field_policy.policy_id,
+                            "policyVersion": field_policy.policy_version,
+                        },
+                        item[1].lineage,
                     ),
                 )
             )
@@ -1185,6 +1508,21 @@ def build_distributed_gold(
             entries=tuple(attribution_entries),
             created_at=planned_at,
         )
+        selected_ingest_runs = tuple(
+            CommunityIngestRun.model_validate_json(row["manifest_json"])
+            for row in committed_silver["community_ingest_run"]
+            .select("manifest_json")
+            .collect()
+        )
+        release_freshness = build_release_freshness_matrix(
+            ingest_runs=selected_ingest_runs,
+            policy=(
+                freshness_policy
+                if freshness_policy is not None
+                else disabled_release_freshness_policy()
+            ),
+            as_of=policy_context.as_of,
+        )
         quality = build_gold_quality_report_from_metrics(
             plan=plan,
             policy=field_policy,
@@ -1192,7 +1530,12 @@ def build_distributed_gold(
             conflict_count=conflict_count,
             field_count=field_count,
             withheld_assertion_count=(
-                field_withheld + id_withheld + rel_withheld + never_count
+                field_withheld
+                + id_withheld
+                + rel_withheld
+                + never_count
+                + identifier_never_count
+                + relation_never_count
             ),
             unresolved_identity_count=(
                 field_unresolved
@@ -1202,6 +1545,13 @@ def build_distributed_gold(
             ),
             entity_count=entity_count,
             eligible_policy_counts=dict(eligible_policy_counts),
+            attribution_counts=dict(eligible_policy_counts),
+            orphan_episode_count=orphan_episode_count,
+            orphan_season_count=orphan_season_count,
+            duplicate_external_id_count=duplicate_external_id_count,
+            release_freshness=release_freshness,
+            build_mode=build_mode,
+            resolution_count=(field_count + relation_count + relation_conflict_count),
             created_at=planned_at,
         )
         return GoldSparkBuild(plan, quality, attribution, output_frames)

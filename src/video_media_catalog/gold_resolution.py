@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
@@ -20,6 +20,7 @@ from video_media_catalog.gold import (
     GoldReleasePlan,
     GoldResolutionPolicy,
     GoldResolutionStatus,
+    PredicateKind,
     ResolutionOperator,
     build_gold_conflict,
     build_gold_entity,
@@ -29,7 +30,8 @@ from video_media_catalog.gold import (
     trace_with_assertion_lineage,
 )
 from video_media_catalog.identity_resolution import IdentityIndex
-from video_media_catalog.rights import RightsProfile
+from video_media_catalog.identity_v2 import EntityLevel
+from video_media_catalog.rights import RightsProfile, RightsTerminationFence
 from video_media_catalog.v2_contracts import parse_rfc3339
 
 
@@ -93,6 +95,10 @@ class GoldResolutionDraft:
     eligible_policy_counts: dict[str, int]
     withheld_assertion_count: int
     unresolved_identity_count: int
+    orphan_episode_count: int = 0
+    orphan_season_count: int = 0
+    duplicate_external_id_count: int = 0
+    attribution_counts: dict[str, int] = field(default_factory=dict)
 
     @property
     def expected_counts(self) -> dict[str, int]:
@@ -107,7 +113,12 @@ class GoldResolutionDraft:
     def validate_quality(self, policy: GoldResolutionPolicy) -> None:
         field_total = len(self.fields)
         conflict_ratio = len(self.conflicts) / field_total if field_total else 0.0
-        identity_denominator = len(self.entity_keys) + self.unresolved_identity_count
+        resolved_identity_lookups = (
+            len(self.fields) + len(self.identifiers) + 2 * len(self.relations)
+        )
+        identity_denominator = (
+            resolved_identity_lookups + self.unresolved_identity_count
+        )
         unresolved_ratio = (
             self.unresolved_identity_count / identity_denominator
             if identity_denominator
@@ -117,6 +128,14 @@ class GoldResolutionDraft:
             raise ValueError("Gold field conflict ratio exceeds policy budget")
         if unresolved_ratio > policy.max_unresolved_identity_ratio:
             raise ValueError("Gold unresolved identity ratio exceeds policy budget")
+        if self.orphan_episode_count:
+            raise ValueError("Gold contains orphan episodes")
+        if self.orphan_season_count:
+            raise ValueError("Gold contains orphan seasons")
+        if self.duplicate_external_id_count:
+            raise ValueError("Gold contains duplicate external identifiers")
+        if self.attribution_counts != self.eligible_policy_counts:
+            raise ValueError("Gold attribution counts do not cover eligible assertions")
 
     def materialize(
         self,
@@ -210,10 +229,12 @@ class _Eligibility:
         profiles: dict[str, RightsProfile],
         plan_context,
         policy: GoldResolutionPolicy,
+        termination_fences: tuple[RightsTerminationFence, ...] = (),
     ) -> None:
         self.profiles = profiles
         self.context = plan_context
         self.policy = policy
+        self.termination_fences = termination_fences
         self.as_of = parse_rfc3339(plan_context.as_of)
         self.policy_counts: Counter[str] = Counter()
         self.withheld = 0
@@ -225,6 +246,18 @@ class _Eligibility:
             raise ValueError(f"unknown rights policy: {provenance.policy_id}")
         if profile.digest != provenance.policy_digest:
             raise ValueError("assertion policy digest differs from registry")
+        for fence in self.termination_fences:
+            if fence.policy_id != profile.policy_id:
+                continue
+            if fence.policy_digest != profile.digest:
+                raise ValueError(
+                    "termination fence policy digest differs from registry"
+                )
+            if parse_rfc3339(fence.effective_at) <= self.as_of and set(
+                fence.blocked_actions
+            ) & set(self.policy.requested_actions):
+                self.withheld += 1
+                return False
         if profile.zone not in self.context.allowed_zones:
             self.withheld += 1
             return False
@@ -262,12 +295,37 @@ class _Eligibility:
         if not permitted:
             self.withheld += 1
             return False
-        self.policy_counts[profile.policy_id] += 1
         return True
+
+    def record(self, assertion) -> None:
+        self.policy_counts[assertion.provenance.policy_id] += 1
 
 
 def _active_and_eligible(assertion, eligibility: _Eligibility) -> bool:
     return assertion.status == AssertionStatus.ACTIVE and eligibility.permits(assertion)
+
+
+def _source_rank(assertion: Any, source_priority: tuple[str, ...]) -> int:
+    provenance = assertion.provenance
+    candidates = (provenance.mapper_id, provenance.policy_id)
+    for rank, source in enumerate(source_priority):
+        if source in candidates:
+            return rank
+    return len(source_priority)
+
+
+def _preferred_assertions(
+    assertions: list[Any],
+    source_priority: tuple[str, ...],
+) -> list[Any]:
+    if not assertions:
+        return []
+    rank = min(_source_rank(assertion, source_priority) for assertion in assertions)
+    return [
+        assertion
+        for assertion in assertions
+        if _source_rank(assertion, source_priority) == rank
+    ]
 
 
 def resolve_gold_draft(
@@ -279,6 +337,7 @@ def resolve_gold_draft(
     rights_profiles: tuple[RightsProfile, ...],
     policy_context,
     field_policy: GoldResolutionPolicy,
+    termination_fences: tuple[RightsTerminationFence, ...] = (),
 ) -> GoldResolutionDraft:
     profiles = {profile.policy_id: profile for profile in rights_profiles}
     if len(profiles) != len(rights_profiles):
@@ -287,6 +346,7 @@ def resolve_gold_draft(
         profiles=profiles,
         plan_context=policy_context,
         policy=field_policy,
+        termination_fences=termination_fences,
     )
     unresolved = 0
     field_groups: dict[tuple[str, str, str], list[FieldAssertion]] = defaultdict(list)
@@ -306,6 +366,7 @@ def resolve_gold_draft(
         scope = {key: assertion.qualifiers.get(key) for key in rule.scope_qualifiers}
         scope_json = canonical_json(scope)
         field_groups[(entity_key, assertion.predicate, scope_json)].append(assertion)
+        eligibility.record(assertion)
         used_entity_keys.add(entity_key)
 
     fields: list[FieldDraft] = []
@@ -324,14 +385,31 @@ def resolve_gold_draft(
             "operator": rule.operator.value,
             "policyId": field_policy.policy_id,
             "policyVersion": field_policy.policy_version,
+            "rightsFirst": rule.rights_first,
+            "sourcePriority": rule.source_priority,
         }
         if rule.operator == ResolutionOperator.SINGLE:
-            if len(ordered_values) == 1:
-                value_type, value_json = ordered_values[0]
+            preferred = _preferred_assertions(assertions, rule.source_priority)
+            preferred_values = sorted(
+                {
+                    (assertion.value_type.value, assertion.value_json)
+                    for assertion in preferred
+                }
+            )
+            trace["selectedSourceRank"] = (
+                _source_rank(preferred[0], rule.source_priority) if preferred else None
+            )
+            if len(preferred_values) == 1:
+                value_type, value_json = preferred_values[0]
                 winning = tuple(
                     sorted(
                         assertion.assertion_id
-                        for assertion in by_value[ordered_values[0]]
+                        for assertion in preferred
+                        if (
+                            assertion.value_type.value,
+                            assertion.value_json,
+                        )
+                        == preferred_values[0]
                     )
                 )
                 fields.append(
@@ -349,7 +427,7 @@ def resolve_gold_draft(
                 )
             else:
                 candidates = [
-                    json.loads(value_json) for _, value_json in ordered_values
+                    json.loads(value_json) for _, value_json in preferred_values
                 ]
                 fields.append(
                     FieldDraft(
@@ -408,6 +486,13 @@ def resolve_gold_draft(
         if entity_key is None:
             unresolved += 1
             continue
+        rule = field_policy.rule_for(
+            assertion.namespace_id,
+            PredicateKind.IDENTIFIER,
+        )
+        if rule.operator == ResolutionOperator.NEVER_RESOLVE:
+            eligibility.withheld += 1
+            continue
         identifier_groups[
             (
                 entity_key,
@@ -424,14 +509,13 @@ def resolve_gold_draft(
                 assertion.referent_kind,
             )
         ].add(entity_key)
+        eligibility.record(assertion)
         used_entity_keys.add(entity_key)
     collisions = {
         key: entities
         for key, entities in assignment_entities.items()
         if len(entities) > 1
     }
-    if collisions:
-        raise ValueError("eligible identifier resolves to multiple Gold entities")
     identifiers = tuple(
         IdentifierDraft(
             entity_key=entity_key,
@@ -442,7 +526,15 @@ def resolve_gold_draft(
             assertion_ids=tuple(
                 sorted(assertion.assertion_id for assertion in assertions)
             ),
-            trace={"policyId": field_policy.policy_id},
+            trace={
+                "operator": field_policy.rule_for(
+                    namespace_id,
+                    PredicateKind.IDENTIFIER,
+                ).operator.value,
+                "policyId": field_policy.policy_id,
+                "policyVersion": field_policy.policy_version,
+                "rightsFirst": True,
+            },
         )
         for (
             entity_key,
@@ -453,9 +545,10 @@ def resolve_gold_draft(
         ), assertions in sorted(identifier_groups.items())
     )
 
-    relation_groups: dict[tuple[str, str, str, str], list[RelationshipAssertion]] = (
-        defaultdict(list)
-    )
+    relation_groups: dict[
+        tuple[str, str, str],
+        list[tuple[RelationshipAssertion, str]],
+    ] = defaultdict(list)
     for assertion in relationship_assertions:
         if not _active_and_eligible(assertion, eligibility):
             continue
@@ -464,28 +557,134 @@ def resolve_gold_draft(
         if subject is None or object_key is None:
             unresolved += 1
             continue
-        qualifiers_json = canonical_json(assertion.qualifiers)
-        relation_groups[
-            (subject, assertion.predicate, object_key, qualifiers_json)
-        ].append(assertion)
-        used_entity_keys.update((subject, object_key))
-    relations = tuple(
-        RelationDraft(
-            subject_entity_key=subject,
-            predicate=predicate,
-            object_entity_key=object_key,
-            qualifiers=json.loads(qualifiers_json),
-            assertion_ids=tuple(
-                sorted(assertion.assertion_id for assertion in assertions)
-            ),
-            trace={"policyId": field_policy.policy_id},
+        rule = field_policy.rule_for(
+            assertion.predicate,
+            PredicateKind.RELATIONSHIP,
         )
-        for (
-            subject,
-            predicate,
-            object_key,
-            qualifiers_json,
-        ), assertions in sorted(relation_groups.items())
+        if rule.operator == ResolutionOperator.NEVER_RESOLVE:
+            eligibility.withheld += 1
+            continue
+        scope = {key: assertion.qualifiers.get(key) for key in rule.scope_qualifiers}
+        relation_groups[(subject, assertion.predicate, canonical_json(scope))].append(
+            (assertion, object_key)
+        )
+        eligibility.record(assertion)
+
+    relations_list: list[RelationDraft] = []
+    for (subject, predicate, scope_json), candidates in sorted(relation_groups.items()):
+        rule = field_policy.rule_for(predicate, PredicateKind.RELATIONSHIP)
+        scope = json.loads(scope_json)
+        all_ids = tuple(sorted(assertion.assertion_id for assertion, _ in candidates))
+        trace = {
+            "operator": rule.operator.value,
+            "policyId": field_policy.policy_id,
+            "policyVersion": field_policy.policy_version,
+            "rightsFirst": rule.rights_first,
+            "sourcePriority": rule.source_priority,
+        }
+        if rule.operator == ResolutionOperator.SINGLE:
+            preferred_assertions = _preferred_assertions(
+                [assertion for assertion, _ in candidates],
+                rule.source_priority,
+            )
+            preferred_ids = {
+                assertion.assertion_id for assertion in preferred_assertions
+            }
+            preferred_candidates = [
+                (assertion, object_key)
+                for assertion, object_key in candidates
+                if assertion.assertion_id in preferred_ids
+            ]
+            object_keys = sorted({object_key for _, object_key in preferred_candidates})
+            trace["selectedSourceRank"] = (
+                _source_rank(preferred_assertions[0], rule.source_priority)
+                if preferred_assertions
+                else None
+            )
+            if len(object_keys) == 1:
+                object_key = object_keys[0]
+                winning_ids = tuple(
+                    sorted(
+                        assertion.assertion_id
+                        for assertion, candidate_key in preferred_candidates
+                        if candidate_key == object_key
+                    )
+                )
+                relations_list.append(
+                    RelationDraft(
+                        subject_entity_key=subject,
+                        predicate=predicate,
+                        object_entity_key=object_key,
+                        qualifiers=scope,
+                        assertion_ids=winning_ids,
+                        trace=trace,
+                    )
+                )
+                used_entity_keys.update((subject, object_key))
+            else:
+                conflicts.append(
+                    ConflictDraft(
+                        entity_key=subject,
+                        predicate=predicate,
+                        qualifiers=scope,
+                        reason="MULTIPLE_ELIGIBLE_RELATION_TARGETS",
+                        assertion_ids=all_ids,
+                        candidate_values=object_keys,
+                        trace=trace,
+                    )
+                )
+                used_entity_keys.add(subject)
+            continue
+
+        by_object: dict[str, list[RelationshipAssertion]] = defaultdict(list)
+        for assertion, object_key in candidates:
+            by_object[object_key].append(assertion)
+        for object_key, assertions in sorted(by_object.items()):
+            relations_list.append(
+                RelationDraft(
+                    subject_entity_key=subject,
+                    predicate=predicate,
+                    object_entity_key=object_key,
+                    qualifiers=scope,
+                    assertion_ids=tuple(
+                        sorted(assertion.assertion_id for assertion in assertions)
+                    ),
+                    trace=trace,
+                )
+            )
+            used_entity_keys.update((subject, object_key))
+    relations = tuple(
+        sorted(
+            relations_list,
+            key=lambda item: (
+                item.subject_entity_key,
+                item.predicate,
+                item.object_entity_key,
+                canonical_json(item.qualifiers),
+            ),
+        )
+    )
+
+    episode_parents = {
+        relation.subject_entity_key
+        for relation in relations
+        if relation.predicate
+        in {"part_of", "part_of_season", "part_of_series", "season"}
+    }
+    season_parents = {
+        relation.subject_entity_key
+        for relation in relations
+        if relation.predicate in {"part_of", "part_of_series"}
+    }
+    orphan_episode_count = sum(
+        identity_index.entities[entity_key].entity_level == EntityLevel.EPISODE
+        and entity_key not in episode_parents
+        for entity_key in used_entity_keys
+    )
+    orphan_season_count = sum(
+        identity_index.entities[entity_key].entity_level == EntityLevel.SEASON
+        and entity_key not in season_parents
+        for entity_key in used_entity_keys
     )
 
     source_counts: Counter[str] = Counter()
@@ -525,4 +724,8 @@ def resolve_gold_draft(
         eligible_policy_counts=dict(sorted(eligibility.policy_counts.items())),
         withheld_assertion_count=eligibility.withheld,
         unresolved_identity_count=unresolved,
+        orphan_episode_count=orphan_episode_count,
+        orphan_season_count=orphan_season_count,
+        duplicate_external_id_count=len(collisions),
+        attribution_counts=dict(sorted(eligibility.policy_counts.items())),
     )

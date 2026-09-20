@@ -120,6 +120,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         "video-media-catalog-gold-index = "
         '"video_media_catalog.gold_index_cli:main"' in pyproject
     )
+    assert (
+        "video-media-catalog-gold-removal = "
+        '"video_media_catalog.gold_removal_cli:main"' in pyproject
+    )
     assert "repository: video-media-catalog\n" in publish_workflow
     assert "repository: video-media-catalog-api" in publish_workflow
     assert "dockerfile: Dockerfile.emr" in publish_workflow

@@ -26,6 +26,21 @@ A rights profile is a versioned machine policy. It contains:
 Absence of a permission means denial. `ml_training` is never inferred from
 `commercial`, `derivatives`, or an open-source software license.
 
+### Termination fence and removal
+
+Termination is represented by an immutable `RightsTerminationFence` that binds
+the source product, policy ID/digest, effective time, blocked actions, purge
+duty, reason, and creation time. It is a deny fence: Gold must apply it before
+source priority and resolution.
+
+`SourceRemovalPlan` is dry-run by default and records affected assertions,
+entities, releases, indexes, re-Gold/re-index actions, and restricted
+raw/derived purge targets. A non-dry plan requires an exact source-product
+confirmation and an explicit component-aware URI-prefix allowlist. Only
+planned `file://` or `s3://` targets may be passed to an execution backend.
+Execution installs the fence before purge and emits a deterministic
+`SourceRemovalReceipt`; dry-run plans cannot emit receipts.
+
 ## Source registry
 
 The source registry contains:
@@ -300,3 +315,10 @@ Readers may only use the final release commit. Research-private assertions are
 eligible only after their registered policy passes the requested action,
 audience, purpose, territory, expiry/cache, attribution, and digest checks.
 There is no parallel public release or public serving alias in v2.
+
+The Gold config digest also binds the release freshness/coverage policy. The
+quality report carries each source's latest complete/delta/partial watermark,
+coverage digest, age, required/optional status, and SLO result. TMDB and
+TVmaze default to 36 hours, IMDb to 10 days, and Wikidata to 45 days. EIDR
+partial input is never reported as complete; Douban identifier-only mode does
+not require a separate feed watermark.

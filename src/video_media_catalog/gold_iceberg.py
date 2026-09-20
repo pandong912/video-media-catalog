@@ -162,19 +162,18 @@ class CommunityGoldTables:
         if (
             quality_report.release_plan_id != plan.release_plan_id
             or quality_report.field_policy_digest != plan.field_policy_digest
+            or quality_report.config_digest != plan.config_digest
+            or quality_report.release_freshness.as_of != plan.policy_context.as_of
             or quality_report.table_counts != plan.expected_counts
             or quality_report.status != GoldQualityStatus.PASS
         ):
             raise ValueError("Gold quality report does not approve this plan")
         if attribution_manifest.release_id != plan.release_plan_id:
             raise ValueError("attribution manifest does not bind this plan")
-        attribution_coverage: dict[str, int] = {}
-        for entry in attribution_manifest.entries:
-            attribution_coverage[entry.policy_id] = (
-                attribution_coverage.get(entry.policy_id, 0) + entry.claim_count
-            )
-        if dict(sorted(attribution_coverage.items())) != (
-            quality_report.eligible_policy_counts
+        attribution_coverage = attribution_manifest.claim_counts_by_policy
+        if (
+            attribution_coverage != quality_report.eligible_policy_counts
+            or attribution_coverage != quality_report.attribution_counts
         ):
             raise ValueError(
                 "attribution manifest does not cover every eligible assertion"

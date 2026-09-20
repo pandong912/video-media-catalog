@@ -21,6 +21,7 @@ Before Gold rows are written, the builder publishes an immutable release plan:
 - exact Silver data snapshot IDs;
 - identity membership snapshot;
 - rights registry, field policy, resolver, image, and config digests;
+- the source freshness/coverage policy inside the config digest;
 - expected row counts for every Gold table.
 
 Every Gold row contains `release_plan_id`. A final release commit is visible
@@ -61,9 +62,26 @@ Primary key: `resolution_key`.
 eligible assertion: source product/name/record/path, observation time,
 citation keys, policy zone, license, attribution, source URL, and share-alike.
 
-`SINGLE` policies publish one value only when all eligible active assertions in
-the same scope agree. Competing values produce `CONFLICTED`; no arbitrary
-provider wins. `SET_UNION` publishes one row per distinct value.
+Resolution is always rights-first. Only active assertions that pass policy,
+zone, action, audience/purpose/territory, validity, cache-age, and digest
+checks may enter source priority. `SINGLE` selects the highest configured
+eligible source tier and emits `CONFLICTED` when that tier still contains
+multiple values. `SET_UNION` publishes one row per distinct value. Unknown
+field, relationship, and identifier predicates use `NEVER_RESOLVE`.
+
+The versioned predicate matrix explicitly covers:
+
+- primary/original/alias title scopes;
+- release, premiere, air, end, and year dates;
+- runtime and average-runtime scopes;
+- genre vocabularies;
+- cast, crew, writer, director, producer, composer, and other credit edges;
+- episode/season parent edges and ordinal scopes;
+- every registered external-identifier namespace.
+
+The matrix binds operator, qualifier scope, ordered source priority, assertion
+kind, and literal `rightsFirst=true`. Adding a predicate or namespace requires
+an explicit policy rule and changes the field-policy digest.
 
 ### `community_gold_identifier`
 
@@ -74,7 +92,8 @@ Primary key: `resolution_key`.
 - `assertion_ids_json`, `trace_json`
 
 Accepted identifier assignments are unique by namespace/value/referent kind
-within a release. A value assigned to multiple entities blocks the release.
+within a release. A value assigned to multiple entities is retained in the
+candidate quality report as `duplicateExternalIdCount` and blocks publication.
 
 ### `community_gold_relation`
 
@@ -85,7 +104,9 @@ Primary key: `resolution_key`.
 - `qualifiers_json`, `assertion_ids_json`, `trace_json`
 
 Both source nodes must have active identity memberships in the pinned identity
-snapshot.
+snapshot. Credit edges are set-valued. Episode/season parent edges are
+single-valued inside their ordinal scope and use the same rights-first source
+priority as fields.
 
 ### `community_gold_conflict`
 
@@ -145,9 +166,53 @@ Blocking checks include:
   license, attribution, and policy lineage;
 - identifier uniqueness and redirect acyclicity;
 - no relation has an unresolved endpoint;
+- no episode or season is orphaned from an eligible parent edge;
 - no forbidden rights-zone dependency;
 - attribution claim counts exactly cover every eligible policy count;
 - conflict and unresolved rates remain within the release policy budget.
+- required source freshness and coverage are inside their SLO.
+
+The immutable quality report includes conflict, unresolved, orphan
+episode/season, duplicate external-ID, attribution, and freshness counts.
+Candidate-backfill mode may publish a failed quality report for diagnosis, but
+`community_gold_release_commit` accepts only `PASS`.
+
+## Release freshness and coverage
+
+Every source result records required/optional status, SLO, latest complete,
+latest delta, and latest partial observations. Each observation binds the
+committed ingest run, source watermark (or acquisition-time fallback),
+acquisition age, completeness/change semantics, and coverage-scope digest.
+
+Default required SLOs are:
+
+- TMDB and TVmaze: less than 36 hours;
+- IMDb: less than 10 days;
+- Wikidata: less than 45 days.
+
+EIDR is optional and its partial adapter capture is recorded only as
+`latestPartial`; it must never populate `latestComplete`. Douban is an
+identifier-only mode sourced through registered assertions and has no feed
+freshness requirement. The entire freshness policy is part of the Gold config
+digest; the evaluated matrix and blocking violations are part of the quality
+report identity.
+
+## Source termination and removal
+
+A source termination creates an immutable rights fence before any purge or
+source priority decision. The dry-run-first removal plan binds:
+
+- exact owner, source product, policy digest, effective time, and blocked
+  actions;
+- affected assertion counts, entity count, release plans, and indexes;
+- required re-Gold and re-index actions;
+- restricted raw and derived purge target URIs.
+
+Dry-run is the default. An executable plan requires exact source-product
+confirmation and component-aware `file://`/`s3://` prefix allowlisting for
+every target. Execution installs the fence first, then purges only planned
+targets, rebuilds Gold, and rebuilds the research index. It emits an immutable
+completed/partial/failed receipt; a dry-run plan cannot produce a receipt.
 
 Rows are staged first. The release commit is inserted last. Search indexing
 reads exact Gold snapshots plus the exact commit-table snapshot.

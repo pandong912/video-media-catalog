@@ -667,13 +667,16 @@ def build_identity_resolution_dataframes(
             for spec in row["identifier_specs"]
         )
 
+    candidate_count_rows = candidate_rows.groupBy(
+        F.col("i.subject_namespace_id").alias("subject_namespace_id"),
+        F.col("i.subject_source_id").alias("subject_source_id"),
+        F.col("i.subject_referent_kind").alias("subject_referent_kind"),
+    ).agg(F.countDistinct("k.entity_key").alias("node_candidate_count"))
     node_candidate_counts = (
-        candidate_rows.groupBy(
-            F.col("i.subject_namespace_id").alias("subject_namespace_id"),
-            F.col("i.subject_source_id").alias("subject_source_id"),
-            F.col("i.subject_referent_kind").alias("subject_referent_kind"),
-        )
-        .agg(F.countDistinct("k.entity_key").alias("node_candidate_count"))
+        unassigned.select(*_SOURCE_NODE_COLUMNS)
+        .distinct()
+        .join(candidate_count_rows, list(_SOURCE_NODE_COLUMNS), "left")
+        .fillna({"node_candidate_count": 0})
         .persist()
     )
     identifier_groups = registered_identifiers.groupBy(
@@ -888,8 +891,20 @@ def build_identity_resolution_dataframes(
             )
             work_parts.append(bounded_work)
         if not work_parts:
-            work = unassigned.limit(0).withColumn(
-                "candidate_entity_keys", empty_candidate_keys
+            work = _resolution_work_columns(
+                unassigned.limit(0).select(
+                    *unassigned.columns,
+                    empty_candidate_keys.alias("candidate_entity_keys"),
+                    F.lit(0).cast("long").alias("node_candidate_count"),
+                )
+            )
+            work = (
+                work.withColumn("node_id", node_id_expr)
+                .withColumn("component_id", node_id_expr)
+                .withColumn("component_node_count", F.lit(0).cast("long"))
+                .withColumn("component_candidate_count", F.lit(0).cast("long"))
+                .withColumn("component_candidate_keys", empty_candidate_keys)
+                .withColumn("resolution_mode", F.lit("BOOTSTRAP"))
             )
         elif len(work_parts) == 1:
             work = work_parts[0]

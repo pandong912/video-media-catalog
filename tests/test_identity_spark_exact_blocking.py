@@ -10,6 +10,7 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
+from video_media_catalog.community_ingest import CommunityIngestRun
 from video_media_catalog.community_rows import ingest_run_row
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.community_spark import community_table_schema
@@ -29,7 +30,6 @@ from video_media_catalog.identity_spark import (
     assign_exact_blocking_component_ids,
     build_identity_resolution_dataframes,
 )
-from video_media_catalog.community_ingest import CommunityIngestRun
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.source_silver import build_source_silver_dataframes
 from video_media_catalog.tvmaze import (

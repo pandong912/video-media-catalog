@@ -36,6 +36,14 @@ from video_media_catalog.source_silver import (
     build_source_silver_dataframes,
 )
 from video_media_catalog.storage import local_path
+from video_media_catalog.tvmaze import (
+    TVMAZE_CONNECTOR_ID,
+    TVMAZE_POLICY_ID,
+    TVMAZE_SOURCE_PRODUCT_ID,
+    TVMAZE_SOURCE_SYSTEM_ID,
+    tvmaze_rights_profile,
+)
+from video_media_catalog.v1_migration import build_v1_key_migration
 
 
 def _identity_lifecycle_inputs(
@@ -51,16 +59,6 @@ def _identity_lifecycle_inputs(
         ),
         "committed_source_run_ids": (run.run_id,),
     }
-
-
-from video_media_catalog.tvmaze import (
-    TVMAZE_CONNECTOR_ID,
-    TVMAZE_POLICY_ID,
-    TVMAZE_SOURCE_PRODUCT_ID,
-    TVMAZE_SOURCE_SYSTEM_ID,
-    tvmaze_rights_profile,
-)
-from video_media_catalog.v1_migration import build_v1_key_migration
 
 
 @pytest.fixture(scope="module")

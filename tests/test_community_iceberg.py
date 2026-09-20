@@ -187,6 +187,8 @@ class RecordingTables(CommunityCatalogTables):
         self.run_counts = run_counts
         self.events: list[str] = []
         self.commit: CommunityIngestCommit | None = None
+        self.snapshot_properties: dict[str, dict[str, str] | None] = {}
+        self.foreign_latest: dict[str, int] = {}
 
     def create_tables(self) -> None:
         self.events.append("create")
@@ -194,13 +196,25 @@ class RecordingTables(CommunityCatalogTables):
     def read_commit(self, run_id: str):
         return self.commit
 
-    def merge_insert_only(self, table: str, dataframe) -> int:
+    def merge_insert_only(
+        self,
+        table: str,
+        dataframe,
+        *,
+        snapshot_properties=None,
+    ) -> int:
         self.events.append(table)
+        self.snapshot_properties[table] = snapshot_properties
         if table == "community_ingest_commit":
             self.commit = CommunityIngestCommit.model_validate_json(
                 dataframe[0]["commit_json"]
             )
-        return len(dataframe) if isinstance(dataframe, list) else dataframe.count()
+        count = len(dataframe) if isinstance(dataframe, list) else dataframe.count()
+        if table in DATA_TABLE_COLUMNS and count:
+            # Simulate another writer advancing the table before snapshot lookup.
+            self.foreign_latest[table] = 999
+            self.events.append(f"foreign-writer:{table}")
+        return count
 
     def _verify_run_manifest(self, run) -> None:
         self.events.append("verify-run")
@@ -208,11 +222,23 @@ class RecordingTables(CommunityCatalogTables):
     def _run_row_count(self, table: str, run_id: str) -> int:
         return self.run_counts[table]
 
+    def _run_snapshot_id(
+        self,
+        table: str,
+        run_id: str,
+        *,
+        expected_row_count: int,
+    ) -> int | None:
+        assert expected_row_count == self.run_counts[table]
+        return 100 if expected_row_count else None
+
     def _latest_snapshot_id(self, table: str) -> int | None:
-        return 100 if self.run_counts[table] else None
+        raise AssertionError(
+            "stage_and_commit must not read the global latest snapshot"
+        )
 
 
-def test_run_commit_is_published_last_and_reused() -> None:
+def test_run_commit_pins_own_snapshot_after_another_writer_and_is_reused() -> None:
     counts = {table: 0 for table in DATA_TABLE_COLUMNS}
     counts["community_source_record"] = 1
     run = build_community_ingest_run(
@@ -235,6 +261,11 @@ def test_run_commit_is_published_last_and_reused() -> None:
         committed_at="2026-09-19T00:01:00Z",
     )
     assert commit.table_counts == counts
+    assert commit.table_snapshot_ids["community_source_record"] == 100
+    assert tables.foreign_latest["community_source_record"] == 999
+    assert tables.snapshot_properties["community_source_record"] == {
+        "video-media-catalog.run-id": run.run_id
+    }
     assert tables.events[-1] == "community_ingest_commit"
     event_count = len(tables.events)
     assert (

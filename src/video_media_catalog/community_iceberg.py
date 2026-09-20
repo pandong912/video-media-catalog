@@ -21,11 +21,17 @@ from video_media_catalog.community_tables import (
     TABLE_KEYS,
     TABLE_PARTITION_COLUMNS,
 )
-from video_media_catalog.iceberg import CatalogConfig
+from video_media_catalog.iceberg import (
+    CatalogConfig,
+    execute_iceberg_sql,
+    find_owned_snapshot_id,
+)
 from video_media_catalog.v2_contracts import (
     require_rfc3339,
     require_sha256,
 )
+
+_RUN_SNAPSHOT_PROPERTY = "video-media-catalog.run-id"
 
 _TYPE_OVERRIDES = {
     ("community_entity_ledger", "imported_v1"): "BOOLEAN",
@@ -81,7 +87,13 @@ class CommunityCatalogTables:
                 """
             )
 
-    def merge_insert_only(self, table: str, dataframe: Any) -> int:
+    def merge_insert_only(
+        self,
+        table: str,
+        dataframe: Any,
+        *,
+        snapshot_properties: dict[str, str] | None = None,
+    ) -> int:
         """Insert immutable logical keys and never mutate source history."""
 
         if table not in TABLE_COLUMNS:
@@ -113,14 +125,16 @@ class CommunityCatalogTables:
             previous = self.spark.conf.get(nullability_config, "true")
             self.spark.conf.set(nullability_config, "false")
             try:
-                self.spark.sql(
+                execute_iceberg_sql(
+                    self.spark,
                     f"""
                     MERGE INTO {self.table_identifier(table)} t
                     USING `{view}` s
                     ON t.`{key}` = s.`{key}`
                     WHEN NOT MATCHED THEN INSERT ({quoted})
                     VALUES ({source})
-                    """
+                    """,
+                    snapshot_properties=snapshot_properties,
                 )
             finally:
                 self.spark.conf.set(nullability_config, previous)
@@ -167,7 +181,11 @@ class CommunityCatalogTables:
                 .count()
             ):
                 raise ValueError(f"{table} contains rows for another run")
-            self.merge_insert_only(table, dataframes[table])
+            self.merge_insert_only(
+                table,
+                dataframes[table],
+                snapshot_properties={_RUN_SNAPSHOT_PROPERTY: run.run_id},
+            )
 
         actual_counts = {
             table: self._run_row_count(table, run.run_id)
@@ -178,7 +196,12 @@ class CommunityCatalogTables:
                 "persisted per-run counts do not match immutable run manifest"
             )
         snapshot_ids = {
-            table: self._latest_snapshot_id(table) for table in DATA_TABLE_COLUMNS
+            table: self._run_snapshot_id(
+                table,
+                run.run_id,
+                expected_row_count=actual_counts[table],
+            )
+            for table in DATA_TABLE_COLUMNS
         }
         commit = build_community_ingest_commit(
             run_id=run.run_id,
@@ -267,6 +290,25 @@ class CommunityCatalogTables:
         if len(rows) != 1:
             raise RuntimeError(f"could not count persisted {table} rows")
         return int(rows[0]["row_count"])
+
+    def _run_snapshot_id(
+        self,
+        table: str,
+        run_id: str,
+        *,
+        expected_row_count: int,
+    ) -> int | None:
+        run_id = require_sha256(run_id, label="run_id")
+        return find_owned_snapshot_id(
+            self.spark,
+            table_identifier=self.table_identifier(table),
+            table_name=self.table_name(table),
+            primary_key=TABLE_KEYS[table],
+            identity_column="run_id",
+            identity_value=run_id,
+            snapshot_property=_RUN_SNAPSHOT_PROPERTY,
+            expected_row_count=expected_row_count,
+        )
 
     def _latest_snapshot_id(self, table: str) -> int | None:
         rows = self.spark.sql(

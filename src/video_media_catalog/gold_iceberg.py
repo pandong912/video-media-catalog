@@ -26,12 +26,18 @@ from video_media_catalog.gold_tables import (
     GOLD_TABLE_COLUMNS,
     GOLD_TABLE_KEYS,
 )
-from video_media_catalog.iceberg import CatalogConfig
+from video_media_catalog.iceberg import (
+    CatalogConfig,
+    execute_iceberg_sql,
+    find_owned_snapshot_id,
+)
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.v2_contracts import (
     require_rfc3339,
     require_sha256,
 )
+
+_RELEASE_SNAPSHOT_PROPERTY = "video-media-catalog.release-plan-id"
 
 _TYPE_OVERRIDES = {
     ("community_gold_entity", "source_node_count"): "BIGINT",
@@ -83,7 +89,13 @@ class CommunityGoldTables:
                 """
             )
 
-    def merge_insert_only(self, table: str, dataframe: Any) -> int:
+    def merge_insert_only(
+        self,
+        table: str,
+        dataframe: Any,
+        *,
+        snapshot_properties: dict[str, str] | None = None,
+    ) -> int:
         if table not in GOLD_TABLE_COLUMNS:
             raise KeyError(f"unknown Gold table: {table}")
         columns = GOLD_TABLE_COLUMNS[table]
@@ -115,14 +127,16 @@ class CommunityGoldTables:
             previous = self.spark.conf.get(setting, "true")
             self.spark.conf.set(setting, "false")
             try:
-                self.spark.sql(
+                execute_iceberg_sql(
+                    self.spark,
                     f"""
                     MERGE INTO {self.table_identifier(table)} t
                     USING `{view}` s
                     ON t.`{key}` = s.`{key}`
                     WHEN NOT MATCHED THEN INSERT ({quoted})
                     VALUES ({source})
-                    """
+                    """,
+                    snapshot_properties=snapshot_properties,
                 )
             finally:
                 self.spark.conf.set(setting, previous)
@@ -198,7 +212,11 @@ class CommunityGoldTables:
                 .count()
             ):
                 raise ValueError(f"{table} contains another release plan")
-            self.merge_insert_only(table, frame)
+            self.merge_insert_only(
+                table,
+                frame,
+                snapshot_properties={_RELEASE_SNAPSHOT_PROPERTY: plan.release_plan_id},
+            )
 
         counts = {
             table: self._plan_row_count(table, plan.release_plan_id)
@@ -207,7 +225,12 @@ class CommunityGoldTables:
         if counts != plan.expected_counts:
             raise RuntimeError("persisted Gold counts differ from release plan")
         snapshots = {
-            table: self._latest_snapshot_id(table) for table in GOLD_DATA_COLUMNS
+            table: self._release_snapshot_id(
+                table,
+                plan.release_plan_id,
+                expected_row_count=counts[table],
+            )
+            for table in GOLD_DATA_COLUMNS
         }
         commit = build_gold_release_commit(
             release_plan_id=plan.release_plan_id,
@@ -300,6 +323,25 @@ class CommunityGoldTables:
         if len(rows) != 1:
             raise RuntimeError(f"could not count persisted {table} rows")
         return int(rows[0]["row_count"])
+
+    def _release_snapshot_id(
+        self,
+        table: str,
+        release_plan_id: str,
+        *,
+        expected_row_count: int,
+    ) -> int | None:
+        plan_id = require_sha256(release_plan_id, label="release_plan_id")
+        return find_owned_snapshot_id(
+            self.spark,
+            table_identifier=self.table_identifier(table),
+            table_name=self.table_name(table),
+            primary_key=GOLD_TABLE_KEYS[table],
+            identity_column="release_plan_id",
+            identity_value=plan_id,
+            snapshot_property=_RELEASE_SNAPSHOT_PROPERTY,
+            expected_row_count=expected_row_count,
+        )
 
     def _latest_snapshot_id(self, table: str) -> int | None:
         rows = self.spark.sql(

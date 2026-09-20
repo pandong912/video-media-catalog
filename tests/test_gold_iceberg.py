@@ -219,6 +219,8 @@ class RecordingGoldTables(CommunityGoldTables):
         self.counts = counts
         self.events = []
         self.commit: GoldReleaseCommit | None = None
+        self.snapshot_properties = {}
+        self.foreign_latest = {}
 
     def create_tables(self):
         self.events.append("create")
@@ -226,13 +228,25 @@ class RecordingGoldTables(CommunityGoldTables):
     def read_commit(self, release_plan_id):
         return self.commit
 
-    def merge_insert_only(self, table, dataframe):
+    def merge_insert_only(
+        self,
+        table,
+        dataframe,
+        *,
+        snapshot_properties=None,
+    ):
         self.events.append(table)
+        self.snapshot_properties[table] = snapshot_properties
         if table == "community_gold_release_commit":
             self.commit = GoldReleaseCommit.model_validate_json(
                 dataframe[0]["commit_json"]
             )
-        return len(dataframe) if isinstance(dataframe, list) else dataframe.count()
+        count = len(dataframe) if isinstance(dataframe, list) else dataframe.count()
+        if table in self.counts and count:
+            # Simulate a foreign writer advancing latest before snapshot lookup.
+            self.foreign_latest[table] = 999
+            self.events.append(f"foreign-writer:{table}")
+        return count
 
     def _verify_plan(self, plan):
         self.events.append("verify-plan")
@@ -240,11 +254,25 @@ class RecordingGoldTables(CommunityGoldTables):
     def _plan_row_count(self, table, release_plan_id):
         return self.counts[table]
 
+    def _release_snapshot_id(
+        self,
+        table,
+        release_plan_id,
+        *,
+        expected_row_count,
+    ):
+        assert expected_row_count == self.counts[table]
+        return 100 if expected_row_count else None
+
     def _latest_snapshot_id(self, table):
-        return 100 if self.counts[table] else None
+        raise AssertionError(
+            "stage_and_commit must not read the global latest snapshot"
+        )
 
 
-def test_gold_release_commit_is_last_and_quality_gated() -> None:
+def test_gold_commit_pins_own_snapshot_after_foreign_write_and_is_quality_gated() -> (
+    None
+):
     draft = _draft()
     plan = _plan()
     policy = research_policy()
@@ -312,4 +340,9 @@ def test_gold_release_commit_is_last_and_quality_gated() -> None:
     assert commit.table_counts == plan.expected_counts
     assert commit.owner_subject == "owner-123"
     assert commit.context_id == "research"
+    assert commit.table_snapshot_ids["community_gold_entity"] == 100
+    assert tables.foreign_latest["community_gold_entity"] == 999
+    assert tables.snapshot_properties["community_gold_entity"] == {
+        "video-media-catalog.release-plan-id": plan.release_plan_id
+    }
     assert tables.events[-1] == "community_gold_release_commit"

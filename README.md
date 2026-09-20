@@ -372,7 +372,11 @@ video-media-catalog-gold-index \
   --owner-subject <exact-oidc-sub> \
   --catalog-type glue \
   --warehouse s3://bucket/community-warehouse \
-  --opensearch-endpoint https://search.example.com
+  --opensearch-endpoint https://search.example.com \
+  --bulk-partitions 32 \
+  --bulk-workers 2 \
+  --bulk-chunk-size 500 \
+  --bulk-max-chunk-bytes 5242880
 ```
 
 固定 index prefix 为 `media-catalog-research-*`，固定 read alias 为
@@ -400,6 +404,49 @@ v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和
 community/public family。每个 v2 research 请求除 `governance.read` 外，还必须
 满足 `sub == MEDIA_CATALOG_OIDC_OWNER_SUBJECT`（也接受部署环境名
 `OIDC_OWNER_SUBJECT`）。v1 alias 和 API 契约不变。
+
+Gold 全量索引默认把投影按 `entityKey` 稳定重分为 32 个 partition，每个 Spark
+task 内使用 2 个独立 SigV4 OpenSearch client 并发发送。`--bulk-partitions` 与
+`--bulk-workers` 可调；每个 worker 仍使用有界 action 数和 byte 数、429/传输
+重试及有界请求超时。单文档若超过 `--bulk-max-chunk-bytes` 会在发送前失败。
+
+每个 partition 成功后会在
+`<checkpointPrefix>/checkpoints/<buildId>/<operation>/part-*.json` 条件发布
+immutable receipt。默认 `checkpointPrefix` 等于 `manifestPrefix`，也可用
+`--checkpoint-prefix` 显式指定。receipt 绑定 release commit ObjectRef、
+mapping/config/image digest、目标 concrete index、partition 数、输入数量及
+顺序无关的输入摘要；同一 build ID 重跑会核验并跳过已完成 partition。已存在但
+身份、partition 布局或内容摘要不同的 receipt 会 fail closed。
+
+切 alias 前必须同时满足：
+
+- Gold entity count 等于投影文档数；
+- 成功 bulk 文档数等于 Gold entity count，失败数为零；
+- concrete index 的总数、owner 数及目标 `releasePlanId` 数均等于 Gold entity
+  count。
+
+核对失败不会写完成 manifest，也不会切换 alias。完成 manifest 记录上述计数和
+全部 partition receipt 的稳定集合摘要；alias 仍只通过一次原子 update 切换。
+
+affected-entity 增量路径默认关闭。只有显式传入 `--enable-incremental` 及完整的
+immutable `--affected-entity-manifest-*` ObjectRef 才会启用。manifest 提供排序、
+去重且互斥的 `UPSERT`/`DELETE` entity 操作，并绑定目标 release commit、owner、
+base concrete index、base release 和 base count。实现会 server-side copy 到新的
+versioned index，统一更新 release provenance，再对受影响实体执行有 receipt 的
+upsert/delete；旧 concrete index 不变，因此已有 v2 cursor 继续指向不可变旧版本。
+base copy 与 provenance update 使用异步 OpenSearch task；默认总时限 6 小时，可用
+`--incremental-task-timeout-seconds` 调整（上限 24 小时）。
+完成后仍按完整 Gold entity count 核对并原子切 alias。周度 full rebuild 是默认且
+权威主路径，增量结果会被下一次 full rebuild 完整替换。
+
+容量规划不连接 OpenSearch，也不会在 CI 发送 bulk。以下命令用小型确定性样本分别
+估算 1M/5M 文档的平均 document/action bytes、primary shards、bulk request 数和
+持续时间：
+
+```bash
+video-media-catalog-gold-index-plan --scale 1m --scale 5m \
+  --sample-size 1000 --bulk-partitions 32 --bulk-workers 2
+```
 
 ## Reference catalog MVP selector
 

@@ -620,16 +620,43 @@ def build_gold_search_projection(
     gold_tables: Mapping[str, Any],
     release_plan_id: str,
     owner_subject: str,
+    affected_entity_keys: Any | None = None,
 ):
     from pyspark.sql import functions as F
 
     owner = require_oidc_subject(owner_subject)
-    entities = gold_tables["community_gold_entity"].where(
-        F.col("release_plan_id") == release_plan_id
+    keys = (
+        None
+        if affected_entity_keys is None
+        else F.broadcast(
+            affected_entity_keys.select(
+                F.col("entity_key").alias("_affected_entity_key")
+            ).dropDuplicates()
+        )
+    )
+
+    def affected(frame: Any, column: str) -> Any:
+        if keys is None:
+            return frame
+        return frame.join(
+            keys,
+            frame[column] == keys["_affected_entity_key"],
+            "inner",
+        ).drop("_affected_entity_key")
+
+    entities = affected(
+        gold_tables["community_gold_entity"].where(
+            F.col("release_plan_id") == release_plan_id
+        ),
+        "entity_key",
     )
     fields = (
-        gold_tables["community_gold_field"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_field"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "entity_key",
+        )
         .groupBy("entity_key")
         .agg(
             F.sort_array(
@@ -649,8 +676,12 @@ def build_gold_search_projection(
         )
     )
     identifiers = (
-        gold_tables["community_gold_identifier"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_identifier"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "entity_key",
+        )
         .groupBy("entity_key")
         .agg(
             F.sort_array(
@@ -668,8 +699,12 @@ def build_gold_search_projection(
         )
     )
     relation_summary = (
-        gold_tables["community_gold_relation"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_relation"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "subject_entity_key",
+        )
         .groupBy("subject_entity_key", "predicate")
         .count()
         .groupBy("subject_entity_key")
@@ -680,8 +715,12 @@ def build_gold_search_projection(
         )
     )
     conflicts = (
-        gold_tables["community_gold_conflict"]
-        .where(F.col("release_plan_id") == release_plan_id)
+        affected(
+            gold_tables["community_gold_conflict"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "entity_key",
+        )
         .groupBy("entity_key")
         .agg(
             F.count(F.lit(1)).alias("conflict_count"),

@@ -112,6 +112,31 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
     assert documents[0].ownerSubject == "owner-123"
     assert documents[0].sourceBadges[0].sourceProductId == "tvmaze-public-api"
 
+    affected = spark.createDataFrame([(entity_key,)], "entity_key string")
+    filtered = build_gold_search_projection(
+        spark,
+        gold_tables=frames,
+        release_plan_id=plan_id,
+        owner_subject="owner-123",
+        affected_entity_keys=affected,
+    ).collect()
+    assert [document.entityKey for document in filtered] == [entity_key]
+
+    unrelated = spark.createDataFrame(
+        [("sha256:" + ("9" * 64),)],
+        "entity_key string",
+    )
+    assert (
+        build_gold_search_projection(
+            spark,
+            gold_tables=frames,
+            release_plan_id=plan_id,
+            owner_subject="owner-123",
+            affected_entity_keys=unrelated,
+        ).count()
+        == 0
+    )
+
 
 @pytest.mark.spark
 def test_projection_owner_validation_rejects_mixed_or_missing_owner(

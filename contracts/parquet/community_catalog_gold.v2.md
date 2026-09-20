@@ -157,6 +157,30 @@ The only v2 serving index is isolated from v1:
 - mapping: strict and version/digest bound;
 - source: one immutable Gold release commit and its exact table snapshots.
 
+The default and authoritative publication path is a full rebuild into a new
+versioned index followed by one atomic read-alias update. Full rebuilds are
+intended to run weekly. Partition and worker concurrency are execution
+parameters and do not change the existing build identity. Bulk action count and
+wire bytes remain bounded, clients use the default AWS credential chain with
+SigV4, transient requests are retried, and any partial failure fails closed.
+
+Every deterministic `entityKey` partition publishes an immutable completion
+receipt under the build ID. A receipt binds:
+
+- the complete release-commit `ObjectRef`;
+- mapping digest, config identity/digest, and image digest;
+- concrete index, operation, partition ID, and partition count;
+- input/success counts and an order-independent digest of all partition actions.
+
+A retry may skip a partition only after recomputing and matching its receipt.
+An existing receipt with any different identity, partition layout, count, or
+input digest is a hard conflict.
+
+Before an index build can be completed, Gold entity count, projected document
+count, successful action count, zero failed actions, and concrete index document
+count must reconcile. The concrete index must additionally contain only the
+bound owner and target release plan. Any drift prevents alias publication.
+
 Documents contain bounded titles, external identifiers, selected attributes,
 relation counts, `sourceBadges`, `winningAssertions` with citation keys,
 `rights`/attribution summaries, first-class `conflicts`, provenance release ID,
@@ -187,6 +211,33 @@ owner OIDC subject. Serving routes are only:
 Every v2 route requires `governance.read` and exact equality with the configured
 owner `sub`. Building or switching the research alias never modifies
 `media-catalog-entities-read`.
+
+## Optional affected-entity indexing
+
+Incremental indexing is disabled by default and requires an explicit immutable
+affected-entity manifest. The manifest contains:
+
+- target release plan, owner, context, and exact release-commit `ObjectRef`;
+- base concrete index, base release plan, and base document count;
+- a unique entity-key-sorted list of `UPSERT` or `DELETE` operations;
+- an RFC3339 generation timestamp.
+
+The incremental path never mutates the concrete index currently serving the
+read alias. It copies the manifest-bound base into the target release's new
+versioned index, updates release provenance, applies partitioned upsert/delete
+actions, verifies every affected ID, then performs the same full target
+owner/release/count checks before an atomic alias switch. This preserves the v2
+cursor contract: cursors already issued against the base continue querying that
+unchanged concrete index. The next weekly full rebuild remains authoritative.
+
+## Offline sizing contract
+
+The synthetic planner uses a bounded deterministic sample rather than creating
+one million or five million documents. It reports average source and bulk-action
+bytes, estimated primary-store bytes, recommended primary shards, effective
+documents per bounded bulk request, request count, and estimated bulk duration.
+Its assumptions are digest-bound. The planner performs no OpenSearch request and
+is safe to run in unit tests and CI.
 
 ## UI contract
 

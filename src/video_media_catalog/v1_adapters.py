@@ -52,6 +52,7 @@ WIKIDATA_SOURCE_SYSTEM_ID = "wikidata"
 WIKIDATA_SOURCE_PRODUCT_ID = "wikidata-json-dump"
 WIKIDATA_NAMESPACE_ID = "wikidata-item"
 WIKIDATA_CONNECTOR_ID = "wikidata-v2-adapter"
+WIKIDATA_FULL_MEDIA_CONNECTOR_ID = "wikidata-full-media-backfill"
 WIKIDATA_POLICY_ID = "wikidata-structured-data-cc0"
 
 EIDR_SOURCE_SYSTEM_ID = "eidr"

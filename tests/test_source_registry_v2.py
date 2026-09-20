@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from video_media_catalog.community_sources import build_community_registry
+from video_media_catalog.identity_spark import exact_id_namespace_rows
 from video_media_catalog.source_registry import SourceRegistrySnapshot
 
 
@@ -64,3 +65,34 @@ def test_registry_rejects_duplicate_namespace() -> None:
                 ),
             }
         )
+
+
+def test_registry_drives_supported_exact_id_namespaces() -> None:
+    registry = build_community_registry()
+    namespaces = {
+        namespace.namespace_id: namespace for namespace in registry.source_namespaces
+    }
+    assert {
+        "wikidata-item",
+        "imdb-title",
+        "imdb-name",
+        "tmdb-movie",
+        "tmdb-tv",
+        "tmdb-person",
+        "eidr-content",
+        "tvmaze-show",
+    }.issubset(namespaces)
+    assert namespaces["imdb-title"].normalize("tt0000001") == "TT0000001"
+    assert (
+        namespaces["eidr-content"].normalize("10.5240/aaaa-bbbb-cccc-dddd-eeee-f")
+        == "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-F"
+    )
+
+    rows = exact_id_namespace_rows(registry)
+    imdb = {
+        (row["scheme"], row["referent_kind"])
+        for row in rows
+        if row["namespace_id"] == "imdb-title"
+    }
+    assert ("imdb", "SERIES") in imdb
+    assert ("imdb-title", "EDITORIAL_WORK") in imdb

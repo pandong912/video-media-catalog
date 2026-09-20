@@ -32,7 +32,8 @@ The source registry contains:
 
 - `SourceSystem`: operator identity and status;
 - `SourceProduct`: one API, dump, archive, registry, or contracted feed;
-- `SourceNamespace`: identifier namespace, referent kinds, and validation;
+- `SourceNamespace`: identifier namespace, legacy scheme aliases, referent
+  kinds, validation, and case-normalization rules;
 - `DatasetRelease`: immutable source publication and coverage;
 - `SchemaContract`: native schema identity and compatibility rules.
 
@@ -166,14 +167,49 @@ The identity ledger contains:
 
 - permanent `EntityLedgerEntry` values;
 - source entity nodes;
+- materialized `ExternalIdIndexEntry` values;
 - identity evidence;
+- immutable identity conflicts;
 - reversible decisions;
 - effective entity memberships;
 - entity redirects and merge/split events;
 - `LegacyKeyMap` for every published v1 key.
 
+The additive Silver tables are `community_external_id_index`,
+`community_identity_conflict`, `community_entity_merge_event`, and
+`community_entity_split_event`.
+
 New entity keys are allocated from an internal canonical UUIDv7 allocation ID.
 Provider identifiers are never key inputs. A redirect may not form a cycle.
+
+Exact-ID blocking is driven by the pinned source-registry snapshot rather than
+resolver code constants. A `SourceNamespace` defines accepted legacy scheme
+aliases, validation, case handling, and compatible referent kinds. The
+bootstrap registry covers Wikidata items, IMDb titles/names, TMDB
+movies/TV/people, EIDR content, TVmaze shows, and TheTVDB series.
+Registering matching metadata does not activate a connector or grant source
+rights; identifier assertions still carry the policy of the source that
+observed them.
+
+`ExternalIdIndexEntry` materializes the blocking tuple
+`(namespaceId, normalizedValue, referentKind)` and the candidate entity,
+assertion keys, policy, and observation time. One block may intentionally have
+multiple entries. A source node with one compatible candidate can be accepted;
+zero candidates allocate a new internal entity; more than one candidate emits
+an immutable `IdentityConflict` for review and does not create a decision or
+membership.
+
+`PARENT_CONSTRAINED` evidence is valid only for a season or episode. It binds
+the child to a resolved parent source node/entity/membership, the hierarchy
+relationship assertion, and the season/episode ordinal assertions. Parent
+identity or numbering alone is insufficient.
+
+Review decisions are immutable `ACCEPT`, `REJECT`, `UNCERTAIN`, or `REVOKE`
+events. `ACCEPT` opens a membership, `REJECT` creates none, and `REVOKE`
+closes the accepted membership interval without deleting history. Merge events
+select the earliest stable entity as survivor and emit acyclic redirects for
+all retired keys. Split events never guess a redirect: they record explicit
+source-node-to-target assignments and preserve the original key in history.
 
 ## Policy-specific release
 

@@ -101,6 +101,23 @@ def build_community_registry() -> SourceRegistrySnapshot:
     tvmaze_system, tvmaze_product, tvmaze_namespace = tvmaze_registry_entries()
     imdb_system, imdb_product, imdb_namespaces = imdb_registry_entries()
     tmdb_system, tmdb_product, tmdb_namespaces = tmdb_registry_entries()
+    tvmaze_namespace = tvmaze_namespace.model_copy(
+        update={"scheme_aliases": ("tvmaze",)}
+    )
+    imdb_namespaces = tuple(
+        namespace.model_copy(
+            update={
+                "scheme_aliases": (
+                    ("imdb",) if namespace.namespace_id == "imdb-title" else ()
+                )
+            }
+        )
+        for namespace in imdb_namespaces
+    )
+    tmdb_namespaces = tuple(
+        namespace.model_copy(update={"scheme_aliases": (namespace.namespace_id,)})
+        for namespace in tmdb_namespaces
+    )
     wikidata_system = SourceSystem(
         source_system_id="wikidata",
         name="Wikidata",
@@ -152,7 +169,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Community identity resolution v2",
         kind=SourceProductKind.INTERNAL_CATALOG,
         policy_id="internal-key-continuity",
-        connector_id="community-identity-spark-v1",
+        connector_id="community-identity-spark-v2",
         documentation_url=("https://github.com/pandong912/video-media-catalog"),
     )
     return SourceRegistrySnapshot(
@@ -187,6 +204,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
                     "AGENT",
                     "ORGANIZATION",
                 ),
+                scheme_aliases=("wikidata",),
                 identifier_pattern=r"Q[1-9][0-9]*",
             ),
             SourceNamespace(
@@ -201,6 +219,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
                     "EDIT",
                     "MANIFESTATION",
                 ),
+                scheme_aliases=("eidr",),
                 identifier_pattern=(r"10\.5240/(?:[0-9A-Z]{4}-){5}[0-9A-Z]"),
                 case_sensitive=False,
             ),
@@ -229,6 +248,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
                 source_product_id="tvmaze-public-api",
                 issuer="TheTVDB",
                 referent_kinds=("SERIES",),
+                scheme_aliases=("thetvdb",),
                 identifier_pattern=r"[1-9][0-9]*",
             ),
             SourceNamespace(

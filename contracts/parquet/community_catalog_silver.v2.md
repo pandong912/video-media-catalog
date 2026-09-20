@@ -143,6 +143,23 @@ Assertion IDs do not include a canonical entity key.
 
 ## Identity tables
 
+### `community_external_id_index`
+
+Primary key: `index_entry_key`.
+
+- `index_entry_key`, `run_id`, `blocking_key`, `materialization_id`
+- `namespace_id`, `normalized_value`, `referent_kind`
+- `entity_key`, `assertion_keys_json`, `observed_at`
+- `policy_id`, `policy_digest`, `index_json`
+
+`blocking_key` is derived only from
+`(namespace_id, normalized_value, referent_kind)`. `index_entry_key` also binds
+the candidate entity, assertion keys, observation time, and exact policy
+version. `materialization_id` binds the resolver input, image, configuration,
+start time, and registry digest so a later immutable run never aliases an
+earlier row. Multiple entries for one block are legal and must produce review
+conflicts rather than arbitrary selection.
+
 ### `community_entity_ledger`
 
 Primary key: `entity_key`.
@@ -173,6 +190,25 @@ Primary key: `evidence_key`.
 - `policy_id`, `policy_digest`, nullable `confidence`
 - `details_json`, `evidence_json`
 
+`PARENT_CONSTRAINED` evidence stores typed parent source/entity/membership,
+hierarchy-relation assertion, and season/episode ordinal details inside
+`details_json`.
+
+### `community_identity_conflict`
+
+Primary key: `conflict_key`.
+
+- `conflict_key`, `run_id`, `materialization_id`
+- source namespace/source ID/referent kind
+- `candidate_entity_keys_json`, `assertion_keys_json`, `reason`
+- `observed_at`, `policy_id`, `policy_digest`
+- `details_json`, `conflict_json`
+
+Conflicts are immutable review-queue observations. They do not create an
+entity membership. `materialization_id` distinguishes resolver runs that
+observe the same unresolved source assertions. Review outcomes are separate
+identity decisions.
+
 ### `community_identity_decision`
 
 Primary key: `decision_id`.
@@ -201,12 +237,38 @@ Primary key: `redirect_key`.
 
 Redirects must be acyclic.
 
+### `community_entity_merge_event`
+
+Primary key: `merge_event_key`.
+
+- `merge_event_key`, `run_id`
+- `entity_keys_json`, `survivor_entity_key`, `redirect_keys_json`
+- `decision_id`, `effective_at`, `merged_by`, `reason`
+- `event_json`
+
+Every non-survivor entity has exactly one redirect recorded by the event.
+
+### `community_entity_split_event`
+
+Primary key: `split_event_key`.
+
+- `split_event_key`, `run_id`
+- `source_entity_key`, `target_entity_keys_json`, `assignments_json`
+- `effective_at`, `split_by`, `reason`
+- `event_json`
+
+Assignments explicitly bind each affected source node to one target entity.
+All target entities must be covered; a split does not imply a redirect.
+
 ## Partitioning
 
 Run metadata and commits are bucketed by `run_id`. Source/assertion tables are
 initially bucketed by `run_id` to support deterministic staging verification,
 run-level removal, and compaction. Entity-ledger and redirect tables are
 bucketed by their primary entity key for lookup.
+`community_external_id_index` is bucketed by `blocking_key` so exact-ID joins
+co-locate the namespace/value/referent tuple. Conflict and merge/split event
+tables remain bucketed by `run_id` for review and audit replay.
 
 This initial layout must be benchmarked before full community backfills.
 Changing a partition spec is an Iceberg metadata evolution and does not change

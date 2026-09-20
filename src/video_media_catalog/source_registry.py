@@ -106,6 +106,7 @@ class SourceNamespace(V2ContractModel):
     source_product_id: str
     issuer: str
     referent_kinds: tuple[str, ...]
+    scheme_aliases: tuple[str, ...] = ()
     identifier_pattern: str | None = None
     case_sensitive: bool = True
 
@@ -130,6 +131,15 @@ class SourceNamespace(V2ContractModel):
             raise ValueError("source namespace requires referent_kinds")
         return normalized
 
+    @field_validator("scheme_aliases")
+    @classmethod
+    def normalize_scheme_aliases(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {require_slug(item, label="namespace scheme alias") for item in value}
+            )
+        )
+
     @field_validator("identifier_pattern")
     @classmethod
     def validate_identifier_pattern(cls, value: str | None) -> str | None:
@@ -144,10 +154,25 @@ class SourceNamespace(V2ContractModel):
         return value
 
     def accepts(self, value: str) -> bool:
+        candidate = value.strip()
         if self.identifier_pattern is None:
-            return bool(value)
+            return bool(candidate)
         flags = 0 if self.case_sensitive else re.IGNORECASE
-        return re.fullmatch(self.identifier_pattern, value, flags=flags) is not None
+        return re.fullmatch(self.identifier_pattern, candidate, flags=flags) is not None
+
+    def normalize(self, value: str) -> str:
+        """Validate and normalize an identifier for exact blocking."""
+
+        candidate = value.strip()
+        if not self.accepts(candidate):
+            raise ValueError(f"value is invalid for namespace {self.namespace_id}")
+        return candidate if self.case_sensitive else candidate.upper()
+
+    @property
+    def matching_schemes(self) -> tuple[str, ...]:
+        """Return registry aliases accepted from legacy identifier tables."""
+
+        return tuple(sorted({self.namespace_id, *self.scheme_aliases}))
 
 
 class SchemaContract(V2ContractModel):

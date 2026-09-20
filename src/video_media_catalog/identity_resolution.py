@@ -5,28 +5,28 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Self
 
-from pydantic import field_validator
-
 from video_media_catalog.assertions import SourceNodeRef
 from video_media_catalog.identity_v2 import (
-    DecisionStatus,
     EntityLedgerEntry,
     EntityLevel,
     EntityMembership,
     EntityRedirect,
     EvidenceKind,
+    IdentityConflict,
     IdentityDecision,
     IdentityEvidence,
     allocate_source_entity,
+    build_accept_decision,
     build_entity_membership,
-    build_identity_decision,
+    build_identity_conflict,
     build_identity_evidence,
+    build_reject_decision,
+    build_revoke_decision,
     validate_redirect_graph,
 )
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     parse_rfc3339,
-    require_rfc3339,
     require_sha256,
 )
 
@@ -77,8 +77,34 @@ def build_identity_index(
         if source not in entity_map or target not in entity_map:
             raise ValueError("identity redirect references an unknown entity")
 
-    active: dict[tuple[str, str, str], str] = {}
+    membership_versions: dict[
+        tuple[tuple[str, str, str], str, str, str],
+        EntityMembership,
+    ] = {}
     for membership in memberships:
+        version_key = (
+            source_node_key(membership.source_node),
+            membership.entity_key,
+            membership.decision_id,
+            membership.valid_from,
+        )
+        existing_version = membership_versions.get(version_key)
+        if existing_version is None:
+            membership_versions[version_key] = membership
+        elif existing_version != membership:
+            valid_to_values = {
+                existing_version.valid_to,
+                membership.valid_to,
+            }
+            closed_values = {value for value in valid_to_values if value is not None}
+            if len(closed_values) > 1:
+                raise ValueError("membership has conflicting closure times")
+            membership_versions[version_key] = (
+                membership if membership.valid_to is not None else existing_version
+            )
+
+    active: dict[tuple[str, str, str], str] = {}
+    for membership in membership_versions.values():
         if parse_rfc3339(membership.valid_from) > instant:
             continue
         if (
@@ -96,29 +122,6 @@ def build_identity_index(
     return IdentityIndex(entity_map, active, redirect_map)
 
 
-class IdentityConflict(V2ContractModel):
-    source_node: SourceNodeRef
-    candidate_entity_keys: tuple[str, ...]
-    assertion_keys: tuple[str, ...]
-    reason: str
-    observed_at: str
-
-    @field_validator("candidate_entity_keys", "assertion_keys")
-    @classmethod
-    def normalize_keys(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = tuple(
-            sorted({require_sha256(item, label="identity key") for item in value})
-        )
-        if not normalized:
-            raise ValueError("identity conflict requires keys")
-        return normalized
-
-    @field_validator("observed_at")
-    @classmethod
-    def validate_observed_at(cls, value: str) -> str:
-        return require_rfc3339(value)
-
-
 class IdentityResolutionResult(V2ContractModel):
     entities: tuple[EntityLedgerEntry, ...] = ()
     evidence: tuple[IdentityEvidence, ...] = ()
@@ -130,6 +133,104 @@ class IdentityResolutionResult(V2ContractModel):
         if self.conflicts and (self.entities or self.decisions or self.memberships):
             raise ValueError("conflicted identity result cannot assign membership")
         return self
+
+
+def accept_identity_candidate(
+    *,
+    source_node: SourceNodeRef,
+    entity_key: str,
+    evidence_keys: tuple[str, ...],
+    policy_version: str,
+    decided_by: str,
+    decided_at: str,
+    reason: str,
+    entities: tuple[EntityLedgerEntry, ...] = (),
+    evidence: tuple[IdentityEvidence, ...] = (),
+) -> IdentityResolutionResult:
+    """Accept a candidate and open one effective membership."""
+
+    decision = build_accept_decision(
+        source_node=source_node,
+        entity_key=entity_key,
+        evidence_keys=evidence_keys,
+        policy_version=policy_version,
+        decided_by=decided_by,
+        decided_at=decided_at,
+        reason=reason,
+    )
+    membership = build_entity_membership(
+        source_node=source_node,
+        entity_key=entity_key,
+        decision_id=decision.decision_id,
+        valid_from=decided_at,
+    )
+    return IdentityResolutionResult(
+        entities=entities,
+        evidence=evidence,
+        decisions=(decision,),
+        memberships=(membership,),
+    ).require_consistent()
+
+
+def reject_identity_candidate(
+    *,
+    source_node: SourceNodeRef,
+    entity_key: str,
+    evidence_keys: tuple[str, ...],
+    policy_version: str,
+    decided_by: str,
+    decided_at: str,
+    reason: str,
+) -> IdentityResolutionResult:
+    """Reject a candidate without creating or changing membership."""
+
+    decision = build_reject_decision(
+        source_node=source_node,
+        entity_key=entity_key,
+        evidence_keys=evidence_keys,
+        policy_version=policy_version,
+        decided_by=decided_by,
+        decided_at=decided_at,
+        reason=reason,
+    )
+    return IdentityResolutionResult(decisions=(decision,)).require_consistent()
+
+
+def revoke_identity_membership(
+    *,
+    membership: EntityMembership,
+    evidence_keys: tuple[str, ...],
+    policy_version: str,
+    decided_by: str,
+    decided_at: str,
+    reason: str,
+) -> IdentityResolutionResult:
+    """Revoke an ACCEPT decision and emit the closed membership version."""
+
+    if membership.valid_to is not None:
+        raise ValueError("only an active membership can be revoked")
+    if parse_rfc3339(decided_at) < parse_rfc3339(membership.valid_from):
+        raise ValueError("revocation cannot precede membership")
+    decision = build_revoke_decision(
+        source_node=membership.source_node,
+        entity_key=membership.entity_key,
+        evidence_keys=evidence_keys,
+        policy_version=policy_version,
+        decided_by=decided_by,
+        decided_at=decided_at,
+        reason=reason,
+    )
+    closed = build_entity_membership(
+        source_node=membership.source_node,
+        entity_key=membership.entity_key,
+        decision_id=membership.decision_id,
+        valid_from=membership.valid_from,
+        valid_to=decided_at,
+    )
+    return IdentityResolutionResult(
+        decisions=(decision,),
+        memberships=(closed,),
+    ).require_consistent()
 
 
 def resolve_or_allocate_source_node(
@@ -144,6 +245,7 @@ def resolve_or_allocate_source_node(
     policy_digest: str,
     decision_policy_version: str,
     decided_by: str,
+    materialization_id: str | None = None,
 ) -> IdentityResolutionResult:
     """Accept one exact candidate, allocate none, and quarantine ambiguity."""
 
@@ -158,12 +260,15 @@ def resolve_or_allocate_source_node(
     if len(candidates) > 1:
         return IdentityResolutionResult(
             conflicts=(
-                IdentityConflict(
+                build_identity_conflict(
+                    materialization_id=materialization_id,
                     source_node=source_node,
                     candidate_entity_keys=candidates,
                     assertion_keys=assertion_keys,
                     reason="MULTIPLE_EXACT_IDENTIFIER_CANDIDATES",
                     observed_at=observed_at,
+                    policy_id=policy_id,
+                    policy_digest=policy_digest,
                 ),
             )
         ).require_consistent()
@@ -195,8 +300,7 @@ def resolve_or_allocate_source_node(
         policy_digest=policy_digest,
         confidence=1.0 if candidates else None,
     )
-    decision = build_identity_decision(
-        status=DecisionStatus.ACCEPT,
+    return accept_identity_candidate(
         source_node=source_node,
         entity_key=entity_key,
         evidence_keys=(evidence.evidence_key,),
@@ -204,16 +308,6 @@ def resolve_or_allocate_source_node(
         decided_by=decided_by,
         decided_at=observed_at,
         reason=reason,
-    )
-    membership = build_entity_membership(
-        source_node=source_node,
-        entity_key=entity_key,
-        decision_id=decision.decision_id,
-        valid_from=observed_at,
-    )
-    return IdentityResolutionResult(
         entities=entities,
         evidence=(evidence,),
-        decisions=(decision,),
-        memberships=(membership,),
-    ).require_consistent()
+    )

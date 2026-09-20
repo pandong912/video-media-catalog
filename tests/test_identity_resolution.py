@@ -4,8 +4,11 @@ import pytest
 
 from video_media_catalog.assertions import SourceNodeRef
 from video_media_catalog.identity_resolution import (
+    accept_identity_candidate,
     build_identity_index,
+    reject_identity_candidate,
     resolve_or_allocate_source_node,
+    revoke_identity_membership,
 )
 from video_media_catalog.identity_v2 import (
     DecisionStatus,
@@ -150,3 +153,48 @@ def test_identity_index_resolves_redirect_and_rejects_ambiguity() -> None:
             redirects=(),
             as_of=TIMESTAMP,
         )
+
+
+def test_accept_reject_and_revoke_helpers_preserve_membership_history() -> None:
+    entity = _entity("1")
+    evidence_key = "sha256:" + ("a" * 64)
+    accepted = accept_identity_candidate(
+        source_node=_node(),
+        entity_key=entity.entity_key,
+        evidence_keys=(evidence_key,),
+        policy_version="2",
+        decided_by="reviewer",
+        decided_at=TIMESTAMP,
+        reason="review accepted",
+    )
+    rejected = reject_identity_candidate(
+        source_node=_node("2"),
+        entity_key=entity.entity_key,
+        evidence_keys=(evidence_key,),
+        policy_version="2",
+        decided_by="reviewer",
+        decided_at=TIMESTAMP,
+        reason="different work",
+    )
+    revoked = revoke_identity_membership(
+        membership=accepted.memberships[0],
+        evidence_keys=(evidence_key,),
+        policy_version="2",
+        decided_by="reviewer",
+        decided_at="2026-09-20T00:00:00Z",
+        reason="acceptance was incorrect",
+    )
+
+    assert accepted.decisions[0].status == DecisionStatus.ACCEPT
+    assert rejected.decisions[0].status == DecisionStatus.REJECT
+    assert not rejected.memberships
+    assert revoked.decisions[0].status == DecisionStatus.REVOKE
+    assert revoked.memberships[0].valid_to == "2026-09-20T00:00:00Z"
+
+    index = build_identity_index(
+        entities=(entity,),
+        memberships=(accepted.memberships[0], revoked.memberships[0]),
+        redirects=(),
+        as_of="2026-09-20T00:00:01Z",
+    )
+    assert index.resolve_source_node(_node()) is None

@@ -115,6 +115,21 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "policy_digest",
         "observed_at",
     ),
+    "community_external_id_index": (
+        "index_entry_key",
+        "run_id",
+        "blocking_key",
+        "materialization_id",
+        "namespace_id",
+        "normalized_value",
+        "referent_kind",
+        "entity_key",
+        "assertion_keys_json",
+        "observed_at",
+        "policy_id",
+        "policy_digest",
+        "index_json",
+    ),
     "community_entity_ledger": (
         "entity_key",
         "run_id",
@@ -150,6 +165,22 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "details_json",
         "evidence_json",
     ),
+    "community_identity_conflict": (
+        "conflict_key",
+        "run_id",
+        "materialization_id",
+        "source_namespace_id",
+        "source_id",
+        "source_referent_kind",
+        "candidate_entity_keys_json",
+        "assertion_keys_json",
+        "reason",
+        "observed_at",
+        "policy_id",
+        "policy_digest",
+        "details_json",
+        "conflict_json",
+    ),
     "community_identity_decision": (
         "decision_id",
         "run_id",
@@ -184,6 +215,29 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "effective_at",
         "decision_id",
     ),
+    "community_entity_merge_event": (
+        "merge_event_key",
+        "run_id",
+        "entity_keys_json",
+        "survivor_entity_key",
+        "redirect_keys_json",
+        "decision_id",
+        "effective_at",
+        "merged_by",
+        "reason",
+        "event_json",
+    ),
+    "community_entity_split_event": (
+        "split_event_key",
+        "run_id",
+        "source_entity_key",
+        "target_entity_keys_json",
+        "assignments_json",
+        "effective_at",
+        "split_by",
+        "reason",
+        "event_json",
+    ),
 }
 
 TABLE_COLUMNS = {**RUN_TABLE_COLUMNS, **DATA_TABLE_COLUMNS}
@@ -196,12 +250,16 @@ TABLE_KEYS: dict[str, str] = {
     "community_identifier_assertion": "assertion_id",
     "community_relationship_assertion": "assertion_id",
     "community_entity_type_assertion": "assertion_id",
+    "community_external_id_index": "index_entry_key",
     "community_entity_ledger": "entity_key",
     "community_legacy_key_map": "legacy_key",
     "community_identity_evidence": "evidence_key",
+    "community_identity_conflict": "conflict_key",
     "community_identity_decision": "decision_id",
     "community_entity_membership": "membership_key",
     "community_entity_redirect": "redirect_key",
+    "community_entity_merge_event": "merge_event_key",
+    "community_entity_split_event": "split_event_key",
 }
 
 NULLABLE_COLUMNS: dict[str, frozenset[str]] = {
@@ -222,23 +280,30 @@ NULLABLE_COLUMNS: dict[str, frozenset[str]] = {
     "community_identifier_assertion": frozenset(),
     "community_relationship_assertion": frozenset(),
     "community_entity_type_assertion": frozenset(),
+    "community_external_id_index": frozenset(),
     "community_entity_ledger": frozenset({"allocation_id", "first_release_id"}),
     "community_legacy_key_map": frozenset(),
     "community_identity_evidence": frozenset({"confidence"}),
+    "community_identity_conflict": frozenset(),
     "community_identity_decision": frozenset(),
     "community_entity_membership": frozenset({"valid_to"}),
     "community_entity_redirect": frozenset(),
+    "community_entity_merge_event": frozenset(),
+    "community_entity_split_event": frozenset(),
+}
+
+_ENTITY_KEY_PARTITIONED_TABLES = {
+    "community_entity_ledger",
+    "community_legacy_key_map",
+    "community_entity_redirect",
 }
 
 TABLE_PARTITION_COLUMNS: dict[str, str] = {
     table: (
-        TABLE_KEYS[table]
-        if table
-        in {
-            "community_entity_ledger",
-            "community_legacy_key_map",
-            "community_entity_redirect",
-        }
+        "blocking_key"
+        if table == "community_external_id_index"
+        else TABLE_KEYS[table]
+        if table in _ENTITY_KEY_PARTITIONED_TABLES
         else "run_id"
     )
     for table in TABLE_COLUMNS

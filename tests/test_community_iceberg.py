@@ -102,6 +102,13 @@ def test_creates_v2_tables_with_policy_aware_types(tmp_path: Path) -> None:
     assert len(creates) == len(TABLE_COLUMNS)
     assert any("`imported_v1` BOOLEAN NOT NULL" in sql for sql in creates)
     assert any("`confidence` DOUBLE" in sql for sql in creates)
+    external_index = next(
+        sql for sql in creates if "`community_external_id_index`" in sql
+    )
+    assert "bucket(128, `blocking_key`)" in external_index
+    assert any("`community_identity_conflict`" in sql for sql in creates)
+    assert any("`community_entity_merge_event`" in sql for sql in creates)
+    assert any("`community_entity_split_event`" in sql for sql in creates)
     assert all("format-version" in sql for sql in creates)
 
 

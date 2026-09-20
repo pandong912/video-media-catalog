@@ -153,6 +153,7 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         record_set=record_set,
     )
     identity_frames = None
+    conflict_frames = None
     try:
         assert frames["community_source_record"].count() == 1
         assert frames["community_field_assertion"].count() >= 3
@@ -179,7 +180,46 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         memberships = identity_frames["community_entity_membership"].collect()
         assert memberships[0].entity_key == v1_key
         assert identity_run.expected_counts["community_entity_membership"] == 1
+        index_rows = identity_frames["community_external_id_index"].collect()
+        assert {"imdb-title", "tvmaze-show"}.issubset(
+            {row.namespace_id for row in index_rows}
+        )
+
+        competing_key = "sha256:" + ("a" * 64)
+        conflict_run, conflict_frames = build_identity_resolution_dataframes(
+            spark,
+            visible_silver=frames,
+            v1_external_identifiers=spark.createDataFrame(
+                [
+                    (v1_key, "imdb", "tt0000001"),
+                    (competing_key, "imdb", "tt0000001"),
+                ],
+                "entity_key STRING, scheme STRING, value STRING",
+            ),
+            v1_entities=spark.createDataFrame(
+                [
+                    (v1_key, "TV_SERIES"),
+                    (competing_key, "TV_SERIES"),
+                ],
+                "entity_key STRING, entity_type STRING",
+            ),
+            input_id="sha256:" + ("5" * 64),
+            image_digest="sha256:" + ("4" * 64),
+            config_digest="sha256:" + ("3" * 64),
+            started_at="2026-09-19T00:00:00Z",
+        )
+        conflicts = conflict_frames["community_identity_conflict"].collect()
+        assert len(conflicts) == 1
+        assert conflict_run.expected_counts["community_identity_conflict"] == 1
+        assert conflict_frames["community_entity_membership"].count() == 0
+        assert set(json.loads(conflicts[0].candidate_entity_keys_json)) == {
+            v1_key,
+            competing_key,
+        }
     finally:
+        if conflict_frames is not None:
+            for frame in conflict_frames.values():
+                frame.unpersist()
         if identity_frames is not None:
             for frame in identity_frames.values():
                 frame.unpersist()

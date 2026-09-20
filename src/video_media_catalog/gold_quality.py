@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 from typing import Any, Self
 
@@ -66,6 +67,22 @@ class GoldQualityReport(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_report(self, info: ValidationInfo) -> Self:
+        denominator = _identity_lookup_denominator(
+            self.table_counts,
+            self.unresolved_identity_count,
+        )
+        expected_unresolved_ratio = (
+            self.unresolved_identity_count / denominator if denominator else 0.0
+        )
+        if not math.isclose(
+            self.unresolved_identity_ratio,
+            expected_unresolved_ratio,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(
+                "unresolved identity ratio does not match Gold identity lookups"
+            )
         expected_status = (
             GoldQualityStatus.FAILED if self.violations else GoldQualityStatus.PASS
         )
@@ -97,6 +114,20 @@ def _report_identity(report: GoldQualityReport) -> dict[str, Any]:
         "status": report.status.value,
         "createdAt": report.created_at,
     }
+
+
+def _identity_lookup_denominator(
+    table_counts: dict[str, int],
+    unresolved_identity_count: int,
+) -> int:
+    """Count resolved and unresolved assertion-to-entity lookup endpoints."""
+
+    resolved = (
+        table_counts["community_gold_field"]
+        + table_counts["community_gold_identifier"]
+        + 2 * table_counts["community_gold_relation"]
+    )
+    return resolved + unresolved_identity_count
 
 
 def build_gold_quality_report(
@@ -150,7 +181,10 @@ def build_gold_quality_report_from_metrics(
     ):
         raise ValueError("Gold quality metrics must be non-negative")
     conflict_ratio = conflict_count / field_count if field_count else 0.0
-    identity_denominator = entity_count + unresolved_identity_count
+    identity_denominator = _identity_lookup_denominator(
+        table_counts,
+        unresolved_identity_count,
+    )
     unresolved_ratio = (
         unresolved_identity_count / identity_denominator
         if identity_denominator

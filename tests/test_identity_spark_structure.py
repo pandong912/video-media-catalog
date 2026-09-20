@@ -72,6 +72,10 @@ def test_identity_spark_truncates_label_lineage_with_local_checkpoint() -> None:
     assert "stable_nodes = _materialize_exact_blocking_labels(" in assign_block
     assert "stable_edges = _materialize_exact_blocking_labels(" in assign_block
     assert 'stable_edges.join(blocking_labels, "blocking_key")' in assign_block
+    assert 'Window.partitionBy("component_id")' in source
+    assert 'bounded_work.join(component_counts, "component_id")' not in source
+    assert "count_component_id" in source
+    assert "stats_component_id" in source
     materialize_index = assign_block.index(
         "_materialize_exact_blocking_labels(next_labels)"
     )

@@ -69,6 +69,35 @@ def test_wikidata_v2_adapter_resolves_v1_type_closure(
     )
 
 
+def test_wikidata_series_keeps_source_node_but_maps_series_blocking_ids(
+    tmp_path,
+    fixture_dir,
+) -> None:
+    source = fixture_dir / "wikidata.json"
+    result = capture_v1_adapter(
+        source="wikidata",
+        input_path=source,
+        raw_object=_object(source, media_type="application/json"),
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        coverage_id="reference-subset-2026-09-20",
+        store=BoundedObjectStore(client=object()),
+    )
+    envelope = next(
+        item for item in _records(result) if item.source_record_id == "Q1002"
+    )
+    mapped = map_wikidata_record(envelope)
+    assert mapped.source_node.referent_kind == "EDITORIAL_WORK"
+    assert mapped.entity_type_assertions[0].entity_type == "TV_SERIES"
+    identifiers = {
+        (item.namespace_id, item.referent_kind)
+        for item in mapped.identifier_assertions
+    }
+    assert ("wikidata-item", "SERIES") in identifiers
+
+
 def test_eidr_v2_adapter_defaults_to_partial_exact_lookup_scope(
     tmp_path,
     fixture_dir,

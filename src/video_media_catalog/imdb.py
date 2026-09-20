@@ -11,6 +11,7 @@ from typing import Any
 
 from video_media_catalog.assertions import SourceNodeRef, ValueType
 from video_media_catalog.connector import ConnectorRecordEnvelope, RecordOperation
+from video_media_catalog.identity_resolution import referent_kind_for_entity_type
 from video_media_catalog.rights import PolicyZone, RightsProfile, UsageAction
 from video_media_catalog.source_mapper import AssertionBuilder, MappedAssertions
 from video_media_catalog.source_registry import (
@@ -290,6 +291,11 @@ def map_imdb_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
         raise ValueError("IMDb payload identity does not match its envelope")
 
     node, entity_type = _subject_for_row(str(dataset), row)
+    identifier_referent_kind = (
+        referent_kind_for_entity_type(entity_type)
+        if entity_type is not None
+        else node.referent_kind
+    )
     builder = AssertionBuilder(
         envelope=envelope,
         source_node=node,
@@ -300,7 +306,7 @@ def map_imdb_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
         node.namespace_id,
         node.source_id,
         "IMDb",
-        node.referent_kind,
+        identifier_referent_kind,
         (
             "/row/nconst"
             if node.namespace_id == IMDB_NAME_NAMESPACE_ID

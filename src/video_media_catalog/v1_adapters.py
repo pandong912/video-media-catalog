@@ -35,6 +35,7 @@ from video_media_catalog.eidr import (
     normalize_eidr_id,
     normalize_imdb_id,
 )
+from video_media_catalog.identity_resolution import referent_kind_for_entity_type
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.object_store import RuntimeObjectStore
 from video_media_catalog.source_mapper import AssertionBuilder, MappedAssertions
@@ -68,6 +69,17 @@ _EIDR_REFERENT_KIND = {
     "TV_EPISODE": "EPISODE",
     "EDIT": "EDIT",
 }
+
+
+def _external_identifier_referent_kind(
+    namespace_id: str,
+    entity_type: str | None,
+) -> str:
+    if namespace_id == "imdb-name":
+        return "AGENT"
+    if namespace_id == "imdb-title":
+        return referent_kind_for_entity_type(entity_type or "EDITORIAL_WORK")
+    return referent_kind_for_entity_type(entity_type or "EDITORIAL_WORK")
 
 
 def _statement_value(statement: dict[str, Any]) -> Any:
@@ -235,13 +247,16 @@ def map_wikidata_record(
     if not isinstance(payload, dict) or payload.get("id") != envelope.source_record_id:
         raise ValueError("Wikidata payload identity does not match its envelope")
     entity_type = _wikidata_type(payload)
-    referent_kind = "EDITORIAL_WORK"
+    source_referent_kind = "EDITORIAL_WORK"
+    identifier_referent_kind = referent_kind_for_entity_type(
+        entity_type or source_referent_kind
+    )
     from video_media_catalog.assertions import SourceNodeRef, ValueType
 
     node = SourceNodeRef(
         namespace_id=WIKIDATA_NAMESPACE_ID,
         source_id=envelope.source_record_id,
-        referent_kind=referent_kind,
+        referent_kind=source_referent_kind,
     )
     builder = AssertionBuilder(
         envelope=envelope,
@@ -253,7 +268,7 @@ def map_wikidata_record(
         WIKIDATA_NAMESPACE_ID,
         envelope.source_record_id,
         "Wikidata",
-        referent_kind,
+        identifier_referent_kind,
         "/id",
     )
     if entity_type is not None:
@@ -361,7 +376,7 @@ def map_wikidata_record(
                 target_namespace,
                 normalized,
                 {"imdb": "IMDb", "eidr": "EIDR", "douban": "Douban"}[namespace],
-                referent_kind,
+                _external_identifier_referent_kind(target_namespace, entity_type),
                 f"/claims/{prop}/{index}/mainsnak/datavalue/value",
             )
 

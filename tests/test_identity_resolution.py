@@ -4,9 +4,15 @@ import pytest
 
 from video_media_catalog.assertions import SourceNodeRef
 from video_media_catalog.identity_resolution import (
+    ExactBlockingKey,
+    SourceNodeResolutionInput,
     accept_identity_candidate,
     build_identity_index,
+    component_ids_for_exact_blocking_keys,
+    referent_kind_for_entity_type,
+    referent_kinds_compatible,
     reject_identity_candidate,
+    resolve_exact_blocking_component,
     resolve_or_allocate_source_node,
     revoke_identity_membership,
 )
@@ -85,6 +91,81 @@ def test_identity_resolution_allocates_unmatched_source_once() -> None:
     )
     assert first == second
     assert first.entities[0].entity_key == first.memberships[0].entity_key
+
+
+def test_referent_kind_compatibility_normalizes_within_domain_only() -> None:
+    assert referent_kind_for_entity_type("TV_SERIES") == "SERIES"
+    assert referent_kind_for_entity_type("PERSON") == "AGENT"
+    assert referent_kinds_compatible("EDITORIAL_WORK", "SERIES")
+    assert referent_kinds_compatible("PERSON", "AGENT")
+    assert not referent_kinds_compatible("EDITORIAL_WORK", "AGENT")
+
+
+def test_exact_blocking_components_merge_transitive_shared_keys() -> None:
+    node_a = "tvmaze-show\x1f1\x1fSERIES"
+    node_b = "wikidata-item\x1fQ1\x1fEDITORIAL_WORK"
+    node_c = "imdb-title\x1ftt0000001\x1fEDITORIAL_WORK"
+    components = component_ids_for_exact_blocking_keys(
+        {
+            node_a: (
+                ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),
+                ExactBlockingKey("wikidata-item", "Q1", "SERIES"),
+            ),
+            node_b: (
+                ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),
+            ),
+            node_c: (
+                ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),
+            ),
+        }
+    )
+    assert components[node_a] == components[node_b] == components[node_c]
+
+
+def test_resolve_exact_blocking_component_allocates_one_entity() -> None:
+    shared_assertion = "sha256:" + ("a" * 64)
+    node_a = SourceNodeRef(
+        namespace_id="tvmaze-show",
+        source_id="1",
+        referent_kind="SERIES",
+    )
+    node_b = SourceNodeRef(
+        namespace_id="wikidata-item",
+        source_id="Q1002",
+        referent_kind="EDITORIAL_WORK",
+    )
+    inputs = (
+        SourceNodeResolutionInput(
+            source_node=node_a,
+            entity_level=EntityLevel.SERIES,
+            entity_kind="TV_SERIES",
+            exact_candidate_entity_keys=(),
+            assertion_keys=(shared_assertion,),
+            observed_at=TIMESTAMP,
+            policy_id="tvmaze-api-cc-by-sa",
+            policy_digest="sha256:" + ("b" * 64),
+        ),
+        SourceNodeResolutionInput(
+            source_node=node_b,
+            entity_level=EntityLevel.SERIES,
+            entity_kind="TV_SERIES",
+            exact_candidate_entity_keys=(),
+            assertion_keys=(shared_assertion,),
+            observed_at=TIMESTAMP,
+            policy_id="wikidata-structured-data-cc0",
+            policy_digest="sha256:" + ("c" * 64),
+        ),
+    )
+    results = resolve_exact_blocking_component(
+        inputs,
+        decision_policy_version="exact-identity-v2",
+        decided_by="identity-resolver-v2",
+        materialization_id="sha256:" + ("d" * 64),
+    )
+    entity_keys = {result.memberships[0].entity_key for result in results}
+    assert len(entity_keys) == 1
+    assert sum(len(result.entities) for result in results) == 1
+    assert not any(result.conflicts for result in results)
 
 
 def test_identity_resolution_quarantines_multiple_exact_candidates() -> None:

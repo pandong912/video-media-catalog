@@ -26,8 +26,14 @@ from video_media_catalog.community_sources import (
 from video_media_catalog.community_spark import community_table_schema
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.identity_resolution import (
+    ExactBlockingKey,
     IdentityResolutionResult,
-    resolve_or_allocate_source_node,
+    SourceNodeResolutionInput,
+    canonical_referent_kind,
+    component_ids_for_exact_blocking_keys,
+    referent_kinds_compatible,
+    resolve_exact_blocking_component,
+    source_node_key,
 )
 from video_media_catalog.identity_v2 import (
     EntityLevel,
@@ -86,12 +92,8 @@ _REFERENT_KIND_ALIASES = {
     **_V1_REFERENT_KIND,
 }
 
-
-def canonical_referent_kind(value: str) -> str:
-    """Normalize source-specific kinds to exact-ID blocking domains."""
-
-    normalized = value.strip().upper()
-    return _REFERENT_KIND_ALIASES.get(normalized, normalized)
+def _source_node_id(namespace_id: str, source_id: str, referent_kind: str) -> str:
+    return f"{namespace_id}\x1f{source_id}\x1f{referent_kind}"
 
 
 def exact_id_namespace_rows(
@@ -266,13 +268,6 @@ def build_identity_resolution_dataframes(
         sorted(_V1_REFERENT_KIND.items()),
         "v1_entity_type STRING, referent_kind STRING",
     )
-    referent_aliases = spark.createDataFrame(
-        sorted(
-            {(alias, canonical) for alias, canonical in _REFERENT_KIND_ALIASES.items()}
-        ),
-        "referent_kind_alias STRING, referent_kind STRING",
-    )
-
     type_assertions = visible_silver["community_entity_type_assertion"].where(
         F.col("status") == "ACTIVE"
     )
@@ -343,22 +338,12 @@ def build_identity_resolution_dataframes(
     identifier_assertions = visible_silver["community_identifier_assertion"].where(
         F.col("status") == "ACTIVE"
     )
+    from pyspark.sql.types import BooleanType
+
+    compatible_referent_kind = F.udf(referent_kinds_compatible, BooleanType())
+
     registered_identifiers = (
         identifier_assertions.alias("i")
-        .join(
-            referent_aliases.alias("rk"),
-            F.upper(F.trim(F.col("i.referent_kind")))
-            == F.col("rk.referent_kind_alias"),
-            "inner",
-        )
-        .join(
-            namespace_configs.alias("n"),
-            (
-                (F.col("i.namespace_id") == F.col("n.namespace_id"))
-                & (F.col("rk.referent_kind") == F.col("n.referent_kind"))
-            ),
-            "inner",
-        )
         .join(
             type_groups.alias("t"),
             (
@@ -370,14 +355,20 @@ def build_identity_resolution_dataframes(
         )
         .join(
             type_configs.alias("tc"),
+            F.upper(F.element_at(F.col("t.entity_types"), 1))
+            == F.col("tc.source_entity_type"),
+            "inner",
+        )
+        .join(
+            namespace_configs.alias("n"),
             (
-                (
-                    F.upper(F.element_at(F.col("t.entity_types"), 1))
-                    == F.col("tc.source_entity_type")
-                )
+                (F.col("i.namespace_id") == F.col("n.namespace_id"))
                 & (F.col("tc.referent_kind") == F.col("n.referent_kind"))
             ),
             "inner",
+        )
+        .where(
+            compatible_referent_kind(F.col("i.referent_kind"), F.col("n.referent_kind"))
         )
         .where(
             F.col("n.match_pattern").isNull()
@@ -561,9 +552,7 @@ def build_identity_resolution_dataframes(
         )
     )
 
-    def resolve(
-        row: Any,
-    ) -> tuple[IdentityResolutionResult, tuple[ExternalIdIndexEntry, ...]]:
+    def _resolution_input(row: Any) -> SourceNodeResolutionInput:
         source_type = str(row["entity_types"][0]).upper()
         level, kind, _ = _LEVEL_MAP.get(
             source_type,
@@ -577,7 +566,7 @@ def build_identity_resolution_dataframes(
                 }
             )
         )
-        result = resolve_or_allocate_source_node(
+        return SourceNodeResolutionInput(
             source_node=SourceNodeRef(
                 namespace_id=row["subject_namespace_id"],
                 source_id=row["subject_source_id"],
@@ -590,14 +579,13 @@ def build_identity_resolution_dataframes(
             observed_at=row["observed_at"],
             policy_id=row["policy_id"],
             policy_digest=row["policy_digest"],
-            decision_policy_version="exact-identity-v2",
-            decided_by="community-identity-spark-v2",
-            materialization_id=materialization_id,
         )
-        if result.conflicts:
-            return result, ()
-        entity_key = result.memberships[0].entity_key
-        entries = tuple(
+
+    def _index_entries(
+        row: Any,
+        entity_key: str,
+    ) -> tuple[ExternalIdIndexEntry, ...]:
+        return tuple(
             build_external_id_index_entry(
                 materialization_id=materialization_id,
                 namespace_id=spec["namespace_id"],
@@ -611,9 +599,93 @@ def build_identity_resolution_dataframes(
             )
             for spec in row["identifier_specs"]
         )
-        return result, entries
 
-    results = work.rdd.map(resolve).persist()
+    blocking_accum: dict[str, set[tuple[str, str, str]]] = {}
+    for row in registered_identifiers.select(
+        *source_columns,
+        "namespace_id",
+        "normalized_value",
+        "referent_kind",
+    ).distinct().collect():
+        node_id = _source_node_id(
+            row["subject_namespace_id"],
+            row["subject_source_id"],
+            row["subject_referent_kind"],
+        )
+        blocking_accum.setdefault(node_id, set()).add(
+            (row["namespace_id"], row["normalized_value"], row["referent_kind"])
+        )
+    for row in work.select(*source_columns).distinct().collect():
+        node_id = _source_node_id(
+            row["subject_namespace_id"],
+            row["subject_source_id"],
+            row["subject_referent_kind"],
+        )
+        blocking_accum.setdefault(node_id, set())
+    component_map = component_ids_for_exact_blocking_keys(
+        {
+            node_id: tuple(
+                ExactBlockingKey(
+                    namespace_id=namespace_id,
+                    normalized_value=normalized_value,
+                    referent_kind=referent_kind,
+                )
+                for namespace_id, normalized_value, referent_kind in sorted(keys)
+            )
+            for node_id, keys in blocking_accum.items()
+        }
+    )
+    component_df = spark.createDataFrame(
+        list(component_map.items()),
+        "node_id STRING, component_id STRING",
+    )
+    work = work.withColumn(
+        "node_id",
+        F.concat_ws(
+            "\x1f",
+            F.col("subject_namespace_id"),
+            F.col("subject_source_id"),
+            F.col("subject_referent_kind"),
+        ),
+    ).join(component_df, "node_id")
+
+    def resolve_component(
+        group: tuple[str, Any],
+    ) -> list[tuple[IdentityResolutionResult, tuple[ExternalIdIndexEntry, ...]]]:
+        _component_id, rows_iter = group
+        rows = sorted(
+            rows_iter,
+            key=lambda row: source_node_key(
+                SourceNodeRef(
+                    namespace_id=row["subject_namespace_id"],
+                    source_id=row["subject_source_id"],
+                    referent_kind=row["subject_referent_kind"],
+                )
+            ),
+        )
+        component_results = resolve_exact_blocking_component(
+            tuple(_resolution_input(row) for row in rows),
+            decision_policy_version="exact-identity-v2",
+            decided_by="community-identity-spark-v2",
+            materialization_id=materialization_id,
+        )
+        output: list[
+            tuple[IdentityResolutionResult, tuple[ExternalIdIndexEntry, ...]]
+        ] = []
+        for row, result in zip(rows, component_results, strict=True):
+            if result.conflicts:
+                output.append((result, ()))
+                continue
+            entity_key = result.memberships[0].entity_key
+            output.append((result, _index_entries(row, entity_key)))
+        return output
+
+    results = (
+        work.rdd.map(lambda row: (row["component_id"], row))
+        .groupByKey()
+        .flatMap(resolve_component)
+        .persist()
+    )
     operation_policy = internal_key_continuity_profile()
     seed_entries = v1_index.rdd.map(
         lambda row: _build_seed_index_entry(

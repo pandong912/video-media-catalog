@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -43,6 +44,10 @@ from video_media_catalog.identity_spark import (
     build_identity_resolution_dataframes,
 )
 from video_media_catalog.models import Checksum, ObjectRef
+from video_media_catalog.source_lifecycle import (
+    build_source_lifecycle_events,
+    persist_latest_source_record_states,
+)
 from video_media_catalog.source_silver import build_source_silver_rows
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
@@ -695,6 +700,88 @@ def test_snapshot_diff_does_not_delete_other_coverage_records(
 
 
 @pytest.mark.spark
+def test_identity_revokes_open_membership_when_source_is_deleted(
+    spark: SparkSession,
+) -> None:
+    entity_key = "sha256:" + ("1" * 64)
+    decision_id = "sha256:" + ("2" * 64)
+    membership_key = "sha256:" + ("3" * 64)
+    baseline = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Deleted source"),),
+    )
+    deletion = _source_capture(
+        acquired_at="2026-09-20T01:00:00Z",
+        records=(("1", RecordOperation.DELETE, None),),
+    )
+    rows = {
+        table: [*baseline[1][table], *deletion[1][table]]
+        for table in DATA_TABLE_COLUMNS
+    }
+    rows["community_entity_membership"].append(
+        {
+            "membership_key": membership_key,
+            "run_id": "sha256:" + ("4" * 64),
+            "source_namespace_id": "tvmaze-show",
+            "source_id": "1",
+            "source_referent_kind": "SERIES",
+            "entity_key": entity_key,
+            "decision_id": decision_id,
+            "valid_from": "2026-09-20T00:00:00Z",
+            "valid_to": None,
+        }
+    )
+    visible = create_community_dataframes(spark, rows)
+    ingest_runs = spark.createDataFrame(
+        [ingest_run_row(baseline[0]), ingest_run_row(deletion[0])],
+        schema=community_table_schema("community_ingest_run"),
+    )
+    identity_frames = None
+    try:
+        _, identity_frames = build_identity_resolution_dataframes(
+            spark,
+            visible_silver=visible,
+            v1_external_identifiers=spark.createDataFrame(
+                [],
+                "entity_key STRING, scheme STRING, value STRING",
+            ),
+            v1_entities=spark.createDataFrame(
+                [],
+                "entity_key STRING, entity_type STRING",
+            ),
+            input_id="sha256:" + ("8" * 64),
+            image_digest="sha256:" + ("7" * 64),
+            config_digest="sha256:" + ("6" * 64),
+            started_at="2026-09-20T02:00:00Z",
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_source_run_ids=(baseline[0].run_id, deletion[0].run_id),
+        )
+        evidence_rows = identity_frames["community_identity_evidence"].collect()
+        assert len(evidence_rows) == 1
+        assert evidence_rows[0].kind == "LIFECYCLE_REVOKE"
+        decision_rows = identity_frames["community_identity_decision"].collect()
+        assert len(decision_rows) == 1
+        assert decision_rows[0].status == "REVOKE"
+        assert decision_rows[0].entity_key == entity_key
+        assert evidence_rows[0].evidence_key in json.loads(
+            decision_rows[0].evidence_keys_json
+        )
+        membership_rows = identity_frames["community_entity_membership"].collect()
+        assert len(membership_rows) == 1
+        assert membership_rows[0].entity_key == entity_key
+        assert membership_rows[0].decision_id == decision_id
+        assert membership_rows[0].source_id == "1"
+        assert membership_rows[0].valid_to == "2026-09-20T01:00:00Z"
+        assert membership_rows[0].membership_key != membership_key
+        assert identity_frames["community_identity_conflict"].count() == 0
+    finally:
+        if identity_frames is not None:
+            for frame in identity_frames.values():
+                frame.unpersist()
+
+
+@pytest.mark.spark
 def test_identity_skips_deleted_source_assertions(
     spark: SparkSession,
 ) -> None:
@@ -828,3 +915,102 @@ def test_gold_rejects_assertion_policy_not_owned_by_source_product(
             committed_run_ids=committed,
             as_of="2026-09-20T01:00:00Z",
         )
+
+
+@pytest.mark.spark
+def test_identity_builds_shared_lifecycle_projection_once(
+    spark: SparkSession,
+) -> None:
+    baseline = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Active source"),),
+    )
+    deletion = _source_capture(
+        acquired_at="2026-09-20T01:00:00Z",
+        records=(("1", RecordOperation.DELETE, None),),
+    )
+    rows = {
+        table: [*baseline[1][table], *deletion[1][table]]
+        for table in DATA_TABLE_COLUMNS
+    }
+    visible = create_community_dataframes(spark, rows)
+    ingest_runs = spark.createDataFrame(
+        [ingest_run_row(baseline[0]), ingest_run_row(deletion[0])],
+        schema=community_table_schema("community_ingest_run"),
+    )
+    build_calls = {"count": 0}
+    original = build_source_lifecycle_events
+
+    def counted_build(*args, **kwargs):
+        build_calls["count"] += 1
+        return original(*args, **kwargs)
+
+    identity_frames = None
+    with patch(
+        "video_media_catalog.source_lifecycle.build_source_lifecycle_events",
+        side_effect=counted_build,
+    ):
+        _, identity_frames = build_identity_resolution_dataframes(
+            spark,
+            visible_silver=visible,
+            v1_external_identifiers=spark.createDataFrame(
+                [],
+                "entity_key STRING, scheme STRING, value STRING",
+            ),
+            v1_entities=spark.createDataFrame(
+                [],
+                "entity_key STRING, entity_type STRING",
+            ),
+            input_id="sha256:" + ("8" * 64),
+            image_digest="sha256:" + ("7" * 64),
+            config_digest="sha256:" + ("6" * 64),
+            started_at="2026-09-20T02:00:00Z",
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_source_run_ids=(baseline[0].run_id, deletion[0].run_id),
+        )
+    try:
+        assert build_calls["count"] == 1
+    finally:
+        if identity_frames is not None:
+            for frame in identity_frames.values():
+                frame.unpersist()
+
+
+@pytest.mark.spark
+def test_persist_latest_source_record_states_materializes_once(
+    spark: SparkSession,
+) -> None:
+    capture = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Active source"),),
+    )
+    visible = create_community_dataframes(spark, capture[1])
+    ingest_runs = spark.createDataFrame(
+        [ingest_run_row(capture[0])],
+        schema=community_table_schema("community_ingest_run"),
+    )
+    build_calls = {"count": 0}
+    original = build_source_lifecycle_events
+
+    def counted_build(*args, **kwargs):
+        build_calls["count"] += 1
+        return original(*args, **kwargs)
+
+    with patch(
+        "video_media_catalog.source_lifecycle.build_source_lifecycle_events",
+        side_effect=counted_build,
+    ):
+        bound, latest = persist_latest_source_record_states(
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_run_ids=(capture[0].run_id,),
+            registry=build_community_registry(),
+            as_of="2026-09-20T01:00:00Z",
+        )
+        try:
+            assert build_calls["count"] == 1
+            assert latest.count() == 1
+        finally:
+            latest.unpersist()
+            bound.unpersist()

@@ -458,6 +458,259 @@ def latest_source_record_states(events: Any, *, as_of: str) -> Any:
     )
 
 
+def _as_of_timestamp(as_of: str) -> Any:
+    from pyspark.sql import functions as F
+
+    return F.to_timestamp(F.lit(as_of))
+
+
+def _is_active_upsert(latest: Any, *, as_of: str) -> Any:
+    from pyspark.sql import functions as F
+
+    as_of_timestamp = _as_of_timestamp(as_of)
+    return (
+        (F.col("operation") == "UPSERT")
+        & (F.col("valid_to").isNull() | (F.to_timestamp("valid_to") > as_of_timestamp))
+        & (
+            F.col("expires_at").isNull()
+            | (F.to_timestamp("expires_at") > as_of_timestamp)
+        )
+    )
+
+
+def _is_inactive_record(latest: Any, *, as_of: str) -> Any:
+    from pyspark.sql import functions as F
+
+    as_of_timestamp = _as_of_timestamp(as_of)
+    return (
+        (F.col("operation") != "UPSERT")
+        | (
+            F.col("valid_to").isNotNull()
+            & (F.to_timestamp("valid_to") <= as_of_timestamp)
+        )
+        | (
+            F.col("expires_at").isNotNull()
+            & (F.to_timestamp("expires_at") <= as_of_timestamp)
+        )
+    )
+
+
+def persist_latest_source_record_states(
+    *,
+    source_records: Any,
+    ingest_runs: Any,
+    committed_run_ids: tuple[str, ...],
+    registry: SourceRegistrySnapshot,
+    as_of: str,
+) -> tuple[Any, Any]:
+    """Build and persist the shared as-of latest source record lifecycle projection."""
+
+    bound = bind_committed_source_records(
+        source_records=source_records,
+        ingest_runs=ingest_runs,
+        committed_run_ids=committed_run_ids,
+        registry=registry,
+    )
+    try:
+        events = build_source_lifecycle_events(bound, as_of=as_of)
+        latest = latest_source_record_states(events, as_of=as_of).persist()
+        latest.count()
+        return bound, latest
+    except Exception:
+        bound.unpersist()
+        raise
+
+
+def current_envelope_keys_from_latest(latest: Any, *, as_of: str) -> Any:
+    """Derive active UPSERT envelope keys from a persisted latest-state projection."""
+
+    return (
+        latest.where(_is_active_upsert(latest, as_of=as_of))
+        .select("envelope_key")
+        .dropDuplicates(["envelope_key"])
+    )
+
+
+def inactive_source_records_from_latest(latest: Any, *, as_of: str) -> Any:
+    """Derive inactive source records from a persisted latest-state projection."""
+
+    from pyspark.sql import functions as F
+
+    return latest.where(_is_inactive_record(latest, as_of=as_of)).select(
+        *RECORD_IDENTITY_COLUMNS,
+        "envelope_key",
+        "operation",
+        F.col("observed_at").alias("lifecycle_observed_at"),
+    )
+
+
+def _assertion_envelope_bindings(*assertion_frames: Any) -> Any:
+    from pyspark.sql import functions as F
+
+    bindings = None
+    for frame in assertion_frames:
+        selected = frame.select(
+            "assertion_id",
+            "subject_namespace_id",
+            "subject_source_id",
+            "subject_referent_kind",
+            "policy_id",
+            "policy_digest",
+            "observed_at",
+            F.get_json_object("provenance_json", "$.envelopeKey").alias("envelope_key"),
+        ).where(F.col("envelope_key").isNotNull())
+        bindings = (
+            selected
+            if bindings is None
+            else bindings.unionByName(selected, allowMissingColumns=True)
+        )
+    if bindings is None:
+        raise ValueError("assertion envelope bindings require at least one frame")
+    return bindings
+
+
+def build_inactive_membership_revocation_worklist(
+    *,
+    latest_states: Any,
+    bound: Any,
+    memberships: Any,
+    type_assertions: Any,
+    identifier_assertions: Any,
+    as_of: str,
+) -> tuple[Any, Any]:
+    """Map inactive records to source nodes and join open memberships for revocation."""
+
+    from pyspark.sql import functions as F
+
+    inactive = inactive_source_records_from_latest(latest_states, as_of=as_of).select(
+        *RECORD_IDENTITY_COLUMNS,
+        F.col("envelope_key").alias("lifecycle_envelope_key"),
+        "operation",
+        "lifecycle_observed_at",
+    )
+    identity_envelopes = (
+        bound.select(
+            *RECORD_IDENTITY_COLUMNS,
+            F.col("envelope_key").alias("historical_envelope_key"),
+        )
+        .where(F.col("historical_envelope_key").isNotNull())
+        .dropDuplicates([*RECORD_IDENTITY_COLUMNS, "historical_envelope_key"])
+    )
+    assertion_bindings = _assertion_envelope_bindings(
+        type_assertions,
+        identifier_assertions,
+    )
+    historical_bindings = identity_envelopes.join(
+        assertion_bindings,
+        identity_envelopes.historical_envelope_key == assertion_bindings.envelope_key,
+        "inner",
+    )
+    mapped = (
+        inactive.join(historical_bindings, list(RECORD_IDENTITY_COLUMNS), "left")
+        .groupBy(
+            *RECORD_IDENTITY_COLUMNS,
+            "lifecycle_envelope_key",
+            "operation",
+            "lifecycle_observed_at",
+        )
+        .agg(
+            F.sort_array(
+                F.collect_set(
+                    F.when(
+                        F.col("subject_namespace_id").isNotNull(),
+                        F.struct(
+                            F.col("subject_namespace_id").alias("namespace_id"),
+                            F.col("subject_source_id").alias("source_id"),
+                            F.col("subject_referent_kind").alias("referent_kind"),
+                        ),
+                    )
+                )
+            ).alias("source_nodes"),
+            F.sort_array(F.collect_set("assertion_id")).alias("assertion_ids"),
+            F.min("policy_id").alias("policy_id"),
+            F.min("policy_digest").alias("policy_digest"),
+            F.min("observed_at").alias("assertion_observed_at"),
+        )
+        .withColumn(
+            "source_nodes",
+            F.expr("filter(source_nodes, x -> x is not null)"),
+        )
+        .withColumn("source_node_count", F.size("source_nodes"))
+        .withColumn(
+            "revocation_disposition",
+            F.when(F.col("source_node_count") == 0, F.lit("UNMAPPED"))
+            .when(F.col("source_node_count") > 1, F.lit("AMBIGUOUS"))
+            .otherwise(F.lit("REVOKABLE")),
+        )
+        .withColumn(
+            "mapped_namespace_id",
+            F.when(
+                F.col("revocation_disposition") == F.lit("REVOKABLE"),
+                F.col("source_nodes")[0]["namespace_id"],
+            ),
+        )
+        .withColumn(
+            "mapped_source_id",
+            F.when(
+                F.col("revocation_disposition") == F.lit("REVOKABLE"),
+                F.col("source_nodes")[0]["source_id"],
+            ),
+        )
+        .withColumn(
+            "mapped_referent_kind",
+            F.when(
+                F.col("revocation_disposition") == F.lit("REVOKABLE"),
+                F.col("source_nodes")[0]["referent_kind"],
+            ),
+        )
+    )
+    open_memberships = memberships.where(F.col("valid_to").isNull())
+    revocations = (
+        open_memberships.alias("m")
+        .join(
+            mapped.alias("i"),
+            (
+                (F.col("m.source_namespace_id") == F.col("i.mapped_namespace_id"))
+                & (F.col("m.source_id") == F.col("i.mapped_source_id"))
+                & (F.col("m.source_referent_kind") == F.col("i.mapped_referent_kind"))
+            ),
+            "inner",
+        )
+        .where(F.col("i.revocation_disposition") == F.lit("REVOKABLE"))
+        .select(
+            "m.membership_key",
+            "m.source_namespace_id",
+            "m.source_id",
+            "m.source_referent_kind",
+            "m.entity_key",
+            "m.decision_id",
+            "m.valid_from",
+            "i.lifecycle_envelope_key",
+            "i.operation",
+            "i.lifecycle_observed_at",
+            "i.assertion_ids",
+            "i.policy_id",
+            "i.policy_digest",
+            "i.assertion_observed_at",
+        )
+    )
+    mapping_conflicts = mapped.where(
+        F.col("revocation_disposition").isin("UNMAPPED", "AMBIGUOUS")
+    ).select(
+        *RECORD_IDENTITY_COLUMNS,
+        F.col("lifecycle_envelope_key").alias("envelope_key"),
+        "operation",
+        "lifecycle_observed_at",
+        "revocation_disposition",
+        "source_nodes",
+        "assertion_ids",
+        "policy_id",
+        "policy_digest",
+        "assertion_observed_at",
+    )
+    return revocations, mapping_conflicts
+
+
 def current_upsert_envelope_keys(
     *,
     source_records: Any,
@@ -468,35 +721,19 @@ def current_upsert_envelope_keys(
 ) -> Any:
     """Resolve committed source records into active UPSERT envelope keys."""
 
-    from pyspark.sql import functions as F
-
-    bound = bind_committed_source_records(
+    bound, latest = persist_latest_source_record_states(
         source_records=source_records,
         ingest_runs=ingest_runs,
         committed_run_ids=committed_run_ids,
         registry=registry,
+        as_of=as_of,
     )
     try:
-        events = build_source_lifecycle_events(bound, as_of=as_of)
-        latest = latest_source_record_states(events, as_of=as_of)
-        as_of_timestamp = F.to_timestamp(F.lit(as_of))
-        current = (
-            latest.where(F.col("operation") == "UPSERT")
-            .where(
-                F.col("valid_to").isNull()
-                | (F.to_timestamp("valid_to") > as_of_timestamp)
-            )
-            .where(
-                F.col("expires_at").isNull()
-                | (F.to_timestamp("expires_at") > as_of_timestamp)
-            )
-            .select("envelope_key")
-            .dropDuplicates(["envelope_key"])
-            .persist()
-        )
+        current = current_envelope_keys_from_latest(latest, as_of=as_of).persist()
         current.count()
         return current
     finally:
+        latest.unpersist()
         bound.unpersist()
 
 
@@ -512,32 +749,21 @@ def inactive_source_records(
 
     from pyspark.sql import functions as F
 
-    bound = bind_committed_source_records(
+    bound, latest = persist_latest_source_record_states(
         source_records=source_records,
         ingest_runs=ingest_runs,
         committed_run_ids=committed_run_ids,
         registry=registry,
+        as_of=as_of,
     )
     try:
-        events = build_source_lifecycle_events(bound, as_of=as_of)
-        latest = latest_source_record_states(events, as_of=as_of)
-        as_of_timestamp = F.to_timestamp(F.lit(as_of))
-        return latest.where(
-            (F.col("operation") != "UPSERT")
-            | (
-                F.col("valid_to").isNotNull()
-                & (F.to_timestamp("valid_to") <= as_of_timestamp)
-            )
-            | (
-                F.col("expires_at").isNotNull()
-                & (F.to_timestamp("expires_at") <= as_of_timestamp)
-            )
-        ).select(
+        return inactive_source_records_from_latest(latest, as_of=as_of).select(
             F.col("source_namespace_id").alias("subject_namespace_id"),
             F.col("source_record_id").alias("subject_source_id"),
-            F.col("observed_at").alias("lifecycle_observed_at"),
+            F.col("lifecycle_observed_at"),
         )
     finally:
+        latest.unpersist()
         bound.unpersist()
 
 

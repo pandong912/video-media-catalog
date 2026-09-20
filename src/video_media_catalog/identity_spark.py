@@ -30,6 +30,7 @@ from video_media_catalog.identity_resolution import (
     IdentityResolutionResult,
     SourceNodeResolutionInput,
     build_identity_conflict,
+    build_lifecycle_revoke_evidence,
     build_oversized_blocking_component_conflict,
     canonical_referent_kind,
     referent_kinds_compatible,
@@ -43,9 +44,10 @@ from video_media_catalog.identity_v2 import (
     build_external_id_index_entry,
 )
 from video_media_catalog.source_lifecycle import (
-    current_upsert_envelope_keys,
+    build_inactive_membership_revocation_worklist,
+    current_envelope_keys_from_latest,
     filter_assertions_for_current_envelopes,
-    inactive_source_records,
+    persist_latest_source_record_states,
     select_effective_membership_versions,
 )
 from video_media_catalog.source_registry import (
@@ -386,13 +388,20 @@ def build_identity_resolution_dataframes(
             "identity resolution requires source lifecycle inputs "
             "(source_records, ingest_runs, committed_source_run_ids)"
         )
-    current_envelope_keys = current_upsert_envelope_keys(
-        source_records=source_records,
-        ingest_runs=ingest_runs,
-        committed_run_ids=committed_source_run_ids,
-        registry=registry,
-        as_of=started_at,
+    bound_source_records, latest_source_record_states = (
+        persist_latest_source_record_states(
+            source_records=source_records,
+            ingest_runs=ingest_runs,
+            committed_run_ids=committed_source_run_ids,
+            registry=registry,
+            as_of=started_at,
+        )
     )
+    current_envelope_keys = current_envelope_keys_from_latest(
+        latest_source_record_states,
+        as_of=started_at,
+    ).persist()
+    current_envelope_keys.count()
     try:
         type_assertions = filter_assertions_for_current_envelopes(
             visible_silver["community_entity_type_assertion"],
@@ -1003,54 +1012,120 @@ def build_identity_resolution_dataframes(
         entity_key = result.memberships[0].entity_key
         return result, _index_entries(row, entity_key)
 
-    inactive_sources = inactive_source_records(
-        source_records=source_records,
-        ingest_runs=ingest_runs,
-        committed_run_ids=committed_source_run_ids,
-        registry=registry,
+    revocations, mapping_conflicts = build_inactive_membership_revocation_worklist(
+        latest_states=latest_source_record_states,
+        bound=bound_source_records,
+        memberships=memberships,
+        type_assertions=visible_silver["community_entity_type_assertion"],
+        identifier_assertions=visible_silver["community_identifier_assertion"],
         as_of=started_at,
-    )
-    revocations = (
-        memberships.where(F.col("valid_to").isNull())
-        .alias("m")
-        .join(
-            inactive_sources.alias("s"),
-            (
-                (F.col("m.source_namespace_id") == F.col("s.subject_namespace_id"))
-                & (F.col("m.source_id") == F.col("s.subject_source_id"))
-            ),
-            "inner",
-        )
-        .select("m.*", "s.lifecycle_observed_at")
     )
 
     def _revoke_inactive_membership(row: Any) -> IdentityResolutionResult:
         from video_media_catalog.identity_v2 import build_entity_membership
 
+        source_node = SourceNodeRef(
+            namespace_id=row["source_namespace_id"],
+            source_id=row["source_id"],
+            referent_kind=row["source_referent_kind"],
+        )
         membership = build_entity_membership(
-            source_node=SourceNodeRef(
-                namespace_id=row["source_namespace_id"],
-                source_id=row["source_id"],
-                referent_kind=row["source_referent_kind"],
-            ),
+            source_node=source_node,
             entity_key=row["entity_key"],
             decision_id=row["decision_id"],
             valid_from=row["valid_from"],
         )
+        assertion_keys = tuple(
+            item for item in row["assertion_ids"] if item is not None
+        )
+        evidence = build_lifecycle_revoke_evidence(
+            source_node=source_node,
+            candidate_entity_key=row["entity_key"],
+            assertion_keys=assertion_keys,
+            observed_at=row["assertion_observed_at"],
+            policy_id=row["policy_id"],
+            policy_digest=row["policy_digest"],
+            envelope_key=row["lifecycle_envelope_key"],
+            operation=row["operation"],
+            lifecycle_observed_at=row["lifecycle_observed_at"],
+        )
         return revoke_identity_membership(
             membership=membership,
-            evidence_keys=(),
+            evidence_keys=(evidence.evidence_key,),
             policy_version="exact-identity-v2",
             decided_by="community-identity-spark-v2",
             decided_at=row["lifecycle_observed_at"],
             reason="SOURCE_RECORD_INACTIVE",
+            evidence=(evidence,),
         )
+
+    def _inactive_mapping_conflict(row: Any) -> IdentityResolutionResult:
+        operation_policy = internal_key_continuity_profile()
+        reason = (
+            "INACTIVE_SOURCE_NODE_AMBIGUOUS"
+            if row["revocation_disposition"] == "AMBIGUOUS"
+            else "INACTIVE_SOURCE_NODE_UNMAPPED"
+        )
+        candidate_entity_keys = tuple(
+            deterministic_key(
+                "inactive-source-node-mapping-v2",
+                {
+                    "sourceSystemId": row["source_system_id"],
+                    "sourceProductId": row["source_product_id"],
+                    "sourceNamespaceId": row["source_namespace_id"],
+                    "sourceRecordId": row["source_record_id"],
+                    "envelopeKey": row["envelope_key"],
+                    "operation": row["operation"],
+                },
+            ),
+        )
+        assertion_keys = tuple(row["assertion_ids"] or [])
+        if not assertion_keys:
+            assertion_keys = candidate_entity_keys
+        source_nodes = row["source_nodes"] or []
+        if source_nodes:
+            anchor = source_nodes[0]
+            conflict_node = SourceNodeRef(
+                namespace_id=anchor["namespace_id"],
+                source_id=anchor["source_id"],
+                referent_kind=anchor["referent_kind"],
+            )
+        else:
+            conflict_node = SourceNodeRef(
+                namespace_id=row["source_namespace_id"],
+                source_id=row["source_record_id"],
+                referent_kind="SOURCE_RECORD",
+            )
+        return IdentityResolutionResult(
+            conflicts=(
+                build_identity_conflict(
+                    materialization_id=materialization_id,
+                    source_node=conflict_node,
+                    candidate_entity_keys=candidate_entity_keys,
+                    assertion_keys=assertion_keys,
+                    reason=reason,
+                    observed_at=row["lifecycle_observed_at"],
+                    policy_id=row["policy_id"] or operation_policy.policy_id,
+                    policy_digest=row["policy_digest"] or operation_policy.digest,
+                    details={
+                        "envelopeKey": row["envelope_key"],
+                        "operation": row["operation"],
+                        "sourceNodes": source_nodes,
+                    },
+                ),
+            )
+        ).require_consistent()
 
     resolution_results = work.rdd.map(resolve_row)
     if revocations.rdd.isEmpty():
         revocation_results = spark.sparkContext.emptyRDD()
     else:
         revocation_results = revocations.rdd.map(_revoke_inactive_membership)
+    if mapping_conflicts.rdd.isEmpty():
+        mapping_conflict_results = spark.sparkContext.emptyRDD()
+    else:
+        mapping_conflict_results = mapping_conflicts.rdd.map(_inactive_mapping_conflict)
+    revocation_results = revocation_results.union(mapping_conflict_results)
     results = resolution_results.union(
         revocation_results.map(lambda item: (item, ()))
     ).persist()
@@ -1165,3 +1240,5 @@ def build_identity_resolution_dataframes(
         results.unpersist()
         unassigned.unpersist()
         type_groups.unpersist()
+        latest_source_record_states.unpersist()
+        bound_source_records.unpersist()

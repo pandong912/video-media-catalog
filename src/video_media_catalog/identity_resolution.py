@@ -556,6 +556,36 @@ def reject_identity_candidate(
     return IdentityResolutionResult(decisions=(decision,)).require_consistent()
 
 
+def build_lifecycle_revoke_evidence(
+    *,
+    source_node: SourceNodeRef,
+    candidate_entity_key: str,
+    assertion_keys: tuple[str, ...],
+    observed_at: str,
+    policy_id: str,
+    policy_digest: str,
+    envelope_key: str | None,
+    operation: str,
+    lifecycle_observed_at: str,
+) -> IdentityEvidence:
+    """Build evidence binding a lifecycle retraction to historical assertions."""
+
+    return build_identity_evidence(
+        kind=EvidenceKind.LIFECYCLE_REVOKE,
+        source_node=source_node,
+        candidate_entity_key=candidate_entity_key,
+        assertion_keys=assertion_keys,
+        observed_at=observed_at,
+        policy_id=policy_id,
+        policy_digest=policy_digest,
+        details={
+            "envelopeKey": envelope_key,
+            "operation": operation,
+            "lifecycleObservedAt": lifecycle_observed_at,
+        },
+    )
+
+
 def revoke_identity_membership(
     *,
     membership: EntityMembership,
@@ -564,6 +594,7 @@ def revoke_identity_membership(
     decided_by: str,
     decided_at: str,
     reason: str,
+    evidence: tuple[IdentityEvidence, ...] = (),
 ) -> IdentityResolutionResult:
     """Revoke an ACCEPT decision and emit the closed membership version."""
 
@@ -588,6 +619,7 @@ def revoke_identity_membership(
         valid_to=decided_at,
     )
     return IdentityResolutionResult(
+        evidence=evidence,
         decisions=(decision,),
         memberships=(closed,),
     ).require_consistent()

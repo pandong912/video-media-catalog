@@ -37,6 +37,17 @@ def test_identity_spark_exposes_bounded_component_limits() -> None:
     assert "_materialize_exact_blocking_labels" in function_names
 
 
+def test_identity_spark_reuses_single_lifecycle_projection() -> None:
+    source = _identity_spark_source()
+    assert "persist_latest_source_record_states" in source
+    assert "current_envelope_keys_from_latest" in source
+    assert "build_inactive_membership_revocation_worklist" in source
+    assert "current_upsert_envelope_keys(" not in source
+    assert "inactive_source_records(" not in source
+    assert "latest_source_record_states.unpersist()" in source
+    assert "bound_source_records.unpersist()" in source
+
+
 def test_identity_spark_truncates_label_lineage_with_local_checkpoint() -> None:
     source = _identity_spark_source()
     assert "localCheckpoint(eager=True)" in source

@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--aws-region")
     parser.add_argument("--s3-endpoint")
     parser.add_argument("--s3-path-style-access", action="store_true")
+    parser.add_argument(
+        "--s3-credentials-provider",
+        choices=("web-identity", "default"),
+        default="web-identity",
+    )
     parser.add_argument("--master")
     parser.add_argument("--app-name", default="community-catalog-v2")
     parser.add_argument("--shuffle-partitions", type=int)
@@ -203,6 +208,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         aws_region=parsed.aws_region,
         s3_endpoint=parsed.s3_endpoint,
         s3_path_style_access=parsed.s3_path_style_access,
+        s3_credentials_provider=parsed.s3_credentials_provider,
     )
     from pyspark.sql import SparkSession
 

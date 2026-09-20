@@ -74,11 +74,15 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     assert parsed.namespace == "video_media_catalog"
     assert parsed.v1_namespace == "media_catalog"
     assert parsed.catalog_name == "media"
+    assert parsed.s3_credentials_provider == "web-identity"
 
-    identity = build_parser().parse_args(_identity_arguments())
+    identity = build_parser().parse_args(
+        [*_identity_arguments(), "--s3-credentials-provider", "default"]
+    )
     assert identity.command == "resolve-identity"
     assert identity.namespace == "video_media_catalog"
     assert identity.source_run_ids == ["sha256:" + ("c" * 64)]
+    assert identity.s3_credentials_provider == "default"
 
     publication = build_parser().parse_args(
         [

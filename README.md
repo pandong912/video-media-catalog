@@ -194,6 +194,108 @@ Silver 表全部带确定性 `run_id`。source/assertion/identity 行只有在
 Gold。`v1_migration.py` 从 snapshot-pinned 六表导入全部既有 key，原样保存
 `entity_key`，不会按新规则重新计算。
 
+### Research Silver 生产链
+
+`video-media-catalog-research-silver` 补齐 v1 key migration、registry-driven
+identity 和 Gold 输入快照发布。三个阶段默认使用现有 `media` catalog 和
+`video_media_catalog` Glue namespace；v1 六表读取默认使用
+`media_catalog` namespace（可用 `--v1-namespace` 或
+`MEDIA_CATALOG_V1_NAMESPACE` 覆盖）。只读写已有 S3、Glue/Iceberg 与 EMR
+execution role 默认凭据，不接受静态 AWS key，也不创建 bucket、role、EMR
+application 或 OpenSearch 资源。
+
+先从明确的 v1 `SnapshotSet` ObjectRef 导入六表 key。S3 控制对象必须同时提供
+SHA-256、size、VersionId 和 ETag；表读取严格使用其中列出的 snapshot ID：
+
+```bash
+video-media-catalog-research-silver migrate-v1 \
+  --v1-snapshot-uri s3://bucket/v1-runs/.../snapshot-set.json \
+  --v1-snapshot-hash sha256:<hex> \
+  --v1-snapshot-size <bytes> \
+  --v1-snapshot-version <VersionId> \
+  --v1-snapshot-etag <ETag> \
+  --committed-at 2026-09-20T01:00:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+identity 只接受显式列出的、在 pinned Silver control snapshots 中验证为
+`SOURCE_ASSERTIONS` 且已 commit 的 run。首次运行前先发布包含 source 和 v1
+migration run 的输入快照：
+
+```bash
+video-media-catalog-research-silver publish-snapshot \
+  --run-id sha256:<source-run> \
+  --run-id sha256:<migration-run> \
+  --snapshot-uri s3://bucket/research-silver/pre-identity.json \
+  --created-at 2026-09-20T01:05:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+发布结果中的 `silverSnapshot` 是完整 `ObjectRef`，含 URI、SHA-256、size、
+VersionId 和 ETag。将这些字段原样传给 identity；identity 同时 time-travel
+明确的 v1 SnapshotSet，仅对所列 source runs 解析新 source nodes，并把
+ledger/index/conflict/decision/membership 以及当前为空的
+redirect/merge/split frames 一起通过同一个 commit-last 边界提交：
+
+```bash
+video-media-catalog-research-silver resolve-identity \
+  --silver-snapshot-uri s3://bucket/research-silver/pre-identity.json \
+  --silver-snapshot-hash sha256:<hex> \
+  --silver-snapshot-size <bytes> \
+  --silver-snapshot-version <VersionId> \
+  --silver-snapshot-etag <ETag> \
+  --v1-snapshot-uri s3://bucket/v1-runs/.../snapshot-set.json \
+  --v1-snapshot-hash sha256:<hex> \
+  --v1-snapshot-size <bytes> \
+  --v1-snapshot-version <VersionId> \
+  --v1-snapshot-etag <ETag> \
+  --source-run-id sha256:<source-run> \
+  --image-digest sha256:<image-hex> \
+  --config-digest sha256:<config-hex> \
+  --started-at 2026-09-20T01:10:00Z \
+  --committed-at 2026-09-20T01:20:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+最后再次发布包含 source、migration 和 identity run 的快照供
+`video-media-catalog-gold-spark` 使用。发布器先固定 ingest-run/commit/data
+snapshot IDs，再逐 run 核对 manifest、commit 和每表行数；最多可显式选择
+4,096 个 run。S3 目标若未返回 VersionId 或 ETag 会失败，不会向下游提供
+“latest”引用：
+
+```bash
+video-media-catalog-research-silver publish-snapshot \
+  --run-id sha256:<source-run> \
+  --run-id sha256:<migration-run> \
+  --run-id sha256:<identity-run> \
+  --snapshot-uri s3://bucket/research-silver/gold-input.json \
+  --created-at 2026-09-20T01:25:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+随后把返回 `silverSnapshot` 的固定字段直接交给 Gold，不重新 HEAD 未带
+VersionId 的 key：
+
+```bash
+video-media-catalog-gold-spark \
+  --silver-snapshot-uri s3://bucket/research-silver/gold-input.json \
+  --silver-snapshot-hash sha256:<hex> \
+  --silver-snapshot-size <bytes> \
+  --silver-snapshot-version <VersionId> \
+  --silver-snapshot-etag <ETag> \
+  --output-prefix s3://bucket/research-gold \
+  --planned-at 2026-09-20T01:30:00Z \
+  --committed-at 2026-09-20T01:45:00Z \
+  --image-digest sha256:<image-hex> \
+  --owner-subject <exact-oidc-sub> \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
 Gold v2 只发布一个 `research` context，不再生成平行 release。release plan、
 release commit 和 index build manifest 都绑定同一个
 精确 OIDC `sub`：

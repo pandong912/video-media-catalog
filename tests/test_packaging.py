@@ -105,6 +105,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         '"video_media_catalog.community_cli:main"' in pyproject
     )
     assert (
+        "video-media-catalog-research-silver = "
+        '"video_media_catalog.research_silver_cli:main"' in pyproject
+    )
+    assert (
         "video-media-catalog-gold-spark = "
         '"video_media_catalog.gold_cli:main"' in pyproject
     )

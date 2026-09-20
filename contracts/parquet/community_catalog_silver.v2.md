@@ -46,12 +46,44 @@ snapshot, then join only committed runs.
 
 - deterministic `snapshotSetId`;
 - the exact committed run IDs included in this build;
+- the exact `community_ingest_run` snapshot ID;
 - the exact `community_ingest_commit` snapshot ID;
 - one exact snapshot ID or explicit empty value for every Silver data table;
 - creation time.
 
 Gold readers first verify the snapshot-set ObjectRef, then time-travel every
 table and anti-join any run not listed in the snapshot set.
+
+The production publisher accepts at most 4,096 explicit run IDs. It captures
+the commit snapshot before the run/data snapshots, validates one immutable run
+manifest and one commit for every selected ID, checks manifest counts against
+commit counts, and verifies every selected run's row count at each pinned data
+snapshot before publication. It never infers a run selection from a latest
+control object.
+
+The published JSON itself is an immutable `ObjectRef`. S3 publication is valid
+only when the returned reference includes URI, SHA-256, byte size, VersionId,
+and ETag. Consumers must pass all five values and may not resolve an unversioned
+latest key.
+
+## Production stages
+
+`video-media-catalog-research-silver` provides three auditable Spark stages:
+
+1. `migrate-v1` verifies an immutable v1 `SnapshotSet`, time-travels all six
+   declared v1 table snapshots, preserves every legacy key, and commits the v2
+   ledger/map rows last.
+2. `resolve-identity` verifies a pinned Silver snapshot, requires every
+   explicitly selected source run to be a committed `SOURCE_ASSERTIONS` run,
+   time-travels the pinned v1 entity/external-ID snapshots, and delegates to
+   the registry-driven identity implementation. All identity tables, including
+   empty redirect/merge/split frames, share one commit-last run boundary.
+3. `publish-snapshot` performs the validation above and publishes the exact
+   `CommunitySilverSnapshotSet` consumed by Gold.
+
+All stages default to the existing `video_media_catalog` namespace and use the
+AWS default credential chain, including an EMR Serverless execution role. They
+do not accept static credentials or provision infrastructure.
 
 ## Run tables
 

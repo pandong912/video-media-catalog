@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from video_media_catalog.assertions import SourceNodeRef
@@ -188,6 +189,7 @@ def build_identity_resolution_dataframes(
     config_digest: str,
     started_at: str,
     registry: SourceRegistrySnapshot | None = None,
+    pinned_inputs: Mapping[str, Any] | None = None,
 ) -> tuple[CommunityIngestRun, dict[str, Any]]:
     """Resolve source nodes through registry namespaces and quarantine ambiguity."""
 
@@ -735,6 +737,11 @@ def build_identity_resolution_dataframes(
                 "inputId": input_id,
                 "registryDigest": registry.digest,
                 "resolver": "community-identity-spark-v2",
+                **(
+                    {"pinnedInputs": dict(pinned_inputs)}
+                    if pinned_inputs is not None
+                    else {}
+                ),
             },
         )
         row_rdds = {

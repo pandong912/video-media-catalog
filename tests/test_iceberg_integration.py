@@ -23,6 +23,7 @@ from video_media_catalog.community_rows import (
     empty_data_rows,
     entity_ledger_row,
 )
+from video_media_catalog.community_snapshot import CommunitySilverSnapshotSet
 from video_media_catalog.community_spark import create_community_dataframes
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.gold import (
@@ -47,6 +48,10 @@ from video_media_catalog.identity_v2 import (
 )
 from video_media_catalog.landing import extract_landing
 from video_media_catalog.models import Checksum, ObjectRef, OutputCommit, SnapshotSet
+from video_media_catalog.research_silver_cli import (
+    build_parser as build_research_silver_parser,
+)
+from video_media_catalog.research_silver_cli import run as run_research_silver
 from video_media_catalog.spark_cli import build_parser, run
 
 
@@ -269,6 +274,39 @@ def test_community_run_commit_hides_uncommitted_rows(tmp_path: Path) -> None:
             commit_snapshot_id=commit_snapshot_id,
         )
         assert visible["community_entity_ledger"].count() == 1
+
+        published = run_research_silver(
+            build_research_silver_parser().parse_args(
+                [
+                    "publish-snapshot",
+                    "--run-id",
+                    run.run_id,
+                    "--snapshot-uri",
+                    (tmp_path / "research-silver-snapshot.json").as_uri(),
+                    "--created-at",
+                    "2026-09-19T00:02:00Z",
+                    "--catalog-type",
+                    "hadoop",
+                    "--catalog-name",
+                    config.catalog_name,
+                    "--namespace",
+                    config.namespace,
+                    "--warehouse",
+                    config.warehouse,
+                    "--master",
+                    "local[2]",
+                    "--spark-packages",
+                    packages,
+                ]
+            )
+        )
+        snapshot = CommunitySilverSnapshotSet.model_validate_json(
+            (tmp_path / "research-silver-snapshot.json").read_bytes()
+        )
+        assert published["snapshotSetId"] == snapshot.snapshot_set_id
+        assert snapshot.committed_run_ids == (run.run_id,)
+        assert snapshot.run_snapshot_id > 0
+        assert snapshot.commit_snapshot_id > 0
     finally:
         spark.stop()
 

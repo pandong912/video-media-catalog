@@ -12,7 +12,11 @@ from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, sha256_digest
 from video_media_catalog.community_iceberg import CommunityCatalogTables
-from video_media_catalog.community_snapshot import CommunitySilverSnapshotSet
+from video_media_catalog.community_snapshot import (
+    CONTROL_MAX_BYTES,
+    SILVER_SNAPSHOT_MEDIA_TYPE,
+    CommunitySilverSnapshotSet,
+)
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.gold import (
     research_context,
@@ -31,11 +35,6 @@ from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.runtime_args import join_uri
 from video_media_catalog.v2_contracts import require_oidc_subject
-
-CONTROL_MAX_BYTES = 16 * 1024 * 1024
-SILVER_SNAPSHOT_MEDIA_TYPE = (
-    "application/vnd.video-media-catalog.silver-snapshot-set.v2+json"
-)
 
 
 def build_parser() -> argparse.ArgumentParser:

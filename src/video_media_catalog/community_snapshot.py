@@ -14,6 +14,11 @@ from video_media_catalog.v2_contracts import (
     require_sha256,
 )
 
+CONTROL_MAX_BYTES = 16 * 1024 * 1024
+MAX_COMMITTED_RUNS = 4_096
+SILVER_SNAPSHOT_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.silver-snapshot-set.v2+json"
+)
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
 
 
@@ -21,6 +26,7 @@ class CommunitySilverSnapshotSet(V2ContractModel):
     schema_version: str = "2.0"
     snapshot_set_id: str
     committed_run_ids: tuple[str, ...]
+    run_snapshot_id: int
     commit_snapshot_id: int
     data_snapshot_ids: dict[str, int | None]
     created_at: str
@@ -38,13 +44,17 @@ class CommunitySilverSnapshotSet(V2ContractModel):
         )
         if not normalized:
             raise ValueError("Silver snapshot set requires committed runs")
+        if len(normalized) > MAX_COMMITTED_RUNS:
+            raise ValueError(
+                f"Silver snapshot set supports at most {MAX_COMMITTED_RUNS} runs"
+            )
         return normalized
 
-    @field_validator("commit_snapshot_id")
+    @field_validator("run_snapshot_id", "commit_snapshot_id")
     @classmethod
-    def validate_commit_snapshot(cls, value: int) -> int:
+    def validate_control_snapshot(cls, value: int) -> int:
         if isinstance(value, bool) or value <= 0:
-            raise ValueError("commit_snapshot_id must be positive")
+            raise ValueError("control snapshot IDs must be positive")
         return value
 
     @field_validator("data_snapshot_ids")
@@ -82,6 +92,7 @@ def _snapshot_identity(snapshot: CommunitySilverSnapshotSet) -> dict[str, Any]:
     return {
         "schemaVersion": snapshot.schema_version,
         "committedRunIds": snapshot.committed_run_ids,
+        "runSnapshotId": snapshot.run_snapshot_id,
         "commitSnapshotId": snapshot.commit_snapshot_id,
         "dataSnapshotIds": snapshot.data_snapshot_ids,
         "createdAt": snapshot.created_at,

@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+import pytest
+
+from video_media_catalog.community_ingest import (
+    IngestRunKind,
+    build_community_ingest_run,
+)
+from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
+from video_media_catalog.models import Checksum, ObjectRef
+from video_media_catalog.research_silver_cli import (
+    MAX_COMMITTED_RUNS,
+    _control_object_ref,
+    _models_by_run,
+    _normalize_run_ids,
+    _require_immutable_snapshot_output,
+    build_parser,
+)
+
+
+def _migration_arguments() -> list[str]:
+    return [
+        "migrate-v1",
+        "--v1-snapshot-uri",
+        "file:///tmp/v1-snapshot.json",
+        "--v1-snapshot-hash",
+        "a" * 64,
+        "--v1-snapshot-size",
+        "100",
+        "--committed-at",
+        "2026-09-20T00:00:00Z",
+        "--catalog-type",
+        "hadoop",
+        "--warehouse",
+        "file:///tmp/warehouse",
+    ]
+
+
+def _identity_arguments() -> list[str]:
+    return [
+        "resolve-identity",
+        "--silver-snapshot-uri",
+        "file:///tmp/silver-snapshot.json",
+        "--silver-snapshot-hash",
+        "b" * 64,
+        "--silver-snapshot-size",
+        "100",
+        "--v1-snapshot-uri",
+        "file:///tmp/v1-snapshot.json",
+        "--v1-snapshot-hash",
+        "a" * 64,
+        "--v1-snapshot-size",
+        "100",
+        "--source-run-id",
+        "sha256:" + ("c" * 64),
+        "--image-digest",
+        "sha256:" + ("d" * 64),
+        "--config-digest",
+        "sha256:" + ("e" * 64),
+        "--started-at",
+        "2026-09-20T00:00:00Z",
+        "--committed-at",
+        "2026-09-20T00:01:00Z",
+        "--catalog-type",
+        "hadoop",
+        "--warehouse",
+        "file:///tmp/warehouse",
+    ]
+
+
+def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
+    parsed = build_parser().parse_args(_migration_arguments())
+    assert parsed.command == "migrate-v1"
+    assert parsed.namespace == "video_media_catalog"
+    assert parsed.v1_namespace == "media_catalog"
+    assert parsed.catalog_name == "media"
+
+    identity = build_parser().parse_args(_identity_arguments())
+    assert identity.command == "resolve-identity"
+    assert identity.namespace == "video_media_catalog"
+    assert identity.source_run_ids == ["sha256:" + ("c" * 64)]
+
+    publication = build_parser().parse_args(
+        [
+            "publish-snapshot",
+            "--run-id",
+            "sha256:" + ("f" * 64),
+            "--snapshot-uri",
+            "file:///tmp/gold-input.json",
+            "--created-at",
+            "2026-09-20T00:02:00Z",
+            "--catalog-type",
+            "hadoop",
+            "--warehouse",
+            "file:///tmp/warehouse",
+        ]
+    )
+    assert publication.command == "publish-snapshot"
+    assert publication.namespace == "video_media_catalog"
+
+
+def test_control_object_requires_pinned_s3_version_and_etag() -> None:
+    arguments = _migration_arguments()
+    arguments[2] = "s3://bucket/v1-snapshot.json"
+    parsed = build_parser().parse_args(arguments)
+    with pytest.raises(ValueError, match="requires version and ETag"):
+        _control_object_ref(
+            parsed,
+            "v1_snapshot",
+            media_type="application/vnd.example+json",
+        )
+
+
+def test_control_object_rejects_local_s3_metadata() -> None:
+    arguments = [
+        *_migration_arguments(),
+        "--v1-snapshot-version",
+        "version-1",
+        "--v1-snapshot-etag",
+        "etag-1",
+    ]
+    parsed = build_parser().parse_args(arguments)
+    with pytest.raises(ValueError, match="file object cannot declare"):
+        _control_object_ref(
+            parsed,
+            "v1_snapshot",
+            media_type="application/vnd.example+json",
+        )
+
+
+def test_run_selection_is_bounded_unique_and_canonical() -> None:
+    first = "sha256:" + ("a" * 64)
+    second = "sha256:" + ("b" * 64)
+    assert _normalize_run_ids(
+        (second, first),
+        label="test",
+    ) == (first, second)
+    with pytest.raises(ValueError, match="duplicate"):
+        _normalize_run_ids((first, first), label="test")
+    with pytest.raises(ValueError, match="at most"):
+        _normalize_run_ids(
+            tuple(first for _ in range(MAX_COMMITTED_RUNS + 1)),
+            label="test",
+        )
+
+
+def test_pinned_run_loader_rejects_missing_manifest() -> None:
+    counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+    run = build_community_ingest_run(
+        run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+        source_product_id="tvmaze-public-api",
+        input_id="sha256:" + ("1" * 64),
+        policy_id="tvmaze-api-cc-by-sa",
+        policy_digest="sha256:" + ("2" * 64),
+        image_digest="sha256:" + ("3" * 64),
+        config_digest="sha256:" + ("4" * 64),
+        started_at="2026-09-20T00:00:00Z",
+        expected_counts=counts,
+        input_manifest={"recordSetId": "sha256:" + ("1" * 64)},
+    )
+    rows = [{"run_id": run.run_id, "manifest_json": run.json_bytes()}]
+    assert (
+        _models_by_run(
+            rows,
+            requested_run_ids=(run.run_id,),
+            json_column="manifest_json",
+            model=type(run),
+            label="test",
+        )[run.run_id]
+        == run
+    )
+    with pytest.raises(ValueError, match="missing requested runs"):
+        _models_by_run(
+            rows,
+            requested_run_ids=(run.run_id, "sha256:" + ("f" * 64)),
+            json_column="manifest_json",
+            model=type(run),
+            label="test",
+        )
+
+
+def test_s3_snapshot_output_requires_version_and_etag() -> None:
+    reference = ObjectRef(
+        uri="s3://bucket/silver-snapshot.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type="application/vnd.example+json",
+        checksum=Checksum(value="a" * 64),
+        size_bytes=100,
+    )
+    with pytest.raises(RuntimeError, match="bucket versioning"):
+        _require_immutable_snapshot_output(reference)

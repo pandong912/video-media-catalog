@@ -23,7 +23,7 @@ from video_media_catalog.community_tables import (
 )
 from video_media_catalog.constants import CURATED_TABLE_KEYS
 from video_media_catalog.identity_v2 import EntityLevel
-from video_media_catalog.models import SnapshotSet
+from video_media_catalog.models import ObjectRef, SnapshotSet
 
 V1_KEY_KINDS = {
     "catalog_source_record": ("record_key", "SOURCE_RECORD"),
@@ -54,6 +54,7 @@ def build_v1_key_migration(
     *,
     snapshot_set: SnapshotSet,
     v1_tables: Mapping[str, Any],
+    snapshot_object_ref: ObjectRef | None = None,
 ) -> tuple[CommunityIngestRun, dict[str, Any]]:
     """Build scalable v2 rows without recomputing any published v1 key."""
 
@@ -84,6 +85,12 @@ def build_v1_key_migration(
             key=lambda item: item["tableName"],
         ),
     }
+    if snapshot_object_ref is not None:
+        snapshot_identity["snapshotSetObject"] = snapshot_object_ref.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
     input_id = deterministic_key("v1-snapshot-set-input", snapshot_identity)
 
     entities_base = (

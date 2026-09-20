@@ -66,6 +66,13 @@ class CommunityCatalogTables:
             raise KeyError(f"unknown community catalog table: {table}")
         return f"{self.config.catalog_name}.{self.config.namespace}.{table}"
 
+    def latest_snapshot_id(self, table: str) -> int | None:
+        """Capture the current Iceberg snapshot for an existing v2 table."""
+
+        if table not in TABLE_COLUMNS:
+            raise KeyError(f"unknown community catalog table: {table}")
+        return self._latest_snapshot_id(table)
+
     def create_tables(self) -> None:
         self.spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {self.namespace_identifier}")
         for table, columns in TABLE_COLUMNS.items():

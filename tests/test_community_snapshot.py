@@ -16,8 +16,7 @@ from video_media_catalog.community_snapshot import (
 )
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.object_store import BoundedObjectStore
-from video_media_catalog.storage import ImmutableObjectConflictError
+from video_media_catalog.object_store import BoundedObjectStore, ObjectStoreError
 
 
 def test_silver_snapshot_set_is_deterministic() -> None:
@@ -198,7 +197,7 @@ def test_epoch_object_publish_reuses_identical_and_rejects_conflict(
     )
     assert not first.reused
     assert second.reused
-    with pytest.raises(ImmutableObjectConflictError):
+    with pytest.raises(ObjectStoreError) as raised:
         store.upload_bytes(
             b'{"epoch":"different"}\n',
             destination,
@@ -206,3 +205,4 @@ def test_epoch_object_publish_reuses_identical_and_rejects_conflict(
             object_format="OBJECT_FORMAT_JSON",
             max_bytes=1024,
         )
+    assert raised.value.code == "IMMUTABLE_OBJECT_CONFLICT"

@@ -129,20 +129,25 @@ _SOURCE_NODE_COLUMNS = (
 )
 
 
-def _materialize_exact_blocking_labels(frame: Any) -> Any:
+def _materialize_exact_blocking_labels(
+    frame: Any,
+    *,
+    label: str = "label",
+) -> Any:
     """Truncate label propagation lineage; fail closed on checkpoint loss."""
 
     try:
         materialized = frame.localCheckpoint(eager=True)
     except Exception as exc:
         raise RuntimeError(
-            "exact blocking label localCheckpoint failed; refusing incomplete merge"
+            f"exact blocking {label} localCheckpoint failed; refusing incomplete merge"
         ) from exc
     try:
         materialized.take(1)
     except Exception as exc:
         raise RuntimeError(
-            "exact blocking label checkpoint is unreadable; refusing incomplete merge"
+            f"exact blocking {label} checkpoint is unreadable; "
+            "refusing incomplete merge"
         ) from exc
     return materialized
 
@@ -160,23 +165,36 @@ def assign_exact_blocking_component_ids(
 
     from pyspark.sql import functions as F
 
-    labels = _materialize_exact_blocking_labels(
-        nodes.select("node_id", F.col("node_id").alias("label"))
+    stable_nodes = _materialize_exact_blocking_labels(
+        nodes.select("node_id"),
+        label="node input",
     )
+    stable_edges = None
+    labels = None
     try:
+        # Both frames commonly originate from the same large identity plan. Spark
+        # can otherwise retain conflicting expression IDs when the edge frame is
+        # joined to an aggregate derived from itself during label propagation.
+        stable_edges = _materialize_exact_blocking_labels(
+            blocking_edges.select("node_id", "blocking_key"),
+            label="edge input",
+        )
+        labels = _materialize_exact_blocking_labels(
+            stable_nodes.select("node_id", F.col("node_id").alias("label"))
+        )
         for _ in range(MAX_EXACT_BLOCKING_LABEL_ITERATIONS):
             blocking_labels = (
-                blocking_edges.join(labels, "node_id")
+                stable_edges.join(labels, "node_id")
                 .groupBy("blocking_key")
                 .agg(F.min("label").alias("blocking_label"))
             )
             propagated = (
-                blocking_edges.join(blocking_labels, "blocking_key")
+                stable_edges.join(blocking_labels, "blocking_key")
                 .groupBy("node_id")
                 .agg(F.min("blocking_label").alias("propagated_label"))
             )
             next_labels = (
-                nodes.join(labels, "node_id")
+                stable_nodes.join(labels, "node_id")
                 .join(propagated, "node_id", "left")
                 .select(
                     F.col("node_id"),
@@ -212,6 +230,10 @@ def assign_exact_blocking_component_ids(
         if labels is not None:
             _release_exact_blocking_labels(labels)
         raise
+    finally:
+        if stable_edges is not None:
+            _release_exact_blocking_labels(stable_edges)
+        _release_exact_blocking_labels(stable_nodes)
 
 
 def exact_id_namespace_rows(

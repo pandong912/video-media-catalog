@@ -69,6 +69,9 @@ def test_identity_spark_truncates_label_lineage_with_local_checkpoint() -> None:
     assign_block = assign_block.split("\ndef ", 1)[0]
     assert ".count()" not in assign_block
     assert ".take(1)" in assign_block
+    assert "stable_nodes = _materialize_exact_blocking_labels(" in assign_block
+    assert "stable_edges = _materialize_exact_blocking_labels(" in assign_block
+    assert 'stable_edges.join(blocking_labels, "blocking_key")' in assign_block
     materialize_index = assign_block.index(
         "_materialize_exact_blocking_labels(next_labels)"
     )

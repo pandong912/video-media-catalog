@@ -10,7 +10,9 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
+from video_media_catalog.community_rows import ingest_run_row
 from video_media_catalog.community_sources import build_community_registry
+from video_media_catalog.community_spark import community_table_schema
 from video_media_catalog.connector import (
     ChangeSemantics,
     Completeness,
@@ -27,6 +29,7 @@ from video_media_catalog.identity_spark import (
     assign_exact_blocking_component_ids,
     build_identity_resolution_dataframes,
 )
+from video_media_catalog.community_ingest import CommunityIngestRun
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.source_silver import build_source_silver_dataframes
 from video_media_catalog.tvmaze import (
@@ -49,6 +52,21 @@ def spark():
     )
     yield session
     session.stop()
+
+
+def _identity_lifecycle_inputs(
+    spark: SparkSession,
+    run: CommunityIngestRun,
+    visible: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "source_records": visible["community_source_record"],
+        "ingest_runs": spark.createDataFrame(
+            [ingest_run_row(run)],
+            schema=community_table_schema("community_ingest_run"),
+        ),
+        "committed_source_run_ids": (run.run_id,),
+    }
 
 
 def _object(path: Path, *, media_type: str, object_format: str) -> ObjectRef:
@@ -170,7 +188,7 @@ def test_exact_blocking_rejects_single_node_with_too_many_candidates(
         last_envelope_key=envelope.envelope_key,
         created_at=batch.acquired_at,
     )
-    _, silver_frames = build_source_silver_dataframes(
+    run, silver_frames = build_source_silver_dataframes(
         spark,
         registry=build_community_registry(),
         batch=batch,
@@ -195,6 +213,7 @@ def test_exact_blocking_rejects_single_node_with_too_many_candidates(
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),
             started_at="2026-09-19T00:00:00Z",
+            **_identity_lifecycle_inputs(spark, run, silver_frames),
         )
         conflicts = identity_frames["community_identity_conflict"].collect()
         assert len(conflicts) == 1

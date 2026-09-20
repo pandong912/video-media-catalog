@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping
 from typing import Any
 
@@ -147,7 +148,7 @@ def _materialize_exact_blocking_labels(frame: Any) -> Any:
 
 
 def _release_exact_blocking_labels(frame: Any) -> None:
-    if getattr(frame, "is_cached", False):
+    with contextlib.suppress(Exception):
         frame.unpersist()
 
 
@@ -162,46 +163,55 @@ def assign_exact_blocking_component_ids(
     labels = _materialize_exact_blocking_labels(
         nodes.select("node_id", F.col("node_id").alias("label"))
     )
-    for _ in range(MAX_EXACT_BLOCKING_LABEL_ITERATIONS):
-        blocking_labels = (
-            blocking_edges.join(labels, "node_id")
-            .groupBy("blocking_key")
-            .agg(F.min("label").alias("blocking_label"))
-        )
-        propagated = (
-            blocking_edges.join(blocking_labels, "blocking_key")
-            .groupBy("node_id")
-            .agg(F.min("blocking_label").alias("propagated_label"))
-        )
-        next_labels = (
-            nodes.join(labels, "node_id")
-            .join(propagated, "node_id", "left")
-            .select(
-                F.col("node_id"),
-                F.least(
-                    F.col("label"),
-                    F.coalesce(F.col("propagated_label"), F.col("label")),
-                ).alias("label"),
+    try:
+        for _ in range(MAX_EXACT_BLOCKING_LABEL_ITERATIONS):
+            blocking_labels = (
+                blocking_edges.join(labels, "node_id")
+                .groupBy("blocking_key")
+                .agg(F.min("label").alias("blocking_label"))
             )
-        )
-        label_changed = (
-            next_labels.alias("current")
-            .join(labels.alias("previous"), "node_id")
-            .where(F.col("current.label") != F.col("previous.label"))
-            .limit(1)
-            .take(1)
-        )
-        _release_exact_blocking_labels(labels)
-        labels = _materialize_exact_blocking_labels(next_labels)
-        if not label_changed:
-            break
-    else:
-        _release_exact_blocking_labels(labels)
-        raise RuntimeError(
-            "exact blocking component labels did not converge within "
-            f"{MAX_EXACT_BLOCKING_LABEL_ITERATIONS} iterations"
-        )
-    return labels.withColumnRenamed("label", "component_id")
+            propagated = (
+                blocking_edges.join(blocking_labels, "blocking_key")
+                .groupBy("node_id")
+                .agg(F.min("blocking_label").alias("propagated_label"))
+            )
+            next_labels = (
+                nodes.join(labels, "node_id")
+                .join(propagated, "node_id", "left")
+                .select(
+                    F.col("node_id"),
+                    F.least(
+                        F.col("label"),
+                        F.coalesce(F.col("propagated_label"), F.col("label")),
+                    ).alias("label"),
+                )
+            )
+            label_changed = (
+                next_labels.alias("current")
+                .join(labels.alias("previous"), "node_id")
+                .where(F.col("current.label") != F.col("previous.label"))
+                .limit(1)
+                .take(1)
+            )
+            previous = labels
+            try:
+                labels = _materialize_exact_blocking_labels(next_labels)
+            finally:
+                _release_exact_blocking_labels(previous)
+            if not label_changed:
+                break
+        else:
+            _release_exact_blocking_labels(labels)
+            labels = None
+            raise RuntimeError(
+                "exact blocking component labels did not converge within "
+                f"{MAX_EXACT_BLOCKING_LABEL_ITERATIONS} iterations"
+            )
+        return labels.withColumnRenamed("label", "component_id")
+    except Exception:
+        if labels is not None:
+            _release_exact_blocking_labels(labels)
+        raise
 
 
 def exact_id_namespace_rows(
@@ -608,93 +618,6 @@ def build_identity_resolution_dataframes(
         ),
         "inner",
     )
-    node_candidate_counts = candidate_rows.groupBy(
-        F.col("i.subject_namespace_id").alias("subject_namespace_id"),
-        F.col("i.subject_source_id").alias("subject_source_id"),
-        F.col("i.subject_referent_kind").alias("subject_referent_kind"),
-    ).agg(F.countDistinct("k.entity_key").alias("node_candidate_count"))
-    bounded_node_candidates = node_candidate_counts.where(
-        F.col("node_candidate_count") <= F.lit(MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS)
-    )
-    candidates = (
-        candidate_rows.join(
-            bounded_node_candidates,
-            [
-                candidate_rows["i.subject_namespace_id"]
-                == bounded_node_candidates["subject_namespace_id"],
-                candidate_rows["i.subject_source_id"]
-                == bounded_node_candidates["subject_source_id"],
-                candidate_rows["i.subject_referent_kind"]
-                == bounded_node_candidates["subject_referent_kind"],
-            ],
-            "inner",
-        )
-        .groupBy(
-            "i.subject_namespace_id",
-            "i.subject_source_id",
-            "i.subject_referent_kind",
-        )
-        .agg(
-            F.sort_array(F.collect_set("k.entity_key")).alias("candidate_entity_keys"),
-        )
-        .select(
-            F.col("subject_namespace_id"),
-            F.col("subject_source_id"),
-            F.col("subject_referent_kind"),
-            F.col("candidate_entity_keys"),
-        )
-    )
-    identifier_groups = registered_identifiers.groupBy(
-        "subject_namespace_id",
-        "subject_source_id",
-        "subject_referent_kind",
-    ).agg(
-        F.sort_array(F.collect_set("assertion_id")).alias("identifier_assertion_ids"),
-        F.sort_array(
-            F.collect_set(
-                F.struct(
-                    "namespace_id",
-                    "normalized_value",
-                    "referent_kind",
-                    "assertion_id",
-                    "identifier_policy_id",
-                    "identifier_policy_digest",
-                )
-            )
-        ).alias("identifier_specs"),
-    )
-    source_columns = list(_SOURCE_NODE_COLUMNS)
-    work = (
-        unassigned.join(candidates, source_columns, "left")
-        .join(node_candidate_counts, source_columns, "left")
-        .join(identifier_groups, source_columns, "left")
-        .select(
-            *unassigned.columns,
-            F.coalesce(
-                "candidate_entity_keys",
-                F.from_json(F.lit("[]"), "array<string>"),
-            ).alias("candidate_entity_keys"),
-            F.coalesce(F.col("node_candidate_count"), F.lit(0)).alias(
-                "node_candidate_count"
-            ),
-            F.coalesce(
-                "identifier_assertion_ids",
-                F.from_json(F.lit("[]"), "array<string>"),
-            ).alias("identifier_assertion_ids"),
-            F.coalesce(
-                "identifier_specs",
-                F.from_json(
-                    F.lit("[]"),
-                    (
-                        "array<struct<namespace_id:string,normalized_value:string,"
-                        "referent_kind:string,assertion_id:string,"
-                        "identifier_policy_id:string,"
-                        "identifier_policy_digest:string>>"
-                    ),
-                ),
-            ).alias("identifier_specs"),
-        )
-    )
 
     def _resolution_input(row: Any) -> SourceNodeResolutionInput:
         source_type = str(row["entity_types"][0]).upper()
@@ -744,94 +667,236 @@ def build_identity_resolution_dataframes(
             for spec in row["identifier_specs"]
         )
 
+    node_candidate_counts = (
+        candidate_rows.groupBy(
+            F.col("i.subject_namespace_id").alias("subject_namespace_id"),
+            F.col("i.subject_source_id").alias("subject_source_id"),
+            F.col("i.subject_referent_kind").alias("subject_referent_kind"),
+        )
+        .agg(F.countDistinct("k.entity_key").alias("node_candidate_count"))
+        .persist()
+    )
+    identifier_groups = registered_identifiers.groupBy(
+        "subject_namespace_id",
+        "subject_source_id",
+        "subject_referent_kind",
+    ).agg(
+        F.sort_array(F.collect_set("assertion_id")).alias("identifier_assertion_ids"),
+        F.sort_array(
+            F.collect_set(
+                F.struct(
+                    "namespace_id",
+                    "normalized_value",
+                    "referent_kind",
+                    "assertion_id",
+                    "identifier_policy_id",
+                    "identifier_policy_digest",
+                )
+            )
+        ).alias("identifier_specs"),
+    )
+    source_columns = list(_SOURCE_NODE_COLUMNS)
+    empty_candidate_keys = F.from_json(F.lit("[]"), "array<string>")
+    empty_identifier_assertion_ids = F.from_json(F.lit("[]"), "array<string>")
+    empty_identifier_specs = F.from_json(
+        F.lit("[]"),
+        (
+            "array<struct<namespace_id:string,normalized_value:string,"
+            "referent_kind:string,assertion_id:string,"
+            "identifier_policy_id:string,identifier_policy_digest:string>>"
+        ),
+    )
     node_id_expr = F.concat_ws(
         "\x1f",
         F.col("subject_namespace_id"),
         F.col("subject_source_id"),
         F.col("subject_referent_kind"),
     )
-    work = work.withColumn("node_id", node_id_expr)
-    nodes = work.select("node_id").distinct()
-    blocking_edges = registered_identifiers.select(
-        node_id_expr.alias("node_id"),
-        F.concat_ws(
-            "\x1f",
-            F.col("namespace_id"),
-            F.col("normalized_value"),
-            F.col("referent_kind"),
-        ).alias("blocking_key"),
-    ).distinct()
-    component_labels = assign_exact_blocking_component_ids(nodes, blocking_edges)
-    work = work.join(component_labels, "node_id")
-    component_counts = work.groupBy("component_id").agg(
-        F.count("*").alias("component_node_count"),
+    blocking_key_expr = F.concat_ws(
+        "\x1f",
+        F.col("namespace_id"),
+        F.col("normalized_value"),
+        F.col("referent_kind"),
     )
-    work = work.join(component_counts, "component_id")
-    bounded_work = work.where(
-        F.col("component_node_count")
-        <= F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE)
-    )
-    component_distinct_candidates = (
-        bounded_work.select(
-            "component_id",
-            F.explode("candidate_entity_keys").alias("candidate_entity_key"),
-        )
-        .where(F.col("candidate_entity_key").isNotNull())
-        .distinct()
-    )
-    component_candidate_counts = component_distinct_candidates.groupBy(
-        "component_id"
-    ).agg(F.count("candidate_entity_key").alias("component_candidate_count"))
-    bounded_component_candidates = component_candidate_counts.where(
-        F.col("component_candidate_count")
-        <= F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS)
-    )
-    candidate_stats = (
-        component_distinct_candidates.join(
-            bounded_component_candidates,
-            "component_id",
-            "inner",
-        )
-        .groupBy("component_id")
-        .agg(
-            F.sort_array(F.collect_set("candidate_entity_key")).alias(
-                "component_candidate_keys"
+
+    def _resolution_work_columns(base: Any) -> Any:
+        return base.join(identifier_groups, source_columns, "left").select(
+            *unassigned.columns,
+            F.coalesce("candidate_entity_keys", empty_candidate_keys).alias(
+                "candidate_entity_keys"
+            ),
+            F.coalesce(F.col("node_candidate_count"), F.lit(0)).alias(
+                "node_candidate_count"
+            ),
+            F.coalesce(
+                "identifier_assertion_ids", empty_identifier_assertion_ids
+            ).alias("identifier_assertion_ids"),
+            F.coalesce("identifier_specs", empty_identifier_specs).alias(
+                "identifier_specs"
             ),
         )
-    )
-    work = (
-        work.join(component_candidate_counts, "component_id", "left")
-        .join(candidate_stats, "component_id", "left")
-        .withColumn(
-            "component_candidate_count",
-            F.coalesce(F.col("component_candidate_count"), F.lit(0)),
-        )
-        .withColumn(
-            "component_candidate_keys",
-            F.coalesce("component_candidate_keys", F.array()),
-        )
-    )
-    work = work.withColumn(
-        "resolution_mode",
-        F.when(
-            F.col("component_node_count")
-            > F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE),
-            F.lit("CONFLICT_OVERSIZED"),
-        )
-        .when(
+
+    try:
+        bounded_node_keys = node_candidate_counts.where(
             F.col("node_candidate_count")
-            > F.lit(MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS),
-            F.lit("CONFLICT_NODE_CANDIDATES"),
+            <= F.lit(MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS)
         )
-        .when(
-            F.col("component_candidate_count")
-            > F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS),
-            F.lit("CONFLICT_COMPONENT_CANDIDATES"),
+        oversized_node_keys = node_candidate_counts.where(
+            F.col("node_candidate_count")
+            > F.lit(MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS)
         )
-        .when(F.size("component_candidate_keys") > 1, F.lit("CONFLICT_MULTI"))
-        .when(F.size("component_candidate_keys") == 1, F.lit("ACCEPT"))
-        .otherwise(F.lit("BOOTSTRAP")),
-    )
+        work_parts: list[Any] = []
+        if oversized_node_keys.take(1):
+            oversized_work = _resolution_work_columns(
+                unassigned.join(oversized_node_keys, source_columns, "inner").select(
+                    *unassigned.columns,
+                    empty_candidate_keys.alias("candidate_entity_keys"),
+                    F.col("node_candidate_count"),
+                )
+            )
+            oversized_work = (
+                oversized_work.withColumn("node_id", node_id_expr)
+                .withColumn("component_id", node_id_expr)
+                .withColumn("component_node_count", F.lit(1))
+                .withColumn("component_candidate_count", F.lit(0))
+                .withColumn("component_candidate_keys", F.array())
+                .withColumn("resolution_mode", F.lit("CONFLICT_NODE_CANDIDATES"))
+            )
+            work_parts.append(oversized_work)
+        if bounded_node_keys.take(1):
+            candidates = (
+                candidate_rows.join(
+                    bounded_node_keys,
+                    [
+                        candidate_rows["i.subject_namespace_id"]
+                        == bounded_node_keys["subject_namespace_id"],
+                        candidate_rows["i.subject_source_id"]
+                        == bounded_node_keys["subject_source_id"],
+                        candidate_rows["i.subject_referent_kind"]
+                        == bounded_node_keys["subject_referent_kind"],
+                    ],
+                    "inner",
+                )
+                .groupBy(
+                    "i.subject_namespace_id",
+                    "i.subject_source_id",
+                    "i.subject_referent_kind",
+                )
+                .agg(
+                    F.sort_array(F.collect_set("k.entity_key")).alias(
+                        "candidate_entity_keys"
+                    ),
+                )
+                .select(
+                    F.col("subject_namespace_id"),
+                    F.col("subject_source_id"),
+                    F.col("subject_referent_kind"),
+                    F.col("candidate_entity_keys"),
+                )
+            )
+            bounded_work = _resolution_work_columns(
+                unassigned.join(bounded_node_keys, source_columns, "inner")
+                .join(candidates, source_columns, "left")
+                .join(bounded_node_keys, source_columns, "left")
+            )
+            bounded_work = bounded_work.withColumn("node_id", node_id_expr)
+            dag_nodes = bounded_work.select("node_id").distinct()
+            dag_source_nodes = bounded_work.select(*source_columns).distinct()
+            blocking_edges = (
+                registered_identifiers.join(dag_source_nodes, source_columns, "inner")
+                .select(
+                    node_id_expr.alias("node_id"),
+                    blocking_key_expr.alias("blocking_key"),
+                )
+                .distinct()
+            )
+            component_labels = assign_exact_blocking_component_ids(
+                dag_nodes,
+                blocking_edges,
+            )
+            bounded_work = bounded_work.join(component_labels, "node_id")
+            component_counts = bounded_work.groupBy("component_id").agg(
+                F.count("*").alias("component_node_count"),
+            )
+            bounded_work = bounded_work.join(component_counts, "component_id")
+            component_eligible = bounded_work.where(
+                F.col("component_node_count")
+                <= F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE)
+            )
+            component_distinct_candidates = (
+                component_eligible.select(
+                    "component_id",
+                    F.explode("candidate_entity_keys").alias("candidate_entity_key"),
+                )
+                .where(F.col("candidate_entity_key").isNotNull())
+                .distinct()
+            )
+            component_candidate_counts = (
+                component_distinct_candidates.groupBy("component_id").agg(
+                    F.count("candidate_entity_key").alias("component_candidate_count")
+                )
+            ).persist()
+            try:
+                bounded_component_candidates = component_candidate_counts.where(
+                    F.col("component_candidate_count")
+                    <= F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS)
+                )
+                candidate_stats = (
+                    component_distinct_candidates.join(
+                        bounded_component_candidates,
+                        "component_id",
+                        "inner",
+                    )
+                    .groupBy("component_id")
+                    .agg(
+                        F.sort_array(F.collect_set("candidate_entity_key")).alias(
+                            "component_candidate_keys"
+                        ),
+                    )
+                )
+                bounded_work = (
+                    bounded_work.join(
+                        component_candidate_counts, "component_id", "left"
+                    )
+                    .join(candidate_stats, "component_id", "left")
+                    .withColumn(
+                        "component_candidate_count",
+                        F.coalesce(F.col("component_candidate_count"), F.lit(0)),
+                    )
+                    .withColumn(
+                        "component_candidate_keys",
+                        F.coalesce("component_candidate_keys", F.array()),
+                    )
+                )
+            finally:
+                component_candidate_counts.unpersist()
+            bounded_work = bounded_work.withColumn(
+                "resolution_mode",
+                F.when(
+                    F.col("component_node_count")
+                    > F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE),
+                    F.lit("CONFLICT_OVERSIZED"),
+                )
+                .when(
+                    F.col("component_candidate_count")
+                    > F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS),
+                    F.lit("CONFLICT_COMPONENT_CANDIDATES"),
+                )
+                .when(F.size("component_candidate_keys") > 1, F.lit("CONFLICT_MULTI"))
+                .when(F.size("component_candidate_keys") == 1, F.lit("ACCEPT"))
+                .otherwise(F.lit("BOOTSTRAP")),
+            )
+            work_parts.append(bounded_work)
+        if not work_parts:
+            work = unassigned.limit(0).withColumn(
+                "candidate_entity_keys", empty_candidate_keys
+            )
+        elif len(work_parts) == 1:
+            work = work_parts[0]
+        else:
+            work = work_parts[0].unionByName(work_parts[1])
+    finally:
+        node_candidate_counts.unpersist()
     anchors = work.where(
         (F.col("resolution_mode") == F.lit("BOOTSTRAP"))
         & (F.col("node_id") == F.col("component_id"))

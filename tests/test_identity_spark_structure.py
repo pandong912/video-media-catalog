@@ -53,7 +53,31 @@ def test_identity_spark_truncates_label_lineage_with_local_checkpoint() -> None:
     assert "localCheckpoint(eager=True)" in source
     assert "refusing incomplete merge" in source
     assert 'countDistinct("k.entity_key")' in source
+    assert "node_candidate_counts" in source
+    assert (
+        ".persist()"
+        in source.split("node_candidate_counts", 1)[1].split("finally:", 1)[0]
+    )
+    assert "component_candidate_counts" in source
+    assert (
+        "is_cached"
+        not in source.split("def _release_exact_blocking_labels", 1)[1].split(
+            "\ndef ", 1
+        )[0]
+    )
     assign_block = source.split("def assign_exact_blocking_component_ids", 1)[1]
     assign_block = assign_block.split("\ndef ", 1)[0]
     assert ".count()" not in assign_block
     assert ".take(1)" in assign_block
+    materialize_index = assign_block.index(
+        "_materialize_exact_blocking_labels(next_labels)"
+    )
+    release_index = assign_block.index("_release_exact_blocking_labels(previous)")
+    assert materialize_index < release_index
+    assert "finally:" in assign_block
+    assert "oversized_node_keys" in source
+    assert "bounded_node_keys.take(1)" in source
+    assert (
+        "CONFLICT_NODE_CANDIDATES"
+        in source.split("oversized_work", 1)[1].split("work_parts", 1)[0]
+    )

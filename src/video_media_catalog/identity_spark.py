@@ -365,6 +365,7 @@ def build_identity_resolution_dataframes(
         raise ValueError("v1 entities are missing required columns")
 
     from pyspark.sql import functions as F
+    from pyspark.sql.window import Window
 
     namespace_rows = exact_id_namespace_rows(registry)
     namespace_schemes = spark.createDataFrame(
@@ -840,79 +841,122 @@ def build_identity_resolution_dataframes(
                 dag_nodes,
                 blocking_edges,
             )
-            bounded_work = bounded_work.join(component_labels, "node_id")
-            component_counts = bounded_work.groupBy("component_id").agg(
-                F.count("*").alias("component_node_count"),
+            # Truncate shared lineage and avoid Analyzer-conflicting self-joins
+            # on component_id (Spark INTERNAL_ERROR on join attribute resolution).
+            labeled_work = _materialize_exact_blocking_labels(
+                bounded_work.join(component_labels, "node_id"),
+                label="component labeled work",
             )
-            bounded_work = bounded_work.join(component_counts, "component_id")
-            component_eligible = bounded_work.where(
-                F.col("component_node_count")
-                <= F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE)
-            )
-            component_distinct_candidates = (
-                component_eligible.select(
-                    "component_id",
-                    F.explode("candidate_entity_keys").alias("candidate_entity_key"),
-                )
-                .where(F.col("candidate_entity_key").isNotNull())
-                .distinct()
-            )
-            component_candidate_counts = (
-                component_distinct_candidates.groupBy("component_id").agg(
-                    F.count("candidate_entity_key").alias("component_candidate_count")
-                )
-            ).persist()
             try:
-                bounded_component_candidates = component_candidate_counts.where(
-                    F.col("component_candidate_count")
-                    <= F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS)
+                bounded_work = labeled_work.withColumn(
+                    "component_node_count",
+                    F.count("*").over(Window.partitionBy("component_id")),
                 )
-                candidate_stats = (
-                    component_distinct_candidates.join(
-                        bounded_component_candidates,
+                component_eligible = bounded_work.where(
+                    F.col("component_node_count")
+                    <= F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE)
+                )
+                component_distinct_candidates = (
+                    component_eligible.select(
                         "component_id",
-                        "inner",
-                    )
-                    .groupBy("component_id")
-                    .agg(
-                        F.sort_array(F.collect_set("candidate_entity_key")).alias(
-                            "component_candidate_keys"
+                        F.explode("candidate_entity_keys").alias(
+                            "candidate_entity_key"
                         ),
                     )
+                    .where(F.col("candidate_entity_key").isNotNull())
+                    .distinct()
                 )
-                bounded_work = (
-                    bounded_work.join(
-                        component_candidate_counts, "component_id", "left"
+                component_candidate_counts = (
+                    component_distinct_candidates.groupBy("component_id").agg(
+                        F.count("candidate_entity_key").alias(
+                            "component_candidate_count"
+                        )
                     )
-                    .join(candidate_stats, "component_id", "left")
-                    .withColumn(
-                        "component_candidate_count",
-                        F.coalesce(F.col("component_candidate_count"), F.lit(0)),
+                ).persist()
+                try:
+                    bounded_component_candidates = component_candidate_counts.where(
+                        F.col("component_candidate_count")
+                        <= F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS)
                     )
-                    .withColumn(
-                        "component_candidate_keys",
-                        F.coalesce("component_candidate_keys", F.array()),
+                    candidate_stats = (
+                        component_distinct_candidates.join(
+                            bounded_component_candidates.select(
+                                F.col("component_id").alias("eligible_component_id"),
+                            ),
+                            F.col("component_id") == F.col("eligible_component_id"),
+                            "inner",
+                        )
+                        .drop("eligible_component_id")
+                        .groupBy("component_id")
+                        .agg(
+                            F.sort_array(F.collect_set("candidate_entity_key")).alias(
+                                "component_candidate_keys"
+                            ),
+                        )
                     )
+                    work_columns = bounded_work.columns
+                    bounded_work = (
+                        bounded_work.alias("work")
+                        .join(
+                            component_candidate_counts.select(
+                                F.col("component_id").alias("count_component_id"),
+                                F.col("component_candidate_count"),
+                            ).alias("counts"),
+                            F.col("work.component_id")
+                            == F.col("counts.count_component_id"),
+                            "left",
+                        )
+                        .join(
+                            candidate_stats.select(
+                                F.col("component_id").alias("stats_component_id"),
+                                F.col("component_candidate_keys"),
+                            ).alias("stats"),
+                            F.col("work.component_id")
+                            == F.col("stats.stats_component_id"),
+                            "left",
+                        )
+                        .select(
+                            *[F.col(f"work.{name}") for name in work_columns],
+                            F.coalesce(
+                                F.col("counts.component_candidate_count"),
+                                F.lit(0),
+                            ).alias("component_candidate_count"),
+                            F.coalesce(
+                                F.col("stats.component_candidate_keys"),
+                                F.array(),
+                            ).alias("component_candidate_keys"),
+                        )
+                    )
+                finally:
+                    component_candidate_counts.unpersist()
+                bounded_work = _materialize_exact_blocking_labels(
+                    bounded_work.withColumn(
+                        "resolution_mode",
+                        F.when(
+                            F.col("component_node_count")
+                            > F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE),
+                            F.lit("CONFLICT_OVERSIZED"),
+                        )
+                        .when(
+                            F.col("component_candidate_count")
+                            > F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS),
+                            F.lit("CONFLICT_COMPONENT_CANDIDATES"),
+                        )
+                        .when(
+                            F.size("component_candidate_keys") > 1,
+                            F.lit("CONFLICT_MULTI"),
+                        )
+                        .when(
+                            F.size("component_candidate_keys") == 1,
+                            F.lit("ACCEPT"),
+                        )
+                        .otherwise(F.lit("BOOTSTRAP")),
+                    ),
+                    label="component resolved work",
                 )
+                work_parts.append(bounded_work)
             finally:
-                component_candidate_counts.unpersist()
-            bounded_work = bounded_work.withColumn(
-                "resolution_mode",
-                F.when(
-                    F.col("component_node_count")
-                    > F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE),
-                    F.lit("CONFLICT_OVERSIZED"),
-                )
-                .when(
-                    F.col("component_candidate_count")
-                    > F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS),
-                    F.lit("CONFLICT_COMPONENT_CANDIDATES"),
-                )
-                .when(F.size("component_candidate_keys") > 1, F.lit("CONFLICT_MULTI"))
-                .when(F.size("component_candidate_keys") == 1, F.lit("ACCEPT"))
-                .otherwise(F.lit("BOOTSTRAP")),
-            )
-            work_parts.append(bounded_work)
+                _release_exact_blocking_labels(labeled_work)
         if not work_parts:
             work = _resolution_work_columns(
                 unassigned.limit(0).select(

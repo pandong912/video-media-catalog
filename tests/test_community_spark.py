@@ -12,7 +12,10 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
+from video_media_catalog.community_ingest import CommunityIngestRun
+from video_media_catalog.community_rows import ingest_run_row
 from video_media_catalog.community_sources import build_community_registry
+from video_media_catalog.community_spark import community_table_schema
 from video_media_catalog.connector import (
     ChangeSemantics,
     Completeness,
@@ -33,6 +36,23 @@ from video_media_catalog.source_silver import (
     build_source_silver_dataframes,
 )
 from video_media_catalog.storage import local_path
+
+
+def _identity_lifecycle_inputs(
+    spark: SparkSession,
+    run: CommunityIngestRun,
+    visible: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "source_records": visible["community_source_record"],
+        "ingest_runs": spark.createDataFrame(
+            [ingest_run_row(run)],
+            schema=community_table_schema("community_ingest_run"),
+        ),
+        "committed_source_run_ids": (run.run_id,),
+    }
+
+
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
     TVMAZE_POLICY_ID,
@@ -181,6 +201,7 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),
             started_at="2026-09-19T00:00:00Z",
+            **_identity_lifecycle_inputs(spark, run, frames),
         )
         assert identity_frames["community_entity_ledger"].count() == 0
         memberships = identity_frames["community_entity_membership"].collect()
@@ -213,6 +234,7 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
             image_digest="sha256:" + ("4" * 64),
             config_digest="sha256:" + ("3" * 64),
             started_at="2026-09-19T00:00:00Z",
+            **_identity_lifecycle_inputs(spark, run, frames),
         )
         conflicts = conflict_frames["community_identity_conflict"].collect()
         assert len(conflicts) == 1
@@ -330,7 +352,7 @@ def test_shared_imdb_blocking_key_unifies_unassigned_source_nodes(
         last_envelope_key=envelopes[1].envelope_key,
         created_at=batch.acquired_at,
     )
-    _run, frames = build_source_silver_dataframes(
+    run, frames = build_source_silver_dataframes(
         spark,
         registry=build_community_registry(),
         batch=batch,
@@ -353,6 +375,7 @@ def test_shared_imdb_blocking_key_unifies_unassigned_source_nodes(
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),
             started_at="2026-09-19T00:00:00Z",
+            **_identity_lifecycle_inputs(spark, run, frames),
         )
         memberships = identity_frames["community_entity_membership"].collect()
         assert identity_run.expected_counts["community_entity_membership"] == 2
@@ -457,7 +480,7 @@ def test_imdb_series_identifier_joins_v1_series_entity(
     mapped = map_imdb_record(series_record)
     assert mapped.source_node.referent_kind == "EDITORIAL_WORK"
     assert mapped.identifier_assertions[0].referent_kind == "SERIES"
-    _run, frames = build_source_silver_dataframes(
+    run, frames = build_source_silver_dataframes(
         spark,
         registry=build_community_registry(),
         batch=result.batch_manifest,
@@ -481,6 +504,7 @@ def test_imdb_series_identifier_joins_v1_series_entity(
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),
             started_at="2026-09-20T00:00:00Z",
+            **_identity_lifecycle_inputs(spark, run, frames),
         )
         memberships = identity_frames["community_entity_membership"].collect()
         assert identity_run.expected_counts["community_entity_membership"] == len(

@@ -756,6 +756,14 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "community-identity-resolution-input-v2",
             pinned_inputs,
         )
+        from pyspark.sql import functions as F
+
+        ingest_runs = (
+            spark.read.format("iceberg")
+            .option("snapshot-id", str(silver_snapshot.run_snapshot_id))
+            .load(tables.table_name("community_ingest_run"))
+            .where(F.col("run_id").isin(*source_run_ids))
+        )
         run, frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=visible,
@@ -767,6 +775,9 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             started_at=started_at,
             registry=registry,
             pinned_inputs=pinned_inputs,
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_source_run_ids=source_run_ids,
         )
         commit = tables.stage_and_commit(
             run=run,

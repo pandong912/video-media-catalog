@@ -11,6 +11,7 @@ pytest.importorskip("pyspark")
 from pyspark.sql import SparkSession
 
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.community_ingest import CommunityIngestRun
 from video_media_catalog.community_rows import ingest_run_row
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.community_spark import (
@@ -54,6 +55,21 @@ from video_media_catalog.tvmaze import (
 from video_media_catalog.tvmaze_silver import (
     build_tvmaze_silver_dataframes,
 )
+
+
+def _identity_lifecycle_inputs(
+    spark: SparkSession,
+    run: CommunityIngestRun,
+    visible: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "source_records": visible["community_source_record"],
+        "ingest_runs": spark.createDataFrame(
+            [ingest_run_row(run)],
+            schema=community_table_schema("community_ingest_run"),
+        ),
+        "committed_source_run_ids": (run.run_id,),
+    }
 
 
 @pytest.fixture(scope="module")
@@ -357,6 +373,7 @@ def test_distributed_silver_identity_and_gold_pipeline(
             image_digest="sha256:" + ("d" * 64),
             config_digest="sha256:" + ("e" * 64),
             started_at="2026-09-19T00:00:00Z",
+            **_identity_lifecycle_inputs(spark, silver_run, silver_frames),
         )
         combined = {
             table: silver_frames[table].unionByName(identity_frames[table])
@@ -396,6 +413,75 @@ def test_distributed_silver_identity_and_gold_pipeline(
                 frame.unpersist()
         for frame in silver_frames.values():
             frame.unpersist()
+
+
+@pytest.mark.spark
+def test_resolved_memberships_reject_conflicting_closure_times(
+    spark: SparkSession,
+) -> None:
+    run_id = "sha256:" + ("8" * 64)
+    entity_key = "sha256:" + ("9" * 64)
+    decision_id = "sha256:" + ("a" * 64)
+    common = {
+        "run_id": run_id,
+        "source_namespace_id": "tvmaze-show",
+        "source_id": "1",
+        "source_referent_kind": "SERIES",
+        "entity_key": entity_key,
+        "decision_id": decision_id,
+        "valid_from": "2026-09-18T00:00:00Z",
+    }
+    memberships = spark.createDataFrame(
+        [
+            {
+                **common,
+                "membership_key": "sha256:" + ("b" * 64),
+                "valid_to": None,
+            },
+            {
+                **common,
+                "membership_key": "sha256:" + ("c" * 64),
+                "valid_to": "2026-09-19T00:00:00Z",
+            },
+            {
+                **common,
+                "membership_key": "sha256:" + ("d" * 64),
+                "valid_to": "2026-09-21T00:00:00Z",
+            },
+        ],
+        schema=community_table_schema("community_entity_membership"),
+    )
+    ledger = spark.createDataFrame(
+        [
+            {
+                "entity_key": entity_key,
+                "run_id": run_id,
+                "allocation_id": None,
+                "entity_level": "SERIES",
+                "entity_kind": "TV_SERIES",
+                "status": "ACTIVE",
+                "created_at": "2026-09-18T00:00:00Z",
+                "first_release_id": None,
+                "imported_v1": True,
+            }
+        ],
+        schema=community_table_schema("community_entity_ledger"),
+    )
+    redirects = spark.createDataFrame(
+        [],
+        schema=community_table_schema("community_entity_redirect"),
+    )
+
+    with pytest.raises(ValueError, match="conflicting closure times"):
+        _resolved_memberships(
+            silver={
+                "community_entity_membership": memberships,
+                "community_entity_ledger": ledger,
+                "community_entity_redirect": redirects,
+            },
+            as_of="2026-09-20T00:00:00Z",
+            max_redirect_hops=4,
+        )
 
 
 @pytest.mark.spark
@@ -559,6 +645,103 @@ def test_snapshot_diff_closes_records_missing_from_next_snapshot(
         assert titles == {"Second"}
     finally:
         build.unpersist()
+
+
+@pytest.mark.spark
+def test_snapshot_diff_does_not_delete_other_coverage_records(
+    spark: SparkSession,
+) -> None:
+    first = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Scope A old"),),
+        change_semantics=ChangeSemantics.FULL_SNAPSHOT,
+        delete_coverage=DeleteCoverage.SNAPSHOT_DIFF,
+        coverage_scope={"endpoint": "/scope-a"},
+    )
+    other = _source_capture(
+        acquired_at="2026-09-20T00:30:00Z",
+        records=(("9", RecordOperation.UPSERT, "Scope B survives"),),
+        coverage_scope={"endpoint": "/scope-b"},
+    )
+    second = _source_capture(
+        acquired_at="2026-09-20T01:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Scope A new"),),
+        change_semantics=ChangeSemantics.FULL_SNAPSHOT,
+        delete_coverage=DeleteCoverage.SNAPSHOT_DIFF,
+        coverage_scope={"endpoint": "/scope-a"},
+    )
+    visible, committed = _visible_silver(
+        spark,
+        (first, other, second),
+        source_ids=("1", "9"),
+    )
+
+    build = _gold(
+        spark,
+        visible=visible,
+        committed_run_ids=committed,
+        as_of="2026-09-20T02:00:00Z",
+    )
+    try:
+        titles = {
+            json.loads(row.value_json)
+            for row in build.dataframes["community_gold_field"]
+            .where("predicate = 'title'")
+            .collect()
+        }
+        assert titles == {"Scope A new", "Scope B survives"}
+    finally:
+        build.unpersist()
+
+
+@pytest.mark.spark
+def test_identity_skips_deleted_source_assertions(
+    spark: SparkSession,
+) -> None:
+    baseline = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Deleted source"),),
+    )
+    deletion = _source_capture(
+        acquired_at="2026-09-20T01:00:00Z",
+        records=(("1", RecordOperation.DELETE, None),),
+    )
+    rows = {
+        table: [*baseline[1][table], *deletion[1][table]]
+        for table in DATA_TABLE_COLUMNS
+    }
+    visible = create_community_dataframes(spark, rows)
+    ingest_runs = spark.createDataFrame(
+        [ingest_run_row(baseline[0]), ingest_run_row(deletion[0])],
+        schema=community_table_schema("community_ingest_run"),
+    )
+    identity_frames = None
+    try:
+        _, identity_frames = build_identity_resolution_dataframes(
+            spark,
+            visible_silver=visible,
+            v1_external_identifiers=spark.createDataFrame(
+                [],
+                "entity_key STRING, scheme STRING, value STRING",
+            ),
+            v1_entities=spark.createDataFrame(
+                [],
+                "entity_key STRING, entity_type STRING",
+            ),
+            input_id="sha256:" + ("8" * 64),
+            image_digest="sha256:" + ("7" * 64),
+            config_digest="sha256:" + ("6" * 64),
+            started_at="2026-09-20T02:00:00Z",
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_source_run_ids=(baseline[0].run_id, deletion[0].run_id),
+        )
+        assert identity_frames["community_entity_membership"].count() == 0
+        assert identity_frames["community_external_id_index"].count() == 0
+    finally:
+        if identity_frames is not None:
+            for frame in identity_frames.values():
+                frame.unpersist()
 
 
 @pytest.mark.spark

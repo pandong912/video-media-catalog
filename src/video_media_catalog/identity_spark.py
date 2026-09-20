@@ -35,11 +35,18 @@ from video_media_catalog.identity_resolution import (
     referent_kinds_compatible,
     resolve_or_allocate_source_node,
     resolve_shared_blocking_member,
+    revoke_identity_membership,
 )
 from video_media_catalog.identity_v2 import (
     EntityLevel,
     ExternalIdIndexEntry,
     build_external_id_index_entry,
+)
+from video_media_catalog.source_lifecycle import (
+    current_upsert_envelope_keys,
+    filter_assertions_for_current_envelopes,
+    inactive_source_records,
+    select_effective_membership_versions,
 )
 from video_media_catalog.source_registry import (
     RegistryStatus,
@@ -288,6 +295,9 @@ def build_identity_resolution_dataframes(
     started_at: str,
     registry: SourceRegistrySnapshot | None = None,
     pinned_inputs: Mapping[str, Any] | None = None,
+    source_records: Any | None = None,
+    ingest_runs: Any | None = None,
+    committed_source_run_ids: tuple[str, ...] | None = None,
 ) -> tuple[CommunityIngestRun, dict[str, Any]]:
     """Resolve source nodes through registry namespaces and quarantine ambiguity."""
 
@@ -320,7 +330,6 @@ def build_identity_resolution_dataframes(
     if not required_entity_columns.issubset(v1_entities.columns):
         raise ValueError("v1 entities are missing required columns")
 
-    from pyspark.sql import Window
     from pyspark.sql import functions as F
 
     namespace_rows = exact_id_namespace_rows(registry)
@@ -368,9 +377,35 @@ def build_identity_resolution_dataframes(
         sorted(_V1_REFERENT_KIND.items()),
         "v1_entity_type STRING, referent_kind STRING",
     )
-    type_assertions = visible_silver["community_entity_type_assertion"].where(
-        F.col("status") == "ACTIVE"
+    if (
+        source_records is None
+        or ingest_runs is None
+        or committed_source_run_ids is None
+    ):
+        raise ValueError(
+            "identity resolution requires source lifecycle inputs "
+            "(source_records, ingest_runs, committed_source_run_ids)"
+        )
+    current_envelope_keys = current_upsert_envelope_keys(
+        source_records=source_records,
+        ingest_runs=ingest_runs,
+        committed_run_ids=committed_source_run_ids,
+        registry=registry,
+        as_of=started_at,
     )
+    try:
+        type_assertions = filter_assertions_for_current_envelopes(
+            visible_silver["community_entity_type_assertion"],
+            current_envelope_keys=current_envelope_keys,
+            as_of=started_at,
+        )
+        identifier_assertions = filter_assertions_for_current_envelopes(
+            visible_silver["community_identifier_assertion"],
+            current_envelope_keys=current_envelope_keys,
+            as_of=started_at,
+        )
+    finally:
+        current_envelope_keys.unpersist()
     type_groups = (
         type_assertions.groupBy(
             "subject_namespace_id",
@@ -395,26 +430,9 @@ def build_identity_resolution_dataframes(
         raise ValueError("source node has conflicting type or policy assertions")
 
     as_of = F.to_timestamp(F.lit(started_at))
-    membership_window = Window.partitionBy(
-        "source_namespace_id",
-        "source_id",
-        "source_referent_kind",
-        "entity_key",
-        "decision_id",
-        "valid_from",
-    ).orderBy(
-        F.when(F.col("valid_to").isNotNull(), F.lit(1)).otherwise(F.lit(0)).desc(),
-        F.col("valid_to").asc_nulls_last(),
-    )
-    membership_versions = (
-        visible_silver["community_entity_membership"]
-        .withColumn("_membership_version", F.row_number().over(membership_window))
-        .where(F.col("_membership_version") == 1)
-        .drop("_membership_version")
-    )
-    memberships = membership_versions.where(
-        (F.to_timestamp("valid_from") <= as_of)
-        & (F.col("valid_to").isNull() | (F.to_timestamp("valid_to") > as_of))
+    memberships = select_effective_membership_versions(
+        visible_silver["community_entity_membership"],
+        as_of=started_at,
     )
     assigned_nodes = memberships.select(
         "source_namespace_id",
@@ -435,9 +453,6 @@ def build_identity_resolution_dataframes(
         .persist()
     )
 
-    identifier_assertions = visible_silver["community_identifier_assertion"].where(
-        F.col("status") == "ACTIVE"
-    )
     from pyspark.sql.types import BooleanType
 
     compatible_referent_kind = F.udf(referent_kinds_compatible, BooleanType())
@@ -988,7 +1003,57 @@ def build_identity_resolution_dataframes(
         entity_key = result.memberships[0].entity_key
         return result, _index_entries(row, entity_key)
 
-    results = work.rdd.map(resolve_row).persist()
+    inactive_sources = inactive_source_records(
+        source_records=source_records,
+        ingest_runs=ingest_runs,
+        committed_run_ids=committed_source_run_ids,
+        registry=registry,
+        as_of=started_at,
+    )
+    revocations = (
+        memberships.where(F.col("valid_to").isNull())
+        .alias("m")
+        .join(
+            inactive_sources.alias("s"),
+            (
+                (F.col("m.source_namespace_id") == F.col("s.subject_namespace_id"))
+                & (F.col("m.source_id") == F.col("s.subject_source_id"))
+            ),
+            "inner",
+        )
+        .select("m.*", "s.lifecycle_observed_at")
+    )
+
+    def _revoke_inactive_membership(row: Any) -> IdentityResolutionResult:
+        from video_media_catalog.identity_v2 import build_entity_membership
+
+        membership = build_entity_membership(
+            source_node=SourceNodeRef(
+                namespace_id=row["source_namespace_id"],
+                source_id=row["source_id"],
+                referent_kind=row["source_referent_kind"],
+            ),
+            entity_key=row["entity_key"],
+            decision_id=row["decision_id"],
+            valid_from=row["valid_from"],
+        )
+        return revoke_identity_membership(
+            membership=membership,
+            evidence_keys=(),
+            policy_version="exact-identity-v2",
+            decided_by="community-identity-spark-v2",
+            decided_at=row["lifecycle_observed_at"],
+            reason="SOURCE_RECORD_INACTIVE",
+        )
+
+    resolution_results = work.rdd.map(resolve_row)
+    if revocations.rdd.isEmpty():
+        revocation_results = spark.sparkContext.emptyRDD()
+    else:
+        revocation_results = revocations.rdd.map(_revoke_inactive_membership)
+    results = resolution_results.union(
+        revocation_results.map(lambda item: (item, ()))
+    ).persist()
     operation_policy = internal_key_continuity_profile()
     seed_entries = v1_index.rdd.map(
         lambda row: _build_seed_index_entry(

@@ -47,6 +47,7 @@ video-media-catalog-research-silver = "video_media_catalog.research_silver_cli:m
 video-media-catalog-gold-spark = "video_media_catalog.gold_cli:main"
 video-media-catalog-gold-index = "video_media_catalog.gold_index_cli:main"
 video-media-catalog-gold-index-plan = "video_media_catalog.gold_index_cli:sizing_main"
+video-media-catalog-iceberg-maintenance = "video_media_catalog.iceberg_maintenance_cli:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from video_media_catalog.community_snapshot import SILVER_EPOCH_MEDIA_TYPE
 from video_media_catalog.gold_cli import _snapshot_ref, build_parser
 
 
@@ -54,3 +55,14 @@ def test_gold_cli_requires_immutable_s3_snapshot() -> None:
     arguments[1] = "s3://bucket/silver.json"
     with pytest.raises(ValueError, match="version and ETag"):
         _snapshot_ref(build_parser().parse_args(arguments))
+
+
+def test_gold_cli_accepts_epoch_media_type_explicitly() -> None:
+    parsed = build_parser().parse_args(
+        [
+            *_arguments(),
+            "--silver-snapshot-media-type",
+            SILVER_EPOCH_MEDIA_TYPE,
+        ]
+    )
+    assert _snapshot_ref(parsed).media_type == SILVER_EPOCH_MEDIA_TYPE

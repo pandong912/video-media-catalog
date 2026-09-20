@@ -292,11 +292,7 @@ video-media-catalog-research-silver resolve-identity \
   --aws-region us-east-1
 ```
 
-最后再次发布包含 source、migration 和 identity run 的快照供
-`video-media-catalog-gold-spark` 使用。发布器先固定 ingest-run/commit/data
-snapshot IDs，再逐 run 核对 manifest、commit 和每表行数；最多可显式选择
-4,096 个 run。S3 目标若未返回 VersionId 或 ETag 会失败，不会向下游提供
-“latest”引用：
+`publish-snapshot` 保留为 v2 兼容入口，适合显式且有界的 run 列表：
 
 ```bash
 video-media-catalog-research-silver publish-snapshot \
@@ -309,16 +305,39 @@ video-media-catalog-research-silver publish-snapshot \
   --aws-region us-east-1
 ```
 
-随后把返回 `silverSnapshot` 的固定字段直接交给 Gold，不重新 HEAD 未带
-VersionId 的 key：
+长期生产使用 `publish-epoch`。首次可发布不列全历史 run 的 baseline；后续
+epoch 只携带最多 4,096 个 delta run、source watermark，以及 parent/baseline
+不可变引用。发布器从 pinned commit snapshot 分布式计算总 run count/digest，
+并核对 exact run/commit/data snapshots：
+
+```bash
+video-media-catalog-research-silver publish-epoch \
+  --parent-epoch-uri s3://bucket/research-silver/baseline.json \
+  --parent-epoch-hash sha256:<hex> \
+  --parent-epoch-size <bytes> \
+  --parent-epoch-version <VersionId> \
+  --parent-epoch-etag <ETag> \
+  --delta-run-id sha256:<new-source-run> \
+  --delta-run-id sha256:<new-identity-run> \
+  --source-watermark tvmaze-public-api=since:1700000000 \
+  --epoch-uri s3://bucket/research-silver/epochs/2026-09-20.json \
+  --created-at 2026-09-20T01:25:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+相同 canonical 内容写到同一目标会复用；不同内容会因 immutable publish
+冲突而失败。随后把返回 `silverEpoch` 的固定字段直接交给 Gold，不重新 HEAD
+未带 VersionId 的 key，并显式声明 v3 media type：
 
 ```bash
 video-media-catalog-gold-spark \
-  --silver-snapshot-uri s3://bucket/research-silver/gold-input.json \
+  --silver-snapshot-uri s3://bucket/research-silver/epochs/2026-09-20.json \
   --silver-snapshot-hash sha256:<hex> \
   --silver-snapshot-size <bytes> \
   --silver-snapshot-version <VersionId> \
   --silver-snapshot-etag <ETag> \
+  --silver-snapshot-media-type application/vnd.video-media-catalog.silver-epoch-manifest.v3+json \
   --output-prefix s3://bucket/research-gold \
   --planned-at 2026-09-20T01:30:00Z \
   --committed-at 2026-09-20T01:45:00Z \
@@ -327,6 +346,31 @@ video-media-catalog-gold-spark \
   --warehouse s3://bucket/catalog-warehouse \
   --aws-region us-east-1
 ```
+
+Gold/Identity 对 v3 epoch 从 pinned commit snapshot 构造分布式 committed-runs
+DataFrame 并与 exact data snapshots join，不把完整历史 run ID 列表收集到
+driver；已有 v2 snapshot 继续可读。
+
+Iceberg maintenance 默认只生成审计计划，不执行 procedure：
+
+```bash
+video-media-catalog-iceberg-maintenance \
+  --table community_source_record \
+  --operation rewrite-data-files \
+  --operation rewrite-manifests \
+  --operation expire-snapshots \
+  --operation remove-orphan-files \
+  --planned-at 2026-09-20T02:00:00Z \
+  --retention-days 30 \
+  --orphan-retention-days 30 \
+  --retain-last 5 \
+  --protected-snapshot community_source_record=<epoch-snapshot-id> \
+  --warehouse s3://bucket/catalog-warehouse
+```
+
+仅在完整审阅 epoch 引用清单后同时传 `--references-reviewed --execute`。
+保留期下限为七天；当前 snapshot 永不进入候选，任何仍被 epoch 引用且落入
+过期窗口的 snapshot 都会令计划 fail closed。
 
 Gold v2 只发布一个 `research` context，不再生成平行 release。release plan、
 release commit 和 index build manifest 都绑定同一个

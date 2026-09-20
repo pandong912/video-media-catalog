@@ -669,7 +669,11 @@ def build_distributed_gold(
     policy_context: ReleasePolicyContext,
     owner_subject: str,
     field_policy: GoldResolutionPolicy,
-    committed_run_ids: tuple[str, ...],
+    committed_run_ids: tuple[str, ...] = (),
+    committed_runs: Any | None = None,
+    silver_epoch_id: str | None = None,
+    committed_run_count: int | None = None,
+    committed_run_digest: str | None = None,
     silver_snapshot_ids: dict[str, int | None],
     identity_snapshot_ids: dict[str, int | None],
     resolver_digest: str,
@@ -693,10 +697,37 @@ def build_distributed_gold(
         raise ValueError("Gold build is missing required Silver tables")
     from pyspark.sql import functions as F
 
-    selected_runs = spark.createDataFrame(
-        [(run_id,) for run_id in committed_run_ids],
-        "run_id STRING",
-    )
+    if committed_runs is None:
+        if not committed_run_ids:
+            raise ValueError("Gold build requires committed runs")
+        if any(
+            value is not None
+            for value in (
+                silver_epoch_id,
+                committed_run_count,
+                committed_run_digest,
+            )
+        ):
+            raise ValueError("legacy Gold input cannot declare an epoch summary")
+        selected_runs = spark.createDataFrame(
+            [(run_id,) for run_id in committed_run_ids],
+            "run_id STRING",
+        )
+    else:
+        if committed_run_ids:
+            raise ValueError("Gold build cannot mix run IDs and a run dataframe")
+        if "run_id" not in committed_runs.columns:
+            raise ValueError("committed_runs dataframe requires run_id")
+        if any(
+            value is None
+            for value in (
+                silver_epoch_id,
+                committed_run_count,
+                committed_run_digest,
+            )
+        ):
+            raise ValueError("distributed committed runs require an epoch summary")
+        selected_runs = committed_runs.select("run_id").dropDuplicates(["run_id"])
     committed_silver = {
         table: (
             frame.join(selected_runs, "run_id", "inner")
@@ -708,7 +739,7 @@ def build_distributed_gold(
     current_source_envelope_keys = current_upsert_envelope_keys(
         source_records=committed_silver["community_source_record"],
         ingest_runs=committed_silver["community_ingest_run"],
-        committed_run_ids=committed_run_ids,
+        committed_runs=selected_runs,
         registry=registry,
         as_of=policy_context.as_of,
     )
@@ -984,6 +1015,9 @@ def build_distributed_gold(
             owner_subject=owner_subject,
             policy_context=policy_context,
             committed_run_ids=committed_run_ids,
+            silver_epoch_id=silver_epoch_id,
+            committed_run_count=committed_run_count,
+            committed_run_digest=committed_run_digest,
             silver_snapshot_ids=silver_snapshot_ids,
             identity_snapshot_ids=identity_snapshot_ids,
             rights_registry_digest=registry.digest,

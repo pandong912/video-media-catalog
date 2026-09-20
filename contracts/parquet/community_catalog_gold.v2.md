@@ -16,7 +16,9 @@ Before Gold rows are written, the builder publishes an immutable release plan:
 - `release_plan_id`;
 - exact owner OIDC subject;
 - policy context, as-of time, territories, and allowed policy zones;
-- exact committed Silver run IDs and input snapshot IDs;
+- either the bounded legacy v2 committed Silver run IDs, or the v3 Silver
+  `epochId` plus committed-run count/digest;
+- exact Silver data snapshot IDs;
 - identity membership snapshot;
 - rights registry, field policy, resolver, image, and config digests;
 - expected row counts for every Gold table.
@@ -25,6 +27,10 @@ Every Gold row contains `release_plan_id`. A final release commit is visible
 only after all expected rows are present and quality gates pass. The release
 plan and final release commit both bind `owner_subject` and the literal
 `context_id = research`.
+
+For a v3 epoch, Gold constructs the committed-runs relation directly from the
+pinned commit snapshot and joins it to exact data/run snapshots. The release
+plan must not materialize the complete historical run list on the driver.
 
 ## Tables
 

@@ -292,7 +292,10 @@ class GoldReleasePlan(V2ContractModel):
     release_plan_id: str
     owner_subject: str
     policy_context: ReleasePolicyContext
-    committed_run_ids: tuple[str, ...]
+    committed_run_ids: tuple[str, ...] = ()
+    silver_epoch_id: str | None = None
+    committed_run_count: int | None = Field(default=None, gt=0)
+    committed_run_digest: str | None = None
     silver_snapshot_ids: dict[str, int | None]
     identity_snapshot_ids: dict[str, int | None]
     rights_registry_digest: str
@@ -310,10 +313,19 @@ class GoldReleasePlan(V2ContractModel):
         "resolver_digest",
         "image_digest",
         "config_digest",
+        "silver_epoch_id",
+        "committed_run_digest",
     )
     @classmethod
-    def validate_digest(cls, value: str) -> str:
-        return require_sha256(value)
+    def validate_digest(cls, value: str | None) -> str | None:
+        return None if value is None else require_sha256(value)
+
+    @field_validator("committed_run_count", mode="before")
+    @classmethod
+    def validate_committed_run_count(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("committed_run_count must be a positive integer")
+        return value
 
     @field_validator("owner_subject")
     @classmethod
@@ -326,8 +338,6 @@ class GoldReleasePlan(V2ContractModel):
         normalized = tuple(
             sorted({require_sha256(item, label="run_id") for item in value})
         )
-        if not normalized:
-            raise ValueError("Gold release requires committed runs")
         return normalized
 
     @field_validator("silver_snapshot_ids", "identity_snapshot_ids")
@@ -355,6 +365,18 @@ class GoldReleasePlan(V2ContractModel):
     @model_validator(mode="after")
     def validate_plan(self, info: ValidationInfo) -> Self:
         context = self.policy_context
+        epoch_fields = (
+            self.silver_epoch_id,
+            self.committed_run_count,
+            self.committed_run_digest,
+        )
+        has_epoch = all(value is not None for value in epoch_fields)
+        if any(value is not None for value in epoch_fields) != has_epoch:
+            raise ValueError("Gold epoch summary fields must be provided together")
+        if bool(self.committed_run_ids) == has_epoch:
+            raise ValueError(
+                "Gold release requires either legacy run IDs or one epoch summary"
+            )
         if (
             context.context_id != RESEARCH_CONTEXT_ID
             or context.audience != RESEARCH_AUDIENCE
@@ -373,13 +395,12 @@ class GoldReleasePlan(V2ContractModel):
 
 
 def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
-    return {
+    identity = {
         "schemaVersion": plan.schema_version,
         "ownerSubject": plan.owner_subject,
         "policyContext": plan.policy_context.model_dump(
             mode="json", by_alias=True, exclude_none=True
         ),
-        "committedRunIds": plan.committed_run_ids,
         "silverSnapshotIds": plan.silver_snapshot_ids,
         "identitySnapshotIds": plan.identity_snapshot_ids,
         "rightsRegistryDigest": plan.rights_registry_digest,
@@ -390,6 +411,17 @@ def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
         "expectedCounts": plan.expected_counts,
         "plannedAt": plan.planned_at,
     }
+    if plan.silver_epoch_id is None:
+        identity["committedRunIds"] = plan.committed_run_ids
+    else:
+        identity.update(
+            {
+                "silverEpochId": plan.silver_epoch_id,
+                "committedRunCount": plan.committed_run_count,
+                "committedRunDigest": plan.committed_run_digest,
+            }
+        )
+    return identity
 
 
 def build_gold_release_plan(**values: Any) -> GoldReleasePlan:

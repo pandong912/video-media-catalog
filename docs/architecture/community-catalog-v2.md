@@ -21,9 +21,11 @@ It also defines the deterministic Gold identity/rights/field-resolution
 semantics, quality report, attribution binding, and release-fenced Gold tables
 in
 [`contracts/parquet/community_catalog_gold.v2.md`](../../contracts/parquet/community_catalog_gold.v2.md).
-The distributed identity stage and Silver-to-Gold transform now consume exact
-snapshot sets and committed run IDs without driver collection. A bounded,
-strict-mapping OpenSearch projection publishes only to
+The distributed identity stage and Silver-to-Gold transform consume exact
+Silver epoch snapshots. They derive committed runs from the pinned Iceberg
+commit snapshot and bind the release by epoch count/digest without collecting
+historical run IDs to the driver. A bounded, strict-mapping OpenSearch
+projection publishes only to
 `media-catalog-research-read`. Owner-only `/api/v2/research` routes require
 `governance.read`, exact configured OIDC subject equality, and pagination
 cursors bound to one concrete immutable index; v1 routes and alias remain

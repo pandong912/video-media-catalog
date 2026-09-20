@@ -14,8 +14,13 @@ from video_media_catalog.canonical import canonical_json, sha256_digest
 from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_snapshot import (
     CONTROL_MAX_BYTES,
+    MAX_EPOCH_DELTA_RUNS,
+    SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
+    CommunitySilverEpochManifest,
+    CommunitySilverManifest,
     CommunitySilverSnapshotSet,
+    parse_community_silver_manifest,
 )
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.gold import (
@@ -47,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--silver-snapshot-size", type=int, required=True)
     parser.add_argument("--silver-snapshot-version", default="")
     parser.add_argument("--silver-snapshot-etag", default="")
+    parser.add_argument(
+        "--silver-snapshot-media-type",
+        choices=(SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE),
+        default=SILVER_SNAPSHOT_MEDIA_TYPE,
+    )
     parser.add_argument("--output-prefix", required=True)
     parser.add_argument("--planned-at", required=True)
     parser.add_argument("--committed-at", required=True)
@@ -103,7 +113,7 @@ def _snapshot_ref(parsed: argparse.Namespace) -> ObjectRef:
     return ObjectRef(
         uri=parsed.silver_snapshot_uri,
         format="OBJECT_FORMAT_JSON",
-        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        media_type=parsed.silver_snapshot_media_type,
         checksum=Checksum(value=match.group(1).lower()),
         size_bytes=parsed.silver_snapshot_size,
         etag=etag,
@@ -111,7 +121,7 @@ def _snapshot_ref(parsed: argparse.Namespace) -> ObjectRef:
     )
 
 
-def _read_snapshot(store, reference: ObjectRef) -> CommunitySilverSnapshotSet:
+def _read_snapshot(store, reference: ObjectRef) -> CommunitySilverManifest:
     store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
     with tempfile.TemporaryDirectory(prefix="community-silver-snapshot-") as directory:
         materialized = store.download(
@@ -119,9 +129,15 @@ def _read_snapshot(store, reference: ObjectRef) -> CommunitySilverSnapshotSet:
             Path(directory) / "snapshot.json",
             max_bytes=CONTROL_MAX_BYTES,
         )
-        return CommunitySilverSnapshotSet.model_validate_json(
-            materialized.path.read_bytes()
+        manifest = parse_community_silver_manifest(materialized.path.read_bytes())
+        expected_media_type = (
+            SILVER_EPOCH_MEDIA_TYPE
+            if isinstance(manifest, CommunitySilverEpochManifest)
+            else SILVER_SNAPSHOT_MEDIA_TYPE
         )
+        if reference.media_type != expected_media_type:
+            raise ValueError("Silver manifest media type does not match schema version")
+        return manifest
 
 
 def _parse_values(value: str) -> tuple[str, ...]:
@@ -153,6 +169,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         client=object() if local else None,
     )
     snapshot = _read_snapshot(store, reference)
+    if (
+        isinstance(snapshot, CommunitySilverSnapshotSet)
+        and len(snapshot.committed_run_ids) > MAX_EPOCH_DELTA_RUNS
+    ):
+        raise ValueError("large Silver histories must use an epoch manifest")
     silver_config = CatalogConfig(
         catalog_name=parsed.catalog_name,
         namespace=parsed.silver_namespace,
@@ -214,38 +235,48 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     build = None
     try:
         silver_tables = CommunityCatalogTables(spark, silver_config)
+        all_committed_runs = silver_tables.committed_runs_dataframe(
+            snapshot.commit_snapshot_id
+        )
+        epoch_input = isinstance(snapshot, CommunitySilverEpochManifest)
+        if epoch_input:
+            silver_tables.validate_epoch_committed_runs(
+                snapshot,
+                all_committed_runs,
+            )
+            committed_runs = all_committed_runs
+            committed_run_ids: tuple[str, ...] = ()
+        else:
+            assert isinstance(snapshot, CommunitySilverSnapshotSet)
+            selected_runs = spark.createDataFrame(
+                [(run_id,) for run_id in snapshot.committed_run_ids],
+                "run_id STRING",
+            )
+            if (
+                selected_runs.join(
+                    all_committed_runs,
+                    "run_id",
+                    "left_anti",
+                )
+                .limit(1)
+                .count()
+            ):
+                raise ValueError("Silver snapshot set references an uncommitted run")
+            committed_runs = all_committed_runs.join(
+                selected_runs,
+                "run_id",
+                "inner",
+            )
+            committed_run_ids = snapshot.committed_run_ids
         visible = silver_tables.visible_dataframes(
             data_snapshot_ids=snapshot.data_snapshot_ids,
             commit_snapshot_id=snapshot.commit_snapshot_id,
+            committed_runs=committed_runs,
         )
-        selected_runs = spark.createDataFrame(
-            [(run_id,) for run_id in snapshot.committed_run_ids],
-            "run_id STRING",
+        visible["community_ingest_run"] = silver_tables.visible_run_dataframe(
+            run_snapshot_id=snapshot.run_snapshot_id,
+            committed_runs=committed_runs,
         )
-        committed_runs = (
-            spark.read.format("iceberg")
-            .option("snapshot-id", str(snapshot.commit_snapshot_id))
-            .load(silver_tables.table_name("community_ingest_commit"))
-            .select("run_id")
-            .dropDuplicates(["run_id"])
-        )
-        if (
-            selected_runs.join(
-                committed_runs,
-                "run_id",
-                "left_anti",
-            )
-            .limit(1)
-            .count()
-        ):
-            raise ValueError("Silver snapshot set references an uncommitted run")
-        visible = {
-            table: frame.join(selected_runs, "run_id", "inner")
-            for table, frame in visible.items()
-        }
-        visible["community_ingest_run"] = spark.table(
-            silver_tables.table_name("community_ingest_run")
-        ).join(selected_runs, "run_id", "inner")
         build = build_distributed_gold(
             spark,
             visible_silver=visible,
@@ -253,7 +284,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             policy_context=context,
             owner_subject=owner_subject,
             field_policy=policy,
-            committed_run_ids=snapshot.committed_run_ids,
+            committed_run_ids=committed_run_ids,
+            committed_runs=committed_runs if epoch_input else None,
+            silver_epoch_id=snapshot.epoch_id if epoch_input else None,
+            committed_run_count=(snapshot.committed_run_count if epoch_input else None),
+            committed_run_digest=(
+                snapshot.committed_run_digest if epoch_input else None
+            ),
             silver_snapshot_ids=snapshot.data_snapshot_ids,
             identity_snapshot_ids={
                 table: snapshot.data_snapshot_ids[table]

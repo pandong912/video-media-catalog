@@ -40,35 +40,57 @@ snapshot contains only one run. Concurrent rows remain isolated by `run_id`.
 Gold releases must pin both the data-table snapshots and the commit-table
 snapshot, then join only committed runs.
 
-## Silver snapshot set
+## Silver snapshot and epoch manifests
 
-`CommunitySilverSnapshotSet` is the small commit handoff to Gold. It contains:
+`CommunitySilverSnapshotSet` schema `2.0` remains readable for existing
+releases. It contains the exact committed run IDs plus exact run, commit, and
+data snapshot IDs. The contract itself no longer rejects lists above 4,096,
+but `publish-snapshot` remains a bounded compatibility publisher and must not
+be used for an indefinitely growing history.
 
-- deterministic `snapshotSetId`;
-- the exact committed run IDs included in this build;
-- the exact `community_ingest_run` snapshot ID;
-- the exact `community_ingest_commit` snapshot ID;
+`CommunitySilverEpochManifest` schema `3.0` is the production handoff for an
+unbounded committed-run history. The normative control-object field contract
+is [`community_silver_epoch.v3.md`](../control/community_silver_epoch.v3.md).
+It contains:
+
+- deterministic `epochId` and canonical JSON;
+- exact `community_ingest_run` and `community_ingest_commit` snapshot IDs;
 - one exact snapshot ID or explicit empty value for every Silver data table;
+- an optional immutable parent epoch ObjectRef and baseline epoch ObjectRef;
+- at most 4,096 `deltaRunIds`, never the complete historical run list;
+- canonical source-product watermarks;
+- the total committed-run count and `sha256-bucketed-run-ids-v1` digest;
 - creation time.
 
-Gold readers first verify the snapshot-set ObjectRef, then time-travel every
-table and anti-join any run not listed in the snapshot set.
+A root baseline has no parent/baseline reference and may summarize any size
+commit snapshot without listing its runs. A child references its direct parent
+and the root baseline (the parent itself for the first child). Its delta must
+equal the distributed anti-join of current and parent commit snapshots.
+Parent runs cannot disappear, and source watermark keys cannot be removed.
+Changing or adding a source watermark requires a committed source delta run for
+that source product.
 
-The production publisher accepts at most 4,096 explicit run IDs. It captures
-the commit snapshot before the run/data snapshots, validates one immutable run
-manifest and one commit for every selected ID, checks manifest counts against
-commit counts, and verifies every selected run's row count at each pinned data
-snapshot before publication. It never infers a run selection from a latest
-control object.
+The committed-run digest partitions normalized run IDs by the first SHA-256
+byte, sorts each bucket, hashes its newline-delimited IDs, then hashes the
+canonical list of at most 256 `(bucket, count, digest)` summaries. Publication
+collects only these bounded summaries to the driver.
+
+Epoch readers verify the immutable ObjectRef, time-travel the pinned commit
+snapshot into a distributed committed-runs DataFrame, validate count/digest,
+and join that DataFrame to every exact data snapshot. They read run metadata
+from the exact run snapshot. No epoch consumer may collect all historical run
+IDs or reconstruct them from a parent chain. V2 readers retain the bounded
+legacy list behavior.
 
 The published JSON itself is an immutable `ObjectRef`. S3 publication is valid
 only when the returned reference includes URI, SHA-256, byte size, VersionId,
-and ETag. Consumers must pass all five values and may not resolve an unversioned
-latest key.
+and ETag. Publishing identical bytes to the same key reuses the object;
+different bytes at that key fail closed. Consumers must pass the immutable
+fields and may not resolve an unversioned latest key.
 
 ## Production stages
 
-`video-media-catalog-research-silver` provides three auditable Spark stages:
+`video-media-catalog-research-silver` provides four auditable Spark stages:
 
 1. `migrate-v1` verifies an immutable v1 `SnapshotSet`, time-travels all six
    declared v1 table snapshots, preserves every legacy key, and commits the v2
@@ -78,12 +100,29 @@ latest key.
    time-travels the pinned v1 entity/external-ID snapshots, and delegates to
    the registry-driven identity implementation. All identity tables, including
    empty redirect/merge/split frames, share one commit-last run boundary.
-3. `publish-snapshot` performs the validation above and publishes the exact
-   `CommunitySilverSnapshotSet` consumed by Gold.
+3. `publish-snapshot` remains the v2 compatibility publisher for a bounded,
+   explicitly selected run list.
+4. `publish-epoch` validates a parent epoch, bounded delta, source watermarks,
+   all distributed commit/data counts, and publishes the exact v3 epoch
+   consumed by Identity and Gold.
 
 All stages default to the existing `video_media_catalog` namespace and use the
 AWS default credential chain, including an EMR Serverless execution role. They
 do not accept static credentials or provision infrastructure.
+
+## Iceberg maintenance
+
+`video-media-catalog-iceberg-maintenance` plans `rewrite_data_files`,
+`rewrite_manifests`, `expire_snapshots`, and `remove_orphan_files` only for the
+repository-owned Silver/Gold table allowlist. It is dry-run by default and
+emits a deterministic plan with exact SQL, current snapshots, protected
+snapshots, and expiry candidates.
+
+Retention is at least seven days and at least two snapshots are retained.
+Current snapshots are always protected. Destructive execution requires an
+explicitly reviewed external epoch-reference inventory; if the selected
+retention window could reach a referenced snapshot, planning fails because the
+Spark expiry procedure cannot safely exclude an arbitrary external reference.
 
 `video-media-catalog-community-spark` verifies every record shard ObjectRef,
 materializes versioned S3 bytes into checksum-addressed staging under an explicit

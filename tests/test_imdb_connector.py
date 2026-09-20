@@ -9,6 +9,7 @@ from video_media_catalog.imdb import (
     IMDB_DATASET_COLUMNS,
     IMDB_DATASET_FILES,
     imdb_rights_profile,
+    iter_imdb_rows,
     map_imdb_record,
 )
 from video_media_catalog.imdb_sync import capture_imdb_snapshot
@@ -82,6 +83,31 @@ def _records(result) -> list[ConnectorRecordEnvelope]:
         ConnectorRecordEnvelope.model_validate_json(line)
         for reference in result.record_set_manifest.record_objects
         for line in local_path(reference.uri).read_bytes().splitlines()
+    ]
+
+
+def test_imdb_tsv_treats_unmatched_quotes_as_literal_text(tmp_path) -> None:
+    path = tmp_path / "title.basics.tsv.gz"
+    header = "\t".join(IMDB_DATASET_COLUMNS["title.basics.tsv.gz"])
+    row = (
+        'tt10233364\ttvEpisode\t"Rolling in the Deep Dish\t'
+        '"Rolling in the Deep Dish\t0\t2019\t\\N\t22\tReality-TV'
+    )
+    with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write(f"{header}\n{row}\n")
+
+    assert list(iter_imdb_rows(path, "title.basics.tsv.gz")) == [
+        {
+            "tconst": "tt10233364",
+            "titleType": "tvEpisode",
+            "primaryTitle": '"Rolling in the Deep Dish',
+            "originalTitle": '"Rolling in the Deep Dish',
+            "isAdult": "0",
+            "startYear": "2019",
+            "endYear": None,
+            "runtimeMinutes": "22",
+            "genres": "Reality-TV",
+        }
     ]
 
 

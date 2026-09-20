@@ -92,8 +92,7 @@ def test_wikidata_series_keeps_source_node_but_maps_series_blocking_ids(
     assert mapped.source_node.referent_kind == "EDITORIAL_WORK"
     assert mapped.entity_type_assertions[0].entity_type == "TV_SERIES"
     identifiers = {
-        (item.namespace_id, item.referent_kind)
-        for item in mapped.identifier_assertions
+        (item.namespace_id, item.referent_kind) for item in mapped.identifier_assertions
     }
     assert ("wikidata-item", "SERIES") in identifiers
 

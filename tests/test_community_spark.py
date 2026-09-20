@@ -309,9 +309,7 @@ def test_shared_imdb_blocking_key_unifies_unassigned_source_nodes(
             )
         )
     record_path = tmp_path / "records.ndjson"
-    record_path.write_bytes(
-        b"".join(envelope.json_bytes() + b"\n" for envelope in envelopes)
-    )
+    record_path.write_bytes(b"".join(envelope.json_bytes() for envelope in envelopes))
     record_object = _object(
         record_path,
         media_type=(
@@ -475,9 +473,22 @@ def test_imdb_series_identifier_joins_v1_series_entity(
             started_at="2026-09-20T00:00:00Z",
         )
         memberships = identity_frames["community_entity_membership"].collect()
-        assert identity_run.expected_counts["community_entity_membership"] == 1
-        assert memberships[0].entity_key == v1_key
-        assert identity_frames["community_entity_ledger"].count() == 0
+        assert identity_run.expected_counts["community_entity_membership"] == len(
+            memberships
+        )
+        series_memberships = [
+            item for item in memberships if item.source_id == "tt0000099"
+        ]
+        assert len(series_memberships) == 1
+        assert series_memberships[0].entity_key == v1_key
+        allocated_keys = {
+            item.entity_key
+            for item in identity_frames["community_entity_ledger"]
+            .select("entity_key")
+            .collect()
+        }
+        assert v1_key not in allocated_keys
+        assert len(allocated_keys) == 2
         assert identity_frames["community_identity_conflict"].count() == 0
     finally:
         if identity_frames is not None:

@@ -93,6 +93,7 @@ _REFERENT_KIND_ALIASES = {
     **_V1_REFERENT_KIND,
 }
 
+
 def _source_node_id(namespace_id: str, source_id: str, referent_kind: str) -> str:
     return f"{namespace_id}\x1f{source_id}\x1f{referent_kind}"
 
@@ -603,12 +604,16 @@ def build_identity_resolution_dataframes(
         )
 
     blocking_accum: dict[str, set[tuple[str, str, str]]] = {}
-    for row in registered_identifiers.select(
-        *source_columns,
-        "namespace_id",
-        "normalized_value",
-        "referent_kind",
-    ).distinct().collect():
+    for row in (
+        registered_identifiers.select(
+            *source_columns,
+            "namespace_id",
+            "normalized_value",
+            "referent_kind",
+        )
+        .distinct()
+        .collect()
+    ):
         node_id = _source_node_id(
             row["subject_namespace_id"],
             row["subject_source_id"],

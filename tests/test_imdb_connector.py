@@ -113,8 +113,7 @@ def test_imdb_official_snapshot_is_replayable_and_maps_all_row_families(
     movie_identifier = next(
         item
         for item in mapped
-        if item.source_node.source_id == "tt0000001"
-        and item.identifier_assertions
+        if item.source_node.source_id == "tt0000001" and item.identifier_assertions
     ).identifier_assertions[0]
     assert movie_identifier.referent_kind == "EDITORIAL_WORK"
     assert any(

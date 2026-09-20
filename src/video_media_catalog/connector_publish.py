@@ -194,7 +194,7 @@ def publish_connector_capture(
                     batch_prefix,
                     "records",
                     f"shard={shard_index:05d}",
-                    f"{digest}.ndjson",
+                    f"{digest.removeprefix('sha256:')}.ndjson",
                 ),
                 media_type=(
                     "application/vnd.video-media-catalog."

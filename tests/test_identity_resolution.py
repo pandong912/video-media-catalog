@@ -111,12 +111,8 @@ def test_exact_blocking_components_merge_transitive_shared_keys() -> None:
                 ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),
                 ExactBlockingKey("wikidata-item", "Q1", "SERIES"),
             ),
-            node_b: (
-                ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),
-            ),
-            node_c: (
-                ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),
-            ),
+            node_b: (ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),),
+            node_c: (ExactBlockingKey("imdb-title", "TT0000001", "SERIES"),),
         }
     )
     assert components[node_a] == components[node_b] == components[node_c]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from typing import Any
+from urllib.parse import urlsplit
 
 from video_media_catalog.community_ingest import (
     CommunityIngestRun,
@@ -29,8 +30,15 @@ from video_media_catalog.connector import (
     validate_envelopes_against_batch,
 )
 from video_media_catalog.source_mapper import MappedAssertions
+from video_media_catalog.storage import local_path
 
 Mapper = Callable[[ConnectorRecordEnvelope], MappedAssertions]
+
+
+def _spark_input_uri(uri: str) -> str:
+    """Decode local file URIs before handing them to Hadoop's path parser."""
+
+    return str(local_path(uri)) if urlsplit(uri).scheme == "file" else uri
 
 
 def mapper_for_product(source_product_id: str) -> Mapper:
@@ -196,7 +204,9 @@ def build_source_silver_dataframes(
 
     if record_set.record_objects:
         envelopes = (
-            spark.read.text([item.uri for item in record_set.record_objects])
+            spark.read.text(
+                [_spark_input_uri(item.uri) for item in record_set.record_objects]
+            )
             .rdd.map(parse_record)
             .persist()
         )

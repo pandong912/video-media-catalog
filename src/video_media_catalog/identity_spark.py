@@ -109,6 +109,37 @@ def _source_node_from_id(node_id: str) -> SourceNodeRef:
 
 MAX_EXACT_BLOCKING_LABEL_ITERATIONS = 64
 MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE = 256
+MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS = 256
+MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS = 256
+
+_SOURCE_NODE_COLUMNS = (
+    "subject_namespace_id",
+    "subject_source_id",
+    "subject_referent_kind",
+)
+
+
+def _materialize_exact_blocking_labels(frame: Any) -> Any:
+    """Truncate label propagation lineage; fail closed on checkpoint loss."""
+
+    try:
+        materialized = frame.localCheckpoint(eager=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "exact blocking label localCheckpoint failed; refusing incomplete merge"
+        ) from exc
+    try:
+        materialized.take(1)
+    except Exception as exc:
+        raise RuntimeError(
+            "exact blocking label checkpoint is unreadable; refusing incomplete merge"
+        ) from exc
+    return materialized
+
+
+def _release_exact_blocking_labels(frame: Any) -> None:
+    if getattr(frame, "is_cached", False):
+        frame.unpersist()
 
 
 def assign_exact_blocking_component_ids(
@@ -119,11 +150,12 @@ def assign_exact_blocking_component_ids(
 
     from pyspark.sql import functions as F
 
-    labels = nodes.select("node_id", F.col("node_id").alias("label"))
+    labels = _materialize_exact_blocking_labels(
+        nodes.select("node_id", F.col("node_id").alias("label"))
+    )
     for _ in range(MAX_EXACT_BLOCKING_LABEL_ITERATIONS):
-        previous = labels
         blocking_labels = (
-            blocking_edges.join(previous, "node_id")
+            blocking_edges.join(labels, "node_id")
             .groupBy("blocking_key")
             .agg(F.min("label").alias("blocking_label"))
         )
@@ -132,8 +164,8 @@ def assign_exact_blocking_component_ids(
             .groupBy("node_id")
             .agg(F.min("blocking_label").alias("propagated_label"))
         )
-        labels = (
-            nodes.join(previous, "node_id")
+        next_labels = (
+            nodes.join(labels, "node_id")
             .join(propagated, "node_id", "left")
             .select(
                 F.col("node_id"),
@@ -143,15 +175,19 @@ def assign_exact_blocking_component_ids(
                 ).alias("label"),
             )
         )
-        changed = (
-            labels.alias("current")
-            .join(previous.alias("previous"), "node_id")
+        label_changed = (
+            next_labels.alias("current")
+            .join(labels.alias("previous"), "node_id")
             .where(F.col("current.label") != F.col("previous.label"))
             .limit(1)
+            .take(1)
         )
-        if changed.count() == 0:
+        _release_exact_blocking_labels(labels)
+        labels = _materialize_exact_blocking_labels(next_labels)
+        if not label_changed:
             break
     else:
+        _release_exact_blocking_labels(labels)
         raise RuntimeError(
             "exact blocking component labels did not converge within "
             f"{MAX_EXACT_BLOCKING_LABEL_ITERATIONS} iterations"
@@ -548,8 +584,28 @@ def build_identity_resolution_dataframes(
         ),
         "inner",
     )
+    node_candidate_counts = candidate_rows.groupBy(
+        F.col("i.subject_namespace_id").alias("subject_namespace_id"),
+        F.col("i.subject_source_id").alias("subject_source_id"),
+        F.col("i.subject_referent_kind").alias("subject_referent_kind"),
+    ).agg(F.countDistinct("k.entity_key").alias("node_candidate_count"))
+    bounded_node_candidates = node_candidate_counts.where(
+        F.col("node_candidate_count") <= F.lit(MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS)
+    )
     candidates = (
-        candidate_rows.groupBy(
+        candidate_rows.join(
+            bounded_node_candidates,
+            [
+                candidate_rows["i.subject_namespace_id"]
+                == bounded_node_candidates["subject_namespace_id"],
+                candidate_rows["i.subject_source_id"]
+                == bounded_node_candidates["subject_source_id"],
+                candidate_rows["i.subject_referent_kind"]
+                == bounded_node_candidates["subject_referent_kind"],
+            ],
+            "inner",
+        )
+        .groupBy(
             "i.subject_namespace_id",
             "i.subject_source_id",
             "i.subject_referent_kind",
@@ -583,13 +639,10 @@ def build_identity_resolution_dataframes(
             )
         ).alias("identifier_specs"),
     )
-    source_columns = [
-        "subject_namespace_id",
-        "subject_source_id",
-        "subject_referent_kind",
-    ]
+    source_columns = list(_SOURCE_NODE_COLUMNS)
     work = (
         unassigned.join(candidates, source_columns, "left")
+        .join(node_candidate_counts, source_columns, "left")
         .join(identifier_groups, source_columns, "left")
         .select(
             *unassigned.columns,
@@ -597,6 +650,9 @@ def build_identity_resolution_dataframes(
                 "candidate_entity_keys",
                 F.from_json(F.lit("[]"), "array<string>"),
             ).alias("candidate_entity_keys"),
+            F.coalesce(F.col("node_candidate_count"), F.lit(0)).alias(
+                "node_candidate_count"
+            ),
             F.coalesce(
                 "identifier_assertion_ids",
                 F.from_json(F.lit("[]"), "array<string>"),
@@ -691,14 +747,45 @@ def build_identity_resolution_dataframes(
         F.col("component_node_count")
         <= F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE)
     )
-    candidate_stats = bounded_work.groupBy("component_id").agg(
-        F.array_sort(
-            F.array_distinct(F.flatten(F.collect_list("candidate_entity_keys")))
-        ).alias("component_candidate_keys"),
+    component_distinct_candidates = (
+        bounded_work.select(
+            "component_id",
+            F.explode("candidate_entity_keys").alias("candidate_entity_key"),
+        )
+        .where(F.col("candidate_entity_key").isNotNull())
+        .distinct()
     )
-    work = work.join(candidate_stats, "component_id", "left").withColumn(
-        "component_candidate_keys",
-        F.coalesce("component_candidate_keys", F.array()),
+    component_candidate_counts = component_distinct_candidates.groupBy(
+        "component_id"
+    ).agg(F.count("candidate_entity_key").alias("component_candidate_count"))
+    bounded_component_candidates = component_candidate_counts.where(
+        F.col("component_candidate_count")
+        <= F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS)
+    )
+    candidate_stats = (
+        component_distinct_candidates.join(
+            bounded_component_candidates,
+            "component_id",
+            "inner",
+        )
+        .groupBy("component_id")
+        .agg(
+            F.sort_array(F.collect_set("candidate_entity_key")).alias(
+                "component_candidate_keys"
+            ),
+        )
+    )
+    work = (
+        work.join(component_candidate_counts, "component_id", "left")
+        .join(candidate_stats, "component_id", "left")
+        .withColumn(
+            "component_candidate_count",
+            F.coalesce(F.col("component_candidate_count"), F.lit(0)),
+        )
+        .withColumn(
+            "component_candidate_keys",
+            F.coalesce("component_candidate_keys", F.array()),
+        )
     )
     work = work.withColumn(
         "resolution_mode",
@@ -706,6 +793,16 @@ def build_identity_resolution_dataframes(
             F.col("component_node_count")
             > F.lit(MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE),
             F.lit("CONFLICT_OVERSIZED"),
+        )
+        .when(
+            F.col("node_candidate_count")
+            > F.lit(MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS),
+            F.lit("CONFLICT_NODE_CANDIDATES"),
+        )
+        .when(
+            F.col("component_candidate_count")
+            > F.lit(MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS),
+            F.lit("CONFLICT_COMPONENT_CANDIDATES"),
         )
         .when(F.size("component_candidate_keys") > 1, F.lit("CONFLICT_MULTI"))
         .when(F.size("component_candidate_keys") == 1, F.lit("ACCEPT"))
@@ -769,6 +866,66 @@ def build_identity_resolution_dataframes(
                 materialization_id=materialization_id,
                 max_component_size=MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE,
             )
+            return result, ()
+        if mode == "CONFLICT_NODE_CANDIDATES":
+            result = IdentityResolutionResult(
+                conflicts=(
+                    build_identity_conflict(
+                        materialization_id=materialization_id,
+                        source_node=source_node,
+                        candidate_entity_keys=(
+                            deterministic_key(
+                                "oversized-exact-blocking-node-candidates-v2",
+                                {
+                                    "namespaceId": row["subject_namespace_id"],
+                                    "sourceId": row["subject_source_id"],
+                                    "referentKind": row["subject_referent_kind"],
+                                },
+                            ),
+                        ),
+                        assertion_keys=resolution_input.assertion_keys,
+                        reason="EXACT_BLOCKING_NODE_CANDIDATE_LIMIT_EXCEEDED",
+                        observed_at=row["observed_at"],
+                        policy_id=row["policy_id"],
+                        policy_digest=row["policy_digest"],
+                        details={
+                            "nodeCandidateCount": int(row["node_candidate_count"]),
+                            "maxNodeCandidateKeys": (
+                                MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS
+                            ),
+                        },
+                    ),
+                )
+            ).require_consistent()
+            return result, ()
+        if mode == "CONFLICT_COMPONENT_CANDIDATES":
+            result = IdentityResolutionResult(
+                conflicts=(
+                    build_identity_conflict(
+                        materialization_id=materialization_id,
+                        source_node=source_node,
+                        candidate_entity_keys=(
+                            deterministic_key(
+                                "oversized-exact-blocking-component-candidates-v2",
+                                {"componentId": row["component_id"]},
+                            ),
+                        ),
+                        assertion_keys=resolution_input.assertion_keys,
+                        reason="EXACT_BLOCKING_COMPONENT_CANDIDATE_LIMIT_EXCEEDED",
+                        observed_at=row["observed_at"],
+                        policy_id=row["policy_id"],
+                        policy_digest=row["policy_digest"],
+                        details={
+                            "componentCandidateCount": int(
+                                row["component_candidate_count"]
+                            ),
+                            "maxComponentCandidateKeys": (
+                                MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS
+                            ),
+                        },
+                    ),
+                )
+            ).require_consistent()
             return result, ()
         if mode == "CONFLICT_MULTI":
             result = IdentityResolutionResult(

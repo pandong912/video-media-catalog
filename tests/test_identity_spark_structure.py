@@ -27,8 +27,22 @@ def test_identity_spark_exposes_bounded_component_limits() -> None:
     source = _identity_spark_source()
     assert "MAX_EXACT_BLOCKING_LABEL_ITERATIONS = 64" in source
     assert "MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE = 256" in source
+    assert "MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS = 256" in source
+    assert "MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS = 256" in source
     tree = ast.parse(source)
     function_names = {
         node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
     }
     assert "assign_exact_blocking_component_ids" in function_names
+    assert "_materialize_exact_blocking_labels" in function_names
+
+
+def test_identity_spark_truncates_label_lineage_with_local_checkpoint() -> None:
+    source = _identity_spark_source()
+    assert "localCheckpoint(eager=True)" in source
+    assert "refusing incomplete merge" in source
+    assert 'countDistinct("k.entity_key")' in source
+    assign_block = source.split("def assign_exact_blocking_component_ids", 1)[1]
+    assign_block = assign_block.split("\ndef ", 1)[0]
+    assert ".count()" not in assign_block
+    assert ".take(1)" in assign_block

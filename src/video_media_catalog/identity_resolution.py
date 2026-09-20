@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from video_media_catalog.assertions import SourceNodeRef
+from video_media_catalog.canonical import deterministic_key
 from video_media_catalog.identity_v2 import (
     EntityLedgerEntry,
     EntityLevel,
@@ -315,6 +316,83 @@ def resolve_exact_blocking_component(
             memberships=anchor_result.memberships,
         ).require_consistent()
     return tuple(results)
+
+
+def build_oversized_blocking_component_conflict(
+    *,
+    source_node: SourceNodeRef,
+    component_id: str,
+    component_node_count: int,
+    assertion_keys: tuple[str, ...],
+    observed_at: str,
+    policy_id: str,
+    policy_digest: str,
+    materialization_id: str | None = None,
+    max_component_size: int,
+) -> IdentityResolutionResult:
+    """Fail closed when a connected component exceeds the resolution bound."""
+
+    return IdentityResolutionResult(
+        conflicts=(
+            build_identity_conflict(
+                materialization_id=materialization_id,
+                source_node=source_node,
+                candidate_entity_keys=(
+                    deterministic_key(
+                        "oversized-exact-blocking-component-v2",
+                        {"componentId": component_id},
+                    ),
+                ),
+                assertion_keys=assertion_keys,
+                reason="EXACT_BLOCKING_COMPONENT_TOO_LARGE",
+                observed_at=observed_at,
+                policy_id=policy_id,
+                policy_digest=policy_digest,
+                details={
+                    "componentId": component_id,
+                    "componentNodeCount": component_node_count,
+                    "maxComponentSize": max_component_size,
+                },
+            ),
+        )
+    ).require_consistent()
+
+
+def resolve_shared_blocking_member(
+    *,
+    source_node: SourceNodeRef,
+    entity_key: str,
+    anchor_source_node: SourceNodeRef,
+    assertion_keys: tuple[str, ...],
+    observed_at: str,
+    policy_id: str,
+    policy_digest: str,
+    decision_policy_version: str,
+    decided_by: str,
+) -> IdentityResolutionResult:
+    """Attach a non-anchor node to the anchor's shared component allocation."""
+
+    evidence = build_identity_evidence(
+        kind=EvidenceKind.SOURCE_ENTITY_BOOTSTRAP,
+        source_node=source_node,
+        candidate_entity_key=entity_key,
+        assertion_keys=assertion_keys,
+        observed_at=observed_at,
+        policy_id=policy_id,
+        policy_digest=policy_digest,
+        confidence=None,
+        details={"sharedAllocationAnchor": source_node_key(anchor_source_node)},
+    )
+    return accept_identity_candidate(
+        source_node=source_node,
+        entity_key=entity_key,
+        evidence_keys=(evidence.evidence_key,),
+        policy_version=decision_policy_version,
+        decided_by=decided_by,
+        decided_at=observed_at,
+        reason="shared exact blocking component allocation",
+        evidence=(evidence,),
+    ).require_consistent()
 
 
 @dataclass(frozen=True)

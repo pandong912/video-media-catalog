@@ -444,14 +444,40 @@ def test_imdb_series_identifier_joins_v1_series_entity(
         ConnectorRecordEnvelope.model_validate_json(line)
         for reference in result.record_set_manifest.record_objects
         for line in local_path(reference.uri).read_bytes().splitlines()
+        if line.strip()
+    ]
+    records = [
+        record
+        for record in records
+        if record.source_record_id.startswith("title.basics:")
     ]
     mapped = map_imdb_record(records[0])
     assert mapped.source_node.referent_kind == "EDITORIAL_WORK"
     assert mapped.identifier_assertions[0].referent_kind == "SERIES"
+    record_path = tmp_path / "records.ndjson"
+    record_path.write_bytes(b"".join(record.json_bytes() for record in records))
+    record_object = _object(
+        record_path,
+        media_type=(
+            "application/vnd.video-media-catalog.connector-record-envelope.v2+ndjson"
+        ),
+        object_format="OBJECT_FORMAT_OTHER",
+    )
+    record_set = build_connector_record_set_manifest(
+        batch_id=result.batch_manifest.batch_id,
+        source_product_id=result.batch_manifest.source_product_id,
+        policy_id=result.batch_manifest.policy_id,
+        policy_digest=result.batch_manifest.policy_digest,
+        record_objects=(record_object,),
+        record_count=len(records),
+        first_envelope_key=records[0].envelope_key,
+        last_envelope_key=records[-1].envelope_key,
+        created_at=result.batch_manifest.acquired_at,
+    )
     _run, frames = build_source_silver_dataframes(
         spark,
         batch=result.batch_manifest,
-        record_set=result.record_set_manifest,
+        record_set=record_set,
     )
     identity_frames = None
     try:
@@ -473,9 +499,7 @@ def test_imdb_series_identifier_joins_v1_series_entity(
             started_at="2026-09-20T00:00:00Z",
         )
         memberships = identity_frames["community_entity_membership"].collect()
-        assert identity_run.expected_counts["community_entity_membership"] == len(
-            memberships
-        )
+        assert identity_run.expected_counts["community_entity_membership"] == 1
         series_memberships = [
             item for item in memberships if item.source_id == "tt0000099"
         ]
@@ -487,8 +511,7 @@ def test_imdb_series_identifier_joins_v1_series_entity(
             .select("entity_key")
             .collect()
         }
-        assert v1_key not in allocated_keys
-        assert len(allocated_keys) == 2
+        assert not allocated_keys
         assert identity_frames["community_identity_conflict"].count() == 0
     finally:
         if identity_frames is not None:

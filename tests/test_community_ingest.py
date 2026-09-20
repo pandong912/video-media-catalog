@@ -27,9 +27,13 @@ def test_ingest_run_and_commit_have_deterministic_identity() -> None:
         config_digest="sha256:" + ("d" * 64),
         started_at="2026-09-19T00:00:00Z",
         expected_counts=_counts(community_source_record=1),
-        input_manifest={"recordSetId": "sha256:" + ("a" * 64)},
+        input_manifest={
+            "recordSetId": "sha256:" + ("a" * 64),
+            "sourceRunIds": ("sha256:" + ("e" * 64),),
+        },
     )
     repeated = type(run).model_validate_json(run.json_bytes())
+    assert run.input_manifest["sourceRunIds"] == ["sha256:" + ("e" * 64)]
     assert run == repeated
 
     commit = build_community_ingest_commit(

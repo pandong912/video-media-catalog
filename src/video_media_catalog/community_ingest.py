@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from enum import StrEnum
 from typing import Any, Self
 
 from pydantic import ValidationInfo, field_validator, model_validator
 
-from video_media_catalog.canonical import deterministic_key
+from video_media_catalog.canonical import canonical_json, deterministic_key
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
@@ -72,6 +73,14 @@ class CommunityIngestRun(V2ContractModel):
     @classmethod
     def validate_expected_counts(cls, value: dict[str, int]) -> dict[str, int]:
         return _validate_counts(value, label="expected_counts")
+
+    @field_validator("input_manifest", mode="before")
+    @classmethod
+    def normalize_input_manifest(cls, value: Any) -> dict[str, Any]:
+        normalized = json.loads(canonical_json(value))
+        if not isinstance(normalized, dict):
+            raise ValueError("input_manifest must be an object")
+        return normalized
 
     @model_validator(mode="after")
     def validate_run(self, info: ValidationInfo) -> Self:

@@ -36,6 +36,11 @@ from video_media_catalog.eidr import (
     normalize_imdb_id,
 )
 from video_media_catalog.identity_resolution import referent_kind_for_entity_type
+from video_media_catalog.imdb import (
+    IMDB_COMPANY_NAMESPACE_ID,
+    IMDB_NAME_NAMESPACE_ID,
+    IMDB_TITLE_NAMESPACE_ID,
+)
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.object_store import RuntimeObjectStore
 from video_media_catalog.source_mapper import AssertionBuilder, MappedAssertions
@@ -75,11 +80,23 @@ def _external_identifier_referent_kind(
     namespace_id: str,
     entity_type: str | None,
 ) -> str:
-    if namespace_id == "imdb-name":
+    if namespace_id == IMDB_NAME_NAMESPACE_ID:
         return "AGENT"
-    if namespace_id == "imdb-title":
+    if namespace_id == IMDB_COMPANY_NAMESPACE_ID:
+        return "ORGANIZATION"
+    if namespace_id == IMDB_TITLE_NAMESPACE_ID:
         return referent_kind_for_entity_type(entity_type or "EDITORIAL_WORK")
     return referent_kind_for_entity_type(entity_type or "EDITORIAL_WORK")
+
+
+def _imdb_namespace_id(value: str) -> str | None:
+    if value.startswith("tt"):
+        return IMDB_TITLE_NAMESPACE_ID
+    if value.startswith("nm"):
+        return IMDB_NAME_NAMESPACE_ID
+    if value.startswith("co"):
+        return IMDB_COMPANY_NAMESPACE_ID
+    return None
 
 
 def _statement_value(statement: dict[str, Any]) -> Any:
@@ -367,11 +384,16 @@ def map_wikidata_record(
                 )
             except ValueError:
                 continue
-            target_namespace = {
-                "imdb": "imdb-name" if normalized.startswith("nm") else "imdb-title",
-                "eidr": EIDR_NAMESPACE_ID,
-                "douban": "douban-subject",
-            }[namespace]
+            target_namespace = (
+                _imdb_namespace_id(normalized)
+                if namespace == "imdb"
+                else {
+                    "eidr": EIDR_NAMESPACE_ID,
+                    "douban": "douban-subject",
+                }[namespace]
+            )
+            if target_namespace is None:
+                continue
             builder.add_identifier(
                 target_namespace,
                 normalized,

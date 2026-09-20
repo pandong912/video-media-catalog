@@ -43,6 +43,7 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     assert {
         "imdb-title",
         "imdb-name",
+        "imdb-company",
         "tmdb-movie",
         "tmdb-tv",
         "tmdb-person",
@@ -121,6 +122,7 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         "wikidata-item",
         "imdb-title",
         "imdb-name",
+        "imdb-company",
         "tmdb-movie",
         "tmdb-tv",
         "tmdb-person",
@@ -128,6 +130,8 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         "tvmaze-show",
     }.issubset(namespaces)
     assert namespaces["imdb-title"].normalize("tt0000001") == "TT0000001"
+    assert namespaces["imdb-company"].normalize("co0001757") == "CO0001757"
+    assert not namespaces["imdb-company"].accepts("tt0000001")
     assert (
         namespaces["eidr-content"].normalize("10.5240/aaaa-bbbb-cccc-dddd-eeee-f")
         == "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-F"
@@ -141,3 +145,10 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
     }
     assert ("imdb", "SERIES") in imdb
     assert ("imdb-title", "EDITORIAL_WORK") in imdb
+    imdb_company = {
+        (row["scheme"], row["referent_kind"])
+        for row in rows
+        if row["namespace_id"] == "imdb-company"
+    }
+    assert ("imdb", "ORGANIZATION") in imdb_company
+    assert ("imdb-company", "ORGANIZATION") in imdb_company

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from video_media_catalog.imdb import (
+    IMDB_COMPANY_NAMESPACE_ID,
+    IMDB_NAME_NAMESPACE_ID,
+    IMDB_TITLE_NAMESPACE_ID,
     imdb_registry_entries,
     imdb_rights_profile,
 )
@@ -108,7 +111,14 @@ def build_community_registry() -> SourceRegistrySnapshot:
         namespace.model_copy(
             update={
                 "scheme_aliases": (
-                    ("imdb",) if namespace.namespace_id == "imdb-title" else ()
+                    ("imdb",)
+                    if namespace.namespace_id
+                    in {
+                        IMDB_TITLE_NAMESPACE_ID,
+                        IMDB_NAME_NAMESPACE_ID,
+                        IMDB_COMPANY_NAMESPACE_ID,
+                    }
+                    else ()
                 )
             }
         )

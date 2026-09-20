@@ -109,6 +109,10 @@ def test_docker_and_python_spark_versions_are_aligned() -> None:
         '"video_media_catalog.research_silver_cli:main"' in pyproject
     )
     assert (
+        "video-media-catalog-eidr-backfill = "
+        '"video_media_catalog.eidr_backfill_cli:main"' in pyproject
+    )
+    assert (
         "video-media-catalog-gold-spark = "
         '"video_media_catalog.gold_cli:main"' in pyproject
     )

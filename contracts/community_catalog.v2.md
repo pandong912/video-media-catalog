@@ -43,7 +43,9 @@ and may change without changing those IDs.
 The bootstrap registry includes:
 
 - Wikidata structured JSON under CC0;
-- EIDR public-registry records, without a default network search client;
+- EIDR public-registry records, without a default network search client.
+  Discovered-ID exact lookup is a second connector on the same product and
+  never treats an unauthorized registry dump as a complete mirror;
 - TVmaze public API under its free API share-alike policy;
 - IMDb's seven official non-commercial TSV datasets, restricted to the
   `research_private` research audience and purpose;
@@ -148,7 +150,12 @@ Concrete deletion rules are fail-closed:
 - IMDb deletion inference is permitted only between complete seven-file
   snapshots with equal coverage;
 - Wikidata deletion inference requires equal caller-declared coverage;
-- EIDR defaults to partial coverage and no deletion inference;
+- EIDR defaults to partial coverage and no deletion inference.
+  Discovered-ID exact lookup publishes one immutable connector capture, one
+  ordinal window receipt, and one append-only watermark per authorized batch.
+  The source semaphore is 1; a failed batch must not advance the watermark.
+  Complete/snapshot-diff semantics require an explicit authorized complete-feed
+  proof bound to the same lookup range;
 - TMDB daily ID exports are inventory seeds and never imply deletion;
 - TMDB and TVmaze API deltas emit DELETE only from an explicit not-found detail
   observation captured in the same batch.

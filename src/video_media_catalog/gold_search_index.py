@@ -27,7 +27,7 @@ from video_media_catalog.v2_contracts import (
 
 RESEARCH_READ_ALIAS = "media-catalog-research-read"
 RESEARCH_INDEX_PREFIX = "media-catalog-research"
-PROJECTION_VERSION = "4"
+PROJECTION_VERSION = "5"
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
 
@@ -85,6 +85,7 @@ _MAPPINGS: dict[str, Any] = {
                 "value": {"type": "keyword", "ignore_above": 1024},
                 "issuer": {"type": "keyword"},
                 "referentKind": {"type": "keyword"},
+                "url": {"type": "keyword", "index": False},
             },
         },
         "relationSummary": {
@@ -204,7 +205,7 @@ def _safe_name(value: str, *, label: str) -> str:
 
 
 class GoldIndexConfigIdentity(V2ContractModel):
-    projection_version: Literal["4"] = PROJECTION_VERSION
+    projection_version: Literal["5"] = PROJECTION_VERSION
     mapping_digest: str = MAPPING_DIGEST
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     owner_subject: str

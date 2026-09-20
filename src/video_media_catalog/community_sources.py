@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from video_media_catalog.constants import (
+    DOUBAN_LEGACY_NAMESPACE_ID,
+    DOUBAN_LEGACY_SCHEME,
+    DOUBAN_PERSON_NAMESPACE_ID,
+    DOUBAN_WORK_NAMESPACE_ID,
+)
+from video_media_catalog.douban import DOUBAN_IDENTIFIER_PATTERN
 from video_media_catalog.imdb import (
     IMDB_COMPANY_NAMESPACE_ID,
     IMDB_NAME_NAMESPACE_ID,
@@ -235,11 +242,31 @@ def build_community_registry() -> SourceRegistrySnapshot:
             ),
             tvmaze_namespace,
             SourceNamespace(
-                namespace_id="douban-subject",
+                namespace_id=DOUBAN_WORK_NAMESPACE_ID,
                 source_product_id="wikidata-json-dump",
                 issuer="Douban",
-                referent_kinds=("EDITORIAL_WORK", "PERSON"),
-                identifier_pattern=r"[0-9]+",
+                referent_kinds=(
+                    "EDITORIAL_WORK",
+                    "SERIES",
+                    "SEASON",
+                    "EPISODE",
+                ),
+                scheme_aliases=(
+                    DOUBAN_LEGACY_NAMESPACE_ID,
+                    DOUBAN_LEGACY_SCHEME,
+                ),
+                identifier_pattern=DOUBAN_IDENTIFIER_PATTERN,
+            ),
+            SourceNamespace(
+                namespace_id=DOUBAN_PERSON_NAMESPACE_ID,
+                source_product_id="wikidata-json-dump",
+                issuer="Douban",
+                referent_kinds=("AGENT",),
+                scheme_aliases=(
+                    DOUBAN_LEGACY_NAMESPACE_ID,
+                    DOUBAN_LEGACY_SCHEME,
+                ),
+                identifier_pattern=DOUBAN_IDENTIFIER_PATTERN,
             ),
             SourceNamespace(
                 namespace_id="eidr-alternate",

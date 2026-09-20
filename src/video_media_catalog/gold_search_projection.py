@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.douban import douban_jump_url
 from video_media_catalog.gold import (
     RESEARCH_CONTEXT_ID,
     GoldAssertionLineage,
@@ -226,6 +227,7 @@ def project_gold_entity(row: Any, *, owner_subject: str) -> dict[str, Any]:
             "value": identifier,
             "issuer": issuer,
             "referentKind": referent_kind,
+            "url": douban_jump_url(namespace, identifier, referent_kind),
         }
         for namespace, identifier, issuer, referent_kind in identifiers[
             :MAX_IDENTIFIERS
@@ -447,6 +449,7 @@ def projection_schema():
                             StructField("value", string, False),
                             StructField("issuer", string, False),
                             StructField("referentKind", string, False),
+                            StructField("url", string, True),
                         ]
                     ),
                     False,

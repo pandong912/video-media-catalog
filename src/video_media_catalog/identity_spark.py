@@ -384,12 +384,6 @@ def build_identity_resolution_dataframes(
             "case_sensitive BOOLEAN, match_pattern STRING"
         ),
     )
-    namespace_configs = namespace_schemes.select(
-        "namespace_id",
-        "referent_kind",
-        "case_sensitive",
-        "match_pattern",
-    ).dropDuplicates()
 
     type_configs = spark.createDataFrame(
         [
@@ -517,9 +511,9 @@ def build_identity_resolution_dataframes(
             "inner",
         )
         .join(
-            namespace_configs.alias("n"),
+            namespace_schemes.alias("n"),
             (
-                (F.col("i.namespace_id") == F.col("n.namespace_id"))
+                (F.lower(F.trim(F.col("i.namespace_id"))) == F.col("n.scheme"))
                 & (F.col("tc.referent_kind") == F.col("n.referent_kind"))
             ),
             "inner",
@@ -610,7 +604,7 @@ def build_identity_resolution_dataframes(
     )
 
     existing_index = visible_silver.get("community_external_id_index")
-    existing_known = (
+    existing_known_raw = (
         _empty_known_index(spark)
         if existing_index is None
         else existing_index.where(F.to_timestamp("observed_at") <= as_of).select(
@@ -620,6 +614,36 @@ def build_identity_resolution_dataframes(
             "entity_key",
         )
     )
+    existing_known_aliases = (
+        existing_known_raw.alias("x")
+        .join(
+            namespace_schemes.alias("n"),
+            (
+                (F.lower(F.trim(F.col("x.namespace_id"))) == F.col("n.scheme"))
+                & (F.col("x.referent_kind") == F.col("n.referent_kind"))
+            ),
+            "inner",
+        )
+        .where(
+            F.col("n.match_pattern").isNull()
+            | F.expr("trim(x.normalized_value) RLIKE n.match_pattern")
+        )
+        .select(
+            F.col("n.namespace_id").alias("namespace_id"),
+            F.when(
+                F.col("n.case_sensitive"),
+                F.trim(F.col("x.normalized_value")),
+            )
+            .otherwise(F.upper(F.trim(F.col("x.normalized_value"))))
+            .alias("normalized_value"),
+            F.col("n.referent_kind").alias("referent_kind"),
+            F.col("x.entity_key").alias("entity_key"),
+        )
+        .dropDuplicates()
+    )
+    existing_known = existing_known_raw.unionByName(
+        existing_known_aliases
+    ).dropDuplicates()
     known_index = (
         existing_known.unionByName(assigned_identifier_index)
         .unionByName(v1_index)

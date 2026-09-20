@@ -42,6 +42,44 @@ def _lineage_fields(index: int, *, source_path: str) -> dict[str, str | None]:
     }
 
 
+def _wikidata_lineage_fields(
+    index: int,
+    *,
+    source_path: str,
+) -> dict[str, str | None]:
+    assertion_id = "sha256:" + f"{index:064x}"
+    return {
+        "selected_assertion_id": assertion_id,
+        "assertion_ids_json": canonical_json([assertion_id]),
+        "trace_json": canonical_json(
+            {
+                "assertions": [
+                    {
+                        "assertionId": assertion_id,
+                        "sourceProductId": "wikidata-json-dump",
+                        "sourceName": "Wikidata JSON entity dump",
+                        "sourceRecordId": "Q1",
+                        "sourcePath": source_path,
+                        "observedAt": "2026-09-19T00:00:00Z",
+                        "citationKeys": [],
+                        "rights": {
+                            "policyId": "wikidata-structured-data-cc0",
+                            "policyZone": "open_cc0",
+                            "licenseId": "CC0-1.0",
+                            "licenseUri": (
+                                "https://creativecommons.org/publicdomain/zero/1.0/"
+                            ),
+                            "attributionText": "Wikidata structured data (CC0).",
+                            "sourceUrl": "https://www.wikidata.org/",
+                            "shareAlike": False,
+                        },
+                    }
+                ]
+            }
+        ),
+    }
+
+
 def test_gold_projection_is_bounded_and_locale_aware() -> None:
     titles = [
         {
@@ -96,7 +134,29 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
                 "referent_kind": "SERIES",
                 **_lineage_fields(1003, source_path="/externals/imdb"),
                 "selected_assertion_id": None,
-            }
+            },
+            {
+                "namespace_id": "douban-work",
+                "value": "1295644",
+                "issuer": "Douban",
+                "referent_kind": "EDITORIAL_WORK",
+                **_wikidata_lineage_fields(
+                    1005,
+                    source_path="/claims/P4529/0/mainsnak/datavalue/value",
+                ),
+                "selected_assertion_id": None,
+            },
+            {
+                "namespace_id": "douban-person",
+                "value": "30123456",
+                "issuer": "Douban",
+                "referent_kind": "AGENT",
+                **_wikidata_lineage_fields(
+                    1006,
+                    source_path="/claims/P5284/0/mainsnak/datavalue/value",
+                ),
+                "selected_assertion_id": None,
+            },
         ],
         "relation_summary": [{"predicate": "episode_of", "count": 3}],
         "conflict_count": 1,
@@ -121,11 +181,27 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     assert document["overflow"]["titles"] == 3
     assert document["attributes"]["genres"] == ["Drama"]
     assert document["attributes"]["runtimeMinutes"] == ["45"]
-    assert document["externalIdentifiers"][0]["value"] == "tt0000001"
+    identifiers = {item["namespace"]: item for item in document["externalIdentifiers"]}
+    assert identifiers["imdb-title"]["value"] == "tt0000001"
+    assert identifiers["imdb-title"]["url"] is None
+    assert identifiers["douban-work"]["url"] == (
+        "https://movie.douban.com/subject/1295644/"
+    )
+    assert identifiers["douban-person"]["url"] == (
+        "https://movie.douban.com/celebrity/30123456/"
+    )
     assert document["conflictPredicates"] == ["status"]
     assert document["contextId"] == "research"
     assert document["ownerSubject"] == "owner-123"
     assert document["sourceBadges"][0]["sourceProductId"] == "tvmaze-public-api"
+    assert {item["sourceProductId"] for item in document["sourceBadges"]} == {
+        "tvmaze-public-api",
+        "wikidata-json-dump",
+    }
+    assert not any(
+        item["sourceProductId"].startswith("douban")
+        for item in document["sourceBadges"]
+    )
     assert document["winningAssertions"][0]["citationKeys"]
     assert document["rights"][0]["attributionText"].startswith("TV data")
     assert document["conflicts"][0]["candidateValuesJson"] == [

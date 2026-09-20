@@ -72,6 +72,10 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     assert "rights" in INDEX_MAPPINGS["properties"]
     assert "conflicts" in INDEX_MAPPINGS["properties"]
     assert "ownerSubject" in INDEX_MAPPINGS["properties"]
+    assert INDEX_MAPPINGS["properties"]["externalIdentifiers"]["properties"]["url"] == {
+        "type": "keyword",
+        "index": False,
+    }
     with pytest.raises(ValueError, match="fixed"):
         gold_index_config_digest(
             read_alias="media-catalog-community-v2-shadow-read",

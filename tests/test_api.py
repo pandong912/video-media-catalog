@@ -740,6 +740,71 @@ def test_research_detail_and_external_identifier_use_research_alias() -> None:
     ]
 
 
+def test_research_api_rebuilds_douban_urls_and_drops_injected_urls() -> None:
+    search = FakeOpenSearch()
+    search.gold_entity["externalIdentifiers"] = [
+        {
+            "namespace": "douban-work",
+            "value": "1295644",
+            "issuer": "Douban",
+            "referentKind": "EDITORIAL_WORK",
+            "url": "https://evil.example/redirect",
+        },
+        {
+            "namespace": "douban-subject",
+            "value": "30123456",
+            "issuer": "Douban",
+            "referentKind": "PERSON",
+            "url": "javascript:alert(1)",
+        },
+        {
+            "namespace": "douban-work",
+            "value": "1295644/../../admin",
+            "issuer": "Douban",
+            "referentKind": "EDITORIAL_WORK",
+            "url": "https://movie.douban.com/subject/1295644/../../admin/",
+        },
+        {
+            "namespace": "imdb-title",
+            "value": "tt0000001",
+            "issuer": "IMDb",
+            "referentKind": "SERIES",
+            "url": "https://evil.example/imdb",
+        },
+    ]
+    search.search_responses = [
+        {
+            "timed_out": False,
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [{"_source": search.gold_entity}],
+            },
+        }
+    ]
+
+    with TestClient(create_app(_test_settings(), client=search)) as client:
+        detail = client.get(f"/api/v2/research/entities/{ENTITY_KEY}")
+        summary = client.get("/api/v2/research/search")
+
+    assert detail.status_code == 200
+    assert summary.status_code == 200
+    for payload in (detail.json(), summary.json()["items"][0]):
+        identifiers = {
+            (item["namespace"], item["value"]): item
+            for item in payload["externalIdentifiers"]
+        }
+        assert identifiers[("douban-work", "1295644")]["url"] == (
+            "https://movie.douban.com/subject/1295644/"
+        )
+        assert identifiers[("douban-subject", "30123456")]["url"] == (
+            "https://movie.douban.com/celebrity/30123456/"
+        )
+        assert identifiers[("douban-work", "1295644/../../admin")]["url"] is None
+        assert identifiers[("imdb-title", "tt0000001")]["url"] is None
+        assert "evil.example" not in str(payload)
+        assert "javascript:" not in str(payload)
+
+
 @pytest.mark.parametrize(
     "path",
     [

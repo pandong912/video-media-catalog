@@ -165,6 +165,18 @@ edges remain in Iceberg. This slice exposes bounded citation keys plus source
 record/path metadata because the current Silver schema has no dedicated
 Citation table.
 
+`externalIdentifiers[].url` is optional and derived at projection/API time.
+Only bounded positive ASCII decimal IDs in a known namespace and compatible
+referent kind receive a URL. `douban-work` uses
+`https://movie.douban.com/subject/{id}/`; `douban-person` uses
+`https://movie.douban.com/celebrity/{id}/`. Legacy `douban` and
+`douban-subject` values are disambiguated by referent kind. Unknown namespaces,
+conflicting kinds, zero/leading-zero IDs, overlong values, path/query fragments,
+Unicode digits, and all other malformed values produce no URL. The URL is a
+deterministic navigation convenience over a Wikidata-provided ID: the pipeline
+does not fetch or store Douban titles, ratings, reviews, or images, and lineage
+and rights remain Wikidata.
+
 Release commit, index config digest, and index build manifest bind the exact
 owner OIDC subject. Serving routes are only:
 

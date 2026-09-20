@@ -35,6 +35,16 @@ def _records(result) -> list[ConnectorRecordEnvelope]:
     ]
 
 
+def _external_id_statement(value: str) -> dict:
+    return {
+        "rank": "normal",
+        "mainsnak": {
+            "snaktype": "value",
+            "datavalue": {"value": value, "type": "string"},
+        },
+    }
+
+
 def test_wikidata_v2_adapter_resolves_v1_type_closure(
     tmp_path,
     fixture_dir,
@@ -64,10 +74,114 @@ def test_wikidata_v2_adapter_resolves_v1_type_closure(
         ("wikidata-item", "Q1001"),
         ("imdb-title", "tt0000001"),
         ("eidr-content", "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C"),
+        ("douban-work", "1295644"),
     }
     assert any(
         item.predicate == "directed_by" for item in mapped.relationship_assertions
     )
+
+
+def test_wikidata_douban_properties_map_to_distinct_namespaces_and_kinds(
+    tmp_path,
+    fixture_dir,
+) -> None:
+    source = fixture_dir / "wikidata.json"
+    result = capture_v1_adapter(
+        source="wikidata",
+        input_path=source,
+        raw_object=_object(source, media_type="application/json"),
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        coverage_id="reference-subset-2026-09-20",
+        store=BoundedObjectStore(client=object()),
+    )
+    records = {item.source_record_id: item for item in _records(result)}
+
+    work = map_wikidata_record(records["Q1001"])
+    person = map_wikidata_record(records["Q2001"])
+    work_id = next(
+        item
+        for item in work.identifier_assertions
+        if item.namespace_id == "douban-work"
+    )
+    person_id = next(
+        item
+        for item in person.identifier_assertions
+        if item.namespace_id == "douban-person"
+    )
+
+    assert (work_id.value, work_id.referent_kind) == (
+        "1295644",
+        "EDITORIAL_WORK",
+    )
+    assert (person_id.value, person_id.referent_kind) == ("30123456", "AGENT")
+    assert work_id.provenance.source_path.startswith("/claims/P4529/")
+    assert person_id.provenance.source_path.startswith("/claims/P5284/")
+    assert work_id.provenance.policy_id == "wikidata-structured-data-cc0"
+    assert person_id.provenance.policy_id == "wikidata-structured-data-cc0"
+    assert not any(
+        item.namespace_id == "douban-subject"
+        for mapped in (work, person)
+        for item in mapped.identifier_assertions
+    )
+
+
+def test_wikidata_douban_ids_reject_unknown_and_injection_values(
+    tmp_path,
+    fixture_dir,
+) -> None:
+    source = fixture_dir / "wikidata.json"
+    result = capture_v1_adapter(
+        source="wikidata",
+        input_path=source,
+        raw_object=_object(source, media_type="application/json"),
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        coverage_id="reference-subset-2026-09-20",
+        store=BoundedObjectStore(client=object()),
+    )
+    envelope = _records(result)[0].model_copy(
+        update={
+            "source_record_id": "Q90000",
+            "payload_json": json.dumps(
+                {
+                    "id": "Q90000",
+                    "v1EntityType": "MOVIE",
+                    "claims": {
+                        "P4529": [
+                            _external_id_statement(value)
+                            for value in (
+                                "1295644",
+                                "0",
+                                "01",
+                                "-1",
+                                "1295644/../../admin",
+                                "1295644?next=https://evil.example",
+                                "\uff11\uff12\uff19\uff15\uff16\uff14\uff14",
+                                "9" * 33,
+                            )
+                        ],
+                        "P5284": [_external_id_statement("30123456")],
+                    },
+                }
+            ),
+        }
+    )
+
+    mapped = map_wikidata_record(envelope)
+    external = {
+        (item.namespace_id, item.value, item.referent_kind)
+        for item in mapped.identifier_assertions
+        if item.namespace_id != "wikidata-item"
+    }
+    assert external == {
+        ("douban-work", "1295644", "EDITORIAL_WORK"),
+        ("douban-person", "30123456", "AGENT"),
+    }
 
 
 def test_wikidata_series_keeps_source_node_but_maps_series_blocking_ids(

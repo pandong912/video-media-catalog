@@ -51,6 +51,7 @@ from video_media_catalog.api_search import (
     build_search_query,
     select_description,
 )
+from video_media_catalog.douban import douban_jump_url
 from video_media_catalog.gold_api_models import (
     GoldCatalogEntity,
     GoldSearchResponse,
@@ -502,6 +503,33 @@ def _require_gold_owner(
     return source
 
 
+def _gold_identifier_urls(identifiers: list[Any]) -> list[Any]:
+    result: list[Any] = []
+    for identifier in identifiers:
+        if not isinstance(identifier, dict):
+            result.append(identifier)
+            continue
+        item = dict(identifier)
+        item.pop("url", None)
+        namespace = item.get("namespace")
+        value = item.get("value")
+        referent_kind = item.get("referentKind")
+        if all(isinstance(field, str) for field in (namespace, value, referent_kind)):
+            url = douban_jump_url(namespace, value, referent_kind)
+            if url is not None:
+                item["url"] = url
+        result.append(item)
+    return result
+
+
+def _gold_entity_with_identifier_urls(source: dict[str, Any]) -> dict[str, Any]:
+    value = dict(source)
+    identifiers = value.get("externalIdentifiers")
+    if isinstance(identifiers, list):
+        value["externalIdentifiers"] = _gold_identifier_urls(identifiers)
+    return value
+
+
 def _gold_summary(source: dict[str, Any]) -> dict[str, Any]:
     identifiers = source.get("externalIdentifiers")
     source_badges = source.get("sourceBadges")
@@ -516,7 +544,7 @@ def _gold_summary(source: dict[str, Any]) -> dict[str, Any]:
         "ownerSubject": source.get("ownerSubject"),
         "conflictCount": source.get("conflictCount", 0),
         "externalIdentifiers": (
-            identifiers[:_SUMMARY_IDENTIFIER_LIMIT]
+            _gold_identifier_urls(identifiers[:_SUMMARY_IDENTIFIER_LIMIT])
             if isinstance(identifiers, list)
             else []
         ),
@@ -993,10 +1021,12 @@ def create_app(
         )
         hits, total = _hits(response)
         sources = [
-            _require_gold_owner(
-                _source(hit),
-                principal_subject=principal.subject,
-                configured_owner_subject=research_owner_subject,
+            _gold_entity_with_identifier_urls(
+                _require_gold_owner(
+                    _source(hit),
+                    principal_subject=principal.subject,
+                    configured_owner_subject=research_owner_subject,
+                )
             )
             for hit in hits
         ]
@@ -1069,10 +1099,12 @@ def create_app(
                 "Bad Gateway",
                 "Research entity response is invalid",
             )
-        return _require_gold_owner(
-            response["_source"],
-            principal_subject=principal.subject,
-            configured_owner_subject=research_owner_subject,
+        return _gold_entity_with_identifier_urls(
+            _require_gold_owner(
+                response["_source"],
+                principal_subject=principal.subject,
+                configured_owner_subject=research_owner_subject,
+            )
         )
 
     @app.get(
@@ -1109,10 +1141,12 @@ def create_app(
         )
         hits, total = _hits(response)
         sources = [
-            _require_gold_owner(
-                _source(hit),
-                principal_subject=principal.subject,
-                configured_owner_subject=research_owner_subject,
+            _gold_entity_with_identifier_urls(
+                _require_gold_owner(
+                    _source(hit),
+                    principal_subject=principal.subject,
+                    configured_owner_subject=research_owner_subject,
+                )
             )
             for hit in hits
         ]

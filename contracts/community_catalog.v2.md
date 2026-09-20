@@ -42,7 +42,8 @@ and may change without changing those IDs.
 
 The bootstrap registry includes:
 
-- Wikidata structured JSON under CC0;
+- Wikidata structured JSON under CC0, including Wikidata-observed external
+  identifiers;
 - EIDR public-registry records, without a default network search client;
 - TVmaze public API under its free API share-alike policy;
 - IMDb's seven official non-commercial TSV datasets, restricted to the
@@ -201,11 +202,16 @@ Provider identifiers are never key inputs. A redirect may not form a cycle.
 Exact-ID blocking is driven by the pinned source-registry snapshot rather than
 resolver code constants. A `SourceNamespace` defines accepted legacy scheme
 aliases, validation, case handling, and compatible referent kinds. The
-bootstrap registry covers Wikidata items, IMDb titles/names, TMDB
-movies/TV/people, EIDR content, TVmaze shows, and TheTVDB series.
+bootstrap registry covers Wikidata items, distinct `douban-work` and
+`douban-person` identifiers, IMDb titles/names/companies, TMDB movies/TV/people,
+EIDR content, TVmaze shows, and TheTVDB series. The legacy `douban` scheme and
+`douban-subject` namespace are migration aliases selected by referent kind;
+they are not a shared canonical namespace.
 Registering matching metadata does not activate a connector or grant source
 rights; identifier assertions still carry the policy of the source that
-observed them.
+observed them. In particular, P4529/P5284 assertions remain
+`wikidata-json-dump`/CC0 lineage and do not imply a Douban feed, API call, or
+web-page acquisition.
 
 `ExternalIdIndexEntry` materializes the blocking tuple
 `(namespaceId, normalizedValue, referentKind)` and the candidate entity,

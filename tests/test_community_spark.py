@@ -177,6 +177,7 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         record_set=record_set,
     )
     identity_frames = None
+    legacy_identity_frames = None
     conflict_frames = None
     try:
         assert frames["community_source_record"].count() == 1
@@ -209,6 +210,61 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
         assert {"imdb-title", "tvmaze-show"}.issubset(
             {row.namespace_id for row in index_rows}
         )
+
+        from pyspark.sql import functions as F
+
+        legacy_visible = {
+            **frames,
+            "community_identifier_assertion": frames["community_identifier_assertion"]
+            .withColumn(
+                "namespace_id",
+                F.when(
+                    F.col("namespace_id") == "imdb-title",
+                    F.lit("douban-subject"),
+                ).otherwise(F.col("namespace_id")),
+            )
+            .withColumn(
+                "value",
+                F.when(
+                    F.col("namespace_id") == "douban-subject",
+                    F.lit("1295644"),
+                ).otherwise(F.col("value")),
+            )
+            .withColumn(
+                "issuer",
+                F.when(
+                    F.col("namespace_id") == "douban-subject",
+                    F.lit("Douban"),
+                ).otherwise(F.col("issuer")),
+            ),
+        }
+        _, legacy_identity_frames = build_identity_resolution_dataframes(
+            spark,
+            visible_silver=legacy_visible,
+            v1_external_identifiers=spark.createDataFrame(
+                [(v1_key, "douban", "1295644")],
+                "entity_key STRING, scheme STRING, value STRING",
+            ),
+            v1_entities=spark.createDataFrame(
+                [(v1_key, "TV_SERIES")],
+                "entity_key STRING, entity_type STRING",
+            ),
+            input_id="sha256:" + ("2" * 64),
+            image_digest="sha256:" + ("1" * 64),
+            config_digest="sha256:" + ("0" * 64),
+            started_at="2026-09-19T00:00:00Z",
+            **_identity_lifecycle_inputs(spark, run, frames),
+        )
+        assert (
+            legacy_identity_frames["community_entity_membership"]
+            .collect()[0]
+            .entity_key
+            == v1_key
+        )
+        assert "douban-work" in {
+            row.namespace_id
+            for row in legacy_identity_frames["community_external_id_index"].collect()
+        }
 
         competing_key = "sha256:" + ("a" * 64)
         conflict_run, conflict_frames = build_identity_resolution_dataframes(
@@ -248,6 +304,9 @@ def test_tvmaze_record_set_projects_to_silver_dataframes(
                 frame.unpersist()
         if identity_frames is not None:
             for frame in identity_frames.values():
+                frame.unpersist()
+        if legacy_identity_frames is not None:
+            for frame in legacy_identity_frames.values():
                 frame.unpersist()
         for frame in frames.values():
             frame.unpersist()

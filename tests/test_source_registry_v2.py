@@ -41,6 +41,8 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     assert not wikidata.accepts("42")
     namespaces = {item.namespace_id for item in first.source_namespaces}
     assert {
+        "douban-work",
+        "douban-person",
         "imdb-title",
         "imdb-name",
         "imdb-company",
@@ -120,6 +122,8 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
     }
     assert {
         "wikidata-item",
+        "douban-work",
+        "douban-person",
         "imdb-title",
         "imdb-name",
         "imdb-company",
@@ -129,6 +133,13 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         "eidr-content",
         "tvmaze-show",
     }.issubset(namespaces)
+    assert "douban-subject" not in namespaces
+    assert namespaces["douban-work"].normalize("1295644") == "1295644"
+    assert namespaces["douban-person"].normalize("30123456") == "30123456"
+    for invalid in ("0", "01", "-1", "123/path", "\uff11\uff12\uff13"):
+        assert not namespaces["douban-work"].accepts(invalid)
+        with pytest.raises(ValueError, match="douban-work"):
+            namespaces["douban-work"].normalize(invalid)
     assert namespaces["imdb-title"].normalize("tt0000001") == "TT0000001"
     assert namespaces["imdb-company"].normalize("co0001757") == "CO0001757"
     assert not namespaces["imdb-company"].accepts("tt0000001")
@@ -152,3 +163,21 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
     }
     assert ("imdb", "ORGANIZATION") in imdb_company
     assert ("imdb-company", "ORGANIZATION") in imdb_company
+    douban_work = {
+        (row["scheme"], row["referent_kind"])
+        for row in rows
+        if row["namespace_id"] == "douban-work"
+    }
+    assert ("douban", "EDITORIAL_WORK") in douban_work
+    assert ("douban-subject", "SERIES") in douban_work
+    assert ("douban-work", "EPISODE") in douban_work
+    douban_person = {
+        (row["scheme"], row["referent_kind"])
+        for row in rows
+        if row["namespace_id"] == "douban-person"
+    }
+    assert douban_person == {
+        ("douban", "AGENT"),
+        ("douban-person", "AGENT"),
+        ("douban-subject", "AGENT"),
+    }

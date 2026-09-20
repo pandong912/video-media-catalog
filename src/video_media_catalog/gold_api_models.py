@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.api_models import APIModel
+from video_media_catalog.douban import douban_jump_url
 from video_media_catalog.v2_contracts import require_oidc_subject
 
 
@@ -32,6 +33,18 @@ class GoldExternalIdentifier(APIModel):
     value: str
     issuer: str
     referent_kind: str
+    url: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def validate_derived_url(self) -> Self:
+        expected = douban_jump_url(
+            self.namespace,
+            self.value,
+            self.referent_kind,
+        )
+        if self.url is not None and self.url != expected:
+            raise ValueError("external identifier URL is not a safe derived URL")
+        return self
 
 
 class GoldRelationSummary(APIModel):

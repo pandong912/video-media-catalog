@@ -17,16 +17,33 @@ from pydantic import (
 from video_media_catalog.canonical import canonical_json, deterministic_key
 from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
-from video_media_catalog.rights import UsageAction
+from video_media_catalog.rights import PolicyZone, UsageAction
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,
+    require_https_url,
+    require_oidc_subject,
     require_rfc3339,
     require_sha256,
     require_slug,
 )
 
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
+RESEARCH_CONTEXT_ID = "research"
+RESEARCH_AUDIENCE = "research"
+RESEARCH_PURPOSE = "research"
+RESEARCH_ALLOWED_ZONES = tuple(
+    sorted(
+        (
+            PolicyZone.OPEN_CC0,
+            PolicyZone.OPEN_ATTRIBUTED,
+            PolicyZone.OPEN_SHAREALIKE,
+            PolicyZone.PUBLIC_REGISTRY,
+            PolicyZone.RESEARCH_PRIVATE,
+        ),
+        key=str,
+    )
+)
 
 
 class ResolutionOperator(StrEnum):
@@ -125,11 +142,31 @@ class GoldResolutionPolicy(V2ContractModel):
         )
 
 
-def community_display_policy() -> GoldResolutionPolicy:
+def research_context(
+    *,
+    as_of: str,
+    territories: tuple[str, ...] = ("*",),
+) -> ReleasePolicyContext:
+    return ReleasePolicyContext(
+        context_id=RESEARCH_CONTEXT_ID,
+        audience=RESEARCH_AUDIENCE,
+        purpose=RESEARCH_PURPOSE,
+        territories=territories,
+        as_of=as_of,
+        allowed_zones=RESEARCH_ALLOWED_ZONES,
+    )
+
+
+def research_policy() -> GoldResolutionPolicy:
     return GoldResolutionPolicy(
-        policy_id="community-display-v1",
+        policy_id="research-display-v1",
         policy_version="1.0.0",
-        requested_actions=(UsageAction.DISPLAY, UsageAction.SEARCH),
+        requested_actions=(
+            UsageAction.STORE,
+            UsageAction.TRANSFORM,
+            UsageAction.DISPLAY,
+            UsageAction.SEARCH,
+        ),
         rules=(
             FieldPolicyRule(
                 predicate="title",
@@ -173,6 +210,75 @@ def community_display_policy() -> GoldResolutionPolicy:
     )
 
 
+class GoldRightsLineage(V2ContractModel):
+    policy_id: str
+    policy_zone: PolicyZone
+    license_id: str
+    license_uri: str | None = None
+    attribution_text: str
+    source_url: str
+    share_alike: bool = False
+
+    @field_validator("policy_id")
+    @classmethod
+    def validate_policy_id(cls, value: str) -> str:
+        return require_slug(value, label="policy_id")
+
+    @field_validator("license_id", "attribution_text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 2000:
+            raise ValueError("Gold rights lineage text must be non-empty")
+        return normalized
+
+    @field_validator("license_uri", "source_url")
+    @classmethod
+    def validate_url(cls, value: str | None) -> str | None:
+        return None if value is None else require_https_url(value)
+
+
+class GoldAssertionLineage(V2ContractModel):
+    assertion_id: str
+    source_product_id: str
+    source_name: str
+    source_record_id: str
+    source_path: str
+    observed_at: str
+    citation_keys: tuple[str, ...] = ()
+    rights: GoldRightsLineage
+
+    @field_validator("assertion_id")
+    @classmethod
+    def validate_assertion_id(cls, value: str) -> str:
+        return require_sha256(value, label="assertion_id")
+
+    @field_validator("source_product_id")
+    @classmethod
+    def validate_source_product_id(cls, value: str) -> str:
+        return require_slug(value, label="source_product_id")
+
+    @field_validator("source_name", "source_record_id", "source_path")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 2048:
+            raise ValueError("Gold assertion lineage text must be non-empty")
+        return normalized
+
+    @field_validator("observed_at")
+    @classmethod
+    def validate_observed_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @field_validator("citation_keys")
+    @classmethod
+    def normalize_citation_keys(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            sorted({require_sha256(item, label="citation key") for item in value})
+        )
+
+
 def _validate_counts(value: dict[str, int]) -> dict[str, int]:
     if set(value) != set(GOLD_DATA_COLUMNS):
         raise ValueError("Gold counts must contain every Gold data table")
@@ -184,6 +290,7 @@ def _validate_counts(value: dict[str, int]) -> dict[str, int]:
 class GoldReleasePlan(V2ContractModel):
     schema_version: str = "2.0"
     release_plan_id: str
+    owner_subject: str
     policy_context: ReleasePolicyContext
     committed_run_ids: tuple[str, ...]
     silver_snapshot_ids: dict[str, int | None]
@@ -207,6 +314,11 @@ class GoldReleasePlan(V2ContractModel):
     @classmethod
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
+
+    @field_validator("owner_subject")
+    @classmethod
+    def validate_owner_subject(cls, value: str) -> str:
+        return require_oidc_subject(value)
 
     @field_validator("committed_run_ids")
     @classmethod
@@ -242,6 +354,14 @@ class GoldReleasePlan(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_plan(self, info: ValidationInfo) -> Self:
+        context = self.policy_context
+        if (
+            context.context_id != RESEARCH_CONTEXT_ID
+            or context.audience != RESEARCH_AUDIENCE
+            or context.purpose != RESEARCH_PURPOSE
+            or context.allowed_zones != RESEARCH_ALLOWED_ZONES
+        ):
+            raise ValueError("Gold releases must use the single research context")
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
                 "community-gold-release-plan-v2",
@@ -255,6 +375,7 @@ class GoldReleasePlan(V2ContractModel):
 def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
     return {
         "schemaVersion": plan.schema_version,
+        "ownerSubject": plan.owner_subject,
         "policyContext": plan.policy_context.model_dump(
             mode="json", by_alias=True, exclude_none=True
         ),
@@ -360,6 +481,38 @@ def _require_canonical_json(value: str, label: str) -> Any:
     return parsed
 
 
+def trace_with_assertion_lineage(
+    trace: dict[str, Any],
+    lineage: tuple[GoldAssertionLineage, ...],
+) -> dict[str, Any]:
+    normalized = tuple(sorted(lineage, key=lambda item: item.assertion_id))
+    if len({item.assertion_id for item in normalized}) != len(normalized):
+        raise ValueError("Gold trace contains duplicate assertion lineage")
+    return {
+        **trace,
+        "assertions": [
+            item.model_dump(mode="json", by_alias=True, exclude_none=True)
+            for item in normalized
+        ],
+    }
+
+
+def assertion_lineage_from_trace(value: str) -> tuple[GoldAssertionLineage, ...]:
+    trace = _require_canonical_json(value, "trace_json")
+    assertions = trace.get("assertions", [])
+    if not isinstance(assertions, list):
+        raise ValueError("Gold trace assertions must be a list")
+    normalized = tuple(
+        sorted(
+            (GoldAssertionLineage.model_validate(item) for item in assertions),
+            key=lambda item: item.assertion_id,
+        )
+    )
+    if len({item.assertion_id for item in normalized}) != len(normalized):
+        raise ValueError("Gold trace contains duplicate assertion lineage")
+    return normalized
+
+
 class GoldField(V2ContractModel):
     resolution_key: str
     release_plan_id: str
@@ -417,6 +570,8 @@ class GoldField(V2ContractModel):
         if self.resolution_status == GoldResolutionStatus.SELECTED:
             if self.value_json is None or self.selected_assertion_id is None:
                 raise ValueError("SELECTED Gold field requires value and winner")
+            if self.selected_assertion_id not in self.assertion_ids:
+                raise ValueError("selected assertion must be part of field lineage")
         elif self.resolution_status == GoldResolutionStatus.SET:
             if self.value_json is None:
                 raise ValueError("SET Gold field requires a value")

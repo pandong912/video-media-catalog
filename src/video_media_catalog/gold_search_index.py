@@ -11,6 +11,7 @@ from typing import Any, Literal, Self
 from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.canonical import canonical_json_bytes
+from video_media_catalog.gold import RESEARCH_CONTEXT_ID
 from video_media_catalog.gold_ingest import (
     GOLD_RELEASE_COMMIT_MEDIA_TYPE,
     GoldReleaseCommit,
@@ -19,13 +20,14 @@ from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
+    require_oidc_subject,
     require_rfc3339,
     require_sha256,
 )
 
-SHADOW_READ_ALIAS = "media-catalog-community-v2-shadow-read"
-SHADOW_INDEX_PREFIX = "media-catalog-community-v2"
-PROJECTION_VERSION = "2"
+RESEARCH_READ_ALIAS = "media-catalog-research-read"
+RESEARCH_INDEX_PREFIX = "media-catalog-research"
+PROJECTION_VERSION = "4"
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
 
@@ -37,6 +39,8 @@ _MAPPINGS: dict[str, Any] = {
         "entityKind": {"type": "keyword"},
         "status": {"type": "keyword"},
         "releasePlanId": {"type": "keyword"},
+        "contextId": {"type": "keyword"},
+        "ownerSubject": {"type": "keyword"},
         "displayName": {
             "type": "text",
             "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
@@ -91,8 +95,72 @@ _MAPPINGS: dict[str, Any] = {
                 "count": {"type": "long"},
             },
         },
+        "sourceBadges": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "sourceProductId": {"type": "keyword"},
+                "displayName": {"type": "keyword", "ignore_above": 512},
+                "sourceUrl": {"type": "keyword", "ignore_above": 2048},
+                "policyZones": {"type": "keyword"},
+                "assertionCount": {"type": "long"},
+                "winningAssertionCount": {"type": "long"},
+            },
+        },
+        "winningAssertions": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "kind": {"type": "keyword"},
+                "assertionId": {"type": "keyword"},
+                "predicate": {"type": "keyword"},
+                "valueJson": {"type": "keyword", "ignore_above": 4096},
+                "qualifiersJson": {"type": "keyword", "ignore_above": 4096},
+                "resolutionStatus": {"type": "keyword"},
+                "sourceProductId": {"type": "keyword"},
+                "sourceRecordId": {"type": "keyword", "ignore_above": 2048},
+                "sourcePath": {"type": "keyword", "ignore_above": 2048},
+                "observedAt": {"type": "date", "format": "strict_date_time"},
+                "citationKeys": {"type": "keyword"},
+                "citationOverflow": {"type": "integer"},
+            },
+        },
+        "rights": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "sourceProductId": {"type": "keyword"},
+                "policyId": {"type": "keyword"},
+                "policyZone": {"type": "keyword"},
+                "licenseId": {"type": "keyword"},
+                "licenseUri": {"type": "keyword", "ignore_above": 2048},
+                "attributionText": {
+                    "type": "keyword",
+                    "ignore_above": 2048,
+                },
+                "sourceUrl": {"type": "keyword", "ignore_above": 2048},
+                "shareAlike": {"type": "boolean"},
+            },
+        },
         "conflictCount": {"type": "long"},
         "conflictPredicates": {"type": "keyword"},
+        "conflicts": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "predicate": {"type": "keyword"},
+                "scopeHash": {"type": "keyword"},
+                "reason": {"type": "keyword"},
+                "assertionIds": {"type": "keyword"},
+                "assertionOverflow": {"type": "integer"},
+                "candidateValuesJson": {
+                    "type": "keyword",
+                    "ignore_above": 4096,
+                },
+                "candidateValueOverflow": {"type": "integer"},
+                "sourceProductIds": {"type": "keyword"},
+            },
+        },
         "sourceNodeCount": {"type": "long"},
         "overflow": {
             "type": "object",
@@ -101,6 +169,11 @@ _MAPPINGS: dict[str, Any] = {
                 "titles": {"type": "integer"},
                 "externalIdentifiers": {"type": "integer"},
                 "relationTypes": {"type": "integer"},
+                "sourceBadges": {"type": "integer"},
+                "winningAssertions": {"type": "integer"},
+                "citationKeys": {"type": "integer"},
+                "rights": {"type": "integer"},
+                "conflicts": {"type": "integer"},
                 "formats": {"type": "integer"},
                 "languages": {"type": "integer"},
                 "statuses": {"type": "integer"},
@@ -130,33 +203,95 @@ def _safe_name(value: str, *, label: str) -> str:
     return value
 
 
+class GoldIndexConfigIdentity(V2ContractModel):
+    projection_version: Literal["4"] = PROJECTION_VERSION
+    mapping_digest: str = MAPPING_DIGEST
+    context_id: Literal["research"] = RESEARCH_CONTEXT_ID
+    owner_subject: str
+    read_alias: str
+    index_prefix: str
+    shards: int = Field(ge=1)
+    replicas: int = Field(ge=0)
+    bulk_chunk_size: int = Field(ge=1)
+    bulk_max_chunk_bytes: int = Field(ge=1)
+    image_digest: str
+
+    @field_validator("mapping_digest", "image_digest")
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("owner_subject")
+    @classmethod
+    def validate_owner_subject(cls, value: str) -> str:
+        return require_oidc_subject(value)
+
+    @field_validator("read_alias", "index_prefix")
+    @classmethod
+    def validate_names(cls, value: str) -> str:
+        return _safe_name(value, label="OpenSearch name")
+
+    @model_validator(mode="after")
+    def validate_research_identity(self) -> Self:
+        if (
+            self.read_alias != RESEARCH_READ_ALIAS
+            or self.index_prefix != RESEARCH_INDEX_PREFIX
+        ):
+            raise ValueError("research index and alias names are fixed")
+        if self.mapping_digest != MAPPING_DIGEST:
+            raise ValueError("Gold index config must use the research index contract")
+        return self
+
+    @property
+    def digest(self) -> str:
+        payload = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        return "sha256:" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+
+
+def gold_index_config_identity(
+    *,
+    read_alias: str,
+    index_prefix: str,
+    owner_subject: str,
+    shards: int,
+    replicas: int,
+    bulk_chunk_size: int,
+    bulk_max_chunk_bytes: int,
+    image_digest: str,
+) -> GoldIndexConfigIdentity:
+    return GoldIndexConfigIdentity(
+        owner_subject=owner_subject,
+        read_alias=read_alias,
+        index_prefix=index_prefix,
+        shards=shards,
+        replicas=replicas,
+        bulk_chunk_size=bulk_chunk_size,
+        bulk_max_chunk_bytes=bulk_max_chunk_bytes,
+        image_digest=image_digest,
+    )
+
+
 def gold_index_config_digest(
     *,
     read_alias: str,
     index_prefix: str,
+    owner_subject: str,
     shards: int,
     replicas: int,
     bulk_chunk_size: int,
     bulk_max_chunk_bytes: int,
     image_digest: str,
 ) -> str:
-    if shards < 1 or replicas < 0:
-        raise ValueError("invalid shard or replica count")
-    if bulk_chunk_size < 1 or bulk_max_chunk_bytes < 1:
-        raise ValueError("invalid bulk configuration")
-    require_sha256(image_digest, label="image_digest")
-    payload = {
-        "projectionVersion": PROJECTION_VERSION,
-        "mappingDigest": MAPPING_DIGEST,
-        "readAlias": _safe_name(read_alias, label="read alias"),
-        "indexPrefix": _safe_name(index_prefix, label="index prefix"),
-        "shards": shards,
-        "replicas": replicas,
-        "bulkChunkSize": bulk_chunk_size,
-        "bulkMaxChunkBytes": bulk_max_chunk_bytes,
-        "imageDigest": image_digest,
-    }
-    return "sha256:" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+    return gold_index_config_identity(
+        read_alias=read_alias,
+        index_prefix=index_prefix,
+        owner_subject=owner_subject,
+        shards=shards,
+        replicas=replicas,
+        bulk_chunk_size=bulk_chunk_size,
+        bulk_max_chunk_bytes=bulk_max_chunk_bytes,
+        image_digest=image_digest,
+    ).digest
 
 
 def derive_gold_build_id(
@@ -170,6 +305,8 @@ def derive_gold_build_id(
             {
                 "commitKey": commit.commit_key,
                 "releasePlanId": commit.release_plan_id,
+                "ownerSubject": commit.owner_subject,
+                "contextId": commit.context_id,
                 "tableSnapshotIds": commit.table_snapshot_ids,
                 "mappingDigest": MAPPING_DIGEST,
                 "configDigest": config_digest,
@@ -185,9 +322,16 @@ def gold_index_name(prefix: str, build_id: str) -> str:
     return _safe_name(f"{prefix}-{build_id[:24]}", label="index name")
 
 
-def gold_index_definition(*, shards: int, replicas: int) -> dict[str, Any]:
+def gold_index_definition(
+    *,
+    owner_subject: str,
+    shards: int,
+    replicas: int,
+) -> dict[str, Any]:
     if shards < 1 or replicas < 0:
         raise ValueError("invalid shard or replica count")
+    mappings = copy.deepcopy(INDEX_MAPPINGS)
+    mappings["_meta"]["ownerSubject"] = require_oidc_subject(owner_subject)
     return {
         "settings": {
             "index": {
@@ -195,7 +339,7 @@ def gold_index_definition(*, shards: int, replicas: int) -> dict[str, Any]:
                 "number_of_replicas": replicas,
             }
         },
-        "mappings": copy.deepcopy(INDEX_MAPPINGS),
+        "mappings": mappings,
     }
 
 
@@ -209,8 +353,13 @@ def _status_code(exc: Exception) -> int | None:
     return None
 
 
-def _existing_mapping_digest(client: Any, index_name: str) -> str | None:
+def _existing_mapping_metadata(
+    client: Any,
+    index_name: str,
+) -> Mapping[str, Any] | None:
     response = client.indices.get_mapping(index=index_name)
+    if not isinstance(response, Mapping):
+        return None
     value = response.get(index_name)
     if value is None and len(response) == 1:
         value = next(iter(response.values()))
@@ -218,24 +367,48 @@ def _existing_mapping_digest(client: Any, index_name: str) -> str | None:
         return None
     mappings = value.get("mappings")
     metadata = mappings.get("_meta") if isinstance(mappings, Mapping) else None
-    return metadata.get("mappingDigest") if isinstance(metadata, Mapping) else None
+    return metadata if isinstance(metadata, Mapping) else None
+
+
+def _has_compatible_mapping(
+    client: Any,
+    *,
+    index_name: str,
+    owner_subject: str,
+) -> bool:
+    metadata = _existing_mapping_metadata(client, index_name)
+    return bool(
+        metadata is not None
+        and metadata.get("mappingDigest") == MAPPING_DIGEST
+        and metadata.get("ownerSubject") == owner_subject
+    )
 
 
 def ensure_gold_index(
     client: Any,
     *,
     index_name: str,
+    owner_subject: str,
     shards: int,
     replicas: int,
 ) -> bool:
+    owner = require_oidc_subject(owner_subject)
     if client.indices.exists(index=index_name):
-        if _existing_mapping_digest(client, index_name) != MAPPING_DIGEST:
-            raise RuntimeError("existing Gold index mapping is incompatible")
+        if not _has_compatible_mapping(
+            client,
+            index_name=index_name,
+            owner_subject=owner,
+        ):
+            raise RuntimeError("existing Gold index mapping or owner is incompatible")
         return False
     try:
         client.indices.create(
             index=index_name,
-            body=gold_index_definition(shards=shards, replicas=replicas),
+            body=gold_index_definition(
+                owner_subject=owner,
+                shards=shards,
+                replicas=replicas,
+            ),
         )
         return True
     except Exception as exc:
@@ -243,11 +416,63 @@ def ensure_gold_index(
             index=index_name
         ):
             raise
-        if _existing_mapping_digest(client, index_name) != MAPPING_DIGEST:
+        if not _has_compatible_mapping(
+            client,
+            index_name=index_name,
+            owner_subject=owner,
+        ):
             raise RuntimeError(
-                "concurrently created Gold index mapping is incompatible"
+                "concurrently created Gold index mapping or owner is incompatible"
             ) from exc
         return False
+
+
+def validate_gold_index_owner(
+    client: Any,
+    *,
+    index_name: str,
+    owner_subject: str,
+    expected_document_count: int,
+) -> int:
+    owner = require_oidc_subject(owner_subject)
+    if (
+        isinstance(expected_document_count, bool)
+        or not isinstance(expected_document_count, int)
+        or expected_document_count < 0
+    ):
+        raise ValueError("expected document count must be non-negative")
+    if not _has_compatible_mapping(
+        client,
+        index_name=index_name,
+        owner_subject=owner,
+    ):
+        raise RuntimeError("Gold shadow index owner metadata mismatch")
+    client.indices.refresh(index=index_name)
+    total_response = client.count(index=index_name)
+    owner_response = client.count(
+        index=index_name,
+        body={"query": {"term": {"ownerSubject": owner}}},
+    )
+    if not isinstance(total_response, Mapping) or not isinstance(
+        owner_response, Mapping
+    ):
+        raise RuntimeError("OpenSearch count response is invalid")
+    total_count = total_response.get("count")
+    owner_count = owner_response.get("count")
+    if (
+        not isinstance(total_count, int)
+        or isinstance(total_count, bool)
+        or not isinstance(owner_count, int)
+        or isinstance(owner_count, bool)
+        or total_count < 0
+        or owner_count < 0
+    ):
+        raise RuntimeError("OpenSearch count response is invalid")
+    if total_count != expected_document_count or owner_count != total_count:
+        raise RuntimeError(
+            "Gold shadow index contains missing or mismatched document owners"
+        )
+    return total_count
 
 
 class GoldIndexBuildManifest(V2ContractModel):
@@ -255,9 +480,12 @@ class GoldIndexBuildManifest(V2ContractModel):
     status: Literal["COMPLETED"] = "COMPLETED"
     build_id: str
     release_plan_id: str
+    owner_subject: str
+    context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     release_commit: ObjectRef
     table_snapshot_ids: dict[str, int | None]
     mapping_digest: str
+    config_identity: GoldIndexConfigIdentity
     config_digest: str
     document_count: int = Field(ge=0)
     index: str
@@ -279,6 +507,11 @@ class GoldIndexBuildManifest(V2ContractModel):
     @classmethod
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
+
+    @field_validator("owner_subject")
+    @classmethod
+    def validate_owner_subject(cls, value: str) -> str:
+        return require_oidc_subject(value)
 
     @field_validator("index", "alias")
     @classmethod
@@ -306,6 +539,10 @@ class GoldIndexBuildManifest(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_release_commit(self) -> Self:
+        if self.alias != RESEARCH_READ_ALIAS or not self.index.startswith(
+            RESEARCH_INDEX_PREFIX + "-"
+        ):
+            raise ValueError("index manifest must use the research index family")
         reference = self.release_commit
         if (
             reference.format != "OBJECT_FORMAT_JSON"
@@ -317,4 +554,15 @@ class GoldIndexBuildManifest(V2ContractModel):
             reference.etag is None or reference.object_version is None
         ):
             raise ValueError("S3 release_commit must be immutable")
+        if (
+            self.mapping_digest != MAPPING_DIGEST
+            or self.config_identity.mapping_digest != self.mapping_digest
+            or self.config_identity.owner_subject != self.owner_subject
+            or self.config_identity.context_id != self.context_id
+            or self.config_identity.read_alias != self.alias
+            or self.config_digest != self.config_identity.digest
+        ):
+            raise ValueError(
+                "index manifest config identity does not match its owner or contract"
+            )
         return self

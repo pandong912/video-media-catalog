@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.community_iceberg import CommunityCatalogTables
+from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import (
     ConnectorBatchManifest,
     ConnectorRecordSetManifest,
@@ -22,13 +23,19 @@ from video_media_catalog.object_store import (
     BoundedObjectStore,
     RuntimeObjectStore,
 )
-from video_media_catalog.tvmaze import TVMAZE_SOURCE_PRODUCT_ID
-from video_media_catalog.tvmaze_silver import (
-    build_tvmaze_silver_dataframes,
+from video_media_catalog.record_shard_materialization import (
+    MAX_RECORD_SHARD_COUNT,
+    materialize_record_shards,
+    resolve_record_staging_prefix,
+)
+from video_media_catalog.source_silver import (
+    build_source_silver_dataframes,
+    mapper_for_product,
 )
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
 DEFAULT_RECORD_OBJECT_MAX_BYTES = 16 * 1024 * 1024
+DEFAULT_RAW_OBJECT_MAX_BYTES = 32 * 1024**3
 
 
 def _add_object_args(parser: argparse.ArgumentParser, prefix: str) -> None:
@@ -49,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_object_args(parser, "record_set_manifest")
     parser.add_argument("--committed-at", required=True)
     parser.add_argument("--catalog-name", default="media")
-    parser.add_argument("--namespace", default="community_catalog_v2")
+    parser.add_argument("--namespace", default="video_media_catalog")
     parser.add_argument(
         "--catalog-type",
         choices=("hadoop", "glue"),
@@ -67,6 +74,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-record-object-bytes",
         type=int,
         default=DEFAULT_RECORD_OBJECT_MAX_BYTES,
+    )
+    parser.add_argument(
+        "--max-raw-object-bytes",
+        type=int,
+        default=DEFAULT_RAW_OBJECT_MAX_BYTES,
+    )
+    parser.add_argument(
+        "--record-staging-prefix",
+        help=(
+            "required S3 prefix for checksum-addressed record shard staging when "
+            "record shards use s3://; must stay within the catalog warehouse "
+            "bucket under warehouse/research/control or "
+            "landing/research/materialized-record-shards"
+        ),
+    )
+    parser.add_argument(
+        "--max-record-shards",
+        type=int,
+        default=MAX_RECORD_SHARD_COUNT,
     )
     return parser
 
@@ -121,8 +147,10 @@ def _read_model[T: (ConnectorBatchManifest, ConnectorRecordSetManifest)](
 
 
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
-    if parsed.max_record_object_bytes < 1:
-        raise ValueError("max-record-object-bytes must be positive")
+    if min(parsed.max_record_object_bytes, parsed.max_raw_object_bytes) < 1:
+        raise ValueError("raw and record object byte limits must be positive")
+    if parsed.max_record_shards < 1:
+        raise ValueError("max-record-shards must be positive")
     if parsed.shuffle_partitions is not None and parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
     batch_ref = _object_ref(
@@ -160,17 +188,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             endpoint_url=parsed.s3_endpoint,
             path_style_access=parsed.s3_path_style_access,
         )
-    for reference in batch.raw_objects:
-        store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
-    for reference in record_set.record_objects:
-        store.verify(
-            reference,
-            max_bytes=parsed.max_record_object_bytes,
-        )
-    if batch.source_product_id != TVMAZE_SOURCE_PRODUCT_ID:
-        raise ValueError(
-            f"unsupported community source product: {batch.source_product_id}"
-        )
+    staging_prefix = resolve_record_staging_prefix(
+        parsed.record_staging_prefix,
+        warehouse=parsed.warehouse,
+        references=record_set.record_objects,
+    )
+    mapper_for_product(batch.source_product_id)
 
     config = CatalogConfig(
         catalog_name=parsed.catalog_name,
@@ -196,29 +219,48 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         builder = builder.config("spark.jars.packages", parsed.spark_packages)
     spark = builder.getOrCreate()
     frames = None
-    try:
-        ingest_run, frames = build_tvmaze_silver_dataframes(
-            spark,
-            batch=batch,
-            record_set=record_set,
+    with tempfile.TemporaryDirectory(prefix="community-catalog-scratch-") as scratch:
+        scratch_dir = Path(scratch)
+        for reference in batch.raw_objects:
+            store.verify(reference, max_bytes=parsed.max_raw_object_bytes)
+        for reference in record_set.record_objects:
+            store.verify(
+                reference,
+                max_bytes=parsed.max_record_object_bytes,
+            )
+        materialized_shards = materialize_record_shards(
+            store,
+            record_set.record_objects,
+            staging_prefix=staging_prefix,
+            scratch_dir=scratch_dir,
+            max_bytes=parsed.max_record_object_bytes,
+            max_shards=parsed.max_record_shards,
         )
-        commit = CommunityCatalogTables(spark, config).stage_and_commit(
-            run=ingest_run,
-            dataframes=frames,
-            committed_at=parsed.committed_at,
-        )
-        return {
-            "runId": ingest_run.run_id,
-            "commitKey": commit.commit_key,
-            "sourceProductId": ingest_run.source_product_id,
-            "tableCounts": commit.table_counts,
-            "tableSnapshotIds": commit.table_snapshot_ids,
-        }
-    finally:
-        if frames is not None:
-            for frame in frames.values():
-                frame.unpersist()
-        spark.stop()
+        try:
+            ingest_run, frames = build_source_silver_dataframes(
+                spark,
+                registry=build_community_registry(),
+                batch=batch,
+                record_set=record_set,
+                materialized_shards=materialized_shards,
+            )
+            commit = CommunityCatalogTables(spark, config).stage_and_commit(
+                run=ingest_run,
+                dataframes=frames,
+                committed_at=parsed.committed_at,
+            )
+            return {
+                "runId": ingest_run.run_id,
+                "commitKey": commit.commit_key,
+                "sourceProductId": ingest_run.source_product_id,
+                "tableCounts": commit.table_counts,
+                "tableSnapshotIds": commit.table_snapshot_ids,
+            }
+        finally:
+            if frames is not None:
+                for frame in frames.values():
+                    frame.unpersist()
+            spark.stop()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

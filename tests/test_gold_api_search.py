@@ -29,7 +29,7 @@ def test_gold_cursor_binds_concrete_index_query_and_expiry() -> None:
         clock=lambda: 100,
     )
     parameters = _parameters()
-    index = "media-catalog-community-v2-" + ("a" * 24)
+    index = "media-catalog-research-" + ("a" * 24)
     cursor = codec.encode(
         index=index,
         sort=[2.5, "sha256:" + ("b" * 64)],
@@ -53,10 +53,12 @@ def test_gold_cursor_binds_concrete_index_query_and_expiry() -> None:
 def test_gold_query_uses_only_fixed_grammar() -> None:
     query = build_gold_search_query(
         _parameters(),
+        owner_subject="owner-123",
         search_after=[2.5, "sha256:" + ("b" * 64)],
         timeout_ms=5000,
     )
     filters = query["query"]["bool"]["filter"]
+    assert {"term": {"ownerSubject": "owner-123"}} in filters
     assert {"term": {"entityLevel": "SERIES"}} in filters
     assert {"term": {"entityKind": "TV_SERIES"}} in filters
     assert {"term": {"conflictCount": 0}} in filters
@@ -68,8 +70,11 @@ def test_gold_external_identifier_query_binds_namespace_and_value() -> None:
     query = build_gold_external_identifier_query(
         namespace="imdb-title",
         value="tt0000001",
+        owner_subject="owner-123",
         timeout_ms=5000,
     )
-    filters = query["query"]["nested"]["query"]["bool"]["filter"]
-    assert {"term": {"externalIdentifiers.namespace": "imdb-title"}} in filters
-    assert {"term": {"externalIdentifiers.value": "tt0000001"}} in filters
+    filters = query["query"]["bool"]["filter"]
+    assert filters[0] == {"term": {"ownerSubject": "owner-123"}}
+    nested = filters[1]["nested"]["query"]["bool"]["filter"]
+    assert {"term": {"externalIdentifiers.namespace": "imdb-title"}} in nested
+    assert {"term": {"externalIdentifiers.value": "tt0000001"}} in nested

@@ -6,7 +6,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from video_media_catalog.constants import CURATED_TABLE_KEYS
 from video_media_catalog.models import SnapshotTable
@@ -75,6 +75,132 @@ NULLABLE_COLUMNS = {
     "catalog_relation": frozenset({"ordinal"}),
     "catalog_ingest_error": frozenset(),
 }
+
+
+class _SparkSqlCallable:
+    class Java:
+        implements: ClassVar[list[str]] = ["java.util.concurrent.Callable"]
+
+    def __init__(self, spark: Any, statement: str) -> None:
+        self._spark = spark
+        self._statement = statement
+
+    def call(self) -> int:
+        self._spark.sql(self._statement).collect()
+        return 0
+
+
+def execute_iceberg_sql(
+    spark: Any,
+    statement: str,
+    *,
+    snapshot_properties: dict[str, str] | None = None,
+) -> None:
+    """Execute SQL with properties atomically attached to its Iceberg commit."""
+
+    if not snapshot_properties:
+        spark.sql(statement)
+        return
+    if any(not key or not value for key, value in snapshot_properties.items()):
+        raise ValueError("Iceberg snapshot properties must be non-empty strings")
+    try:
+        jvm = spark._jvm
+    except AttributeError as exc:
+        raise RuntimeError(
+            "Spark JVM is required to attach Iceberg snapshot identity"
+        ) from exc
+    properties = jvm.java.util.HashMap()
+    for key, value in sorted(snapshot_properties.items()):
+        properties.put(key, value)
+    jvm.org.apache.iceberg.spark.CommitMetadata.withCommitProperties(
+        properties,
+        _SparkSqlCallable(spark, statement),
+        jvm.java.lang.RuntimeException._java_lang_class,
+    )
+
+
+def find_owned_snapshot_id(
+    spark: Any,
+    *,
+    table_identifier: str,
+    table_name: str,
+    primary_key: str,
+    identity_column: str,
+    identity_value: str,
+    snapshot_property: str,
+    expected_row_count: int,
+) -> int | None:
+    """Find one identity-tagged snapshot and verify its exact row additions."""
+
+    rows = spark.sql(
+        f"""
+        SELECT snapshot_id, parent_id
+        FROM {table_identifier}.snapshots
+        WHERE summary['{snapshot_property}'] = '{identity_value}'
+        """
+    ).collect()
+    if expected_row_count == 0:
+        if rows:
+            raise RuntimeError(
+                f"{table_name} has an identity snapshot despite zero expected rows"
+            )
+        return None
+    if len(rows) != 1:
+        raise RuntimeError(
+            f"{table_name} must have exactly one identity snapshot; found {len(rows)}"
+        )
+
+    snapshot_id = int(rows[0]["snapshot_id"])
+    parent_id = rows[0]["parent_id"]
+    candidate = (
+        spark.read.format("iceberg")
+        .option("snapshot-id", str(snapshot_id))
+        .load(table_name)
+        .select(primary_key, identity_column)
+    )
+    identity_predicate = f"`{identity_column}` = '{identity_value}'"
+    candidate_identity_count = candidate.where(identity_predicate).count()
+    if candidate_identity_count != expected_row_count:
+        raise RuntimeError(
+            f"{table_name} identity snapshot contains "
+            f"{candidate_identity_count} rows for this write; "
+            f"expected {expected_row_count}"
+        )
+
+    if parent_id is None:
+        additions = candidate
+    else:
+        parent = (
+            spark.read.format("iceberg")
+            .option("snapshot-id", str(int(parent_id)))
+            .load(table_name)
+            .select(primary_key, identity_column)
+        )
+        if parent.where(identity_predicate).limit(1).count():
+            raise RuntimeError(
+                f"{table_name} identity rows existed before its tagged snapshot"
+            )
+        parent_keys = parent.select(primary_key).dropDuplicates([primary_key])
+        additions = candidate.join(parent_keys, primary_key, "left_anti")
+
+    additions = additions.persist()
+    try:
+        addition_count = additions.count()
+        if addition_count != expected_row_count:
+            raise RuntimeError(
+                f"{table_name} tagged snapshot added {addition_count} rows; "
+                f"expected {expected_row_count}"
+            )
+        foreign_predicate = (
+            f"`{identity_column}` IS NULL OR `{identity_column}` <> '{identity_value}'"
+        )
+        if additions.where(foreign_predicate).limit(1).count():
+            raise RuntimeError(
+                f"{table_name} tagged snapshot added rows for another identity"
+            )
+    finally:
+        additions.unpersist()
+    return snapshot_id
 
 
 @dataclass(frozen=True)

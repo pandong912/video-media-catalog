@@ -1,6 +1,7 @@
 # video-media-catalog
 
-基于 Wikidata JSON dump 与离线 EIDR XML 的全球影视目录。生产流水线分为：
+基于 Wikidata、EIDR、TVmaze、IMDb 与 TMDB 的多来源全球影视研究目录。
+现有 v1 生产流水线分为：
 
 1. `video-media-catalog`：严格控制面 runtime 模式，验证 JobSpec 的 immutable
    Parquet source manifest，从 S3/file 有界物化源对象，发布 landing。
@@ -17,8 +18,8 @@ Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重
 
 ## Community catalog v2 foundation
 
-方案 2 以公共/社区数据为主，但不把不同许可的数据混成一张“开放”表。当前分支
-新增供应商中立的 v2 基础契约：
+方案 2 使用供应商中立的 v2 基础契约，把不同许可来源统一到 owner-only
+research 目录，同时保留逐来源 policy 门禁：
 
 - `source_registry.py`：区分 source system、product、ID namespace、native
   schema 与 rights profile；
@@ -29,17 +30,59 @@ Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重
 - `assertions.py` / `identity_v2.py`：事实断言与永久内部实体键分离，保留
   evidence、可逆 decision、membership、redirect 和全部 v1 key；
 - `attribution.py`：为 CC BY/BY-SA 发布生成确定性、可审计的来源与许可清单；
-- `community_release.py`：发布 policy-specific Gold，区分 affected count 与
-  snapshot total，并绑定 exact input/policy/quality identity。
+- `community_release.py`：定义 release 边界；serving Gold 固定为
+  research，并绑定 owner、exact input/policy/quality identity。
+
+V2 不创建独立基础设施：Silver、Gold、EMR、S3、Glue、IAM 和 OpenSearch
+均复用当前 10 万基线资源。默认 Glue namespace 为 `video_media_catalog`；
+表名、release commit 和固定的 research 索引族提供逻辑边界。
 
 现有 v1 pipeline、六表、算法摘要和 API 不变。完整设计与边界见
 [`docs/architecture/community-catalog-v2.md`](docs/architecture/community-catalog-v2.md)
 和
 [`contracts/community_catalog.v2.md`](contracts/community_catalog.v2.md)。
 
-TVmaze 是首个 v2 社区 connector。它只访问固定的官方 `/shows?page=N`，
-遵守 429/`Retry-After` 和至少 20 calls/10 seconds 的公开限制，先不可变发布
-原始 page，再发布 batch manifest、record shards 和最终 record-set marker：
+## Source connectors v2
+
+所有来源统一进入 `ConnectorBatchManifest` → `ConnectorRecordEnvelope` →
+`ConnectorRecordSetManifest`，每个 envelope 和 assertion 都绑定 rights policy
+digest、原始 `ObjectRef` 和 mapper provenance。网络采集进程只负责保存官方 API/
+dataset 响应；`video-media-catalog-community-spark` 只读取不可变 capture，不在
+Spark executor 中访问外网。代码没有、也不允许 IMDb/TMDB/TVmaze 网页抓取。
+
+可审计 registry（含 policy digest）可直接输出：
+
+```bash
+video-media-catalog-source-registry
+```
+
+### Wikidata / EIDR v2 adapters
+
+现有已校验 v1 Wikidata dump/subset 或 EIDR XML 可包装为 v2 capture。输入必须是
+完整不可变 `ObjectRef`；S3 输入必须同时带 VersionId 和 ETag：
+
+```bash
+video-media-catalog-v1-adapter \
+  --source wikidata \
+  --input-uri s3://bucket/wikidata/subset.json.bz2 \
+  --input-hash sha256:<hex> --input-size <bytes> \
+  --input-version <VersionId> --input-etag <ETag> \
+  --coverage-id reference-subset \
+  --destination-prefix s3://bucket/community-captures \
+  --image-digest sha256:<hex>
+```
+
+Wikidata adapter 在 capture 时按既有 P31/P279 规则生成确定性的 v1 type hint，
+Spark mapper 再生成字段、identifier、relation 与 entity-type assertions。EIDR
+默认是“已发现 ID 的部分集合”，因此不声明删除覆盖；只有运行方确认 XML 是同一
+coverage 的完整快照时才可传 `--eidr-complete-snapshot`。项目仍不提供默认 EIDR
+网络搜索或全库镜像 client。
+
+### TVmaze full + delta
+
+TVmaze full connector 只访问固定的官方 `/shows?page=N`，遵守
+429/`Retry-After` 和至少 20 calls/10 seconds 的公开限制，先不可变发布原始
+page，再发布 batch manifest、record shards 和最终 record-set marker：
 
 ```bash
 video-media-catalog-tvmaze-sync \
@@ -48,13 +91,87 @@ video-media-catalog-tvmaze-sync \
   --image-digest sha256:<64位hex>
 ```
 
+增量入口先捕获官方 `/updates/shows?since=day|week|month`，再按 ID 捕获
+`/shows/{id}`；详情 404 形成显式 DELETE，而不是把部分结果解释为删除：
+
+```bash
+video-media-catalog-tvmaze-delta-sync \
+  --destination-prefix s3://bucket/community-captures \
+  --since day \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+delta 默认最多 20,000 个 changed IDs，避免 control manifest 和本地 payload
+spool 无界增长；应优先使用 `since=day`，超限时必须先扩展 capture/control
+设计，不能静默发布部分批次。
+
 生产使用 S3 prefix 时继续通过 AWS 默认凭据链，不接受静态 access key 参数。
 TVmaze 元数据进入 `open_sharealike`；mapper 首版故意不提升 image URL，图片必须
-经过逐资产权利审核。该 connector 不做标题模糊归并，只输出 source-owned
+经过逐资产权利审核。connector 不做标题模糊归并，只输出 source-owned
 assertions。
 
+### IMDb official TSV
+
+IMDb connector 只下载 `https://datasets.imdbws.com/` 的七个官方 gzip TSV：
+title basics/akas/episode/crew/principals/ratings 与 name basics。七个文件必须
+同时成功并通过固定 header 校验后，才发布 complete snapshot；删除只能由相同
+coverage 的完整快照差异推断。
+
+```bash
+video-media-catalog-imdb-sync \
+  --destination-prefix s3://bucket/research-captures \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+IMDb 数据固定进入 `research_private`，只允许 `audience=research`、
+`purpose=research` 的 store/transform/display/search/derive；不授予
+export、redistribute 或 ML 权限，并保留 IMDb 要求的署名。该入口不需要凭据，
+但需要能访问官方 dataset host。
+
+### TMDB daily export + changes/detail
+
+daily baseline 只下载官方 `files.tmdb.org/p/exports` 的 movie、TV、person ID
+inventory。TMDB 明确说明它不是完整 metadata export，因此 connector 不从 daily
+文件推断删除：
+
+```bash
+video-media-catalog-tmdb-sync daily-export \
+  --export-date 2026-09-20 \
+  --destination-prefix s3://bucket/research-captures \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+changes 模式覆盖 movie/TV/person 的最多 14 天窗口，捕获全部 changed-ID pages，
+再捕获当前 details + credits/combined credits + external IDs + translations +
+image references。API token 只能通过环境变量注入，不进入 URL、manifest、日志或
+config digest：
+
+```bash
+export MEDIA_CATALOG_TMDB_API_READ_TOKEN='<API Read Access Token>'
+video-media-catalog-tmdb-sync changes \
+  --window-start 2026-09-19 --window-end 2026-09-20 \
+  --destination-prefix s3://bucket/research-captures \
+  --user-agent 'video-media-catalog/0.1 contact@example.com' \
+  --image-digest sha256:<hex>
+```
+
+changes 默认最多 20,000 个 changed IDs，超限会在发布 batch/record-set 前失败；
+调度器应缩短窗口重试，不能静默截断。
+
+TMDB facts 固定进入 `research_private` research policy。image path 只作为
+`assetReviewRequired=true` 的来源 assertion，不能据此发布图片。任何 UI 使用还
+必须展示 approved TMDB logo 和
+“This product uses the TMDB API but is not endorsed or certified by TMDB.”
+声明。
+
 同步结果中的 immutable batch/record-set ObjectRef 可提交到独立的 Silver v2
-Spark 入口：
+Spark 入口。driver 会先按 VersionId/ETag 验证每个 record shard，再通过
+`GetObject(VersionId)` 物化到 catalog warehouse bucket 内显式声明的
+checksum-addressed staging prefix，Spark 只读取 staged 不可变输入，不会直接
+读取可被覆盖的 latest key，也不会默认写入 capture sibling prefix：
 
 ```bash
 video-media-catalog-community-spark \
@@ -68,40 +185,162 @@ video-media-catalog-community-spark \
   --record-set-manifest-size <bytes> \
   --record-set-manifest-version <VersionId> \
   --record-set-manifest-etag <ETag> \
+  --record-staging-prefix s3://bucket/community-warehouse/research/control/record-shards \
   --committed-at 2026-09-19T00:00:00Z \
   --catalog-type glue \
   --catalog-name media \
-  --namespace community_catalog_v2 \
+  --namespace video_media_catalog \
   --warehouse s3://bucket/community-warehouse
 ```
+
+S3 record shard 输入时 `--record-staging-prefix` 必填，且必须位于 catalog
+warehouse bucket 内、落在允许写入的 research staging 路径下，例如
+`<warehouse>/research/control/...` 或
+`landing/research/materialized-record-shards/...`。缺失或越界 prefix 直接
+fail closed。GitOps research source-silver 模板应传入同一 bucket 内已授权
+的 staging prefix（infra 侧 values/helpers 约束）；`--max-record-shards` 与
+`--max-record-object-bytes` 共同限制 driver 物化规模。已存在的 staging
+对象仅在 checksum/size 完全一致时复用，否则 fail closed。driver 在
+verify→materialize→Spark mapping 全生命周期内持有 scratch TemporaryDirectory，
+失败或 Spark 异常时自动清理本地副本。
 
 Silver 表全部带确定性 `run_id`。source/assertion/identity 行只有在
 `community_ingest_commit` 最后写入后才可见；失败运行留下的 staged rows 不会进入
 Gold。`v1_migration.py` 从 snapshot-pinned 六表导入全部既有 key，原样保存
 `entity_key`，不会按新规则重新计算。
 
-Gold v2 继续按 policy context 隔离：
+### Research Silver 生产链
+
+`video-media-catalog-research-silver` 补齐 v1 key migration、registry-driven
+identity 和 Gold 输入快照发布。三个阶段默认使用现有 `media` catalog 和
+`video_media_catalog` Glue namespace；v1 六表读取默认使用
+`media_catalog` namespace（可用 `--v1-namespace` 或
+`MEDIA_CATALOG_V1_NAMESPACE` 覆盖）。只读写已有 S3、Glue/Iceberg 与 EMR
+execution role 默认凭据，不接受静态 AWS key，也不创建 bucket、role、EMR
+application 或 OpenSearch 资源。
+
+先从明确的 v1 `SnapshotSet` ObjectRef 导入六表 key。S3 控制对象必须同时提供
+SHA-256、size、VersionId 和 ETag；表读取严格使用其中列出的 snapshot ID：
+
+```bash
+video-media-catalog-research-silver migrate-v1 \
+  --v1-snapshot-uri s3://bucket/v1-runs/.../snapshot-set.json \
+  --v1-snapshot-hash sha256:<hex> \
+  --v1-snapshot-size <bytes> \
+  --v1-snapshot-version <VersionId> \
+  --v1-snapshot-etag <ETag> \
+  --committed-at 2026-09-20T01:00:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+identity 只接受显式列出的、在 pinned Silver control snapshots 中验证为
+`SOURCE_ASSERTIONS` 且已 commit 的 run。首次运行前先发布包含 source 和 v1
+migration run 的输入快照：
+
+```bash
+video-media-catalog-research-silver publish-snapshot \
+  --run-id sha256:<source-run> \
+  --run-id sha256:<migration-run> \
+  --snapshot-uri s3://bucket/research-silver/pre-identity.json \
+  --created-at 2026-09-20T01:05:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+发布结果中的 `silverSnapshot` 是完整 `ObjectRef`，含 URI、SHA-256、size、
+VersionId 和 ETag。将这些字段原样传给 identity；identity 同时 time-travel
+明确的 v1 SnapshotSet，仅对所列 source runs 解析新 source nodes，并把
+ledger/index/conflict/decision/membership 以及当前为空的
+redirect/merge/split frames 一起通过同一个 commit-last 边界提交：
+
+```bash
+video-media-catalog-research-silver resolve-identity \
+  --silver-snapshot-uri s3://bucket/research-silver/pre-identity.json \
+  --silver-snapshot-hash sha256:<hex> \
+  --silver-snapshot-size <bytes> \
+  --silver-snapshot-version <VersionId> \
+  --silver-snapshot-etag <ETag> \
+  --v1-snapshot-uri s3://bucket/v1-runs/.../snapshot-set.json \
+  --v1-snapshot-hash sha256:<hex> \
+  --v1-snapshot-size <bytes> \
+  --v1-snapshot-version <VersionId> \
+  --v1-snapshot-etag <ETag> \
+  --source-run-id sha256:<source-run> \
+  --image-digest sha256:<image-hex> \
+  --config-digest sha256:<config-hex> \
+  --started-at 2026-09-20T01:10:00Z \
+  --committed-at 2026-09-20T01:20:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+最后再次发布包含 source、migration 和 identity run 的快照供
+`video-media-catalog-gold-spark` 使用。发布器先固定 ingest-run/commit/data
+snapshot IDs，再逐 run 核对 manifest、commit 和每表行数；最多可显式选择
+4,096 个 run。S3 目标若未返回 VersionId 或 ETag 会失败，不会向下游提供
+“latest”引用：
+
+```bash
+video-media-catalog-research-silver publish-snapshot \
+  --run-id sha256:<source-run> \
+  --run-id sha256:<migration-run> \
+  --run-id sha256:<identity-run> \
+  --snapshot-uri s3://bucket/research-silver/gold-input.json \
+  --created-at 2026-09-20T01:25:00Z \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+随后把返回 `silverSnapshot` 的固定字段直接交给 Gold，不重新 HEAD 未带
+VersionId 的 key：
+
+```bash
+video-media-catalog-gold-spark \
+  --silver-snapshot-uri s3://bucket/research-silver/gold-input.json \
+  --silver-snapshot-hash sha256:<hex> \
+  --silver-snapshot-size <bytes> \
+  --silver-snapshot-version <VersionId> \
+  --silver-snapshot-etag <ETag> \
+  --output-prefix s3://bucket/research-gold \
+  --planned-at 2026-09-20T01:30:00Z \
+  --committed-at 2026-09-20T01:45:00Z \
+  --image-digest sha256:<image-hex> \
+  --owner-subject <exact-oidc-sub> \
+  --warehouse s3://bucket/catalog-warehouse \
+  --aws-region us-east-1
+```
+
+Gold v2 只发布一个 `research` context，不再生成平行 release。release plan、
+release commit 和 index build manifest 都绑定同一个
+精确 OIDC `sub`：
 
 - `identity_resolution.py`：精确匹配只接受唯一候选，未匹配 source node 分配一次
   内部 UUIDv7，歧义进入 conflict，membership/redirect 可按 as-of 重放；
 - `identity_spark.py`：分布式读取 active type/identifier assertions，优先与 v1
   external identifiers 做类型兼容的精确连接，未匹配项再分配内部实体；多候选
   直接阻断而不是猜测；
-- `gold.py` / `gold_resolution.py`：rights eligibility 先于字段选择；
+- `gold.py` / `gold_resolution.py`：固定 audience=`research`、
+  purpose=`research`，默认允许 open、public registry 与已登记
+  `research_private` zone；每条 assertion 仍须同时通过
+  STORE/TRANSFORM/DISPLAY/SEARCH、territory、有效期和 policy digest 门禁；
+  rights eligibility 先于字段选择；
   `SINGLE` 冲突不任意选供应商，`SET_UNION` 保留多值及 assertion lineage；
 - `gold_spark_transform.py`：分布式 join active membership、rights/TTL、source
   provenance，生成 entity/field/identifier/relation/conflict 五类 Gold frames；
 - `gold_quality.py`：冲突率、未解析身份率和 rights gate 形成不可变报告；
 - `gold_iceberg.py`：entity/field/identifier/relation/conflict 五表按 release plan
   隔离，质量 PASS 后才发布 commit marker；
-- attribution 与 quality ObjectRef 必须绑定实际 payload，才能进入 release commit。
+- attribution 与 quality ObjectRef 必须绑定实际 payload，且 attribution 的
+  claim counts 必须完整覆盖 eligible policy counts，才能进入 release commit。
 
 完整表契约见
 [`contracts/parquet/community_catalog_gold.v2.md`](contracts/parquet/community_catalog_gold.v2.md)。
 `video-media-catalog-gold-spark` 验证 immutable
 `CommunitySilverSnapshotSet`，按列出的 committed runs time-travel Silver，
-发布 quality/attribution 对象并 commit Gold。v2 shadow OpenSearch 使用独立
-alias，不替换 v1：
+发布 quality/attribution 对象并 commit Gold。`--owner-subject` 为必填参数；
+不再接受可切换的 context/audience/allowed-zone 参数。v2 使用唯一 research
+OpenSearch family，不替换 v1：
 
 ```bash
 video-media-catalog-gold-index \
@@ -113,24 +352,37 @@ video-media-catalog-gold-index \
   --manifest-prefix s3://bucket/gold-index-builds \
   --completed-at 2026-09-19T00:00:00Z \
   --image-digest sha256:<hex> \
+  --owner-subject <exact-oidc-sub> \
   --catalog-type glue \
   --warehouse s3://bucket/community-warehouse \
   --opensearch-endpoint https://search.example.com
 ```
 
-固定 shadow alias 为 `media-catalog-community-v2-shadow-read`。索引文档只包含
-有界 titles/identifiers/attributes/relation summary 和 conflict 标记；完整
-assertions 与 relations 仍留在 Iceberg。现有 OIDC API 同时提供隔离的 v2 路由：
+固定 index prefix 为 `media-catalog-research-*`，固定 read alias 为
+`media-catalog-research-read`。索引文档除有界
+titles/identifiers/attributes/relation summary 外，还提供稳定 UI 契约：
 
-- `GET /api/v2/catalog/search`
-- `GET /api/v2/catalog/entities/{entityKey}`
-- `GET /api/v2/catalog/external-identifiers/{namespace}/{value}`
+- `sourceBadges[]`：来源产品、展示名、来源 URL、policy zones 和 assertion 数；
+- `winningAssertions[]`：字段/identifier 的获胜 assertion、source record/path、
+  observed time 与有界 `citationKeys`；
+- `rights[]`：policy zone、license、署名、来源链接和 share-alike；
+- `conflicts[]`：predicate、reason、scope、候选值 JSON、assertion/source 摘要；
+- `overflow`：上述有界数组的截断计数。
+
+完整 assertions 和 relation edges 仍留在 Iceberg；当前 Silver 没有独立
+Citation table，因此此切片稳定暴露 citation keys 与 source record/path 摘要。
+当前仓库没有 UI 源码，因此本切片只发布以上稳定 API 契约。v2 owner-only 路由为：
+
+- `GET /api/v2/research/search`
+- `GET /api/v2/research/entities/{entityKey}`
+- `GET /api/v2/research/external-identifiers/{namespace}/{value}`
 
 v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和过期时间，
-因此 alias 切换不会造成跨版本错页。可通过
-`MEDIA_CATALOG_COMMUNITY_READ_ALIAS`、
-`MEDIA_CATALOG_COMMUNITY_INDEX_PREFIX` 和
-`MEDIA_CATALOG_COMMUNITY_CURSOR_TTL_SECONDS` 配置；v1 alias 和 API 契约不变。
+因此 alias 切换不会造成跨版本错页。TTL 使用
+`MEDIA_CATALOG_RESEARCH_CURSOR_TTL_SECONDS`；index/alias 名称固定，不能切回
+community/public family。每个 v2 research 请求除 `governance.read` 外，还必须
+满足 `sub == MEDIA_CATALOG_OIDC_OWNER_SUBJECT`（也接受部署环境名
+`OIDC_OWNER_SUBJECT`）。v1 alias 和 API 契约不变。
 
 ## Reference catalog MVP selector
 
@@ -576,18 +828,22 @@ MEDIA_CATALOG_ENVIRONMENT=production
 MEDIA_CATALOG_OPENSEARCH_ENDPOINT=https://search-catalog.us-east-1.es.amazonaws.com
 MEDIA_CATALOG_OPENSEARCH_SERVICE=es
 MEDIA_CATALOG_READ_ALIAS=media-catalog-entities-read
+MEDIA_CATALOG_RESEARCH_READ_ALIAS=media-catalog-research-read
+MEDIA_CATALOG_RESEARCH_INDEX_PREFIX=media-catalog-research
 MEDIA_CATALOG_SEARCH_TIMEOUT_SECONDS=5
 MEDIA_CATALOG_CURSOR_SECRET=<至少 32 bytes，来自 Secret>
 MEDIA_CATALOG_OIDC_ISSUER=https://issuer.example
 MEDIA_CATALOG_OIDC_JWKS_URI=https://issuer.example/.well-known/jwks.json
 MEDIA_CATALOG_OIDC_AUDIENCE=media-catalog-api
 MEDIA_CATALOG_OIDC_REQUIRED_SCOPE=governance.read
+MEDIA_CATALOG_OIDC_OWNER_SUBJECT=<exact-oidc-sub>
 AWS_REGION=us-east-1
 ```
 
 应用也接受 GitOps 的固定未加前缀契约：
 `OPENSEARCH_ENDPOINT`、`REGION`、`INDEX_ALIAS`、`OIDC_ISSUER`、
-`OIDC_JWKS_URI`、`OIDC_AUDIENCE`、`OIDC_REQUIRED_SCOPE`。
+`OIDC_JWKS_URI`、`OIDC_AUDIENCE`、`OIDC_REQUIRED_SCOPE`、
+`OIDC_OWNER_SUBJECT`。
 issuer 必须为 HTTPS；JWKS 可为 HTTPS，或仅对 hostname 等于
 `svc.cluster.local`/以 `.svc.cluster.local` 结尾的集群服务允许 HTTP。
 所有 OIDC URL 都拒绝 credentials、query 和 fragment。
@@ -596,8 +852,9 @@ API Pod 必须使用独立 ServiceAccount/IRSA，仅授予读 alias 所需的 Op
 `ESHttpGet`/`ESHttpHead` 权限。搜索和外部 ID 查询固定通过编码安全的
 `GET /<alias>/_search` 发送，不需要 POST。除 `/healthz` 外，请求复用同源
 `Authorization: Bearer <JWT>`。
-服务校验 JWT 签名、`iss`、`aud`、`exp`、非空 `sub`，并要求
-`governance.read` scope；不会记录 token。缺少 OIDC 配置时生产服务拒绝启动。
+服务校验 JWT 签名、`iss`、`aud`、`exp`、非空 `sub`；v2 research 路由固定
+要求 `governance.read` 且 `sub` 与唯一配置值逐字节相同，不会记录 token。
+缺少 owner subject 或其他 OIDC 配置时生产服务拒绝启动。
 仅测试可同时设置
 `MEDIA_CATALOG_ENVIRONMENT=test` 与 `MEDIA_CATALOG_AUTH_DISABLED=true`。
 
@@ -612,6 +869,13 @@ HTTP 契约：
 - `GET /api/v1/catalog/entities/{entityKey}`：按稳定实体键读取。
 - `GET /api/v1/catalog/external-identifiers/{scheme}/{value}`：精确解析并返回
   单个实体；零条为 404，多条为 409。
+- `GET /api/v2/research/search`：owner-only research 搜索，支持
+  `entityLevel`、`entityKind`、`language`、`hasConflicts` 和 concrete-index
+  cursor。
+- `GET /api/v2/research/entities/{entityKey}`：返回来源 badges、获胜
+  assertion/citation keys、rights/attribution 与 conflict summaries。
+- `GET /api/v2/research/external-identifiers/{namespace}/{value}`：在唯一
+  research alias 中精确解析。
 
 分页 cursor 是绑定原查询的 HMAC 签名 opaque `search_after`，篡改或跨查询复用
 返回 Problem Details。所有查询由固定结构构造，不接受 OpenSearch DSL。

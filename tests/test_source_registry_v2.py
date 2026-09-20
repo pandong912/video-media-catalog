@@ -3,7 +3,20 @@ from __future__ import annotations
 import pytest
 
 from video_media_catalog.community_sources import build_community_registry
-from video_media_catalog.source_registry import SourceRegistrySnapshot
+from video_media_catalog.identity_spark import exact_id_namespace_rows
+from video_media_catalog.source_registry import (
+    SourceProduct,
+    SourceProductKind,
+    SourceRegistrySnapshot,
+)
+from video_media_catalog.tmdb import (
+    TMDB_CHANGES_CONNECTOR_ID,
+    TMDB_DAILY_CONNECTOR_ID,
+)
+from video_media_catalog.tvmaze import (
+    TVMAZE_CONNECTOR_ID,
+    TVMAZE_DELTA_CONNECTOR_ID,
+)
 
 
 def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
@@ -16,7 +29,9 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "wikidata-json-dump",
         "eidr-public-registry",
         "identity-resolution-v2",
+        "imdb-non-commercial-datasets",
         "media-catalog-v1",
+        "tmdb-research",
         "tvmaze-public-api",
     }
     wikidata = next(
@@ -24,6 +39,50 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     )
     assert wikidata.accepts("Q42")
     assert not wikidata.accepts("42")
+    namespaces = {item.namespace_id for item in first.source_namespaces}
+    assert {
+        "imdb-title",
+        "imdb-name",
+        "tmdb-movie",
+        "tmdb-tv",
+        "tmdb-person",
+    } <= namespaces
+    policies = {item.policy_id: item for item in first.rights_profiles}
+    assert policies["imdb-research-noncommercial"].zone.value == "research_private"
+    assert policies["tmdb-research-noncommercial"].zone.value == "research_private"
+
+
+def test_registry_declares_every_source_product_connector() -> None:
+    products = {
+        item.source_product_id: item
+        for item in build_community_registry().source_products
+    }
+
+    assert set(products["tmdb-research"].connector_ids) == {
+        TMDB_DAILY_CONNECTOR_ID,
+        TMDB_CHANGES_CONNECTOR_ID,
+    }
+    assert set(products["tvmaze-public-api"].connector_ids) == {
+        TVMAZE_CONNECTOR_ID,
+        TVMAZE_DELTA_CONNECTOR_ID,
+    }
+
+
+def test_source_product_accepts_legacy_single_connector_field() -> None:
+    product = SourceProduct.model_validate(
+        {
+            "sourceProductId": "legacy-research-product",
+            "sourceSystemId": "legacy-research-system",
+            "name": "Legacy research product",
+            "kind": SourceProductKind.PLATFORM_API,
+            "policyId": "legacy-research-policy",
+            "connectorId": "legacy-research-connector",
+            "documentationUrl": "https://example.com/research",
+        }
+    )
+
+    assert product.connector_ids == ("legacy-research-connector",)
+    assert "connectorIds" in product.model_dump(mode="json", by_alias=True)
 
 
 def test_registry_rejects_dangling_product_references() -> None:
@@ -51,3 +110,34 @@ def test_registry_rejects_duplicate_namespace() -> None:
                 ),
             }
         )
+
+
+def test_registry_drives_supported_exact_id_namespaces() -> None:
+    registry = build_community_registry()
+    namespaces = {
+        namespace.namespace_id: namespace for namespace in registry.source_namespaces
+    }
+    assert {
+        "wikidata-item",
+        "imdb-title",
+        "imdb-name",
+        "tmdb-movie",
+        "tmdb-tv",
+        "tmdb-person",
+        "eidr-content",
+        "tvmaze-show",
+    }.issubset(namespaces)
+    assert namespaces["imdb-title"].normalize("tt0000001") == "TT0000001"
+    assert (
+        namespaces["eidr-content"].normalize("10.5240/aaaa-bbbb-cccc-dddd-eeee-f")
+        == "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-F"
+    )
+
+    rows = exact_id_namespace_rows(registry)
+    imdb = {
+        (row["scheme"], row["referent_kind"])
+        for row in rows
+        if row["namespace_id"] == "imdb-title"
+    }
+    assert ("imdb", "SERIES") in imdb
+    assert ("imdb-title", "EDITORIAL_WORK") in imdb

@@ -107,3 +107,21 @@ def test_relationship_assertion_preserves_source_nodes() -> None:
         provenance=_provenance(),
     )
     assert relation.object.referent_kind == "SERIES"
+
+
+def test_relationship_builder_normalizes_predicate_before_identity() -> None:
+    relation = build_relationship_assertion(
+        subject=SourceNodeRef(
+            namespace_id="example-movie",
+            source_id="movie-1",
+            referent_kind="MOVIE",
+        ),
+        predicate="DIRECTED_BY",
+        object=SourceNodeRef(
+            namespace_id="example-person",
+            source_id="person-1",
+            referent_kind="PERSON",
+        ),
+        provenance=_provenance(),
+    )
+    assert relation.predicate == "directed_by"

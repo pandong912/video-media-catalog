@@ -31,8 +31,11 @@ from video_media_catalog.api_auth import (
     AuthorizationError,
     OIDCConfig,
     OIDCJWTVerifier,
+    OwnerAuthorizationError,
     Principal,
+    ResearchScopeAuthorizationError,
     TokenVerifier,
+    authorize_research_principal,
 )
 from video_media_catalog.api_models import (
     CatalogEntity,
@@ -59,14 +62,15 @@ from video_media_catalog.gold_api_search import (
     build_gold_search_query,
 )
 from video_media_catalog.gold_search_index import (
-    SHADOW_INDEX_PREFIX,
-    SHADOW_READ_ALIAS,
+    RESEARCH_INDEX_PREFIX,
+    RESEARCH_READ_ALIAS,
 )
 from video_media_catalog.opensearch_client import (
     OpenSearchConnection,
     create_opensearch_client,
 )
 from video_media_catalog.search_index import READ_ALIAS
+from video_media_catalog.v2_contracts import require_oidc_subject
 
 _LANGUAGE = re.compile(r"^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$")
 _CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
@@ -94,6 +98,7 @@ _PROBLEM_DEFAULTS = {
     504: ("UPSTREAM_TIMEOUT", True),
 }
 _SUMMARY_IDENTIFIER_LIMIT = 5
+_SUMMARY_SOURCE_BADGE_LIMIT = 5
 
 
 def _environment_bool(name: str, *, default: bool = False) -> bool:
@@ -123,9 +128,9 @@ class APISettings:
     aws_region: str | None = None
     opensearch_service: str = "es"
     read_alias: str = READ_ALIAS
-    community_read_alias: str = SHADOW_READ_ALIAS
-    community_index_prefix: str = SHADOW_INDEX_PREFIX
-    community_cursor_ttl_seconds: int = 900
+    research_read_alias: str = RESEARCH_READ_ALIAS
+    research_index_prefix: str = RESEARCH_INDEX_PREFIX
+    research_cursor_ttl_seconds: int = 900
     request_timeout_seconds: float = 5.0
     environment: str = "production"
     auth_disabled: bool = False
@@ -133,6 +138,7 @@ class APISettings:
     oidc_jwks_uri: str | None = None
     oidc_audience: str | None = None
     oidc_required_scope: str = REQUIRED_SCOPE
+    oidc_owner_subject: str | None = None
     allow_insecure_opensearch: bool = False
 
     def __post_init__(self) -> None:
@@ -149,21 +155,26 @@ class APISettings:
         if (
             re.fullmatch(
                 r"[a-z0-9][a-z0-9_-]{0,254}",
-                self.community_read_alias,
+                self.research_read_alias,
             )
             is None
         ):
-            raise ValueError("community read alias is not a safe OpenSearch name")
+            raise ValueError("research read alias is not a safe OpenSearch name")
         if (
             re.fullmatch(
                 r"[a-z0-9][a-z0-9_-]{0,254}",
-                self.community_index_prefix,
+                self.research_index_prefix,
             )
             is None
         ):
-            raise ValueError("community index prefix is not a safe OpenSearch name")
-        if not 1 <= self.community_cursor_ttl_seconds <= 3600:
-            raise ValueError("community cursor TTL must be between 1 and 3600")
+            raise ValueError("research index prefix is not a safe OpenSearch name")
+        if (
+            self.research_read_alias != RESEARCH_READ_ALIAS
+            or self.research_index_prefix != RESEARCH_INDEX_PREFIX
+        ):
+            raise ValueError("research index and alias names are fixed")
+        if not 1 <= self.research_cursor_ttl_seconds <= 3600:
+            raise ValueError("research cursor TTL must be between 1 and 3600")
         OpenSearchConnection(
             endpoint=self.opensearch_endpoint,
             aws_region=self.aws_region,
@@ -172,12 +183,20 @@ class APISettings:
             allow_insecure=self.allow_insecure_opensearch,
         )
         if not self.auth_disabled and not all(
-            (self.oidc_issuer, self.oidc_jwks_uri, self.oidc_audience)
+            (
+                self.oidc_issuer,
+                self.oidc_jwks_uri,
+                self.oidc_audience,
+                self.oidc_owner_subject,
+            )
         ):
             raise ValueError(
-                "OIDC issuer, JWKS URI, and audience are required when auth is enabled"
+                "OIDC issuer, JWKS URI, audience, and owner subject are required "
+                "when auth is enabled"
             )
         if not self.auth_disabled:
+            assert self.oidc_owner_subject is not None
+            require_oidc_subject(self.oidc_owner_subject)
             self.oidc_config()
 
     @classmethod
@@ -201,17 +220,17 @@ class APISettings:
                 "MEDIA_CATALOG_READ_ALIAS",
                 default=READ_ALIAS,
             ),
-            community_read_alias=_environment_value(
-                "MEDIA_CATALOG_COMMUNITY_READ_ALIAS",
-                default=SHADOW_READ_ALIAS,
+            research_read_alias=_environment_value(
+                "MEDIA_CATALOG_RESEARCH_READ_ALIAS",
+                default=RESEARCH_READ_ALIAS,
             ),
-            community_index_prefix=_environment_value(
-                "MEDIA_CATALOG_COMMUNITY_INDEX_PREFIX",
-                default=SHADOW_INDEX_PREFIX,
+            research_index_prefix=_environment_value(
+                "MEDIA_CATALOG_RESEARCH_INDEX_PREFIX",
+                default=RESEARCH_INDEX_PREFIX,
             ),
-            community_cursor_ttl_seconds=int(
+            research_cursor_ttl_seconds=int(
                 os.environ.get(
-                    "MEDIA_CATALOG_COMMUNITY_CURSOR_TTL_SECONDS",
+                    "MEDIA_CATALOG_RESEARCH_CURSOR_TTL_SECONDS",
                     "900",
                 )
             ),
@@ -242,6 +261,11 @@ class APISettings:
                 "MEDIA_CATALOG_OIDC_REQUIRED_SCOPE",
                 default=REQUIRED_SCOPE,
             ),
+            oidc_owner_subject=_environment_value(
+                "OIDC_OWNER_SUBJECT",
+                "MEDIA_CATALOG_OIDC_OWNER_SUBJECT",
+            )
+            or None,
             allow_insecure_opensearch=_environment_bool(
                 "MEDIA_CATALOG_ALLOW_INSECURE_OPENSEARCH"
             ),
@@ -458,9 +482,29 @@ def _summary(
     }
 
 
-def _gold_summary(hit: Any) -> dict[str, Any]:
-    source = _source(hit)
+def _require_gold_owner(
+    source: dict[str, Any],
+    *,
+    principal_subject: str,
+    configured_owner_subject: str,
+) -> dict[str, Any]:
+    owner = source.get("ownerSubject")
+    if (
+        not isinstance(owner, str)
+        or owner != principal_subject
+        or owner != configured_owner_subject
+    ):
+        raise UpstreamFailure(
+            502,
+            "Bad Gateway",
+            "Research document owner does not match the API identity",
+        )
+    return source
+
+
+def _gold_summary(source: dict[str, Any]) -> dict[str, Any]:
     identifiers = source.get("externalIdentifiers")
+    source_badges = source.get("sourceBadges")
     return {
         "entityKey": source.get("entityKey"),
         "entityLevel": source.get("entityLevel"),
@@ -468,10 +512,17 @@ def _gold_summary(hit: Any) -> dict[str, Any]:
         "displayName": source.get("displayName"),
         "displayLanguage": source.get("displayLanguage"),
         "releasePlanId": source.get("releasePlanId"),
+        "contextId": source.get("contextId"),
+        "ownerSubject": source.get("ownerSubject"),
         "conflictCount": source.get("conflictCount", 0),
         "externalIdentifiers": (
             identifiers[:_SUMMARY_IDENTIFIER_LIMIT]
             if isinstance(identifiers, list)
+            else []
+        ),
+        "sourceBadges": (
+            source_badges[:_SUMMARY_SOURCE_BADGE_LIMIT]
+            if isinstance(source_badges, list)
             else []
         ),
     }
@@ -497,10 +548,13 @@ def create_app(
     owns_client = client is None
     client = client or create_opensearch_client(settings.opensearch_connection())
     cursor_codec = CursorCodec(settings.cursor_secret.encode("utf-8"))
-    gold_cursor_codec = GoldCursorCodec(
+    research_cursor_codec = GoldCursorCodec(
         settings.cursor_secret.encode("utf-8"),
-        ttl_seconds=settings.community_cursor_ttl_seconds,
-        index_prefix=settings.community_index_prefix,
+        ttl_seconds=settings.research_cursor_ttl_seconds,
+        index_prefix=settings.research_index_prefix,
+    )
+    research_owner_subject = require_oidc_subject(
+        settings.oidc_owner_subject or "test-owner"
     )
     timeout_ms = int(settings.request_timeout_seconds * 1000)
 
@@ -537,6 +591,32 @@ def create_app(
             code="AUTHENTICATION_REQUIRED",
             retryable=False,
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @app.exception_handler(OwnerAuthorizationError)
+    async def owner_authorization_problem(
+        request: Request, _: OwnerAuthorizationError
+    ) -> JSONResponse:
+        return _problem(
+            request,
+            status=403,
+            title="Forbidden",
+            detail="The research catalog is owner-only",
+            code="OWNER_ONLY",
+            retryable=False,
+        )
+
+    @app.exception_handler(ResearchScopeAuthorizationError)
+    async def research_scope_problem(
+        request: Request, _: ResearchScopeAuthorizationError
+    ) -> JSONResponse:
+        return _problem(
+            request,
+            status=403,
+            title="Forbidden",
+            detail=f"The {REQUIRED_SCOPE} scope is required",
+            code="INSUFFICIENT_SCOPE",
+            retryable=False,
         )
 
     @app.exception_handler(AuthorizationError)
@@ -619,7 +699,10 @@ def create_app(
         credentials: HTTPAuthorizationCredentials | None = _BEARER_DEPENDENCY,
     ) -> Principal:
         if settings.auth_disabled:
-            return Principal(subject="test", scopes=frozenset({"governance.read"}))
+            return Principal(
+                subject=settings.oidc_owner_subject or "test-owner",
+                scopes=frozenset({REQUIRED_SCOPE}),
+            )
         if (
             credentials is None
             or credentials.scheme.lower() != "bearer"
@@ -628,6 +711,14 @@ def create_app(
             raise AuthenticationError("bearer token is required")
         assert verifier is not None
         return verifier.verify(credentials.credentials)
+
+    def require_research_principal(
+        principal=Depends(require_principal),  # noqa: B008
+    ) -> Principal:
+        return authorize_research_principal(
+            principal,
+            owner_subject=settings.oidc_owner_subject or "test-owner",
+        )
 
     @app.get(
         "/openapi.json",
@@ -822,15 +913,15 @@ def create_app(
         )
 
     @app.get(
-        "/api/v2/catalog/search",
-        tags=["community-catalog-v2"],
-        summary="Search the policy-resolved community Gold catalog",
-        dependencies=[Depends(require_principal)],
+        "/api/v2/research/search",
+        tags=["research-v2"],
+        summary="Search the owner-only research catalog",
         response_model=GoldSearchResponse,
         responses=_AUTHENTICATED_ERRORS,
     )
     def search_gold_catalog(
         request: Request,
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
         q: Annotated[str, Query(max_length=200)] = "",
         entity_level: Annotated[
             str | None,
@@ -878,7 +969,7 @@ def create_app(
             page_size=page_size,
         )
         state = (
-            gold_cursor_codec.decode(
+            research_cursor_codec.decode(
                 cursor,
                 fingerprint=parameters.fingerprint(),
             )
@@ -889,10 +980,11 @@ def create_app(
             lambda: _search_get(
                 client,
                 alias=(
-                    state.index if state is not None else settings.community_read_alias
+                    state.index if state is not None else settings.research_read_alias
                 ),
                 body=build_gold_search_query(
                     parameters,
+                    owner_subject=research_owner_subject,
                     search_after=(state.sort if state is not None else None),
                     timeout_ms=timeout_ms,
                 ),
@@ -900,6 +992,14 @@ def create_app(
             )
         )
         hits, total = _hits(response)
+        sources = [
+            _require_gold_owner(
+                _source(hit),
+                principal_subject=principal.subject,
+                configured_owner_subject=research_owner_subject,
+            )
+            for hit in hits
+        ]
         next_cursor = None
         if len(hits) == page_size:
             indexes = {hit.get("_index") for hit in hits if isinstance(hit, dict)}
@@ -914,23 +1014,22 @@ def create_app(
                     "Bad Gateway",
                     "Gold search hit has no stable index and sort tuple",
                 )
-            next_cursor = gold_cursor_codec.encode(
+            next_cursor = research_cursor_codec.encode(
                 index=next(iter(indexes)),
                 sort=sort,
                 fingerprint=parameters.fingerprint(),
             )
         return {
-            "items": [_gold_summary(hit) for hit in hits],
+            "items": [_gold_summary(source) for source in sources],
             "nextCursor": next_cursor,
             "totalValue": total["value"],
             "totalRelation": total["relation"],
         }
 
     @app.get(
-        "/api/v2/catalog/entities/{entityKey}",
-        tags=["community-catalog-v2"],
-        summary="Get one policy-resolved Gold entity",
-        dependencies=[Depends(require_principal)],
+        "/api/v2/research/entities/{entityKey}",
+        tags=["research-v2"],
+        summary="Get one owner-only research entity",
         response_model=GoldCatalogEntity,
         responses={
             **_AUTHENTICATED_ERRORS,
@@ -943,12 +1042,13 @@ def create_app(
             str,
             Path(alias="entityKey", pattern=_ENTITY_KEY),
         ],
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
     ) -> dict[str, Any]:
         _validate_query_parameters(request, set())
         try:
             response = _call_opensearch(
                 lambda: client.get(
-                    index=settings.community_read_alias,
+                    index=settings.research_read_alias,
                     id=entity_key,
                     request_timeout=settings.request_timeout_seconds,
                 ),
@@ -958,7 +1058,7 @@ def create_app(
             if getattr(exc, "status_code", None) == 404:
                 raise HTTPException(
                     status_code=404,
-                    detail="Gold catalog entity was not found",
+                    detail="Research catalog entity was not found",
                 ) from exc
             raise
         if not isinstance(response, dict) or not isinstance(
@@ -967,15 +1067,18 @@ def create_app(
             raise UpstreamFailure(
                 502,
                 "Bad Gateway",
-                "Gold entity response is invalid",
+                "Research entity response is invalid",
             )
-        return response["_source"]
+        return _require_gold_owner(
+            response["_source"],
+            principal_subject=principal.subject,
+            configured_owner_subject=research_owner_subject,
+        )
 
     @app.get(
-        "/api/v2/catalog/external-identifiers/{namespace}/{value:path}",
-        tags=["community-catalog-v2"],
-        summary="Resolve one Gold external identifier",
-        dependencies=[Depends(require_principal)],
+        "/api/v2/research/external-identifiers/{namespace}/{value:path}",
+        tags=["research-v2"],
+        summary="Resolve one research external identifier",
         response_model=GoldCatalogEntity,
         responses={
             **_AUTHENTICATED_ERRORS,
@@ -987,32 +1090,42 @@ def create_app(
         request: Request,
         namespace: Annotated[str, Path(pattern=_SCHEME)],
         value: Annotated[str, Path(min_length=1, max_length=256)],
+        principal: Principal = Depends(require_research_principal),  # noqa: B008
     ) -> dict[str, Any]:
         _validate_query_parameters(request, set())
         identifier = _validate_text(value, label="external identifier")
         response = _call_opensearch(
             lambda: _search_get(
                 client,
-                alias=settings.community_read_alias,
+                alias=settings.research_read_alias,
                 body=build_gold_external_identifier_query(
                     namespace=namespace,
                     value=identifier,
+                    owner_subject=research_owner_subject,
                     timeout_ms=timeout_ms,
                 ),
                 timeout_seconds=settings.request_timeout_seconds,
             )
         )
         hits, total = _hits(response)
+        sources = [
+            _require_gold_owner(
+                _source(hit),
+                principal_subject=principal.subject,
+                configured_owner_subject=research_owner_subject,
+            )
+            for hit in hits
+        ]
         if total["value"] == 0 or not hits:
             raise HTTPException(
                 status_code=404,
-                detail="Gold external identifier was not found",
+                detail="Research external identifier was not found",
             )
         if total["relation"] != "eq" or total["value"] != 1 or len(hits) != 1:
             raise HTTPException(
                 status_code=409,
-                detail="Gold external identifier resolves to multiple entities",
+                detail="Research external identifier resolves to multiple entities",
             )
-        return _source(hits[0])
+        return sources[0]
 
     return app

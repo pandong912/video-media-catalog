@@ -13,6 +13,7 @@ from video_media_catalog.canonical import canonical_json_bytes, sha256_digest
 
 _SLUG = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def to_camel(value: str) -> str:
@@ -49,6 +50,18 @@ def require_sha256(value: str, *, label: str = "digest") -> str:
     if _SHA256.fullmatch(normalized) is None:
         raise ValueError(f"{label} must use sha256:<64 lowercase hex>")
     return normalized
+
+
+def require_oidc_subject(value: str, *, label: str = "OIDC subject") -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or len(value) > 512
+        or _CONTROL_CHARACTER.search(value) is not None
+    ):
+        raise ValueError(f"{label} must be a non-empty bounded exact value")
+    return value
 
 
 def parse_rfc3339(value: str, *, label: str = "timestamp") -> datetime:

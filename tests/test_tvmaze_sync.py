@@ -12,6 +12,7 @@ from video_media_catalog.storage import local_path
 from video_media_catalog.tvmaze_sync import (
     TVMazeHttpFetcher,
     TVMazePageFetch,
+    capture_tvmaze_show_delta,
     capture_tvmaze_show_index,
 )
 
@@ -31,6 +32,28 @@ class FakeFetcher:
             retry_count=int(page == 0),
             rate_limit_count=int(page == 0),
         )
+
+
+class FakeDeltaFetcher:
+    def fetch_updates(self, since: str) -> TVMazePageFetch:
+        assert since == "day"
+        return TVMazePageFetch(
+            status=200,
+            body=json.dumps({"1": 1_700_000_001, "2": 1_700_000_002}).encode(),
+        )
+
+    def fetch_show(self, show_id: int) -> TVMazePageFetch:
+        if show_id == 1:
+            return TVMazePageFetch(status=200, body=json.dumps(_show(1)).encode())
+        return TVMazePageFetch(status=404, body=b"")
+
+
+class EmptyDeltaFetcher:
+    def fetch_updates(self, since: str) -> TVMazePageFetch:
+        return TVMazePageFetch(status=200, body=b"{}")
+
+    def fetch_show(self, show_id: int) -> TVMazePageFetch:
+        raise AssertionError(show_id)
 
 
 class FakeResponse(BytesIO):
@@ -176,3 +199,39 @@ def test_tvmaze_http_fetcher_rejects_off_origin_final_url() -> None:
     )
     with pytest.raises(ValueError, match="approved endpoint"):
         fetcher.fetch_page(0)
+
+
+def test_tvmaze_delta_captures_updates_details_and_delete(tmp_path) -> None:
+    result = capture_tvmaze_show_delta(
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        since="day",
+        fetcher=FakeDeltaFetcher(),
+        store=BoundedObjectStore(client=object()),
+    )
+
+    assert result.batch_manifest.change_semantics.value == "DELTA"
+    assert result.batch_manifest.delete_coverage.value == "EXPLICIT"
+    records = [
+        ConnectorRecordEnvelope.model_validate_json(line)
+        for reference in result.record_set_manifest.record_objects
+        for line in local_path(reference.uri).read_bytes().splitlines()
+    ]
+    assert [item.operation.value for item in records] == ["UPSERT", "DELETE"]
+
+
+def test_tvmaze_empty_delta_commits_without_fake_records(tmp_path) -> None:
+    result = capture_tvmaze_show_delta(
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        since="day",
+        fetcher=EmptyDeltaFetcher(),
+        store=BoundedObjectStore(client=object()),
+    )
+
+    assert result.batch_manifest.record_count == 0
+    assert result.record_set_manifest.record_objects == ()

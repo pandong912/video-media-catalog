@@ -7,13 +7,9 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import Field
-
 from video_media_catalog.assertions import (
     AssertionProvenance,
-    EntityTypeAssertion,
     FieldAssertion,
-    IdentifierAssertion,
     SourceNodeRef,
     ValueType,
     build_entity_type_assertion,
@@ -34,6 +30,7 @@ from video_media_catalog.connector import (
     validate_envelopes_against_batch,
 )
 from video_media_catalog.rights import PolicyZone, RightsProfile, UsageAction
+from video_media_catalog.source_mapper import MappedAssertions
 from video_media_catalog.source_registry import (
     RegistryStatus,
     SourceNamespace,
@@ -41,12 +38,12 @@ from video_media_catalog.source_registry import (
     SourceProductKind,
     SourceSystem,
 )
-from video_media_catalog.v2_contracts import V2ContractModel
 
 TVMAZE_SOURCE_SYSTEM_ID = "tvmaze"
 TVMAZE_SOURCE_PRODUCT_ID = "tvmaze-public-api"
 TVMAZE_SHOW_NAMESPACE_ID = "tvmaze-show"
 TVMAZE_CONNECTOR_ID = "tvmaze-show-index"
+TVMAZE_DELTA_CONNECTOR_ID = "tvmaze-show-updates"
 TVMAZE_POLICY_ID = "tvmaze-api-cc-by-sa"
 
 
@@ -98,7 +95,10 @@ def tvmaze_registry_entries() -> tuple[
         name="TVmaze public API",
         kind=SourceProductKind.COMMUNITY_DATABASE,
         policy_id=TVMAZE_POLICY_ID,
-        connector_id=TVMAZE_CONNECTOR_ID,
+        connector_ids=(
+            TVMAZE_CONNECTOR_ID,
+            TVMAZE_DELTA_CONNECTOR_ID,
+        ),
         documentation_url="https://www.tvmaze.com/api",
     )
     namespace = SourceNamespace(
@@ -111,12 +111,8 @@ def tvmaze_registry_entries() -> tuple[
     return system, product, namespace
 
 
-class TVMazeMappedAssertions(V2ContractModel):
-    source_node: SourceNodeRef
-    field_assertions: tuple[FieldAssertion, ...] = ()
-    identifier_assertions: tuple[IdentifierAssertion, ...] = ()
-    entity_type_assertions: tuple[EntityTypeAssertion, ...] = ()
-    omitted_asset_count: int = Field(default=0, ge=0)
+class TVMazeMappedAssertions(MappedAssertions):
+    """Backward-compatible TVmaze mapper result type."""
 
 
 class TVMazeShowConnector(CommunityConnector):
@@ -256,19 +252,20 @@ def map_tvmaze_show(
         envelope.source_system_id != TVMAZE_SOURCE_SYSTEM_ID
         or envelope.source_product_id != TVMAZE_SOURCE_PRODUCT_ID
         or envelope.source_namespace_id != TVMAZE_SHOW_NAMESPACE_ID
-        or envelope.operation != RecordOperation.UPSERT
-        or envelope.payload_json is None
     ):
-        raise ValueError("record is not an active TVmaze show envelope")
-    show = json.loads(envelope.payload_json)
-    if not isinstance(show, dict) or str(_show_id(show)) != envelope.source_record_id:
-        raise ValueError("TVmaze payload identity does not match its envelope")
-
+        raise ValueError("record is not a TVmaze show envelope")
     node = SourceNodeRef(
         namespace_id=TVMAZE_SHOW_NAMESPACE_ID,
         source_id=envelope.source_record_id,
         referent_kind="SERIES",
     )
+    if envelope.operation != RecordOperation.UPSERT:
+        return TVMazeMappedAssertions(source_node=node)
+    if envelope.payload_json is None:
+        raise ValueError("active TVmaze show envelope requires a payload")
+    show = json.loads(envelope.payload_json)
+    if not isinstance(show, dict) or str(_show_id(show)) != envelope.source_record_id:
+        raise ValueError("TVmaze payload identity does not match its envelope")
 
     def provenance(path: str) -> AssertionProvenance:
         return AssertionProvenance(

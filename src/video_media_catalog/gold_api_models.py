@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from video_media_catalog.api_models import APIModel
+from video_media_catalog.v2_contracts import require_oidc_subject
 
 
 class GoldTitle(APIModel):
@@ -38,10 +39,61 @@ class GoldRelationSummary(APIModel):
     count: int = Field(ge=0)
 
 
+class GoldSourceBadge(APIModel):
+    source_product_id: str
+    display_name: str
+    source_url: str
+    policy_zones: list[str]
+    assertion_count: int = Field(ge=0)
+    winning_assertion_count: int = Field(ge=0)
+
+
+class GoldWinningAssertionSummary(APIModel):
+    kind: Literal["FIELD", "IDENTIFIER"]
+    assertion_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    predicate: str
+    value_json: str
+    qualifiers_json: str
+    resolution_status: str
+    source_product_id: str
+    source_record_id: str
+    source_path: str
+    observed_at: str
+    citation_keys: list[str] = Field(max_length=16)
+    citation_overflow: int = Field(ge=0)
+
+
+class GoldRightsSummary(APIModel):
+    source_product_id: str
+    policy_id: str
+    policy_zone: str
+    license_id: str
+    license_uri: str | None = None
+    attribution_text: str
+    source_url: str
+    share_alike: bool
+
+
+class GoldConflictSummary(APIModel):
+    predicate: str
+    scope_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    reason: str
+    assertion_ids: list[str] = Field(max_length=32)
+    assertion_overflow: int = Field(ge=0)
+    candidate_values_json: list[str] = Field(max_length=16)
+    candidate_value_overflow: int = Field(ge=0)
+    source_product_ids: list[str]
+
+
 class GoldOverflow(APIModel):
     titles: int = Field(ge=0)
     external_identifiers: int = Field(ge=0)
     relation_types: int = Field(ge=0)
+    source_badges: int = Field(ge=0)
+    winning_assertions: int = Field(ge=0)
+    citation_keys: int = Field(ge=0)
+    rights: int = Field(ge=0)
+    conflicts: int = Field(ge=0)
     formats: int = Field(ge=0)
     languages: int = Field(ge=0)
     statuses: int = Field(ge=0)
@@ -58,16 +110,27 @@ class GoldCatalogEntity(APIModel):
     entity_kind: str
     status: str
     release_plan_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    context_id: Literal["research"]
+    owner_subject: str
     display_name: str
     display_language: str
     titles: list[GoldTitle]
     attributes: GoldAttributes
     external_identifiers: list[GoldExternalIdentifier]
     relation_summary: list[GoldRelationSummary]
+    source_badges: list[GoldSourceBadge] = Field(max_length=32)
+    winning_assertions: list[GoldWinningAssertionSummary] = Field(max_length=128)
+    rights: list[GoldRightsSummary] = Field(max_length=32)
     conflict_count: int = Field(ge=0)
     conflict_predicates: list[str]
+    conflicts: list[GoldConflictSummary] = Field(max_length=64)
     source_node_count: int = Field(ge=0)
     overflow: GoldOverflow
+
+    @field_validator("owner_subject")
+    @classmethod
+    def validate_owner_subject(cls, value: str) -> str:
+        return require_oidc_subject(value)
 
 
 class GoldCatalogEntitySummary(APIModel):
@@ -77,8 +140,16 @@ class GoldCatalogEntitySummary(APIModel):
     display_name: str
     display_language: str
     release_plan_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    context_id: Literal["research"]
+    owner_subject: str
     conflict_count: int = Field(ge=0)
     external_identifiers: list[GoldExternalIdentifier] = Field(max_length=5)
+    source_badges: list[GoldSourceBadge] = Field(max_length=5)
+
+    @field_validator("owner_subject")
+    @classmethod
+    def validate_owner_subject(cls, value: str) -> str:
+        return require_oidc_subject(value)
 
 
 class GoldSearchResponse(APIModel):

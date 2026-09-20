@@ -14,6 +14,7 @@ def test_silver_snapshot_set_is_deterministic() -> None:
             "sha256:" + ("b" * 64),
             "sha256:" + ("a" * 64),
         ),
+        "run_snapshot_id": 99,
         "commit_snapshot_id": 100,
         "data_snapshot_ids": {
             table: (200 if table == "community_source_record" else None)
@@ -36,6 +37,7 @@ def test_silver_snapshot_set_requires_all_data_tables() -> None:
     with pytest.raises(ValueError, match="every data table"):
         build_community_silver_snapshot_set(
             committed_run_ids=("sha256:" + ("a" * 64),),
+            run_snapshot_id=99,
             commit_snapshot_id=100,
             data_snapshot_ids={},
             created_at="2026-09-19T00:00:00Z",

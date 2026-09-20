@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 
 from pydantic import field_validator, model_validator
 
@@ -73,7 +73,7 @@ class SourceProduct(V2ContractModel):
     name: str
     kind: SourceProductKind
     policy_id: str
-    connector_id: str
+    connector_ids: tuple[str, ...]
     documentation_url: str
     status: RegistryStatus = RegistryStatus.ACTIVE
 
@@ -81,11 +81,40 @@ class SourceProduct(V2ContractModel):
         "source_product_id",
         "source_system_id",
         "policy_id",
-        "connector_id",
     )
     @classmethod
     def validate_ids(cls, value: str) -> str:
         return require_slug(value, label="source product reference")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_connector_id(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        legacy_keys = [key for key in ("connector_id", "connectorId") if key in value]
+        current_keys = [
+            key for key in ("connector_ids", "connectorIds") if key in value
+        ]
+        if legacy_keys and current_keys:
+            raise ValueError("source product cannot mix connector_id and connector_ids")
+        if not legacy_keys:
+            return value
+        migrated = dict(value)
+        legacy = migrated.pop(legacy_keys[0])
+        migrated["connector_ids"] = (legacy,)
+        return migrated
+
+    @field_validator("connector_ids")
+    @classmethod
+    def normalize_connector_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(
+            sorted(
+                {require_slug(item, label="source product connector") for item in value}
+            )
+        )
+        if not normalized:
+            raise ValueError("source product requires at least one connector")
+        return normalized
 
     @field_validator("name")
     @classmethod
@@ -106,6 +135,7 @@ class SourceNamespace(V2ContractModel):
     source_product_id: str
     issuer: str
     referent_kinds: tuple[str, ...]
+    scheme_aliases: tuple[str, ...] = ()
     identifier_pattern: str | None = None
     case_sensitive: bool = True
 
@@ -130,6 +160,15 @@ class SourceNamespace(V2ContractModel):
             raise ValueError("source namespace requires referent_kinds")
         return normalized
 
+    @field_validator("scheme_aliases")
+    @classmethod
+    def normalize_scheme_aliases(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {require_slug(item, label="namespace scheme alias") for item in value}
+            )
+        )
+
     @field_validator("identifier_pattern")
     @classmethod
     def validate_identifier_pattern(cls, value: str | None) -> str | None:
@@ -144,10 +183,25 @@ class SourceNamespace(V2ContractModel):
         return value
 
     def accepts(self, value: str) -> bool:
+        candidate = value.strip()
         if self.identifier_pattern is None:
-            return bool(value)
+            return bool(candidate)
         flags = 0 if self.case_sensitive else re.IGNORECASE
-        return re.fullmatch(self.identifier_pattern, value, flags=flags) is not None
+        return re.fullmatch(self.identifier_pattern, candidate, flags=flags) is not None
+
+    def normalize(self, value: str) -> str:
+        """Validate and normalize an identifier for exact blocking."""
+
+        candidate = value.strip()
+        if not self.accepts(candidate):
+            raise ValueError(f"value is invalid for namespace {self.namespace_id}")
+        return candidate if self.case_sensitive else candidate.upper()
+
+    @property
+    def matching_schemes(self) -> tuple[str, ...]:
+        """Return registry aliases accepted from legacy identifier tables."""
+
+        return tuple(sorted({self.namespace_id, *self.scheme_aliases}))
 
 
 class SchemaContract(V2ContractModel):

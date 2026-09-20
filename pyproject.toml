@@ -1,7 +1,7 @@
 [project]
 name = "video-media-catalog"
 version = "0.1.0"
-description = "Deterministic Wikidata and EIDR film and television catalog pipeline"
+description = "Deterministic multi-source global film and television research catalog"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "Apache-2.0" }
@@ -37,7 +37,13 @@ video-media-catalog-wikidata-subset = "video_media_catalog.wikidata_subset_cli:m
 video-media-catalog-reference-subset = "video_media_catalog.reference_subset_cli:main"
 video-media-catalog-emr-submit = "video_media_catalog.emr_serverless_cli:main"
 video-media-catalog-tvmaze-sync = "video_media_catalog.tvmaze_sync_cli:main"
+video-media-catalog-tvmaze-delta-sync = "video_media_catalog.tvmaze_delta_sync_cli:main"
+video-media-catalog-v1-adapter = "video_media_catalog.v1_adapter_cli:main"
+video-media-catalog-imdb-sync = "video_media_catalog.imdb_sync_cli:main"
+video-media-catalog-tmdb-sync = "video_media_catalog.tmdb_sync_cli:main"
+video-media-catalog-source-registry = "video_media_catalog.source_registry_cli:main"
 video-media-catalog-community-spark = "video_media_catalog.community_cli:main"
+video-media-catalog-research-silver = "video_media_catalog.research_silver_cli:main"
 video-media-catalog-gold-spark = "video_media_catalog.gold_cli:main"
 video-media-catalog-gold-index = "video_media_catalog.gold_index_cli:main"
 

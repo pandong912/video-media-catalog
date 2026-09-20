@@ -16,6 +16,7 @@ from video_media_catalog.assertions import (
 )
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.gold import (
+    GoldAssertionLineage,
     GoldReleasePlan,
     GoldResolutionPolicy,
     GoldResolutionStatus,
@@ -25,6 +26,7 @@ from video_media_catalog.gold import (
     build_gold_field,
     build_gold_identifier,
     build_gold_relation,
+    trace_with_assertion_lineage,
 )
 from video_media_catalog.identity_resolution import IdentityIndex
 from video_media_catalog.rights import RightsProfile
@@ -42,6 +44,7 @@ class FieldDraft:
     assertion_ids: tuple[str, ...]
     selected_assertion_id: str | None
     trace: dict[str, Any]
+    lineage: tuple[GoldAssertionLineage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,7 @@ class IdentifierDraft:
     referent_kind: str
     assertion_ids: tuple[str, ...]
     trace: dict[str, Any]
+    lineage: tuple[GoldAssertionLineage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,7 @@ class RelationDraft:
     qualifiers: dict[str, Any]
     assertion_ids: tuple[str, ...]
     trace: dict[str, Any]
+    lineage: tuple[GoldAssertionLineage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,6 +79,7 @@ class ConflictDraft:
     assertion_ids: tuple[str, ...]
     candidate_values: list[Any]
     trace: dict[str, Any]
+    lineage: tuple[GoldAssertionLineage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -146,7 +152,7 @@ class GoldResolutionDraft:
                 resolution_status=item.status,
                 assertion_ids=item.assertion_ids,
                 selected_assertion_id=item.selected_assertion_id,
-                trace=item.trace,
+                trace=trace_with_assertion_lineage(item.trace, item.lineage),
             )
             for item in self.fields
         )
@@ -159,7 +165,7 @@ class GoldResolutionDraft:
                 issuer=item.issuer,
                 referent_kind=item.referent_kind,
                 assertion_ids=item.assertion_ids,
-                trace=item.trace,
+                trace=trace_with_assertion_lineage(item.trace, item.lineage),
             )
             for item in self.identifiers
         )
@@ -171,7 +177,7 @@ class GoldResolutionDraft:
                 object_entity_key=item.object_entity_key,
                 qualifiers=item.qualifiers,
                 assertion_ids=item.assertion_ids,
-                trace=item.trace,
+                trace=trace_with_assertion_lineage(item.trace, item.lineage),
             )
             for item in self.relations
         )
@@ -184,7 +190,7 @@ class GoldResolutionDraft:
                 reason=item.reason,
                 assertion_ids=item.assertion_ids,
                 candidate_values=item.candidate_values,
-                trace=item.trace,
+                trace=trace_with_assertion_lineage(item.trace, item.lineage),
             )
             for item in self.conflicts
         )

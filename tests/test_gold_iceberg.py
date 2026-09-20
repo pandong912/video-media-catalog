@@ -3,14 +3,16 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from video_media_catalog.attribution import (
     AttributionEntry,
     build_attribution_manifest,
 )
-from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
     build_gold_release_plan,
-    community_display_policy,
+    research_context,
+    research_policy,
 )
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
@@ -23,7 +25,6 @@ from video_media_catalog.gold_resolution import GoldResolutionDraft
 from video_media_catalog.gold_tables import GOLD_TABLE_COLUMNS
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.rights import PolicyZone
 
 TIMESTAMP = "2026-09-19T00:00:00Z"
 
@@ -154,14 +155,11 @@ def _draft() -> GoldResolutionDraft:
 
 def _plan():
     draft = _draft()
-    policy = community_display_policy()
+    policy = research_policy()
     return build_gold_release_plan(
-        policy_context=ReleasePolicyContext(
-            context_id="public-sharealike",
-            audience="public",
-            purpose="catalog",
+        owner_subject="owner-123",
+        policy_context=research_context(
             as_of=TIMESTAMP,
-            allowed_zones=(PolicyZone.OPEN_SHAREALIKE,),
         ),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},
@@ -221,6 +219,8 @@ class RecordingGoldTables(CommunityGoldTables):
         self.counts = counts
         self.events = []
         self.commit: GoldReleaseCommit | None = None
+        self.snapshot_properties = {}
+        self.foreign_latest = {}
 
     def create_tables(self):
         self.events.append("create")
@@ -228,13 +228,25 @@ class RecordingGoldTables(CommunityGoldTables):
     def read_commit(self, release_plan_id):
         return self.commit
 
-    def merge_insert_only(self, table, dataframe):
+    def merge_insert_only(
+        self,
+        table,
+        dataframe,
+        *,
+        snapshot_properties=None,
+    ):
         self.events.append(table)
+        self.snapshot_properties[table] = snapshot_properties
         if table == "community_gold_release_commit":
             self.commit = GoldReleaseCommit.model_validate_json(
                 dataframe[0]["commit_json"]
             )
-        return len(dataframe) if isinstance(dataframe, list) else dataframe.count()
+        count = len(dataframe) if isinstance(dataframe, list) else dataframe.count()
+        if table in self.counts and count:
+            # Simulate a foreign writer advancing latest before snapshot lookup.
+            self.foreign_latest[table] = 999
+            self.events.append(f"foreign-writer:{table}")
+        return count
 
     def _verify_plan(self, plan):
         self.events.append("verify-plan")
@@ -242,14 +254,28 @@ class RecordingGoldTables(CommunityGoldTables):
     def _plan_row_count(self, table, release_plan_id):
         return self.counts[table]
 
+    def _release_snapshot_id(
+        self,
+        table,
+        release_plan_id,
+        *,
+        expected_row_count,
+    ):
+        assert expected_row_count == self.counts[table]
+        return 100 if expected_row_count else None
+
     def _latest_snapshot_id(self, table):
-        return 100 if self.counts[table] else None
+        raise AssertionError(
+            "stage_and_commit must not read the global latest snapshot"
+        )
 
 
-def test_gold_release_commit_is_last_and_quality_gated() -> None:
+def test_gold_commit_pins_own_snapshot_after_foreign_write_and_is_quality_gated() -> (
+    None
+):
     draft = _draft()
     plan = _plan()
-    policy = community_display_policy()
+    policy = research_policy()
     quality = build_gold_quality_report(
         plan=plan,
         draft=draft,
@@ -275,6 +301,27 @@ def test_gold_release_commit_is_last_and_quality_gated() -> None:
         for table, count in plan.expected_counts.items()
     }
     tables = RecordingGoldTables(plan.expected_counts)
+    mismatched_attribution = build_attribution_manifest(
+        release_id=plan.release_plan_id,
+        entries=(attribution.entries[0].model_copy(update={"claim_count": 2}),),
+        created_at=TIMESTAMP,
+    )
+    with pytest.raises(ValueError, match="cover every eligible assertion"):
+        tables.stage_and_commit(
+            plan=plan,
+            dataframes=frames,
+            quality_report=quality,
+            quality_report_ref=_control_ref(
+                quality.json_bytes(), GOLD_QUALITY_MEDIA_TYPE, "quality.json"
+            ),
+            attribution_manifest=mismatched_attribution,
+            attribution_manifest_ref=_control_ref(
+                mismatched_attribution.json_bytes(),
+                ATTRIBUTION_MEDIA_TYPE,
+                "bad-attribution.json",
+            ),
+            committed_at=TIMESTAMP,
+        )
     commit = tables.stage_and_commit(
         plan=plan,
         dataframes=frames,
@@ -291,4 +338,11 @@ def test_gold_release_commit_is_last_and_quality_gated() -> None:
         committed_at=TIMESTAMP,
     )
     assert commit.table_counts == plan.expected_counts
+    assert commit.owner_subject == "owner-123"
+    assert commit.context_id == "research"
+    assert commit.table_snapshot_ids["community_gold_entity"] == 100
+    assert tables.foreign_latest["community_gold_entity"] == 999
+    assert tables.snapshot_properties["community_gold_entity"] == {
+        "video-media-catalog.release-plan-id": plan.release_plan_id
+    }
     assert tables.events[-1] == "community_gold_release_commit"

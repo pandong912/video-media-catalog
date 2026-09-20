@@ -15,9 +15,11 @@ from video_media_catalog.attribution import (
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
+    GoldAssertionLineage,
     GoldReleasePlan,
     GoldResolutionPolicy,
     GoldResolutionStatus,
+    GoldRightsLineage,
     ResolutionOperator,
     build_gold_conflict,
     build_gold_entity,
@@ -25,6 +27,7 @@ from video_media_catalog.gold import (
     build_gold_identifier,
     build_gold_relation,
     build_gold_release_plan,
+    trace_with_assertion_lineage,
 )
 from video_media_catalog.gold_quality import (
     GoldQualityReport,
@@ -45,6 +48,10 @@ from video_media_catalog.gold_rows import (
 )
 from video_media_catalog.gold_spark import gold_table_schema
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
+from video_media_catalog.source_lifecycle import (
+    current_upsert_envelope_keys,
+    select_effective_membership_versions,
+)
 from video_media_catalog.source_registry import SourceRegistrySnapshot
 from video_media_catalog.v2_contracts import parse_rfc3339
 
@@ -73,13 +80,9 @@ def _resolved_memberships(
         raise ValueError("max_redirect_hops must be positive")
     as_of_timestamp = F.to_timestamp(F.lit(as_of))
     memberships = (
-        silver["community_entity_membership"]
-        .where(
-            (F.to_timestamp("valid_from") <= as_of_timestamp)
-            & (
-                F.col("valid_to").isNull()
-                | (F.to_timestamp("valid_to") > as_of_timestamp)
-            )
+        select_effective_membership_versions(
+            silver["community_entity_membership"],
+            as_of=as_of,
         )
         .select(
             "source_namespace_id",
@@ -223,6 +226,10 @@ def _rights_frame(
                 profile.zone.value,
                 statically_allowed,
                 profile.max_cache_age_days,
+                profile.license_id,
+                profile.license_uri,
+                profile.attribution_text,
+                profile.share_alike,
             )
         )
     return spark.createDataFrame(
@@ -232,23 +239,154 @@ def _rights_frame(
         rights_policy_digest STRING,
         rights_zone STRING,
         statically_allowed BOOLEAN,
-        max_cache_age_days LONG
+        max_cache_age_days LONG,
+        rights_license_id STRING,
+        rights_license_uri STRING,
+        rights_attribution_text STRING,
+        rights_share_alike BOOLEAN
         """,
     )
+
+
+def _source_products_frame(spark: Any, registry: SourceRegistrySnapshot):
+    return spark.createDataFrame(
+        [
+            (
+                product.source_product_id,
+                product.policy_id,
+                product.name,
+                product.documentation_url,
+            )
+            for product in registry.source_products
+        ],
+        """
+        source_product_id STRING,
+        source_product_policy_id STRING,
+        source_name STRING,
+        source_documentation_url STRING
+        """,
+    )
+
+
+def _validate_assertion_product_policies(
+    frame: Any,
+    *,
+    source_records: Any,
+    source_products: Any,
+) -> None:
+    """Validate assertion policy ownership even for non-published assertion kinds."""
+
+    from pyspark.sql import functions as F
+
+    active = frame.where(F.col("status") == "ACTIVE").withColumn(
+        "envelope_key",
+        F.get_json_object("provenance_json", "$.envelopeKey"),
+    )
+    source_metadata = (
+        source_records.select(
+            "envelope_key",
+            "source_product_id",
+            F.col("policy_id").alias("record_policy_id"),
+            F.col("policy_digest").alias("record_policy_digest"),
+        )
+        .join(source_products, "source_product_id", "inner")
+        .select(
+            "envelope_key",
+            "record_policy_id",
+            "record_policy_digest",
+            "source_product_policy_id",
+        )
+    )
+    bound = active.alias("a").join(
+        source_metadata.alias("s"),
+        "envelope_key",
+        "inner",
+    )
+    if bound.count() != active.count():
+        raise ValueError("assertion provenance cannot resolve source record")
+    if (
+        bound.where(
+            (F.col("a.policy_id") != F.col("s.record_policy_id"))
+            | (F.col("a.policy_digest") != F.col("s.record_policy_digest"))
+        )
+        .limit(1)
+        .count()
+    ):
+        raise ValueError("assertion and source record policies differ")
+    if (
+        bound.where(F.col("a.policy_id") != F.col("s.source_product_policy_id"))
+        .limit(1)
+        .count()
+    ):
+        raise ValueError("assertion does not bind its source product rights policy")
 
 
 def _eligible_assertions(
     frame: Any,
     *,
     source_records: Any,
+    current_source_envelope_keys: Any,
+    source_products: Any,
     memberships: Any,
     rights: Any,
     context: ReleasePolicyContext,
 ):
     from pyspark.sql import functions as F
 
-    active = frame.where(F.col("status") == "ACTIVE").persist()
-    known = active.alias("a").join(
+    source_metadata = source_records.select(
+        "envelope_key",
+        "source_product_id",
+        "source_record_id",
+        "citation_keys_json",
+        F.col("policy_id").alias("record_policy_id"),
+        F.col("policy_digest").alias("record_policy_digest"),
+    ).join(source_products, "source_product_id", "inner")
+    active = (
+        frame.where(F.col("status") == "ACTIVE")
+        .withColumn(
+            "envelope_key",
+            F.get_json_object("provenance_json", "$.envelopeKey"),
+        )
+        .persist()
+    )
+    bound = active.alias("a").join(
+        source_metadata.select(
+            "envelope_key",
+            "source_product_id",
+            "source_name",
+            "source_documentation_url",
+            "source_record_id",
+            "citation_keys_json",
+            "record_policy_id",
+            "record_policy_digest",
+            "source_product_policy_id",
+        ).alias("s"),
+        "envelope_key",
+        "inner",
+    )
+    active_count = active.count()
+    if bound.count() != active_count:
+        active.unpersist()
+        raise ValueError("assertion provenance cannot resolve source record")
+    if (
+        bound.where(
+            (F.col("a.policy_id") != F.col("s.record_policy_id"))
+            | (F.col("a.policy_digest") != F.col("s.record_policy_digest"))
+        )
+        .limit(1)
+        .count()
+    ):
+        active.unpersist()
+        raise ValueError("assertion and source record policies differ")
+    if (
+        bound.where(F.col("a.policy_id") != F.col("s.source_product_policy_id"))
+        .limit(1)
+        .count()
+    ):
+        active.unpersist()
+        raise ValueError("assertion does not bind its source product rights policy")
+
+    known = bound.alias("a").join(
         rights.alias("p"),
         (F.col("a.policy_id") == F.col("p.rights_policy_id"))
         & (F.col("a.policy_digest") == F.col("p.rights_policy_digest")),
@@ -275,41 +413,15 @@ def _eligible_assertions(
                 > F.lit(as_of_epoch)
             )
         )
-        .withColumn(
-            "envelope_key",
-            F.get_json_object("a.provenance_json", "$.envelopeKey"),
-        )
         .persist()
     )
-    active_count = active.count()
-    rights_count = rights_eligible.count()
-    withheld = active_count - rights_count
-
-    with_source = rights_eligible.alias("a").join(
-        source_records.select(
-            "envelope_key",
-            "source_product_id",
-            F.col("policy_id").alias("record_policy_id"),
-            F.col("policy_digest").alias("record_policy_digest"),
-        ).alias("s"),
+    with_source = rights_eligible.join(
+        current_source_envelope_keys,
         "envelope_key",
         "inner",
     )
-    if with_source.count() != rights_count:
-        rights_eligible.unpersist()
-        active.unpersist()
-        raise ValueError("assertion provenance cannot resolve source record")
-    if (
-        with_source.where(
-            (F.col("a.policy_id") != F.col("s.record_policy_id"))
-            | (F.col("a.policy_digest") != F.col("s.record_policy_digest"))
-        )
-        .limit(1)
-        .count()
-    ):
-        rights_eligible.unpersist()
-        active.unpersist()
-        raise ValueError("assertion and source record policies differ")
+    current_count = with_source.count()
+    withheld = active_count - current_count
 
     resolved = (
         with_source.alias("a")
@@ -323,10 +435,60 @@ def _eligible_assertions(
         .persist()
     )
     resolved_count = resolved.count()
-    unresolved = rights_count - resolved_count
+    unresolved = current_count - resolved_count
     rights_eligible.unpersist()
     active.unpersist()
     return resolved, withheld, unresolved
+
+
+def _assertion_lineage(row: Any) -> GoldAssertionLineage:
+    provenance = json.loads(row["provenance_json"])
+    citation_keys = tuple(provenance.get("citationKeys") or ())
+    record_citation_keys = set(json.loads(row["citation_keys_json"]))
+    if not set(citation_keys).issubset(record_citation_keys):
+        raise ValueError("assertion citations are absent from the source record")
+    source_name = str(row["source_name"])
+    return GoldAssertionLineage(
+        assertion_id=row["assertion_id"],
+        source_product_id=row["source_product_id"],
+        source_name=source_name,
+        source_record_id=row["source_record_id"],
+        source_path=provenance["sourcePath"],
+        observed_at=row["observed_at"],
+        citation_keys=citation_keys,
+        rights=GoldRightsLineage(
+            policy_id=row["rights_policy_id"],
+            policy_zone=row["rights_zone"],
+            license_id=row["rights_license_id"],
+            license_uri=row["rights_license_uri"],
+            attribution_text=(
+                row["rights_attribution_text"] or f"Data from {source_name}."
+            ),
+            source_url=row["source_documentation_url"],
+            share_alike=bool(row["rights_share_alike"]),
+        ),
+    )
+
+
+def _lineage_json(row: Any) -> str:
+    return canonical_json(
+        _assertion_lineage(row).model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
+    )
+
+
+def _normalize_lineage(values: Any) -> tuple[GoldAssertionLineage, ...]:
+    by_assertion = {}
+    for item in values:
+        value = GoldAssertionLineage.model_validate_json(item)
+        existing = by_assertion.get(value.assertion_id)
+        if existing is not None and existing != value:
+            raise ValueError("assertion lineage changed during Gold resolution")
+        by_assertion[value.assertion_id] = value
+    return tuple(by_assertion[key] for key in sorted(by_assertion))
 
 
 def _field_rule_udf(policy: GoldResolutionPolicy):
@@ -361,16 +523,21 @@ def _field_rule_udf(policy: GoldResolutionPolicy):
 
 def _resolve_field_group(item):
     (entity_key, predicate, scope_json, operator), raw_values = item
-    by_value: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for value_type, value_json, assertion_id in raw_values:
-        by_value[(value_type, value_json)].append(assertion_id)
+    by_value: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
+    for value_type, value_json, assertion_id, lineage_json in raw_values:
+        by_value[(value_type, value_json)].append((assertion_id, lineage_json))
     ordered = sorted(by_value)
     all_ids = tuple(
         sorted(
             assertion_id
             for assertions in by_value.values()
-            for assertion_id in assertions
+            for assertion_id, _ in assertions
         )
+    )
+    all_lineage = _normalize_lineage(
+        lineage_json
+        for assertions in by_value.values()
+        for _, lineage_json in assertions
     )
     scope = json.loads(scope_json)
     trace = {"operator": operator}
@@ -390,6 +557,7 @@ def _resolve_field_group(item):
                         assertion_ids=all_ids,
                         selected_assertion_id=min(all_ids),
                         trace=trace,
+                        lineage=all_lineage,
                     ),
                 )
             ]
@@ -407,6 +575,7 @@ def _resolve_field_group(item):
                     assertion_ids=all_ids,
                     selected_assertion_id=None,
                     trace=trace,
+                    lineage=all_lineage,
                 ),
             ),
             (
@@ -419,12 +588,14 @@ def _resolve_field_group(item):
                     assertion_ids=all_ids,
                     candidate_values=candidates,
                     trace=trace,
+                    lineage=all_lineage,
                 ),
             ),
         ]
     result = []
     for value_type, value_json in ordered:
-        ids = tuple(sorted(by_value[(value_type, value_json)]))
+        supporting = by_value[(value_type, value_json)]
+        ids = tuple(sorted(assertion_id for assertion_id, _ in supporting))
         result.append(
             (
                 "field",
@@ -438,10 +609,56 @@ def _resolve_field_group(item):
                     assertion_ids=ids,
                     selected_assertion_id=None,
                     trace=trace,
+                    lineage=_normalize_lineage(
+                        lineage_json for _, lineage_json in supporting
+                    ),
                 ),
             )
         )
     return result
+
+
+def _identifier_draft(
+    item: Any,
+    *,
+    policy_id: str,
+    policy_version: str,
+) -> IdentifierDraft:
+    values = list(item[1])
+    return IdentifierDraft(
+        entity_key=item[0][0],
+        namespace_id=item[0][1],
+        value=item[0][2],
+        issuer=item[0][3],
+        referent_kind=item[0][4],
+        assertion_ids=tuple(sorted({assertion_id for assertion_id, _ in values})),
+        trace={
+            "policyId": policy_id,
+            "policyVersion": policy_version,
+        },
+        lineage=_normalize_lineage(lineage_json for _, lineage_json in values),
+    )
+
+
+def _relation_draft(
+    item: Any,
+    *,
+    policy_id: str,
+    policy_version: str,
+) -> RelationDraft:
+    values = list(item[1])
+    return RelationDraft(
+        subject_entity_key=item[0][0],
+        predicate=item[0][1],
+        object_entity_key=item[0][2],
+        qualifiers=json.loads(item[0][3]),
+        assertion_ids=tuple(sorted({assertion_id for assertion_id, _ in values})),
+        trace={
+            "policyId": policy_id,
+            "policyVersion": policy_version,
+        },
+        lineage=_normalize_lineage(lineage_json for _, lineage_json in values),
+    )
 
 
 def build_distributed_gold(
@@ -450,6 +667,7 @@ def build_distributed_gold(
     visible_silver: dict[str, Any],
     registry: SourceRegistrySnapshot,
     policy_context: ReleasePolicyContext,
+    owner_subject: str,
     field_policy: GoldResolutionPolicy,
     committed_run_ids: tuple[str, ...],
     silver_snapshot_ids: dict[str, int | None],
@@ -461,10 +679,12 @@ def build_distributed_gold(
     max_redirect_hops: int = 16,
 ) -> GoldSparkBuild:
     required = {
+        "community_ingest_run",
         "community_source_record",
         "community_field_assertion",
         "community_identifier_assertion",
         "community_relationship_assertion",
+        "community_entity_type_assertion",
         "community_entity_ledger",
         "community_entity_membership",
         "community_entity_redirect",
@@ -473,32 +693,70 @@ def build_distributed_gold(
         raise ValueError("Gold build is missing required Silver tables")
     from pyspark.sql import functions as F
 
-    memberships = _resolved_memberships(
-        silver=visible_silver,
-        as_of=policy_context.as_of,
-        max_redirect_hops=max_redirect_hops,
+    selected_runs = spark.createDataFrame(
+        [(run_id,) for run_id in committed_run_ids],
+        "run_id STRING",
     )
-    rights = _rights_frame(
-        spark,
+    committed_silver = {
+        table: (
+            frame.join(selected_runs, "run_id", "inner")
+            if "run_id" in frame.columns
+            else frame
+        )
+        for table, frame in visible_silver.items()
+    }
+    current_source_envelope_keys = current_upsert_envelope_keys(
+        source_records=committed_silver["community_source_record"],
+        ingest_runs=committed_silver["community_ingest_run"],
+        committed_run_ids=committed_run_ids,
         registry=registry,
-        context=policy_context,
-        policy=field_policy,
+        as_of=policy_context.as_of,
     )
-    intermediates = [memberships]
+    try:
+        memberships = _resolved_memberships(
+            silver=committed_silver,
+            as_of=policy_context.as_of,
+            max_redirect_hops=max_redirect_hops,
+        )
+    except Exception:
+        current_source_envelope_keys.unpersist()
+        raise
+    try:
+        rights = _rights_frame(
+            spark,
+            registry=registry,
+            context=policy_context,
+            policy=field_policy,
+        )
+        source_products = _source_products_frame(spark, registry)
+    except Exception:
+        memberships.unpersist()
+        current_source_envelope_keys.unpersist()
+        raise
+    intermediates = [current_source_envelope_keys, memberships]
     field_drafts = None
     identifier_drafts = None
     relation_drafts = None
     try:
+        _validate_assertion_product_policies(
+            committed_silver["community_entity_type_assertion"],
+            source_records=committed_silver["community_source_record"],
+            source_products=source_products,
+        )
         resolved_fields, field_withheld, field_unresolved = _eligible_assertions(
-            visible_silver["community_field_assertion"],
-            source_records=visible_silver["community_source_record"],
+            committed_silver["community_field_assertion"],
+            source_records=committed_silver["community_source_record"],
+            current_source_envelope_keys=current_source_envelope_keys,
+            source_products=source_products,
             memberships=memberships,
             rights=rights,
             context=policy_context,
         )
         resolved_identifiers, id_withheld, id_unresolved = _eligible_assertions(
-            visible_silver["community_identifier_assertion"],
-            source_records=visible_silver["community_source_record"],
+            committed_silver["community_identifier_assertion"],
+            source_records=committed_silver["community_source_record"],
+            current_source_envelope_keys=current_source_envelope_keys,
+            source_products=source_products,
             memberships=memberships,
             rights=rights,
             context=policy_context,
@@ -536,6 +794,7 @@ def build_distributed_gold(
                         row["value_type"],
                         row["value_json"],
                         row["assertion_id"],
+                        _lineage_json(row),
                     ),
                 )
             )
@@ -567,22 +826,15 @@ def build_distributed_gold(
                         row["issuer"],
                         row["referent_kind"],
                     ),
-                    row["assertion_id"],
+                    (row["assertion_id"], _lineage_json(row)),
                 )
             )
             .groupByKey()
             .map(
-                lambda item: IdentifierDraft(
-                    entity_key=item[0][0],
-                    namespace_id=item[0][1],
-                    value=item[0][2],
-                    issuer=item[0][3],
-                    referent_kind=item[0][4],
-                    assertion_ids=tuple(sorted(set(item[1]))),
-                    trace={
-                        "policyId": field_policy.policy_id,
-                        "policyVersion": field_policy.policy_version,
-                    },
+                lambda item: _identifier_draft(
+                    item,
+                    policy_id=field_policy.policy_id,
+                    policy_version=field_policy.policy_version,
                 )
             )
             .persist()
@@ -590,8 +842,10 @@ def build_distributed_gold(
 
         resolved_relation_subjects, rel_withheld, rel_subject_unresolved = (
             _eligible_assertions(
-                visible_silver["community_relationship_assertion"],
-                source_records=visible_silver["community_source_record"],
+                committed_silver["community_relationship_assertion"],
+                source_records=committed_silver["community_source_record"],
+                current_source_envelope_keys=current_source_envelope_keys,
+                source_products=source_products,
                 memberships=memberships,
                 rights=rights,
                 context=policy_context,
@@ -626,21 +880,15 @@ def build_distributed_gold(
                         row["object_resolved_entity_key"],
                         row["qualifiers_json"],
                     ),
-                    row["assertion_id"],
+                    (row["assertion_id"], _lineage_json(row)),
                 )
             )
             .groupByKey()
             .map(
-                lambda item: RelationDraft(
-                    subject_entity_key=item[0][0],
-                    predicate=item[0][1],
-                    object_entity_key=item[0][2],
-                    qualifiers=json.loads(item[0][3]),
-                    assertion_ids=tuple(sorted(set(item[1]))),
-                    trace={
-                        "policyId": field_policy.policy_id,
-                        "policyVersion": field_policy.policy_version,
-                    },
+                lambda item: _relation_draft(
+                    item,
+                    policy_id=field_policy.policy_id,
+                    policy_version=field_policy.policy_version,
                 )
             )
             .persist()
@@ -733,6 +981,7 @@ def build_distributed_gold(
             "community_gold_conflict": conflict_count,
         }
         plan = build_gold_release_plan(
+            owner_subject=owner_subject,
             policy_context=policy_context,
             committed_run_ids=committed_run_ids,
             silver_snapshot_ids=silver_snapshot_ids,
@@ -757,7 +1006,7 @@ def build_distributed_gold(
                     source_node_count=int(row["source_node_count"]),
                     trace={
                         "sourceNodeCount": int(row["source_node_count"]),
-                        "resolver": "community-gold-spark-v1",
+                        "resolver": "community-gold-spark-v2",
                     },
                 )
             )
@@ -774,11 +1023,14 @@ def build_distributed_gold(
                     resolution_status=item[1].status,
                     assertion_ids=item[1].assertion_ids,
                     selected_assertion_id=item[1].selected_assertion_id,
-                    trace={
-                        **item[1].trace,
-                        "policyId": field_policy.policy_id,
-                        "policyVersion": field_policy.policy_version,
-                    },
+                    trace=trace_with_assertion_lineage(
+                        {
+                            **item[1].trace,
+                            "policyId": field_policy.policy_id,
+                            "policyVersion": field_policy.policy_version,
+                        },
+                        item[1].lineage,
+                    ),
                 )
             )
         )
@@ -792,11 +1044,14 @@ def build_distributed_gold(
                     reason=item[1].reason,
                     assertion_ids=item[1].assertion_ids,
                     candidate_values=item[1].candidate_values,
-                    trace={
-                        **item[1].trace,
-                        "policyId": field_policy.policy_id,
-                        "policyVersion": field_policy.policy_version,
-                    },
+                    trace=trace_with_assertion_lineage(
+                        {
+                            **item[1].trace,
+                            "policyId": field_policy.policy_id,
+                            "policyVersion": field_policy.policy_version,
+                        },
+                        item[1].lineage,
+                    ),
                 )
             )
         )
@@ -810,7 +1065,10 @@ def build_distributed_gold(
                     issuer=item.issuer,
                     referent_kind=item.referent_kind,
                     assertion_ids=item.assertion_ids,
-                    trace=item.trace,
+                    trace=trace_with_assertion_lineage(
+                        item.trace,
+                        item.lineage,
+                    ),
                 )
             )
         )
@@ -823,7 +1081,10 @@ def build_distributed_gold(
                     object_entity_key=item.object_entity_key,
                     qualifiers=item.qualifiers,
                     assertion_ids=item.assertion_ids,
-                    trace=item.trace,
+                    trace=trace_with_assertion_lineage(
+                        item.trace,
+                        item.lineage,
+                    ),
                 )
             )
         )

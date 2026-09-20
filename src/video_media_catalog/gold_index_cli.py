@@ -18,13 +18,14 @@ from video_media_catalog.gold_ingest import (
 )
 from video_media_catalog.gold_search_index import (
     MAPPING_DIGEST,
-    SHADOW_INDEX_PREFIX,
-    SHADOW_READ_ALIAS,
+    RESEARCH_INDEX_PREFIX,
+    RESEARCH_READ_ALIAS,
     GoldIndexBuildManifest,
     derive_gold_build_id,
     ensure_gold_index,
-    gold_index_config_digest,
+    gold_index_config_identity,
     gold_index_name,
+    validate_gold_index_owner,
 )
 from video_media_catalog.gold_search_projection import (
     build_gold_search_projection,
@@ -44,6 +45,7 @@ from video_media_catalog.search_index import (
     index_document_count,
     switch_read_alias,
 )
+from video_media_catalog.v2_contracts import require_oidc_subject
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
 INDEX_MANIFEST_MEDIA_TYPE = (
@@ -54,7 +56,7 @@ INDEX_MANIFEST_MEDIA_TYPE = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-index",
-        description="Build the isolated community Gold v2 shadow index.",
+        description="Build the owner-only research Gold v2 index.",
     )
     parser.add_argument("--release-commit-uri", required=True)
     parser.add_argument("--release-commit-hash", required=True)
@@ -64,8 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest-prefix", required=True)
     parser.add_argument("--completed-at", required=True)
     parser.add_argument("--image-digest", required=True)
+    parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--catalog-name", default="media")
-    parser.add_argument("--namespace", default="community_gold_v2")
+    parser.add_argument("--namespace", default="video_media_catalog")
     parser.add_argument(
         "--catalog-type",
         choices=("hadoop", "glue"),
@@ -77,8 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--s3-path-style-access", action="store_true")
     parser.add_argument("--opensearch-endpoint", required=True)
     parser.add_argument("--opensearch-service", choices=("es", "aoss"), default="es")
-    parser.add_argument("--read-alias", default=SHADOW_READ_ALIAS)
-    parser.add_argument("--index-prefix", default=SHADOW_INDEX_PREFIX)
+    parser.add_argument("--read-alias", default=RESEARCH_READ_ALIAS)
+    parser.add_argument("--index-prefix", default=RESEARCH_INDEX_PREFIX)
     parser.add_argument("--shards", type=int, default=1)
     parser.add_argument("--replicas", type=int, default=0)
     parser.add_argument("--bulk-chunk-size", type=int, default=100)
@@ -91,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--request-timeout-seconds", type=float, default=30)
     parser.add_argument("--allow-insecure-opensearch", action="store_true")
     parser.add_argument("--master")
-    parser.add_argument("--app-name", default="community-gold-v2-index")
+    parser.add_argument("--app-name", default="media-catalog-research-index")
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     return parser
@@ -126,7 +129,7 @@ def _release_ref(parsed: argparse.Namespace) -> ObjectRef:
 
 def _read_commit(store, reference: ObjectRef) -> GoldReleaseCommit:
     store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
-    with tempfile.TemporaryDirectory(prefix="community-gold-release-") as directory:
+    with tempfile.TemporaryDirectory(prefix="research-gold-release-") as directory:
         materialized = store.download(
             reference,
             Path(directory) / "release-commit.json",
@@ -141,7 +144,26 @@ def _close(client: Any) -> None:
         transport.close()
 
 
+def _validate_projection_owner(documents: Any, *, owner_subject: str) -> None:
+    from pyspark.sql import functions as F
+
+    owner = require_oidc_subject(owner_subject)
+    mismatched = documents.where(
+        F.col("ownerSubject").isNull() | (F.col("ownerSubject") != F.lit(owner))
+    ).limit(1)
+    if mismatched.count():
+        raise RuntimeError(
+            "Gold search projection contains missing or mismatched document owners"
+        )
+
+
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
+    if (
+        parsed.read_alias != RESEARCH_READ_ALIAS
+        or parsed.index_prefix != RESEARCH_INDEX_PREFIX
+    ):
+        raise ValueError("research index and alias names are fixed")
+    owner_subject = require_oidc_subject(parsed.owner_subject)
     reference = _release_ref(parsed)
     if urlsplit(parsed.manifest_prefix).scheme not in {"file", "s3"}:
         raise ValueError("manifest-prefix must use file:// or s3://")
@@ -156,6 +178,10 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         client=object() if local else None,
     )
     commit = _read_commit(store, reference)
+    if commit.owner_subject != owner_subject:
+        raise ValueError("release commit belongs to another OIDC subject")
+    if commit.context_id != "research":
+        raise ValueError("release commit is not a research release")
     embedded = (commit.quality_report, commit.attribution_manifest)
     if local and any(urlsplit(item.uri).scheme == "s3" for item in embedded):
         store = BoundedObjectStore(
@@ -175,15 +201,17 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         s3_endpoint=parsed.s3_endpoint,
         s3_path_style_access=parsed.s3_path_style_access,
     )
-    config_digest = gold_index_config_digest(
+    config_identity = gold_index_config_identity(
         read_alias=parsed.read_alias,
         index_prefix=parsed.index_prefix,
+        owner_subject=owner_subject,
         shards=parsed.shards,
         replicas=parsed.replicas,
         bulk_chunk_size=parsed.bulk_chunk_size,
         bulk_max_chunk_bytes=parsed.bulk_max_chunk_bytes,
         image_digest=parsed.image_digest,
     )
+    config_digest = config_identity.digest
     build_id = derive_gold_build_id(
         commit=commit,
         config_digest=config_digest,
@@ -217,6 +245,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ensure_gold_index(
             client,
             index_name=index_name,
+            owner_subject=commit.owner_subject,
             shards=parsed.shards,
             replicas=parsed.replicas,
         )
@@ -236,7 +265,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             spark,
             gold_tables=frames,
             release_plan_id=commit.release_plan_id,
+            owner_subject=commit.owner_subject,
         ).persist()
+        _validate_projection_owner(
+            documents,
+            owner_subject=commit.owner_subject,
+        )
         expected_count = documents.count()
         current_count = index_document_count(client, index_name=index_name)
         if current_count > expected_count:
@@ -256,15 +290,21 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                     f"success={result.document_count}, "
                     f"errors={result.error_count}, expected={expected_count}"
                 )
-        actual_count = index_document_count(client, index_name=index_name)
-        if actual_count != expected_count:
-            raise RuntimeError("Gold shadow document count mismatch")
+        actual_count = validate_gold_index_owner(
+            client,
+            index_name=index_name,
+            owner_subject=commit.owner_subject,
+            expected_document_count=expected_count,
+        )
         manifest = GoldIndexBuildManifest(
             build_id=build_id,
             release_plan_id=commit.release_plan_id,
+            owner_subject=commit.owner_subject,
+            context_id=commit.context_id,
             release_commit=reference,
             table_snapshot_ids=commit.table_snapshot_ids,
             mapping_digest=MAPPING_DIGEST,
+            config_identity=config_identity,
             config_digest=config_digest,
             document_count=actual_count,
             index=index_name,
@@ -281,6 +321,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             object_format="OBJECT_FORMAT_JSON",
             max_bytes=CONTROL_MAX_BYTES,
         ).object_ref
+        validate_gold_index_owner(
+            client,
+            index_name=index_name,
+            owner_subject=commit.owner_subject,
+            expected_document_count=actual_count,
+        )
         switch_read_alias(
             client,
             alias=parsed.read_alias,
@@ -290,6 +336,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "buildId": build_id,
             "index": index_name,
             "alias": parsed.read_alias,
+            "contextId": commit.context_id,
             "documentCount": actual_count,
             "manifest": manifest_ref.model_dump(
                 mode="json", by_alias=True, exclude_none=True

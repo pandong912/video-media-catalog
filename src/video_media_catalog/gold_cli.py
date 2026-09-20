@@ -12,10 +12,16 @@ from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, sha256_digest
 from video_media_catalog.community_iceberg import CommunityCatalogTables
-from video_media_catalog.community_release import ReleasePolicyContext
-from video_media_catalog.community_snapshot import CommunitySilverSnapshotSet
+from video_media_catalog.community_snapshot import (
+    CONTROL_MAX_BYTES,
+    SILVER_SNAPSHOT_MEDIA_TYPE,
+    CommunitySilverSnapshotSet,
+)
 from video_media_catalog.community_sources import build_community_registry
-from video_media_catalog.gold import community_display_policy
+from video_media_catalog.gold import (
+    research_context,
+    research_policy,
+)
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
@@ -27,21 +33,14 @@ from video_media_catalog.gold_spark_transform import build_distributed_gold
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore
-from video_media_catalog.rights import PolicyZone
 from video_media_catalog.runtime_args import join_uri
-
-CONTROL_MAX_BYTES = 16 * 1024 * 1024
-SILVER_SNAPSHOT_MEDIA_TYPE = (
-    "application/vnd.video-media-catalog.silver-snapshot-set.v2+json"
-)
+from video_media_catalog.v2_contracts import require_oidc_subject
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-spark",
-        description=(
-            "Build one policy-specific Gold release from exact Silver snapshots."
-        ),
+        description="Build the owner-only research Gold release.",
     )
     parser.add_argument("--silver-snapshot-uri", required=True)
     parser.add_argument("--silver-snapshot-hash", required=True)
@@ -52,8 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--planned-at", required=True)
     parser.add_argument("--committed-at", required=True)
     parser.add_argument("--catalog-name", default="media")
-    parser.add_argument("--silver-namespace", default="community_catalog_v2")
-    parser.add_argument("--gold-namespace", default="community_gold_v2")
+    parser.add_argument("--silver-namespace", default="video_media_catalog")
+    parser.add_argument("--gold-namespace", default="video_media_catalog")
     parser.add_argument(
         "--catalog-type",
         choices=("hadoop", "glue"),
@@ -64,18 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--s3-endpoint")
     parser.add_argument("--s3-path-style-access", action="store_true")
     parser.add_argument("--master")
-    parser.add_argument("--app-name", default="community-catalog-gold-v2")
+    parser.add_argument("--app-name", default="media-catalog-research-gold")
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     parser.add_argument("--image-digest", required=True)
-    parser.add_argument("--context-id", default="public-sharealike")
-    parser.add_argument("--audience", default="public")
-    parser.add_argument("--purpose", default="catalog")
+    parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--territories", default="*")
-    parser.add_argument(
-        "--allowed-zones",
-        default="open_cc0,open_attributed,open_sharealike,public_registry",
-    )
     parser.add_argument("--max-conflict-ratio", type=float, default=0.05)
     parser.add_argument(
         "--max-unresolved-identity-ratio",
@@ -134,6 +127,7 @@ def _parse_values(value: str) -> tuple[str, ...]:
 
 
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
+    owner_subject = require_oidc_subject(parsed.owner_subject)
     if not 0 <= parsed.max_conflict_ratio <= 1:
         raise ValueError("max-conflict-ratio must be between 0 and 1")
     if not 0 <= parsed.max_unresolved_identity_ratio <= 1:
@@ -172,16 +166,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         s3_endpoint=parsed.s3_endpoint,
         s3_path_style_access=parsed.s3_path_style_access,
     )
-    zones = tuple(PolicyZone(item) for item in _parse_values(parsed.allowed_zones))
-    context = ReleasePolicyContext(
-        context_id=parsed.context_id,
-        audience=parsed.audience,
-        purpose=parsed.purpose,
-        territories=_parse_values(parsed.territories),
+    context = research_context(
         as_of=parsed.planned_at,
-        allowed_zones=zones,
+        territories=_parse_values(parsed.territories),
     )
-    policy = community_display_policy().model_copy(
+    policy = research_policy().model_copy(
         update={
             "max_conflict_ratio": parsed.max_conflict_ratio,
             "max_unresolved_identity_ratio": (parsed.max_unresolved_identity_ratio),
@@ -193,12 +182,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         "catalogName": parsed.catalog_name,
         "catalogType": parsed.catalog_type,
         "warehouse": parsed.warehouse,
+        "ownerSubject": owner_subject,
         "context": context.model_dump(mode="json", by_alias=True),
         "fieldPolicyDigest": policy.digest,
         "maxRedirectHops": parsed.max_redirect_hops,
     }
     config_digest = sha256_digest(canonical_json(nonsecret_config))
-    resolver_digest = sha256_digest("community-gold-spark-v1")
+    resolver_digest = sha256_digest("community-gold-spark-v2")
 
     from pyspark.sql import SparkSession
 
@@ -246,11 +236,15 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             table: frame.join(selected_runs, "run_id", "inner")
             for table, frame in visible.items()
         }
+        visible["community_ingest_run"] = spark.table(
+            silver_tables.table_name("community_ingest_run")
+        ).join(selected_runs, "run_id", "inner")
         build = build_distributed_gold(
             spark,
             visible_silver=visible,
             registry=build_community_registry(),
             policy_context=context,
+            owner_subject=owner_subject,
             field_policy=policy,
             committed_run_ids=snapshot.committed_run_ids,
             silver_snapshot_ids=snapshot.data_snapshot_ids,

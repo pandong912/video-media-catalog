@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from video_media_catalog.community_sources import build_community_registry
+from video_media_catalog.community_sources import (
+    EIDR_EXACT_LOOKUP_CONNECTOR_ID,
+    build_community_registry,
+)
 from video_media_catalog.identity_spark import exact_id_namespace_rows
 from video_media_catalog.source_registry import (
     SourceProduct,
@@ -17,6 +20,7 @@ from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
     TVMAZE_DELTA_CONNECTOR_ID,
 )
+from video_media_catalog.v1_adapters import EIDR_CONNECTOR_ID
 
 
 def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
@@ -68,6 +72,10 @@ def test_registry_declares_every_source_product_connector() -> None:
     assert set(products["tvmaze-public-api"].connector_ids) == {
         TVMAZE_CONNECTOR_ID,
         TVMAZE_DELTA_CONNECTOR_ID,
+    }
+    assert set(products["eidr-public-registry"].connector_ids) == {
+        EIDR_CONNECTOR_ID,
+        EIDR_EXACT_LOOKUP_CONNECTOR_ID,
     }
 
 

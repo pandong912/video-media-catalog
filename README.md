@@ -85,6 +85,37 @@ Spark mapper 再生成字段、identifier、relation 与 entity-type assertions�
 coverage 的完整快照时才可传 `--eidr-complete-snapshot`。项目仍不提供默认 EIDR
 网络搜索或全库镜像 client。
 
+### EIDR discovered-ID exact lookup
+
+`video-media-catalog-eidr-backfill` 只补全已从其他来源写入 IdentifierAssertion
+的 EIDR ID，不是未授权 registry 全量镜像。`extract-ids` 从 pinned Silver epoch
+发布分页 discovered-ID manifest；`lookup-batch` 必须注入经授权 provider，每次
+只跑一个有界 exact-ID 窗口。成功批次按 commit-last 发布 immutable capture、
+window receipt 和 append-only watermark；失败批次不推进水位。来源 semaphore
+固定为 1。默认 capture 为 PARTIAL / `deleteCoverage=NONE`；COMPLETE /
+snapshot-diff 需要绑定同一窗口的授权 complete-feed 证明。CLI 本身不包含默认
+网络 client、搜索或 crawl。
+
+```bash
+video-media-catalog-eidr-backfill extract-ids \
+  --silver-snapshot-uri s3://bucket/silver/snapshot.json \
+  --silver-snapshot-hash sha256:<hex> --silver-snapshot-size <bytes> \
+  --silver-snapshot-version <VersionId> --silver-snapshot-etag <ETag> \
+  --source-release-id sha256:<hex> \
+  --destination-prefix s3://bucket/community-captures \
+  --created-at 2026-09-20T00:00:00Z \
+  --warehouse s3://bucket/warehouse
+
+video-media-catalog-eidr-backfill lookup-batch \
+  --manifest-uri s3://bucket/eidr/discovered-id-manifests/<id>/manifest.json \
+  --manifest-hash sha256:<hex> --manifest-size <bytes> \
+  --manifest-version <VersionId> --manifest-etag <ETag> \
+  --destination-prefix s3://bucket/community-captures \
+  --acquired-at 2026-09-20T00:01:00Z \
+  --image-digest sha256:<hex> \
+  --batch-size 100
+```
+
 ### TVmaze full + delta
 
 TVmaze full connector 只访问固定的官方 `/shows?page=N`，遵守

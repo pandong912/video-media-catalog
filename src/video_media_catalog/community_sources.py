@@ -38,6 +38,8 @@ from video_media_catalog.v1_adapters import (
     WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
 )
 
+EIDR_EXACT_LOOKUP_CONNECTOR_ID = "eidr-discovered-id-exact-lookup"
+
 
 def _open_actions() -> tuple[UsageAction, ...]:
     return (
@@ -172,7 +174,10 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="EIDR public registry records",
         kind=SourceProductKind.IDENTIFIER_REGISTRY,
         policy_id="eidr-public-registry",
-        connector_ids=(EIDR_CONNECTOR_ID,),
+        connector_ids=(
+            EIDR_CONNECTOR_ID,
+            EIDR_EXACT_LOOKUP_CONNECTOR_ID,
+        ),
         documentation_url="https://www.eidr.org/faq",
     )
     v1_product = SourceProduct(

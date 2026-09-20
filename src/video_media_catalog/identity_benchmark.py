@@ -42,11 +42,7 @@ def _executed_plan_shuffle_metrics(frame: Any) -> dict[str, int | bool]:
                 entry = metrics.next()
                 metric = entry._2()
                 name_option = metric.name()
-                name = (
-                    str(name_option.get()).lower()
-                    if name_option.isDefined()
-                    else ""
-                )
+                name = str(name_option.get()).lower() if name_option.isDefined() else ""
                 value = int(metric.value())
                 if "shuffle bytes written" in name:
                     totals["bytesWritten"] += value
@@ -219,8 +215,7 @@ def run_identity_synthetic_benchmark(
             F.countDistinct("component_id").alias("component_count"),
             F.sum(
                 F.when(
-                    F.col("resolution_mode")
-                    == "EXACT_BLOCKING_COMPONENT_TOO_LARGE",
+                    F.col("resolution_mode") == "EXACT_BLOCKING_COMPONENT_TOO_LARGE",
                     F.lit(1),
                 ).otherwise(F.lit(0))
             ).alias("oversized_conflicts"),
@@ -233,8 +228,7 @@ def run_identity_synthetic_benchmark(
             ).alias("candidate_limit_conflicts"),
             F.sum(
                 F.when(
-                    F.col("resolution_mode")
-                    == "MULTIPLE_EXACT_IDENTIFIER_CANDIDATES",
+                    F.col("resolution_mode") == "MULTIPLE_EXACT_IDENTIFIER_CANDIDATES",
                     F.lit(1),
                 ).otherwise(F.lit(0))
             ).alias("multiple_candidate_conflicts"),
@@ -252,9 +246,7 @@ def run_identity_synthetic_benchmark(
                 **_executed_plan_shuffle_metrics(summary_frame),
             }
         conflict_counts = {
-            "EXACT_BLOCKING_COMPONENT_TOO_LARGE": int(
-                summary.oversized_conflicts or 0
-            ),
+            "EXACT_BLOCKING_COMPONENT_TOO_LARGE": int(summary.oversized_conflicts or 0),
             "EXACT_BLOCKING_COMPONENT_CANDIDATE_LIMIT_EXCEEDED": int(
                 summary.candidate_limit_conflicts or 0
             ),

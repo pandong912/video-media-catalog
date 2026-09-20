@@ -77,9 +77,9 @@ def test_identity_spark_truncates_label_lineage_with_local_checkpoint() -> None:
     assert "stable_nodes = _materialize_exact_blocking_labels(" in assign_block
     assert "stable_edges = _materialize_exact_blocking_labels(" in assign_block
     assert 'stable_edges.join(blocking_labels, "blocking_key")' in assign_block
-    stats_block = source.split(
-        "def build_exact_blocking_component_stats", 1
-    )[1].split("\ndef ", 1)[0]
+    stats_block = source.split("def build_exact_blocking_component_stats", 1)[1].split(
+        "\ndef ", 1
+    )[0]
     assert ".rdd" not in stats_block
     assert ".groupBy(" in stats_block
     assert "count_component_id" in source

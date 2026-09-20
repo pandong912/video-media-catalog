@@ -17,9 +17,7 @@ def test_large_benchmark_profiles_require_explicit_confirmation() -> None:
     with pytest.raises(ValueError, match="confirm-large-scale"):
         benchmark_node_count(parsed)
 
-    confirmed = build_parser().parse_args(
-        ["--scale", "5m", "--confirm-large-scale"]
-    )
+    confirmed = build_parser().parse_args(["--scale", "5m", "--confirm-large-scale"])
     assert benchmark_node_count(confirmed) == 5_000_000
     with pytest.raises(SystemExit):
         main(["--scale", "1m"])
@@ -66,9 +64,4 @@ def test_small_synthetic_benchmark_reports_required_metrics() -> None:
     assert result["shuffleMetrics"]["available"]
     assert result["shuffleMetrics"]["bytesWritten"] > 0
     assert result["shuffleMetrics"]["recordsWritten"] > 0
-    assert (
-        result["conflictCountsByReason"][
-            "MULTIPLE_EXACT_IDENTIFIER_CANDIDATES"
-        ]
-        > 0
-    )
+    assert result["conflictCountsByReason"]["MULTIPLE_EXACT_IDENTIFIER_CANDIDATES"] > 0

@@ -327,8 +327,7 @@ def build_exact_blocking_component_stats(
         F.count(F.lit(1)).alias("component_node_count")
     )
     eligible_components = component_counts.where(
-        F.col("component_node_count")
-        <= F.lit(config.max_exact_blocking_component_size)
+        F.col("component_node_count") <= F.lit(config.max_exact_blocking_component_size)
     ).select(F.col("component_id").alias("eligible_component_id"))
     distinct_candidates = (
         labeled_work.select(
@@ -490,31 +489,28 @@ def build_parent_constrained_work(
         ).alias("episode_assertion_id"),
     )
 
-    parent_types = (
-        type_groups.select(
-            F.col("subject_namespace_id").alias("parent_namespace_id"),
-            F.col("subject_source_id").alias("parent_source_id"),
-            F.col("subject_referent_kind").alias("parent_referent_kind"),
-            F.upper(F.element_at("entity_types", 1)).alias("parent_entity_type"),
+    parent_types = type_groups.select(
+        F.col("subject_namespace_id").alias("parent_namespace_id"),
+        F.col("subject_source_id").alias("parent_source_id"),
+        F.col("subject_referent_kind").alias("parent_referent_kind"),
+        F.upper(F.element_at("entity_types", 1)).alias("parent_entity_type"),
+    ).withColumn(
+        "parent_level",
+        F.when(
+            F.col("parent_entity_type").isin(
+                "SERIES",
+                "TV_SERIES",
+            ),
+            F.lit(EntityLevel.SERIES.value),
         )
-        .withColumn(
-            "parent_level",
-            F.when(
-                F.col("parent_entity_type").isin(
-                    "SERIES",
-                    "TV_SERIES",
-                ),
-                F.lit(EntityLevel.SERIES.value),
-            )
-            .when(
-                F.col("parent_entity_type").isin(
-                    "SEASON",
-                    "TV_SEASON",
-                ),
-                F.lit(EntityLevel.SEASON.value),
-            )
-            .otherwise(F.lit(None).cast("string")),
+        .when(
+            F.col("parent_entity_type").isin(
+                "SEASON",
+                "TV_SEASON",
+            ),
+            F.lit(EntityLevel.SEASON.value),
         )
+        .otherwise(F.lit(None).cast("string")),
     )
     raw_membership_candidates = parent_memberships.select(
         F.col("source_namespace_id").alias("parent_namespace_id"),
@@ -623,12 +619,11 @@ def build_parent_constrained_work(
         )
     )
     if child_level == EntityLevel.SEASON:
-        type_compatible = (
-            (F.col("parent_level") == EntityLevel.SERIES.value)
-            & F.col("relationship_predicate").isin(
-                "part_of_series",
-                "season_of",
-            )
+        type_compatible = (F.col("parent_level") == EntityLevel.SERIES.value) & F.col(
+            "relationship_predicate"
+        ).isin(
+            "part_of_series",
+            "season_of",
         )
         ordinal_compatible = (
             F.col("season_number").isNotNull()
@@ -636,66 +631,43 @@ def build_parent_constrained_work(
             & (
                 F.col("qualifier_season_number").isNull()
                 | F.col("field_season_number").isNull()
-                | (
-                    F.col("qualifier_season_number")
-                    == F.col("field_season_number")
-                )
+                | (F.col("qualifier_season_number") == F.col("field_season_number"))
             )
         )
         relevant_field_assertions = F.when(
             F.col("season_assertion_id").isNotNull(),
             F.array("season_assertion_id"),
-        ).otherwise(
-            empty_strings
-        )
+        ).otherwise(empty_strings)
     elif child_level == EntityLevel.EPISODE:
         type_compatible = (
-            (
-                (F.col("parent_level") == EntityLevel.SERIES.value)
-                & F.col("relationship_predicate").isin(
-                    "part_of_series",
-                    "episode_of_series",
-                )
+            (F.col("parent_level") == EntityLevel.SERIES.value)
+            & F.col("relationship_predicate").isin(
+                "part_of_series",
+                "episode_of_series",
             )
-            | (
-                (F.col("parent_level") == EntityLevel.SEASON.value)
-                & F.col("relationship_predicate").isin(
-                    "part_of_season",
-                    "episode_of_season",
-                )
+        ) | (
+            (F.col("parent_level") == EntityLevel.SEASON.value)
+            & F.col("relationship_predicate").isin(
+                "part_of_season",
+                "episode_of_season",
             )
         )
-        episode_number_consistent = (
-            (F.col("field_episode_value_count") <= 1)
-            & (
-                F.col("qualifier_episode_number").isNull()
-                | F.col("field_episode_number").isNull()
-                | (
-                    F.col("qualifier_episode_number")
-                    == F.col("field_episode_number")
-                )
-            )
+        episode_number_consistent = (F.col("field_episode_value_count") <= 1) & (
+            F.col("qualifier_episode_number").isNull()
+            | F.col("field_episode_number").isNull()
+            | (F.col("qualifier_episode_number") == F.col("field_episode_number"))
         )
-        season_number_consistent = (
-            (F.col("field_season_value_count") <= 1)
-            & (
-                F.col("qualifier_season_number").isNull()
-                | F.col("field_season_number").isNull()
-                | (
-                    F.col("qualifier_season_number")
-                    == F.col("field_season_number")
-                )
-            )
+        season_number_consistent = (F.col("field_season_value_count") <= 1) & (
+            F.col("qualifier_season_number").isNull()
+            | F.col("field_season_number").isNull()
+            | (F.col("qualifier_season_number") == F.col("field_season_number"))
         )
         ordinal_compatible = (
             F.col("episode_number").isNotNull()
             & episode_number_consistent
             & (
                 (F.col("parent_level") == EntityLevel.SEASON.value)
-                | (
-                    F.col("season_number").isNotNull()
-                    & season_number_consistent
-                )
+                | (F.col("season_number").isNotNull() & season_number_consistent)
             )
         )
         relevant_field_assertions = F.array_union(
@@ -752,9 +724,7 @@ def build_parent_constrained_work(
         "parent_entity_key",
         "parent_membership_key",
         "parent_level",
-        F.col("relationship_assertion_id").alias(
-            "relationship_assertion_key"
-        ),
+        F.col("relationship_assertion_id").alias("relationship_assertion_key"),
         "ordinal_assertion_ids",
         "season_number",
         "episode_number",
@@ -791,9 +761,9 @@ def build_parent_constrained_work(
                 F.col("parent_membership_key"),
             )
         ).alias("resolved_parent_membership_count"),
-        F.countDistinct(
-            F.when(valid_binding, binding_identity)
-        ).alias("parent_choice_count"),
+        F.countDistinct(F.when(valid_binding, binding_identity)).alias(
+            "parent_choice_count"
+        ),
         F.min_by(
             F.when(valid_binding, binding_choice),
             F.when(valid_binding, binding_order),
@@ -807,9 +777,7 @@ def build_parent_constrained_work(
                 ),
             ).otherwise(F.lit(0))
         ).alias("max_parent_membership_candidate_count"),
-        F.min("relationship_assertion_id").alias(
-            "first_relationship_assertion_id"
-        ),
+        F.min("relationship_assertion_id").alias("first_relationship_assertion_id"),
     )
     prepared = (
         children.join(relation_summary, source_columns, "left")
@@ -890,17 +858,11 @@ def build_parent_constrained_work(
                 empty_strings,
             ).alias("relationship_assertion_ids"),
             "parent_choice_count",
-            F.col("parent_choice.parent_namespace_id").alias(
-                "parent_namespace_id"
-            ),
+            F.col("parent_choice.parent_namespace_id").alias("parent_namespace_id"),
             F.col("parent_choice.parent_source_id").alias("parent_source_id"),
-            F.col("parent_choice.parent_referent_kind").alias(
-                "parent_referent_kind"
-            ),
+            F.col("parent_choice.parent_referent_kind").alias("parent_referent_kind"),
             F.col("parent_choice.parent_entity_key").alias("parent_entity_key"),
-            F.col("parent_choice.parent_membership_key").alias(
-                "parent_membership_key"
-            ),
+            F.col("parent_choice.parent_membership_key").alias("parent_membership_key"),
             F.col("parent_choice.parent_level").alias("parent_level"),
             F.col("parent_choice.relationship_assertion_key").alias(
                 "relationship_assertion_key"
@@ -955,23 +917,20 @@ def build_parent_constrained_work(
             ).otherwise(F.col("parent_resolution_mode")),
         )
     )
-    ready = (
-        prepared.where(F.col("parent_resolution_mode") == "READY")
-        .withColumn(
-            "component_id",
-            F.sha2(
-                F.concat_ws(
-                    "\x1f",
-                    F.lit("parent-constrained-v1"),
-                    F.lit(child_level.value),
-                    "parent_entity_key",
-                    "parent_level",
-                    F.coalesce("season_number", F.lit("")),
-                    F.coalesce("episode_number", F.lit("")),
-                ),
-                256,
+    ready = prepared.where(F.col("parent_resolution_mode") == "READY").withColumn(
+        "component_id",
+        F.sha2(
+            F.concat_ws(
+                "\x1f",
+                F.lit("parent-constrained-v1"),
+                F.lit(child_level.value),
+                "parent_entity_key",
+                "parent_level",
+                F.coalesce("season_number", F.lit("")),
+                F.coalesce("episode_number", F.lit("")),
             ),
-        )
+            256,
+        ),
     )
     anchors = ready.groupBy("component_id").agg(
         F.min("node_id").alias("allocation_anchor_id")
@@ -1476,10 +1435,7 @@ def build_identity_resolution_dataframes(
                 known_index.alias("k"),
                 (
                     (F.col("i.namespace_id") == F.col("k.namespace_id"))
-                    & (
-                        F.col("i.normalized_value")
-                        == F.col("k.normalized_value")
-                    )
+                    & (F.col("i.normalized_value") == F.col("k.normalized_value"))
                     & (F.col("i.referent_kind") == F.col("k.referent_kind"))
                 ),
                 "inner",
@@ -1487,9 +1443,7 @@ def build_identity_resolution_dataframes(
             .select(
                 F.col("i.subject_namespace_id").alias("subject_namespace_id"),
                 F.col("i.subject_source_id").alias("subject_source_id"),
-                F.col("i.subject_referent_kind").alias(
-                    "subject_referent_kind"
-                ),
+                F.col("i.subject_referent_kind").alias("subject_referent_kind"),
                 F.col("k.entity_key").alias("candidate_entity_key"),
             )
             .distinct()
@@ -1702,9 +1656,7 @@ def build_identity_resolution_dataframes(
                     "resolution_mode",
                     F.when(
                         F.col("component_node_count")
-                        > F.lit(
-                            resolution_config.max_exact_blocking_component_size
-                        ),
+                        > F.lit(resolution_config.max_exact_blocking_component_size),
                         F.lit("CONFLICT_OVERSIZED"),
                     )
                     .when(
@@ -2101,9 +2053,7 @@ def build_identity_resolution_dataframes(
         "CONFLICT_PARENT_TYPE": "PARENT_TYPE_INCOMPATIBLE",
         "CONFLICT_PARENT_ORDINAL": "PARENT_ORDINAL_UNRESOLVED",
         "CONFLICT_PARENT_AMBIGUOUS": "PARENT_MEMBERSHIP_AMBIGUOUS",
-        "CONFLICT_NODE_CANDIDATES": (
-            "EXACT_BLOCKING_NODE_CANDIDATE_LIMIT_EXCEEDED"
-        ),
+        "CONFLICT_NODE_CANDIDATES": ("EXACT_BLOCKING_NODE_CANDIDATE_LIMIT_EXCEEDED"),
         "CONFLICT_COMPONENT_CANDIDATES": (
             "EXACT_BLOCKING_COMPONENT_CANDIDATE_LIMIT_EXCEEDED"
         ),
@@ -2135,9 +2085,7 @@ def build_identity_resolution_dataframes(
             )
         if mode in parent_conflict_reasons:
             candidate_keys = tuple(
-                row["component_candidate_keys"]
-                or row["candidate_entity_keys"]
-                or []
+                row["component_candidate_keys"] or row["candidate_entity_keys"] or []
             )
             if not candidate_keys:
                 candidate_keys = (
@@ -2175,9 +2123,7 @@ def build_identity_resolution_dataframes(
                         policy_digest=row["policy_digest"],
                         details={
                             "parentConstrained": True,
-                            "relationshipCount": int(
-                                row["relationship_count"]
-                            ),
+                            "relationshipCount": int(row["relationship_count"]),
                             "typeCompatibleRelationshipCount": int(
                                 row["type_compatible_relationship_count"]
                             ),
@@ -2221,8 +2167,7 @@ def build_identity_resolution_dataframes(
             else row["parent_anchor_entity_key"]
         )
         allocate_entity = (
-            mode == "BOOTSTRAP"
-            and row["node_id"] == row["allocation_anchor_id"]
+            mode == "BOOTSTRAP" and row["node_id"] == row["allocation_anchor_id"]
         )
         result = resolve_parent_constrained_source_node(
             source_node=source_node,
@@ -2240,9 +2185,7 @@ def build_identity_resolution_dataframes(
         resolved_key = result.memberships[0].entity_key
         return result, _index_entries(row, resolved_key)
 
-    resolution_results = work.rdd.map(resolve_row).persist(
-        StorageLevel.MEMORY_AND_DISK
-    )
+    resolution_results = work.rdd.map(resolve_row).persist(StorageLevel.MEMORY_AND_DISK)
     hierarchy_source_type = F.upper(F.element_at(F.col("entity_types"), 1))
     season_source_nodes = hierarchy_unassigned.where(
         hierarchy_source_type.isin("SEASON", "TV_SEASON")
@@ -2312,9 +2255,7 @@ def build_identity_resolution_dataframes(
                 schema=membership_projection_schema,
             )
             episode_parent_memberships = _materialize_exact_blocking_labels(
-                parent_memberships.unionByName(
-                    season_memberships
-                ).dropDuplicates(),
+                parent_memberships.unionByName(season_memberships).dropDuplicates(),
                 label="resolved season memberships",
             )
             _release_exact_blocking_labels(materialized_season_work)
@@ -2356,9 +2297,7 @@ def build_identity_resolution_dataframes(
         memberships.join(
             active_membership_counts.where(
                 F.col("existing_membership_count")
-                <= F.lit(
-                    resolution_config.max_exact_blocking_node_candidate_keys
-                )
+                <= F.lit(resolution_config.max_exact_blocking_node_candidate_keys)
             ),
             [
                 "source_namespace_id",
@@ -2400,9 +2339,7 @@ def build_identity_resolution_dataframes(
         candidate_links.join(
             recheck_candidate_counts.where(
                 F.col("node_candidate_count")
-                <= F.lit(
-                    resolution_config.max_exact_blocking_node_candidate_keys
-                )
+                <= F.lit(resolution_config.max_exact_blocking_node_candidate_keys)
             ),
             source_columns,
             "inner",
@@ -2423,10 +2360,7 @@ def build_identity_resolution_dataframes(
                     F.col("types.subject_namespace_id")
                     == F.col("memberships.source_namespace_id")
                 )
-                & (
-                    F.col("types.subject_source_id")
-                    == F.col("memberships.source_id")
-                )
+                & (F.col("types.subject_source_id") == F.col("memberships.source_id"))
                 & (
                     F.col("types.subject_referent_kind")
                     == F.col("memberships.source_referent_kind")
@@ -2457,9 +2391,7 @@ def build_identity_resolution_dataframes(
             (F.col("existing_membership_count") != 1)
             | (
                 F.col("node_candidate_count")
-                > F.lit(
-                    resolution_config.max_exact_blocking_node_candidate_keys
-                )
+                > F.lit(resolution_config.max_exact_blocking_node_candidate_keys)
             )
             | (F.size("new_candidate_entity_keys") > 0)
         )
@@ -2524,9 +2456,7 @@ def build_identity_resolution_dataframes(
             )
         ).require_consistent()
 
-    assigned_recheck_results = assigned_rechecks.rdd.map(
-        resolve_assigned_recheck
-    )
+    assigned_recheck_results = assigned_rechecks.rdd.map(resolve_assigned_recheck)
     if revocations.rdd.isEmpty():
         revocation_results = spark.sparkContext.emptyRDD()
     else:
@@ -2609,9 +2539,10 @@ def build_identity_resolution_dataframes(
                 ).items()
             )
         )
-        if sum(conflict_counts_by_reason.values()) != expected_counts[
-            "community_identity_conflict"
-        ]:
+        if (
+            sum(conflict_counts_by_reason.values())
+            != expected_counts["community_identity_conflict"]
+        ):
             raise RuntimeError("identity conflict reason counts changed")
         run = build_community_ingest_run(
             run_kind=IngestRunKind.IDENTITY_RESOLUTION,

@@ -74,9 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
 def benchmark_node_count(parsed: argparse.Namespace) -> int:
     if parsed.scale in LARGE_SCALE_NODE_COUNTS:
         if not parsed.confirm_large_scale:
-            raise ValueError(
-                "1M/5M benchmark requires --confirm-large-scale"
-            )
+            raise ValueError("1M/5M benchmark requires --confirm-large-scale")
         return LARGE_SCALE_NODE_COUNTS[parsed.scale]
     if parsed.small_node_count < 1:
         raise ValueError("--small-node-count must be positive")
@@ -88,9 +86,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     config = IdentityResolutionConfig(
         max_exact_blocking_label_iterations=parsed.max_label_iterations,
         max_exact_blocking_component_size=parsed.max_component_size,
-        max_exact_blocking_node_candidate_keys=(
-            parsed.max_node_candidate_keys
-        ),
+        max_exact_blocking_node_candidate_keys=(parsed.max_node_candidate_keys),
         max_exact_blocking_component_candidate_keys=(
             parsed.max_component_candidate_keys
         ),

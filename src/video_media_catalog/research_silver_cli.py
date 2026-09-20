@@ -849,12 +849,8 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         label="config-digest",
     )
     resolution_config = IdentityResolutionConfig(
-        max_exact_blocking_label_iterations=(
-            parsed.identity_max_label_iterations
-        ),
-        max_exact_blocking_component_size=(
-            parsed.identity_max_component_size
-        ),
+        max_exact_blocking_label_iterations=(parsed.identity_max_label_iterations),
+        max_exact_blocking_component_size=(parsed.identity_max_component_size),
         max_exact_blocking_node_candidate_keys=(
             parsed.identity_max_node_candidate_keys
         ),

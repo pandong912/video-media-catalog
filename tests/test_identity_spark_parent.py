@@ -55,11 +55,7 @@ def _parent_work(
                 "imdb-title",
                 f"tt-parent-{case}",
                 "EDITORIAL_WORK",
-                (
-                    "{}"
-                    if case == "ordinal"
-                    else '{"episodeNumber":2,"seasonNumber":1}'
-                ),
+                ("{}" if case == "ordinal" else '{"episodeNumber":2,"seasonNumber":1}'),
             )
             for index, case in enumerate(
                 (
@@ -175,10 +171,7 @@ def _parent_work(
 def test_parent_join_requires_one_compatible_membership(
     spark: SparkSession,
 ) -> None:
-    rows = {
-        row.subject_source_id: row
-        for row in _parent_work(spark).collect()
-    }
+    rows = {row.subject_source_id: row for row in _parent_work(spark).collect()}
     unique = rows["tt-child-unique"]
     assert unique.resolution_mode == "BOOTSTRAP"
     assert unique.resolved_parent_membership_count == 1

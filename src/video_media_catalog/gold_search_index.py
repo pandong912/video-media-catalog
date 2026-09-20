@@ -11,6 +11,7 @@ from typing import Any, Literal, Self
 from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.canonical import canonical_json_bytes
+from video_media_catalog.gold import PERSONAL_RESEARCH_CONTEXT_ID
 from video_media_catalog.gold_ingest import (
     GOLD_RELEASE_COMMIT_MEDIA_TYPE,
     GoldReleaseCommit,
@@ -19,13 +20,14 @@ from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
+    require_oidc_subject,
     require_rfc3339,
     require_sha256,
 )
 
-SHADOW_READ_ALIAS = "media-catalog-community-v2-shadow-read"
-SHADOW_INDEX_PREFIX = "media-catalog-community-v2"
-PROJECTION_VERSION = "2"
+RESEARCH_READ_ALIAS = "media-catalog-research-read"
+RESEARCH_INDEX_PREFIX = "media-catalog-research"
+PROJECTION_VERSION = "3"
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
 
@@ -37,6 +39,7 @@ _MAPPINGS: dict[str, Any] = {
         "entityKind": {"type": "keyword"},
         "status": {"type": "keyword"},
         "releasePlanId": {"type": "keyword"},
+        "contextId": {"type": "keyword"},
         "displayName": {
             "type": "text",
             "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
@@ -91,8 +94,72 @@ _MAPPINGS: dict[str, Any] = {
                 "count": {"type": "long"},
             },
         },
+        "sourceBadges": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "sourceProductId": {"type": "keyword"},
+                "displayName": {"type": "keyword", "ignore_above": 512},
+                "sourceUrl": {"type": "keyword", "ignore_above": 2048},
+                "policyZones": {"type": "keyword"},
+                "assertionCount": {"type": "long"},
+                "winningAssertionCount": {"type": "long"},
+            },
+        },
+        "winningAssertions": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "kind": {"type": "keyword"},
+                "assertionId": {"type": "keyword"},
+                "predicate": {"type": "keyword"},
+                "valueJson": {"type": "keyword", "ignore_above": 4096},
+                "qualifiersJson": {"type": "keyword", "ignore_above": 4096},
+                "resolutionStatus": {"type": "keyword"},
+                "sourceProductId": {"type": "keyword"},
+                "sourceRecordId": {"type": "keyword", "ignore_above": 2048},
+                "sourcePath": {"type": "keyword", "ignore_above": 2048},
+                "observedAt": {"type": "date", "format": "strict_date_time"},
+                "citationKeys": {"type": "keyword"},
+                "citationOverflow": {"type": "integer"},
+            },
+        },
+        "rights": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "sourceProductId": {"type": "keyword"},
+                "policyId": {"type": "keyword"},
+                "policyZone": {"type": "keyword"},
+                "licenseId": {"type": "keyword"},
+                "licenseUri": {"type": "keyword", "ignore_above": 2048},
+                "attributionText": {
+                    "type": "keyword",
+                    "ignore_above": 2048,
+                },
+                "sourceUrl": {"type": "keyword", "ignore_above": 2048},
+                "shareAlike": {"type": "boolean"},
+            },
+        },
         "conflictCount": {"type": "long"},
         "conflictPredicates": {"type": "keyword"},
+        "conflicts": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "predicate": {"type": "keyword"},
+                "scopeHash": {"type": "keyword"},
+                "reason": {"type": "keyword"},
+                "assertionIds": {"type": "keyword"},
+                "assertionOverflow": {"type": "integer"},
+                "candidateValuesJson": {
+                    "type": "keyword",
+                    "ignore_above": 4096,
+                },
+                "candidateValueOverflow": {"type": "integer"},
+                "sourceProductIds": {"type": "keyword"},
+            },
+        },
         "sourceNodeCount": {"type": "long"},
         "overflow": {
             "type": "object",
@@ -101,6 +168,11 @@ _MAPPINGS: dict[str, Any] = {
                 "titles": {"type": "integer"},
                 "externalIdentifiers": {"type": "integer"},
                 "relationTypes": {"type": "integer"},
+                "sourceBadges": {"type": "integer"},
+                "winningAssertions": {"type": "integer"},
+                "citationKeys": {"type": "integer"},
+                "rights": {"type": "integer"},
+                "conflicts": {"type": "integer"},
                 "formats": {"type": "integer"},
                 "languages": {"type": "integer"},
                 "statuses": {"type": "integer"},
@@ -134,6 +206,7 @@ def gold_index_config_digest(
     *,
     read_alias: str,
     index_prefix: str,
+    owner_subject: str,
     shards: int,
     replicas: int,
     bulk_chunk_size: int,
@@ -144,10 +217,14 @@ def gold_index_config_digest(
         raise ValueError("invalid shard or replica count")
     if bulk_chunk_size < 1 or bulk_max_chunk_bytes < 1:
         raise ValueError("invalid bulk configuration")
+    if read_alias != RESEARCH_READ_ALIAS or index_prefix != RESEARCH_INDEX_PREFIX:
+        raise ValueError("research index and alias names are fixed")
     require_sha256(image_digest, label="image_digest")
     payload = {
         "projectionVersion": PROJECTION_VERSION,
         "mappingDigest": MAPPING_DIGEST,
+        "contextId": PERSONAL_RESEARCH_CONTEXT_ID,
+        "ownerSubject": require_oidc_subject(owner_subject),
         "readAlias": _safe_name(read_alias, label="read alias"),
         "indexPrefix": _safe_name(index_prefix, label="index prefix"),
         "shards": shards,
@@ -170,6 +247,8 @@ def derive_gold_build_id(
             {
                 "commitKey": commit.commit_key,
                 "releasePlanId": commit.release_plan_id,
+                "ownerSubject": commit.owner_subject,
+                "contextId": commit.context_id,
                 "tableSnapshotIds": commit.table_snapshot_ids,
                 "mappingDigest": MAPPING_DIGEST,
                 "configDigest": config_digest,
@@ -255,6 +334,8 @@ class GoldIndexBuildManifest(V2ContractModel):
     status: Literal["COMPLETED"] = "COMPLETED"
     build_id: str
     release_plan_id: str
+    owner_subject: str
+    context_id: Literal["personal-research"] = PERSONAL_RESEARCH_CONTEXT_ID
     release_commit: ObjectRef
     table_snapshot_ids: dict[str, int | None]
     mapping_digest: str
@@ -279,6 +360,11 @@ class GoldIndexBuildManifest(V2ContractModel):
     @classmethod
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
+
+    @field_validator("owner_subject")
+    @classmethod
+    def validate_owner_subject(cls, value: str) -> str:
+        return require_oidc_subject(value)
 
     @field_validator("index", "alias")
     @classmethod
@@ -306,6 +392,10 @@ class GoldIndexBuildManifest(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_release_commit(self) -> Self:
+        if self.alias != RESEARCH_READ_ALIAS or not self.index.startswith(
+            RESEARCH_INDEX_PREFIX + "-"
+        ):
+            raise ValueError("index manifest must use the research index family")
         reference = self.release_commit
         if (
             reference.format != "OBJECT_FORMAT_JSON"

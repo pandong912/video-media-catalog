@@ -3,14 +3,16 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from video_media_catalog.attribution import (
     AttributionEntry,
     build_attribution_manifest,
 )
-from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
     build_gold_release_plan,
-    community_display_policy,
+    personal_research_context,
+    personal_research_policy,
 )
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
@@ -23,7 +25,6 @@ from video_media_catalog.gold_resolution import GoldResolutionDraft
 from video_media_catalog.gold_tables import GOLD_TABLE_COLUMNS
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.rights import PolicyZone
 
 TIMESTAMP = "2026-09-19T00:00:00Z"
 
@@ -154,14 +155,11 @@ def _draft() -> GoldResolutionDraft:
 
 def _plan():
     draft = _draft()
-    policy = community_display_policy()
+    policy = personal_research_policy()
     return build_gold_release_plan(
-        policy_context=ReleasePolicyContext(
-            context_id="public-sharealike",
-            audience="public",
-            purpose="catalog",
+        owner_subject="owner-123",
+        policy_context=personal_research_context(
             as_of=TIMESTAMP,
-            allowed_zones=(PolicyZone.OPEN_SHAREALIKE,),
         ),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},
@@ -249,7 +247,7 @@ class RecordingGoldTables(CommunityGoldTables):
 def test_gold_release_commit_is_last_and_quality_gated() -> None:
     draft = _draft()
     plan = _plan()
-    policy = community_display_policy()
+    policy = personal_research_policy()
     quality = build_gold_quality_report(
         plan=plan,
         draft=draft,
@@ -275,6 +273,29 @@ def test_gold_release_commit_is_last_and_quality_gated() -> None:
         for table, count in plan.expected_counts.items()
     }
     tables = RecordingGoldTables(plan.expected_counts)
+    mismatched_attribution = build_attribution_manifest(
+        release_id=plan.release_plan_id,
+        entries=(
+            attribution.entries[0].model_copy(update={"claim_count": 2}),
+        ),
+        created_at=TIMESTAMP,
+    )
+    with pytest.raises(ValueError, match="cover every eligible assertion"):
+        tables.stage_and_commit(
+            plan=plan,
+            dataframes=frames,
+            quality_report=quality,
+            quality_report_ref=_control_ref(
+                quality.json_bytes(), GOLD_QUALITY_MEDIA_TYPE, "quality.json"
+            ),
+            attribution_manifest=mismatched_attribution,
+            attribution_manifest_ref=_control_ref(
+                mismatched_attribution.json_bytes(),
+                ATTRIBUTION_MEDIA_TYPE,
+                "bad-attribution.json",
+            ),
+            committed_at=TIMESTAMP,
+        )
     commit = tables.stage_and_commit(
         plan=plan,
         dataframes=frames,
@@ -291,4 +312,6 @@ def test_gold_release_commit_is_last_and_quality_gated() -> None:
         committed_at=TIMESTAMP,
     )
     assert commit.table_counts == plan.expected_counts
+    assert commit.owner_subject == "owner-123"
+    assert commit.context_id == "personal-research"
     assert tables.events[-1] == "community_gold_release_commit"

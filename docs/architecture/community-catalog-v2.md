@@ -2,15 +2,16 @@
 
 ## Status
 
-This document defines the first implementation slice of the public/community
-source strategy. It does not change the published Wikidata/EIDR v1 contracts.
+This document defines the v2 supplier-neutral source strategy and its unified
+owner-only personal research serving context. It does not change the published
+Wikidata/EIDR v1 contracts.
 V1 remains the compatibility source for existing entity keys, snapshots,
 OpenSearch indexes, and API responses.
 
-The v2 goal is one supplier-neutral processing platform with separate policy
-outputs. Public, community, personal-research, and commercial sources may share
-code and internal entity keys, but they must not share storage, indexes, or
-publication rights unless an explicit policy permits it.
+The v2 goal is one supplier-neutral processing platform and one
+`personal-research` Gold/serving output. Sources share code, Silver, identity,
+Gold, and the research index while retaining source-level policy, attribution,
+expiry, and removal duties.
 
 The current implementation includes the source/rights/connector/identity
 contracts, TVmaze capture and assertion mapping, and the run-fenced Silver
@@ -22,10 +23,11 @@ in
 [`contracts/parquet/community_catalog_gold.v2.md`](../../contracts/parquet/community_catalog_gold.v2.md).
 The distributed identity stage and Silver-to-Gold transform now consume exact
 snapshot sets and committed run IDs without driver collection. A bounded,
-strict-mapping OpenSearch projection publishes only to the isolated
-`media-catalog-community-v2-shadow-read` alias. OIDC-protected `/api/v2/catalog`
-routes query that alias and bind pagination cursors to one concrete immutable
-index; v1 routes and alias remain unchanged.
+strict-mapping OpenSearch projection publishes only to
+`media-catalog-research-read`. Owner-only `/api/v2/research` routes require
+`governance.read`, exact configured OIDC subject equality, and pagination
+cursors bound to one concrete immutable index; v1 routes and alias remain
+unchanged.
 
 ## Source portfolio
 
@@ -45,8 +47,8 @@ transport or provider:
 - `federated_ephemeral`: user-triggered MAL, AniDB, AniList, YouTube, Vimeo, or
   platform-partner requests whose terms do not permit a permanent mirror.
 
-Unknown or disputed rights always route to a restricted quarantine. Public API,
-export, and training paths fail closed.
+Unknown or disputed rights always route to quarantine. Export, public serving,
+and training paths fail closed.
 
 ## Shared architecture
 
@@ -57,7 +59,7 @@ source product
   -> source-native record envelopes
   -> typed assertions and citations
   -> identity evidence and decisions
-  -> policy-specific Gold release
+  -> owner-only personal-research Gold release
   -> bounded OpenSearch projection / analytical Iceberg views
 ```
 
@@ -153,16 +155,13 @@ key. Splits preserve history and require an explicit decision.
 Schema.org is an output mapping. EBUCorePlus and MovieLabs MDDF are semantic and
 distribution crosswalks. None of them is copied wholesale into physical tables.
 
-## Policy-specific Gold
+## Unified personal research Gold
 
-Gold is a decision for a policy context, not one universal truth:
-
-- `gold_cc0`: only assertions whose dependency closure is CC0/public-domain;
-- `gold_attributed`: CC BY/open-government assertions plus attribution;
-- `gold_sharealike`: BY-SA-compatible publication and attribution;
-- `personal_overlay`: personal/non-commercial and leased data;
-- `commercial_overlay`: facts covered by a specific contract entitlement;
-- `ml_eligible`: only dependencies explicitly permitted for that ML purpose.
+V2 publishes one owner-only `personal-research` Gold. It does not build public
+and personal variants or a runtime mode switch. Open, public-registry, and
+registered research-private assertions can coexist only after their individual
+rights profiles permit personal research storage, transformation, display, and
+search.
 
 Resolution first evaluates rights eligibility, then entity level, locale,
 territory and valid time, then field-specific authority, evidence, precision,
@@ -171,9 +170,11 @@ Each selected value retains its winning assertion and resolution trace.
 
 ## Physical isolation and removal
 
-Policy zones require separate S3/warehouse prefixes or buckets, KMS keys,
-Iceberg namespaces, service accounts, lifecycle rules, OpenSearch index
-families, backups, and caches. A `license_class` column alone is not isolation.
+The research catalog remains isolated from other systems with dedicated
+S3/warehouse boundaries, KMS, service accounts, lifecycle rules, and one
+`media-catalog-research-*` OpenSearch family. Sources are not split into
+parallel public/personal warehouses; policy metadata remains mandatory for
+expiry, attribution, and removal.
 
 Source removal:
 
@@ -207,14 +208,14 @@ quality reports, and separate affected/total row counts.
 3. Add TVmaze as the first community adapter because it offers a documented
    full index, update indexes, stable IDs, and CC BY-SA API terms.
 4. Add MADB and Bangumi only after their field-level policy maps are reviewed.
-5. Build separate `gold_cc0`, attributed/share-alike, and personal indexes.
+5. Build the single owner-only personal-research Gold and research index.
 6. Run a representative scale test before replacing the current small
    OpenSearch development domain.
 
 ## Non-goals for this slice
 
 - no IMDb, TMDB, or commercial-provider ingestion;
-- no public redistribution of research-private data;
+- no public serving or redistribution of the owner-only research catalog;
 - no automatic fuzzy entity merge;
 - no assumption that a metadata license also clears images or video;
 - no full-platform YouTube, anime-site, or streaming-provider crawl;

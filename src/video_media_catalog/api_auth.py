@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+from video_media_catalog.v2_contracts import require_oidc_subject
+
 REQUIRED_SCOPE = "governance.read"
 ALLOWED_JWT_ALGORITHMS = frozenset(
     {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}
@@ -53,6 +55,14 @@ class AuthorizationError(Exception):
     """The authenticated principal lacks required authorization."""
 
 
+class ResearchScopeAuthorizationError(AuthorizationError):
+    """The principal lacks the fixed research-catalog scope."""
+
+
+class OwnerAuthorizationError(AuthorizationError):
+    """The principal is not the configured research-catalog owner."""
+
+
 @dataclass(frozen=True)
 class Principal:
     subject: str
@@ -88,6 +98,19 @@ class OIDCConfig:
 
 class TokenVerifier(Protocol):
     def verify(self, token: str) -> Principal: ...
+
+
+def authorize_research_principal(
+    principal: Principal,
+    *,
+    owner_subject: str,
+) -> Principal:
+    expected = require_oidc_subject(owner_subject)
+    if REQUIRED_SCOPE not in principal.scopes:
+        raise ResearchScopeAuthorizationError("research scope is missing")
+    if principal.subject != expected:
+        raise OwnerAuthorizationError("research catalog is owner-only")
+    return principal
 
 
 def _scopes(value: Any) -> frozenset[str]:
@@ -147,8 +170,10 @@ class OIDCJWTVerifier:
             raise AuthenticationError("OIDC key verification failed") from exc
 
         subject = claims.get("sub")
-        if not isinstance(subject, str) or not subject.strip():
-            raise AuthenticationError("bearer token subject is invalid")
+        try:
+            subject = require_oidc_subject(subject)
+        except (TypeError, ValueError) as exc:
+            raise AuthenticationError("bearer token subject is invalid") from exc
         scopes = _scopes(claims.get("scope"))
         if self.config.required_scope not in scopes:
             raise AuthorizationError("required scope is missing")

@@ -17,8 +17,8 @@ Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重
 
 ## Community catalog v2 foundation
 
-方案 2 以公共/社区数据为主，但不把不同许可的数据混成一张“开放”表。当前分支
-新增供应商中立的 v2 基础契约：
+方案 2 使用供应商中立的 v2 基础契约，把不同许可来源统一到 owner-only
+personal-research 目录，同时保留逐来源 policy 门禁：
 
 - `source_registry.py`：区分 source system、product、ID namespace、native
   schema 与 rights profile；
@@ -29,8 +29,8 @@ Iceberg 六表始终是事实源；OpenSearch 仅是可以从 snapshot 完整重
 - `assertions.py` / `identity_v2.py`：事实断言与永久内部实体键分离，保留
   evidence、可逆 decision、membership、redirect 和全部 v1 key；
 - `attribution.py`：为 CC BY/BY-SA 发布生成确定性、可审计的来源与许可清单；
-- `community_release.py`：发布 policy-specific Gold，区分 affected count 与
-  snapshot total，并绑定 exact input/policy/quality identity。
+- `community_release.py`：定义 release 边界；serving Gold 固定为
+  personal-research，并绑定 owner、exact input/policy/quality identity。
 
 现有 v1 pipeline、六表、算法摘要和 API 不变。完整设计与边界见
 [`docs/architecture/community-catalog-v2.md`](docs/architecture/community-catalog-v2.md)
@@ -189,28 +189,36 @@ Silver 表全部带确定性 `run_id`。source/assertion/identity 行只有在
 Gold。`v1_migration.py` 从 snapshot-pinned 六表导入全部既有 key，原样保存
 `entity_key`，不会按新规则重新计算。
 
-Gold v2 继续按 policy context 隔离：
+Gold v2 只发布一个 `personal-research` context，不再生成 public/personal
+双 release。release plan、release commit 和 index build manifest 都绑定同一个
+精确 OIDC `sub`：
 
 - `identity_resolution.py`：精确匹配只接受唯一候选，未匹配 source node 分配一次
   内部 UUIDv7，歧义进入 conflict，membership/redirect 可按 as-of 重放；
 - `identity_spark.py`：分布式读取 active type/identifier assertions，优先与 v1
   external identifiers 做类型兼容的精确连接，未匹配项再分配内部实体；多候选
   直接阻断而不是猜测；
-- `gold.py` / `gold_resolution.py`：rights eligibility 先于字段选择；
+- `gold.py` / `gold_resolution.py`：固定 audience=`personal`、
+  purpose=`research`，默认允许 open、public registry 与已登记
+  `research_private` zone；每条 assertion 仍须同时通过
+  STORE/TRANSFORM/DISPLAY/SEARCH、territory、有效期和 policy digest 门禁；
+  rights eligibility 先于字段选择；
   `SINGLE` 冲突不任意选供应商，`SET_UNION` 保留多值及 assertion lineage；
 - `gold_spark_transform.py`：分布式 join active membership、rights/TTL、source
   provenance，生成 entity/field/identifier/relation/conflict 五类 Gold frames；
 - `gold_quality.py`：冲突率、未解析身份率和 rights gate 形成不可变报告；
 - `gold_iceberg.py`：entity/field/identifier/relation/conflict 五表按 release plan
   隔离，质量 PASS 后才发布 commit marker；
-- attribution 与 quality ObjectRef 必须绑定实际 payload，才能进入 release commit。
+- attribution 与 quality ObjectRef 必须绑定实际 payload，且 attribution 的
+  claim counts 必须完整覆盖 eligible policy counts，才能进入 release commit。
 
 完整表契约见
 [`contracts/parquet/community_catalog_gold.v2.md`](contracts/parquet/community_catalog_gold.v2.md)。
 `video-media-catalog-gold-spark` 验证 immutable
 `CommunitySilverSnapshotSet`，按列出的 committed runs time-travel Silver，
-发布 quality/attribution 对象并 commit Gold。v2 shadow OpenSearch 使用独立
-alias，不替换 v1：
+发布 quality/attribution 对象并 commit Gold。`--owner-subject` 为必填参数；
+不再接受可切换的 context/audience/allowed-zone 参数。v2 使用唯一 research
+OpenSearch family，不替换 v1：
 
 ```bash
 video-media-catalog-gold-index \
@@ -222,24 +230,37 @@ video-media-catalog-gold-index \
   --manifest-prefix s3://bucket/gold-index-builds \
   --completed-at 2026-09-19T00:00:00Z \
   --image-digest sha256:<hex> \
+  --owner-subject <exact-oidc-sub> \
   --catalog-type glue \
   --warehouse s3://bucket/community-warehouse \
   --opensearch-endpoint https://search.example.com
 ```
 
-固定 shadow alias 为 `media-catalog-community-v2-shadow-read`。索引文档只包含
-有界 titles/identifiers/attributes/relation summary 和 conflict 标记；完整
-assertions 与 relations 仍留在 Iceberg。现有 OIDC API 同时提供隔离的 v2 路由：
+固定 index prefix 为 `media-catalog-research-*`，固定 read alias 为
+`media-catalog-research-read`。索引文档除有界
+titles/identifiers/attributes/relation summary 外，还提供稳定 UI 契约：
 
-- `GET /api/v2/catalog/search`
-- `GET /api/v2/catalog/entities/{entityKey}`
-- `GET /api/v2/catalog/external-identifiers/{namespace}/{value}`
+- `sourceBadges[]`：来源产品、展示名、来源 URL、policy zones 和 assertion 数；
+- `winningAssertions[]`：字段/identifier 的获胜 assertion、source record/path、
+  observed time 与有界 `citationKeys`；
+- `rights[]`：policy zone、license、署名、来源链接和 share-alike；
+- `conflicts[]`：predicate、reason、scope、候选值 JSON、assertion/source 摘要；
+- `overflow`：上述有界数组的截断计数。
+
+完整 assertions 和 relation edges 仍留在 Iceberg；当前 Silver 没有独立
+Citation table，因此此切片稳定暴露 citation keys 与 source record/path 摘要。
+当前仓库没有 UI 源码，因此本切片只发布以上稳定 API 契约。v2 owner-only 路由为：
+
+- `GET /api/v2/research/search`
+- `GET /api/v2/research/entities/{entityKey}`
+- `GET /api/v2/research/external-identifiers/{namespace}/{value}`
 
 v2 搜索 cursor 会绑定 alias 当时解析出的 concrete immutable index 和过期时间，
-因此 alias 切换不会造成跨版本错页。可通过
-`MEDIA_CATALOG_COMMUNITY_READ_ALIAS`、
-`MEDIA_CATALOG_COMMUNITY_INDEX_PREFIX` 和
-`MEDIA_CATALOG_COMMUNITY_CURSOR_TTL_SECONDS` 配置；v1 alias 和 API 契约不变。
+因此 alias 切换不会造成跨版本错页。TTL 使用
+`MEDIA_CATALOG_RESEARCH_CURSOR_TTL_SECONDS`；index/alias 名称固定，不能切回
+community/public family。每个 v2 research 请求除 `governance.read` 外，还必须
+满足 `sub == MEDIA_CATALOG_OIDC_OWNER_SUBJECT`（也接受部署环境名
+`OIDC_OWNER_SUBJECT`）。v1 alias 和 API 契约不变。
 
 ## Reference catalog MVP selector
 
@@ -685,18 +706,22 @@ MEDIA_CATALOG_ENVIRONMENT=production
 MEDIA_CATALOG_OPENSEARCH_ENDPOINT=https://search-catalog.us-east-1.es.amazonaws.com
 MEDIA_CATALOG_OPENSEARCH_SERVICE=es
 MEDIA_CATALOG_READ_ALIAS=media-catalog-entities-read
+MEDIA_CATALOG_RESEARCH_READ_ALIAS=media-catalog-research-read
+MEDIA_CATALOG_RESEARCH_INDEX_PREFIX=media-catalog-research
 MEDIA_CATALOG_SEARCH_TIMEOUT_SECONDS=5
 MEDIA_CATALOG_CURSOR_SECRET=<至少 32 bytes，来自 Secret>
 MEDIA_CATALOG_OIDC_ISSUER=https://issuer.example
 MEDIA_CATALOG_OIDC_JWKS_URI=https://issuer.example/.well-known/jwks.json
 MEDIA_CATALOG_OIDC_AUDIENCE=media-catalog-api
 MEDIA_CATALOG_OIDC_REQUIRED_SCOPE=governance.read
+MEDIA_CATALOG_OIDC_OWNER_SUBJECT=<exact-oidc-sub>
 AWS_REGION=us-east-1
 ```
 
 应用也接受 GitOps 的固定未加前缀契约：
 `OPENSEARCH_ENDPOINT`、`REGION`、`INDEX_ALIAS`、`OIDC_ISSUER`、
-`OIDC_JWKS_URI`、`OIDC_AUDIENCE`、`OIDC_REQUIRED_SCOPE`。
+`OIDC_JWKS_URI`、`OIDC_AUDIENCE`、`OIDC_REQUIRED_SCOPE`、
+`OIDC_OWNER_SUBJECT`。
 issuer 必须为 HTTPS；JWKS 可为 HTTPS，或仅对 hostname 等于
 `svc.cluster.local`/以 `.svc.cluster.local` 结尾的集群服务允许 HTTP。
 所有 OIDC URL 都拒绝 credentials、query 和 fragment。
@@ -705,8 +730,9 @@ API Pod 必须使用独立 ServiceAccount/IRSA，仅授予读 alias 所需的 Op
 `ESHttpGet`/`ESHttpHead` 权限。搜索和外部 ID 查询固定通过编码安全的
 `GET /<alias>/_search` 发送，不需要 POST。除 `/healthz` 外，请求复用同源
 `Authorization: Bearer <JWT>`。
-服务校验 JWT 签名、`iss`、`aud`、`exp`、非空 `sub`，并要求
-`governance.read` scope；不会记录 token。缺少 OIDC 配置时生产服务拒绝启动。
+服务校验 JWT 签名、`iss`、`aud`、`exp`、非空 `sub`；v2 research 路由固定
+要求 `governance.read` 且 `sub` 与唯一配置值逐字节相同，不会记录 token。
+缺少 owner subject 或其他 OIDC 配置时生产服务拒绝启动。
 仅测试可同时设置
 `MEDIA_CATALOG_ENVIRONMENT=test` 与 `MEDIA_CATALOG_AUTH_DISABLED=true`。
 
@@ -721,6 +747,13 @@ HTTP 契约：
 - `GET /api/v1/catalog/entities/{entityKey}`：按稳定实体键读取。
 - `GET /api/v1/catalog/external-identifiers/{scheme}/{value}`：精确解析并返回
   单个实体；零条为 404，多条为 409。
+- `GET /api/v2/research/search`：owner-only personal-research 搜索，支持
+  `entityLevel`、`entityKind`、`language`、`hasConflicts` 和 concrete-index
+  cursor。
+- `GET /api/v2/research/entities/{entityKey}`：返回来源 badges、获胜
+  assertion/citation keys、rights/attribution 与 conflict summaries。
+- `GET /api/v2/research/external-identifiers/{namespace}/{value}`：在唯一
+  research alias 中精确解析。
 
 分页 cursor 是绑定原查询的 HMAC 签名 opaque `search_after`，篡改或跨查询复用
 返回 Problem Details。所有查询由固定结构构造，不接受 OpenSearch DSL。

@@ -211,9 +211,10 @@ select the earliest stable entity as survivor and emit acyclic redirects for
 all retired keys. Split events never guess a redirect: they record explicit
 source-node-to-target assignments and preserve the original key in history.
 
-## Policy-specific release
+## Unified research release
 
-A release identifies one audience, purpose, territory, and as-of time. It pins:
+The serving release has one fixed context, `research`, and one configured OIDC
+owner subject. It pins:
 
 - committed connector batches and ingest runs;
 - source watermarks and Silver snapshots;
@@ -223,6 +224,7 @@ A release identifies one audience, purpose, territory, and as-of time. It pins:
 - attribution manifest;
 - affected and total row counts.
 
-Readers may only use the final release commit. Open releases must pass an
-anti-join proving that no assertion, identity decision, asset, or derived value
-depends exclusively on a restricted policy zone.
+Readers may only use the final release commit. Research-private assertions are
+eligible only after their registered policy passes the requested action,
+audience, purpose, territory, expiry/cache, attribution, and digest checks.
+There is no parallel public release or public serving alias in v2.

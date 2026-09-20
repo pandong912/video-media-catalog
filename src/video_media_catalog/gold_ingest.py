@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import ValidationInfo, field_validator, model_validator
@@ -12,6 +12,7 @@ from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
+    require_oidc_subject,
     require_rfc3339,
     require_sha256,
 )
@@ -51,6 +52,8 @@ class GoldReleaseCommit(V2ContractModel):
     schema_version: str = "2.0"
     commit_key: str
     release_plan_id: str
+    owner_subject: str
+    context_id: Literal["personal-research"] = "personal-research"
     committed_at: str
     table_counts: dict[str, int]
     table_snapshot_ids: dict[str, int | None]
@@ -61,6 +64,11 @@ class GoldReleaseCommit(V2ContractModel):
     @classmethod
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
+
+    @field_validator("owner_subject")
+    @classmethod
+    def validate_owner_subject(cls, value: str) -> str:
+        return require_oidc_subject(value)
 
     @field_validator("committed_at")
     @classmethod
@@ -117,6 +125,8 @@ def _commit_identity(commit: GoldReleaseCommit) -> dict[str, Any]:
     return {
         "schemaVersion": commit.schema_version,
         "releasePlanId": commit.release_plan_id,
+        "ownerSubject": commit.owner_subject,
+        "contextId": commit.context_id,
         "committedAt": commit.committed_at,
         "tableCounts": commit.table_counts,
         "tableSnapshotIds": commit.table_snapshot_ids,

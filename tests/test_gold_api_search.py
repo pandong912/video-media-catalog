@@ -29,7 +29,7 @@ def test_gold_cursor_binds_concrete_index_query_and_expiry() -> None:
         clock=lambda: 100,
     )
     parameters = _parameters()
-    index = "media-catalog-community-v2-" + ("a" * 24)
+    index = "media-catalog-research-" + ("a" * 24)
     cursor = codec.encode(
         index=index,
         sort=[2.5, "sha256:" + ("b" * 64)],

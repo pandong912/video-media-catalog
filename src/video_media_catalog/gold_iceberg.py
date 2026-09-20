@@ -154,6 +154,17 @@ class CommunityGoldTables:
             raise ValueError("Gold quality report does not approve this plan")
         if attribution_manifest.release_id != plan.release_plan_id:
             raise ValueError("attribution manifest does not bind this plan")
+        attribution_coverage: dict[str, int] = {}
+        for entry in attribution_manifest.entries:
+            attribution_coverage[entry.policy_id] = (
+                attribution_coverage.get(entry.policy_id, 0) + entry.claim_count
+            )
+        if dict(sorted(attribution_coverage.items())) != (
+            quality_report.eligible_policy_counts
+        ):
+            raise ValueError(
+                "attribution manifest does not cover every eligible assertion"
+            )
         _verify_model_ref(quality_report.json_bytes(), quality_report_ref)
         _verify_model_ref(
             attribution_manifest.json_bytes(),
@@ -200,6 +211,8 @@ class CommunityGoldTables:
         }
         commit = build_gold_release_commit(
             release_plan_id=plan.release_plan_id,
+            owner_subject=plan.owner_subject,
+            context_id=plan.policy_context.context_id,
             committed_at=committed,
             table_counts=counts,
             table_snapshot_ids=snapshots,

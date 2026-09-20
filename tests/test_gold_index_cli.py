@@ -19,6 +19,8 @@ def _arguments() -> list[str]:
         "2026-09-19T00:00:00Z",
         "--image-digest",
         "sha256:" + ("b" * 64),
+        "--owner-subject",
+        "owner-123",
         "--catalog-type",
         "hadoop",
         "--warehouse",
@@ -30,9 +32,12 @@ def _arguments() -> list[str]:
 
 
 def test_gold_index_cli_builds_local_release_reference() -> None:
-    reference = _release_ref(build_parser().parse_args(_arguments()))
+    parsed = build_parser().parse_args(_arguments())
+    reference = _release_ref(parsed)
     assert reference.uri == "file:///tmp/release.json"
     assert reference.object_version is None
+    assert parsed.read_alias == "media-catalog-research-read"
+    assert parsed.index_prefix == "media-catalog-research"
 
 
 def test_gold_index_cli_requires_immutable_s3_release() -> None:

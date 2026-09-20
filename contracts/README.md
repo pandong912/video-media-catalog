@@ -9,11 +9,12 @@
 - `community_catalog.v2.md`：供应商中立的 rights、source registry、
   connector envelope、assertion、identity ledger 与 policy-specific release
   边界，以及 Wikidata/EIDR/TVmaze/IMDb/TMDB acquisition、重放和删除语义。
-  它是并行 v2 契约，不改变 v1。
+  V2 仅发布一套 owner-only `research` release；它是并行契约，不改变 v1。
 - `parquet/community_catalog_silver.v2.md`：v2 run visibility、source/
   assertion/identity Iceberg 表、commit-last 和分区规则。
-- `parquet/community_catalog_gold.v2.md`：policy-specific Gold 实体、字段、
-  identifier、relation、conflict 与 release commit-last 规则。
+- `parquet/community_catalog_gold.v2.md`：personal-research Gold 实体、字段、
+  identifier、relation、conflict、来源/许可 serving projection 与
+  release commit-last 规则。
 - `reference_catalog_selection.v1.md`：10 万内容实体、独立 agent budget、
   asset demand profile、层级闭包优先和 selection audit 规则。
 - `catalog_asset_match.v1.md`：AssetVersion 匹配请求、候选 Manifest、显式确认

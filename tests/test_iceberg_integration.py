@@ -19,7 +19,6 @@ from video_media_catalog.community_ingest import (
     IngestRunKind,
     build_community_ingest_run,
 )
-from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.community_rows import (
     empty_data_rows,
     entity_ledger_row,
@@ -28,7 +27,8 @@ from video_media_catalog.community_spark import create_community_dataframes
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.gold import (
     build_gold_release_plan,
-    community_display_policy,
+    personal_research_context,
+    personal_research_policy,
 )
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
@@ -47,7 +47,6 @@ from video_media_catalog.identity_v2 import (
 )
 from video_media_catalog.landing import extract_landing
 from video_media_catalog.models import Checksum, ObjectRef, OutputCommit, SnapshotSet
-from video_media_catalog.rights import PolicyZone
 from video_media_catalog.spark_cli import build_parser, run
 
 
@@ -320,14 +319,11 @@ def test_gold_release_commit_hides_uncommitted_plan_rows(
             withheld_assertion_count=0,
             unresolved_identity_count=0,
         )
-        policy = community_display_policy()
+        policy = personal_research_policy()
         plan = build_gold_release_plan(
-            policy_context=ReleasePolicyContext(
-                context_id="public-sharealike",
-                audience="public",
-                purpose="catalog",
+            owner_subject="owner-123",
+            policy_context=personal_research_context(
                 as_of="2026-09-19T00:00:00Z",
-                allowed_zones=(PolicyZone.OPEN_SHAREALIKE,),
             ),
             committed_run_ids=("sha256:" + ("a" * 64),),
             silver_snapshot_ids={"community_field_assertion": 10},

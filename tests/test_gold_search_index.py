@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from video_media_catalog.gold_ingest import GOLD_RELEASE_COMMIT_MEDIA_TYPE
 from video_media_catalog.gold_search_index import (
     INDEX_MAPPINGS,
     MAPPING_DIGEST,
-    SHADOW_READ_ALIAS,
+    RESEARCH_INDEX_PREFIX,
+    RESEARCH_READ_ALIAS,
     GoldIndexBuildManifest,
     ensure_gold_index,
     gold_index_config_digest,
@@ -33,12 +36,14 @@ class FakeClient:
         self.indices = FakeIndices()
 
 
-def test_gold_shadow_mapping_and_identity_are_isolated_from_v1() -> None:
+def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     assert INDEX_MAPPINGS["dynamic"] == "strict"
-    assert SHADOW_READ_ALIAS == "media-catalog-community-v2-shadow-read"
+    assert RESEARCH_READ_ALIAS == "media-catalog-research-read"
+    assert RESEARCH_INDEX_PREFIX == "media-catalog-research"
     digest = gold_index_config_digest(
-        read_alias=SHADOW_READ_ALIAS,
-        index_prefix="media-catalog-community-v2",
+        read_alias=RESEARCH_READ_ALIAS,
+        index_prefix=RESEARCH_INDEX_PREFIX,
+        owner_subject="owner-123",
         shards=1,
         replicas=0,
         bulk_chunk_size=100,
@@ -46,11 +51,26 @@ def test_gold_shadow_mapping_and_identity_are_isolated_from_v1() -> None:
         image_digest="sha256:" + ("a" * 64),
     )
     name = gold_index_name(
-        "media-catalog-community-v2",
+        RESEARCH_INDEX_PREFIX,
         "b" * 64,
     )
     assert digest.startswith("sha256:")
-    assert name.startswith("media-catalog-community-v2-")
+    assert name.startswith("media-catalog-research-")
+    assert "sourceBadges" in INDEX_MAPPINGS["properties"]
+    assert "winningAssertions" in INDEX_MAPPINGS["properties"]
+    assert "rights" in INDEX_MAPPINGS["properties"]
+    assert "conflicts" in INDEX_MAPPINGS["properties"]
+    with pytest.raises(ValueError, match="fixed"):
+        gold_index_config_digest(
+            read_alias="media-catalog-community-v2-shadow-read",
+            index_prefix="media-catalog-community-v2",
+            owner_subject="owner-123",
+            shards=1,
+            replicas=0,
+            bulk_chunk_size=100,
+            bulk_max_chunk_bytes=5 * 1024 * 1024,
+            image_digest="sha256:" + ("a" * 64),
+        )
     assert INDEX_MAPPINGS["_meta"]["mappingDigest"] == MAPPING_DIGEST
 
 
@@ -58,13 +78,13 @@ def test_gold_index_creation_reuses_compatible_mapping() -> None:
     client = FakeClient()
     assert ensure_gold_index(
         client,
-        index_name="media-catalog-community-v2-build",
+        index_name="media-catalog-research-build",
         shards=1,
         replicas=0,
     )
     assert not ensure_gold_index(
         client,
-        index_name="media-catalog-community-v2-build",
+        index_name="media-catalog-research-build",
         shards=1,
         replicas=0,
     )
@@ -83,6 +103,8 @@ def test_gold_index_manifest_binds_release_commit() -> None:
     manifest = GoldIndexBuildManifest(
         build_id="b" * 64,
         release_plan_id="sha256:" + ("c" * 64),
+        owner_subject="owner-123",
+        context_id="personal-research",
         release_commit=reference,
         table_snapshot_ids={
             table: (10 if table == "community_gold_entity" else None)
@@ -91,8 +113,8 @@ def test_gold_index_manifest_binds_release_commit() -> None:
         mapping_digest=MAPPING_DIGEST,
         config_digest="sha256:" + ("d" * 64),
         document_count=1,
-        index="media-catalog-community-v2-build",
-        alias=SHADOW_READ_ALIAS,
+        index="media-catalog-research-build",
+        alias=RESEARCH_READ_ALIAS,
         completed_at="2026-09-19T00:00:00Z",
     )
     assert manifest == type(manifest).model_validate_json(manifest.json_bytes())

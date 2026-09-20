@@ -76,6 +76,7 @@ class FakeOpenSearch:
             "entityKind": "TV_SERIES",
             "status": "ACTIVE",
             "releasePlanId": "sha256:" + ("2" * 64),
+            "contextId": "personal-research",
             "displayName": "Gold Example",
             "displayLanguage": "en",
             "titles": [
@@ -104,13 +105,57 @@ class FakeOpenSearch:
                 }
             ],
             "relationSummary": [],
+            "sourceBadges": [
+                {
+                    "sourceProductId": "tvmaze-public-api",
+                    "displayName": "TVmaze public API",
+                    "sourceUrl": "https://www.tvmaze.com/api",
+                    "policyZones": ["open_sharealike"],
+                    "assertionCount": 1,
+                    "winningAssertionCount": 1,
+                }
+            ],
+            "winningAssertions": [
+                {
+                    "kind": "FIELD",
+                    "assertionId": "sha256:" + ("3" * 64),
+                    "predicate": "title",
+                    "valueJson": '"Gold Example"',
+                    "qualifiersJson": "{}",
+                    "resolutionStatus": "SELECTED",
+                    "sourceProductId": "tvmaze-public-api",
+                    "sourceRecordId": "1",
+                    "sourcePath": "/name",
+                    "observedAt": "2026-09-19T00:00:00Z",
+                    "citationKeys": [],
+                    "citationOverflow": 0,
+                }
+            ],
+            "rights": [
+                {
+                    "sourceProductId": "tvmaze-public-api",
+                    "policyId": "tvmaze-api-cc-by-sa",
+                    "policyZone": "open_sharealike",
+                    "licenseId": "CC-BY-SA",
+                    "licenseUri": None,
+                    "attributionText": "TV data provided by TVmaze.",
+                    "sourceUrl": "https://www.tvmaze.com/api",
+                    "shareAlike": True,
+                }
+            ],
             "conflictCount": 0,
             "conflictPredicates": [],
+            "conflicts": [],
             "sourceNodeCount": 1,
             "overflow": {
                 "titles": 0,
                 "externalIdentifiers": 0,
                 "relationTypes": 0,
+                "sourceBadges": 0,
+                "winningAssertions": 0,
+                "citationKeys": 0,
+                "rights": 0,
+                "conflicts": 0,
                 "formats": 0,
                 "languages": 0,
                 "statuses": 0,
@@ -127,21 +172,28 @@ class FakeOpenSearch:
         return {
             "_source": (
                 self.gold_entity
-                if kwargs.get("index") == "media-catalog-community-v2-shadow-read"
+                if kwargs.get("index") == "media-catalog-research-read"
                 else self.entity
             )
         }
 
 
 class AcceptingVerifier:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        subject: str = "user-1",
+        scopes: frozenset[str] = frozenset({"governance.read"}),
+    ) -> None:
         self.tokens: list[str] = []
+        self.subject = subject
+        self.scopes = scopes
 
     def verify(self, token: str) -> Principal:
         self.tokens.append(token)
         return Principal(
-            subject="user-1",
-            scopes=frozenset({"governance.read"}),
+            subject=self.subject,
+            scopes=self.scopes,
         )
 
 
@@ -164,6 +216,7 @@ def authenticated_settings() -> APISettings:
         oidc_issuer="https://issuer.example",
         oidc_jwks_uri="https://issuer.example/jwks.json",
         oidc_audience="media-catalog-api",
+        oidc_owner_subject="user-1",
     )
 
 
@@ -173,6 +226,18 @@ def test_production_settings_fail_closed_without_oidc() -> None:
             opensearch_endpoint="https://search.example",
             cursor_secret="x" * 32,
             aws_region="us-east-1",
+        )
+
+
+def test_settings_require_one_owner_subject_when_auth_is_enabled() -> None:
+    with pytest.raises(ValueError, match="owner subject"):
+        APISettings(
+            opensearch_endpoint="https://search.example",
+            cursor_secret="x" * 32,
+            aws_region="us-east-1",
+            oidc_issuer="https://issuer.example",
+            oidc_jwks_uri="https://issuer.example/jwks.json",
+            oidc_audience="media-catalog-api",
         )
 
 
@@ -188,6 +253,7 @@ def test_settings_accept_infrastructure_environment_contract(
         "http://logto.logto.svc.cluster.local:3001/oidc/jwks",
     )
     monkeypatch.setenv("OIDC_AUDIENCE", "media-catalog-api")
+    monkeypatch.setenv("OIDC_OWNER_SUBJECT", "owner-123")
     monkeypatch.setenv("OIDC_REQUIRED_SCOPE", "catalog.read")
     monkeypatch.setenv("MEDIA_CATALOG_CURSOR_SECRET", "x" * 32)
 
@@ -195,6 +261,7 @@ def test_settings_accept_infrastructure_environment_contract(
 
     assert settings.opensearch_endpoint == "https://search.example"
     assert settings.oidc_required_scope == "catalog.read"
+    assert settings.oidc_owner_subject == "owner-123"
     assert settings.oidc_config().required_scope == "catalog.read"
 
 
@@ -223,6 +290,36 @@ def test_health_is_public_while_catalog_requires_bearer() -> None:
     assert verifier.tokens == ["signed-token"]
 
 
+@pytest.mark.parametrize(
+    ("verifier", "expected_code"),
+    [
+        (AcceptingVerifier(subject="another-user"), "OWNER_ONLY"),
+        (
+            AcceptingVerifier(scopes=frozenset({"profile"})),
+            "INSUFFICIENT_SCOPE",
+        ),
+    ],
+)
+def test_v2_research_routes_require_scope_and_exact_owner(
+    verifier: AcceptingVerifier,
+    expected_code: str,
+) -> None:
+    app = create_app(
+        authenticated_settings(),
+        client=FakeOpenSearch(),
+        verifier=verifier,
+    )
+
+    with TestClient(app) as client:
+        denied = client.get(
+            "/api/v2/research/search",
+            headers={"Authorization": "Bearer signed-token"},
+        )
+
+    assert denied.status_code == 403
+    assert denied.json()["code"] == expected_code
+
+
 def test_openapi_documents_bearer_security_and_public_health() -> None:
     verifier = AcceptingVerifier()
     app = create_app(
@@ -242,6 +339,9 @@ def test_openapi_documents_bearer_security_and_public_health() -> None:
     assert "security" not in schema["paths"]["/healthz"]["get"]
     search_operation = schema["paths"]["/api/v1/catalog/search"]["get"]
     assert search_operation["security"]
+    research_operation = schema["paths"]["/api/v2/research/search"]["get"]
+    assert research_operation["security"]
+    assert "/api/v2/catalog/search" not in schema["paths"]
     assert schema["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
     assert denied.status_code == 401
     assert accepted.status_code == 200
@@ -528,9 +628,9 @@ def test_invalid_page_size_uses_problem_details() -> None:
     assert duplicate.status_code == 422
 
 
-def test_gold_search_cursor_stays_on_concrete_index() -> None:
+def test_research_search_cursor_stays_on_concrete_index() -> None:
     search = FakeOpenSearch()
-    concrete_index = "media-catalog-community-v2-" + ("a" * 24)
+    concrete_index = "media-catalog-research-" + ("a" * 24)
     search.search_responses = [
         {
             "timed_out": False,
@@ -556,7 +656,7 @@ def test_gold_search_cursor_stays_on_concrete_index() -> None:
     ]
     with TestClient(create_app(_test_settings(), client=search)) as client:
         first = client.get(
-            "/api/v2/catalog/search",
+            "/api/v2/research/search",
             params={
                 "q": "Gold",
                 "entityLevel": "SERIES",
@@ -565,7 +665,7 @@ def test_gold_search_cursor_stays_on_concrete_index() -> None:
             },
         )
         second = client.get(
-            "/api/v2/catalog/search",
+            "/api/v2/research/search",
             params={
                 "q": "Gold",
                 "entityLevel": "SERIES",
@@ -580,7 +680,7 @@ def test_gold_search_cursor_stays_on_concrete_index() -> None:
     assert second.status_code == 200
     assert (
         search.search_requests[0]["url"]
-        == "/media-catalog-community-v2-shadow-read/_search"
+        == "/media-catalog-research-read/_search"
     )
     assert search.search_requests[1]["url"] == f"/{concrete_index}/_search"
     assert search.search_requests[1]["body"]["search_after"] == [
@@ -589,7 +689,7 @@ def test_gold_search_cursor_stays_on_concrete_index() -> None:
     ]
 
 
-def test_gold_detail_and_external_identifier_use_shadow_alias() -> None:
+def test_research_detail_and_external_identifier_use_research_alias() -> None:
     search = FakeOpenSearch()
     search.search_responses = [
         {
@@ -601,14 +701,19 @@ def test_gold_detail_and_external_identifier_use_shadow_alias() -> None:
         }
     ]
     with TestClient(create_app(_test_settings(), client=search)) as client:
-        detail = client.get(f"/api/v2/catalog/entities/{ENTITY_KEY}")
+        detail = client.get(f"/api/v2/research/entities/{ENTITY_KEY}")
         external = client.get(
-            "/api/v2/catalog/external-identifiers/imdb-title/tt0000001"
+            "/api/v2/research/external-identifiers/imdb-title/tt0000001"
         )
 
     assert detail.status_code == 200
     assert detail.json()["releasePlanId"].startswith("sha256:")
-    assert search.get_requests[0]["index"] == "media-catalog-community-v2-shadow-read"
+    assert detail.json()["contextId"] == "personal-research"
+    assert detail.json()["sourceBadges"][0]["sourceProductId"] == (
+        "tvmaze-public-api"
+    )
+    assert detail.json()["rights"][0]["attributionText"].startswith("TV data")
+    assert search.get_requests[0]["index"] == "media-catalog-research-read"
     assert external.status_code == 200
     filters = search.search_requests[0]["body"]["query"]["nested"]["query"]["bool"][
         "filter"

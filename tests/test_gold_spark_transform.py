@@ -10,7 +10,6 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
-from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import (
     ChangeSemantics,
@@ -23,14 +22,16 @@ from video_media_catalog.connector import (
     build_connector_record_envelope,
     build_connector_record_set_manifest,
 )
-from video_media_catalog.gold import community_display_policy
+from video_media_catalog.gold import (
+    personal_research_context,
+    personal_research_policy,
+)
 from video_media_catalog.gold_quality import GoldQualityStatus
 from video_media_catalog.gold_spark_transform import build_distributed_gold
 from video_media_catalog.identity_spark import (
     build_identity_resolution_dataframes,
 )
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.rights import PolicyZone
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
     TVMAZE_POLICY_ID,
@@ -180,14 +181,11 @@ def test_distributed_silver_identity_and_gold_pipeline(
             spark,
             visible_silver=combined,
             registry=build_community_registry(),
-            policy_context=ReleasePolicyContext(
-                context_id="public-sharealike",
-                audience="public",
-                purpose="catalog",
+            policy_context=personal_research_context(
                 as_of="2026-09-19T00:00:00Z",
-                allowed_zones=(PolicyZone.OPEN_SHAREALIKE,),
             ),
-            field_policy=community_display_policy(),
+            owner_subject="owner-123",
+            field_policy=personal_research_policy(),
             committed_run_ids=(silver_run.run_id, identity_run.run_id),
             silver_snapshot_ids={"community_field_assertion": 10},
             identity_snapshot_ids={"community_entity_membership": 11},

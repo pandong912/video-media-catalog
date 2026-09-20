@@ -1,20 +1,20 @@
-# Community catalog Gold v2
+# Personal research catalog Gold v2
 
 ## Scope
 
-Gold is a policy-specific, release-isolated resolution of committed Silver
-assertions. It is not a universal truth table. The same internal entities may
-have different Gold releases for `public_cc0`, attributed/share-alike,
-personal-research, commercial, or ML-eligible contexts.
+Gold is the release-isolated resolution of committed Silver assertions for the
+single `personal-research` context. This contract does not publish parallel
+public, attributed, commercial, or ML Gold variants.
 
-Gold never changes v1 keys and never promotes a restricted assertion into an
-open release.
+Gold never changes v1 keys. Research-private data is eligible only when its
+registered policy explicitly permits the required personal research actions.
 
 ## Release plan
 
 Before Gold rows are written, the builder publishes an immutable release plan:
 
 - `release_plan_id`;
+- exact owner OIDC subject;
 - policy context, as-of time, territories, and allowed policy zones;
 - exact committed Silver run IDs and input snapshot IDs;
 - identity membership snapshot;
@@ -22,7 +22,9 @@ Before Gold rows are written, the builder publishes an immutable release plan:
 - expected row counts for every Gold table.
 
 Every Gold row contains `release_plan_id`. A final release commit is visible
-only after all expected rows are present and quality gates pass.
+only after all expected rows are present and quality gates pass. The release
+plan and final release commit both bind `owner_subject` and the literal
+`context_id = personal-research`.
 
 ## Tables
 
@@ -48,6 +50,10 @@ Primary key: `resolution_key`.
 - `resolution_status`: `SELECTED`, `SET`, `CONFLICTED`, or `WITHHELD`
 - nullable `selected_assertion_id`
 - `assertion_ids_json`, `trace_json`
+
+`trace_json.assertions[]` carries bounded, typed serving lineage for each
+eligible assertion: source product/name/record/path, observation time,
+citation keys, policy zone, license, attribution, source URL, and share-alike.
 
 `SINGLE` policies publish one value only when all eligible active assertions in
 the same scope agree. Competing values produce `CONFLICTED`; no arbitrary
@@ -103,14 +109,15 @@ Uniqueness key: `release_plan_id`.
 
 ## Rights gate
 
-Each assertion must resolve to a registered rights profile. Before field
-resolution, the requested actions, audience, purpose, territory, as-of time,
-expiry, and allowed policy zones are evaluated.
+Each assertion must resolve to a registered rights profile and registered
+source product. Before field resolution, `STORE`, `TRANSFORM`, `DISPLAY`, and
+`SEARCH` permissions are evaluated for audience `personal`, purpose `research`,
+territory, as-of time, expiry, cache age, policy digest, and allowed zone.
 
-An assertion is withheld when it is expired, outside scope, missing a policy,
-or lacks any requested permission. Open releases must have zero dependencies
-on `research_private`, `federated_ephemeral`, `commercial`, or quarantine
-zones unless that release context explicitly allows the corresponding zone.
+The default context permits open zones, `public_registry`, and
+`research_private`; it never permits quarantine. Zone admission is not a
+license bypass: an assertion is withheld when expired, outside scope, missing
+a policy, or lacking any requested permission.
 
 ## Identity gate
 
@@ -128,27 +135,50 @@ Blocking checks include:
 
 - every row belongs to the release plan;
 - actual counts equal plan counts;
-- every selected value has complete assertion, citation, and policy lineage;
+- every selected value has complete assertion, citation-key, source-product,
+  license, attribution, and policy lineage;
 - identifier uniqueness and redirect acyclicity;
 - no relation has an unresolved endpoint;
 - no forbidden rights-zone dependency;
-- attribution coverage is 100 percent for attributed/share-alike assertions;
+- attribution claim counts exactly cover every eligible policy count;
 - conflict and unresolved rates remain within the release policy budget.
 
 Rows are staged first. The release commit is inserted last. Search indexing
 reads exact Gold snapshots plus the exact commit-table snapshot.
 
-## Shadow serving projection
+## Personal research serving projection
 
-The initial v2 serving index is deliberately isolated from v1:
+The only v2 serving index is isolated from v1:
 
-- index prefix: `media-catalog-community-v2`;
-- read alias: `media-catalog-community-v2-shadow-read`;
+- index prefix: `media-catalog-research`;
+- versioned indexes: `media-catalog-research-<build-id>`;
+- read alias: `media-catalog-research-read`;
 - document ID: internal `entityKey`;
 - mapping: strict and version/digest bound;
 - source: one immutable Gold release commit and its exact table snapshots.
 
 Documents contain bounded titles, external identifiers, selected attributes,
-relation counts, conflict markers, provenance release ID, and overflow counts.
-Complete assertions and relation edges remain in Iceberg. Building or switching
-the shadow alias never modifies `media-catalog-entities-read`.
+relation counts, `sourceBadges`, `winningAssertions` with citation keys,
+`rights`/attribution summaries, first-class `conflicts`, provenance release ID,
+literal `contextId`, and overflow counts. Complete assertions and relation
+edges remain in Iceberg. This slice exposes bounded citation keys plus source
+record/path metadata because the current Silver schema has no dedicated
+Citation table.
+
+Release commit, index config digest, and index build manifest bind the exact
+owner OIDC subject. Serving routes are only:
+
+- `GET /api/v2/research/search`;
+- `GET /api/v2/research/entities/{entityKey}`;
+- `GET /api/v2/research/external-identifiers/{namespace}/{value}`.
+
+Every v2 route requires `governance.read` and exact equality with the configured
+owner `sub`. Building or switching the research alias never modifies
+`media-catalog-entities-read`.
+
+## UI contract
+
+No UI source is present in this repository. A future read-only catalog UI must
+consume the stable fields `sourceBadges`, `winningAssertions`, `rights`,
+`conflicts`, and `overflow`; it must not infer licensing from provider names or
+offer a public/personal mode switch.

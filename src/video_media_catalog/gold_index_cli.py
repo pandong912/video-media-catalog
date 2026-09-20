@@ -18,8 +18,8 @@ from video_media_catalog.gold_ingest import (
 )
 from video_media_catalog.gold_search_index import (
     MAPPING_DIGEST,
-    SHADOW_INDEX_PREFIX,
-    SHADOW_READ_ALIAS,
+    RESEARCH_INDEX_PREFIX,
+    RESEARCH_READ_ALIAS,
     GoldIndexBuildManifest,
     derive_gold_build_id,
     ensure_gold_index,
@@ -44,6 +44,7 @@ from video_media_catalog.search_index import (
     index_document_count,
     switch_read_alias,
 )
+from video_media_catalog.v2_contracts import require_oidc_subject
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
 INDEX_MANIFEST_MEDIA_TYPE = (
@@ -54,7 +55,7 @@ INDEX_MANIFEST_MEDIA_TYPE = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-index",
-        description="Build the isolated community Gold v2 shadow index.",
+        description="Build the owner-only personal-research Gold v2 index.",
     )
     parser.add_argument("--release-commit-uri", required=True)
     parser.add_argument("--release-commit-hash", required=True)
@@ -64,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest-prefix", required=True)
     parser.add_argument("--completed-at", required=True)
     parser.add_argument("--image-digest", required=True)
+    parser.add_argument("--owner-subject", required=True)
     parser.add_argument("--catalog-name", default="media")
     parser.add_argument("--namespace", default="community_gold_v2")
     parser.add_argument(
@@ -77,8 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--s3-path-style-access", action="store_true")
     parser.add_argument("--opensearch-endpoint", required=True)
     parser.add_argument("--opensearch-service", choices=("es", "aoss"), default="es")
-    parser.add_argument("--read-alias", default=SHADOW_READ_ALIAS)
-    parser.add_argument("--index-prefix", default=SHADOW_INDEX_PREFIX)
+    parser.add_argument("--read-alias", default=RESEARCH_READ_ALIAS)
+    parser.add_argument("--index-prefix", default=RESEARCH_INDEX_PREFIX)
     parser.add_argument("--shards", type=int, default=1)
     parser.add_argument("--replicas", type=int, default=0)
     parser.add_argument("--bulk-chunk-size", type=int, default=100)
@@ -91,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--request-timeout-seconds", type=float, default=30)
     parser.add_argument("--allow-insecure-opensearch", action="store_true")
     parser.add_argument("--master")
-    parser.add_argument("--app-name", default="community-gold-v2-index")
+    parser.add_argument("--app-name", default="media-catalog-personal-research-index")
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     return parser
@@ -126,7 +128,7 @@ def _release_ref(parsed: argparse.Namespace) -> ObjectRef:
 
 def _read_commit(store, reference: ObjectRef) -> GoldReleaseCommit:
     store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
-    with tempfile.TemporaryDirectory(prefix="community-gold-release-") as directory:
+    with tempfile.TemporaryDirectory(prefix="research-gold-release-") as directory:
         materialized = store.download(
             reference,
             Path(directory) / "release-commit.json",
@@ -142,6 +144,12 @@ def _close(client: Any) -> None:
 
 
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
+    if (
+        parsed.read_alias != RESEARCH_READ_ALIAS
+        or parsed.index_prefix != RESEARCH_INDEX_PREFIX
+    ):
+        raise ValueError("research index and alias names are fixed")
+    owner_subject = require_oidc_subject(parsed.owner_subject)
     reference = _release_ref(parsed)
     if urlsplit(parsed.manifest_prefix).scheme not in {"file", "s3"}:
         raise ValueError("manifest-prefix must use file:// or s3://")
@@ -156,6 +164,10 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         client=object() if local else None,
     )
     commit = _read_commit(store, reference)
+    if commit.owner_subject != owner_subject:
+        raise ValueError("release commit belongs to another OIDC subject")
+    if commit.context_id != "personal-research":
+        raise ValueError("release commit is not a personal-research release")
     embedded = (commit.quality_report, commit.attribution_manifest)
     if local and any(urlsplit(item.uri).scheme == "s3" for item in embedded):
         store = BoundedObjectStore(
@@ -178,6 +190,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     config_digest = gold_index_config_digest(
         read_alias=parsed.read_alias,
         index_prefix=parsed.index_prefix,
+        owner_subject=owner_subject,
         shards=parsed.shards,
         replicas=parsed.replicas,
         bulk_chunk_size=parsed.bulk_chunk_size,
@@ -262,6 +275,8 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         manifest = GoldIndexBuildManifest(
             build_id=build_id,
             release_plan_id=commit.release_plan_id,
+            owner_subject=commit.owner_subject,
+            context_id=commit.context_id,
             release_commit=reference,
             table_snapshot_ids=commit.table_snapshot_ids,
             mapping_digest=MAPPING_DIGEST,
@@ -290,6 +305,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "buildId": build_id,
             "index": index_name,
             "alias": parsed.read_alias,
+            "contextId": commit.context_id,
             "documentCount": actual_count,
             "manifest": manifest_ref.model_dump(
                 mode="json", by_alias=True, exclude_none=True

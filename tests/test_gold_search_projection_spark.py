@@ -6,11 +6,36 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
+from video_media_catalog.canonical import canonical_json
 from video_media_catalog.gold_search_projection import (
     build_gold_search_projection,
 )
 from video_media_catalog.gold_spark import create_gold_dataframes
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
+
+
+def _trace(assertion_id: str, source_path: str) -> str:
+    return canonical_json(
+        {
+            "assertions": [
+                {
+                    "assertionId": assertion_id,
+                    "sourceProductId": "tvmaze-public-api",
+                    "sourceName": "TVmaze public API",
+                    "sourceRecordId": "1",
+                    "sourcePath": source_path,
+                    "observedAt": "2026-09-19T00:00:00Z",
+                    "rights": {
+                        "policyId": "tvmaze-api-cc-by-sa",
+                        "policyZone": "open_sharealike",
+                        "licenseId": "CC-BY-SA",
+                        "attributionText": "TV data provided by TVmaze.",
+                        "sourceUrl": "https://www.tvmaze.com/api",
+                    },
+                }
+            ]
+        }
+    )
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +81,7 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
             "resolution_status": "SELECTED",
             "selected_assertion_id": "sha256:" + ("f" * 64),
             "assertion_ids_json": '["sha256:' + ("f" * 64) + '"]',
-            "trace_json": "{}",
+            "trace_json": _trace("sha256:" + ("f" * 64), "/name"),
         }
     ]
     rows["community_gold_identifier"] = [
@@ -69,7 +94,7 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
             "issuer": "TVmaze",
             "referent_kind": "SERIES",
             "assertion_ids_json": '["sha256:' + ("2" * 64) + '"]',
-            "trace_json": "{}",
+            "trace_json": _trace("sha256:" + ("2" * 64), "/id"),
         }
     ]
     frames = create_gold_dataframes(spark, rows)
@@ -81,3 +106,5 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
     assert len(documents) == 1
     assert documents[0].entityKey == entity_key
     assert documents[0].displayName == "Example"
+    assert documents[0].contextId == "personal-research"
+    assert documents[0].sourceBadges[0].sourceProductId == "tvmaze-public-api"

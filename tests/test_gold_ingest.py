@@ -8,11 +8,11 @@ from video_media_catalog.attribution import (
     AttributionEntry,
     build_attribution_manifest,
 )
-from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
     GoldResolutionStatus,
     build_gold_release_plan,
-    community_display_policy,
+    personal_research_context,
+    personal_research_policy,
 )
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
@@ -30,18 +30,13 @@ from video_media_catalog.gold_resolution import (
 )
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.rights import PolicyZone
 
 TIMESTAMP = "2026-09-19T00:00:00Z"
 
 
-def _context() -> ReleasePolicyContext:
-    return ReleasePolicyContext(
-        context_id="public-sharealike",
-        audience="public",
-        purpose="catalog",
+def _context():
+    return personal_research_context(
         as_of=TIMESTAMP,
-        allowed_zones=(PolicyZone.OPEN_SHAREALIKE,),
     )
 
 
@@ -98,8 +93,9 @@ def _draft(*, conflict: bool = False) -> GoldResolutionDraft:
 
 
 def _plan(draft: GoldResolutionDraft):
-    policy = community_display_policy()
+    policy = personal_research_policy()
     return build_gold_release_plan(
+        owner_subject="owner-123",
         policy_context=_context(),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},
@@ -127,7 +123,7 @@ def _ref(payload: bytes, media_type: str, name: str) -> ObjectRef:
 def test_gold_quality_and_release_commit_are_bound() -> None:
     draft = _draft()
     plan = _plan(draft)
-    policy = community_display_policy()
+    policy = personal_research_policy()
     quality = build_gold_quality_report(
         plan=plan,
         draft=draft,
@@ -156,6 +152,8 @@ def test_gold_quality_and_release_commit_are_bound() -> None:
     }
     commit = build_gold_release_commit(
         release_plan_id=plan.release_plan_id,
+        owner_subject=plan.owner_subject,
+        context_id=plan.policy_context.context_id,
         committed_at=TIMESTAMP,
         table_counts=plan.expected_counts,
         table_snapshot_ids=snapshots,
@@ -179,7 +177,7 @@ def test_gold_quality_reports_policy_failure() -> None:
     report = build_gold_quality_report(
         plan=plan,
         draft=draft,
-        policy=community_display_policy(),
+        policy=personal_research_policy(),
         created_at=TIMESTAMP,
     )
     assert report.status == GoldQualityStatus.FAILED
@@ -193,6 +191,8 @@ def test_gold_commit_requires_snapshot_for_nonempty_table() -> None:
     with pytest.raises(ValueError, match="no snapshot"):
         build_gold_release_commit(
             release_plan_id="sha256:" + ("a" * 64),
+            owner_subject="owner-123",
+            context_id="personal-research",
             committed_at=TIMESTAMP,
             table_counts=counts,
             table_snapshot_ids={table: None for table in GOLD_DATA_COLUMNS},

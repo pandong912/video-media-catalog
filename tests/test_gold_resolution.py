@@ -14,7 +14,8 @@ from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
     GoldResolutionStatus,
     build_gold_release_plan,
-    community_display_policy,
+    personal_research_context,
+    personal_research_policy,
 )
 from video_media_catalog.gold_resolution import resolve_gold_draft
 from video_media_catalog.identity_resolution import (
@@ -69,12 +70,8 @@ def _provenance(node: SourceNodeRef, path: str) -> AssertionProvenance:
 
 
 def _context() -> ReleasePolicyContext:
-    return ReleasePolicyContext(
-        context_id="public-sharealike",
-        audience="public",
-        purpose="catalog",
+    return personal_research_context(
         as_of=TIMESTAMP,
-        allowed_zones=(PolicyZone.OPEN_SHAREALIKE,),
     )
 
 
@@ -147,7 +144,7 @@ def test_gold_resolution_selects_sets_and_preserves_conflicts() -> None:
             provenance=_provenance(first_node, "/related/0"),
         ),
     )
-    policy = community_display_policy().model_copy(
+    policy = personal_research_policy().model_copy(
         update={"max_conflict_ratio": 1.0, "max_unresolved_identity_ratio": 1.0}
     )
     draft = resolve_gold_draft(
@@ -161,13 +158,14 @@ def test_gold_resolution_selects_sets_and_preserves_conflicts() -> None:
     )
     draft.validate_quality(policy)
     with pytest.raises(ValueError, match="conflict ratio"):
-        draft.validate_quality(community_display_policy())
+        draft.validate_quality(personal_research_policy())
     assert len(draft.conflicts) == 1
     assert sum(field.status == GoldResolutionStatus.SET for field in draft.fields) == 2
     assert draft.identifiers[0].value == "tt0000001"
     assert len(draft.relations) == 1
 
     plan = build_gold_release_plan(
+        owner_subject="owner-123",
         policy_context=_context(),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},
@@ -211,8 +209,75 @@ def test_gold_resolution_fails_closed_on_policy_digest_mismatch() -> None:
             relationship_assertions=(),
             rights_profiles=(tvmaze_rights_profile(),),
             policy_context=_context(),
-            field_policy=community_display_policy(),
+            field_policy=personal_research_policy(),
         )
+
+
+def test_personal_research_allows_registered_research_source_but_checks_scope() -> None:
+    node = _node("1")
+    resolved = _resolved(node)
+    index = build_identity_index(
+        entities=resolved.entities,
+        memberships=resolved.memberships,
+        redirects=(),
+        as_of=TIMESTAMP,
+    )
+    profile = RightsProfile(
+        policy_id="research-dataset",
+        policy_version="1",
+        zone=PolicyZone.RESEARCH_PRIVATE,
+        license_id="NON-COMMERCIAL-RESEARCH",
+        terms_url="https://example.com/terms",
+        permissions=(
+            UsageAction.STORE,
+            UsageAction.TRANSFORM,
+            UsageAction.DISPLAY,
+            UsageAction.SEARCH,
+        ),
+        audiences=("personal",),
+        purposes=("research",),
+    )
+
+    def assertion(rights: RightsProfile):
+        return build_field_assertion(
+            subject=node,
+            predicate="title",
+            value_type=ValueType.STRING,
+            value="Research title",
+            provenance=AssertionProvenance(
+                envelope_key="sha256:" + ("1" * 64),
+                source_path="/title",
+                mapper_id="research-mapper",
+                mapper_version="1",
+                policy_id=rights.policy_id,
+                policy_digest=rights.digest,
+                observed_at=TIMESTAMP,
+            ),
+        )
+
+    accepted = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(assertion(profile),),
+        identifier_assertions=(),
+        relationship_assertions=(),
+        rights_profiles=(profile,),
+        policy_context=_context(),
+        field_policy=personal_research_policy(),
+    )
+    assert len(accepted.fields) == 1
+
+    wrong_audience = profile.model_copy(update={"audiences": ("team",)})
+    withheld = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(assertion(wrong_audience),),
+        identifier_assertions=(),
+        relationship_assertions=(),
+        rights_profiles=(wrong_audience,),
+        policy_context=_context(),
+        field_policy=personal_research_policy(),
+    )
+    assert not withheld.fields
+    assert withheld.withheld_assertion_count == 1
 
 
 def test_gold_resolution_withholds_expired_leased_assertion() -> None:
@@ -268,7 +333,7 @@ def test_gold_resolution_withholds_expired_leased_assertion() -> None:
         relationship_assertions=(),
         rights_profiles=(profile,),
         policy_context=context,
-        field_policy=community_display_policy(),
+        field_policy=personal_research_policy(),
     )
     assert not draft.fields
     assert draft.withheld_assertion_count == 1

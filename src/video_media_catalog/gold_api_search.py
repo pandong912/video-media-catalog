@@ -14,7 +14,7 @@ from typing import Any
 
 from video_media_catalog.api_search import InvalidCursor
 from video_media_catalog.canonical import canonical_json_bytes
-from video_media_catalog.gold_search_index import SHADOW_INDEX_PREFIX
+from video_media_catalog.gold_search_index import RESEARCH_INDEX_PREFIX
 
 _ENTITY_KEY = re.compile(r"^sha256:[0-9a-f]{64}$")
 _INDEX = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
@@ -26,8 +26,10 @@ GOLD_SEARCH_SOURCE_FIELDS = (
     "displayName",
     "displayLanguage",
     "releasePlanId",
+    "contextId",
     "conflictCount",
     "externalIdentifiers",
+    "sourceBadges",
 )
 
 
@@ -77,7 +79,7 @@ class GoldCursorCodec:
         secret: bytes,
         *,
         ttl_seconds: int,
-        index_prefix: str = SHADOW_INDEX_PREFIX,
+        index_prefix: str = RESEARCH_INDEX_PREFIX,
         clock=time.time,
     ) -> None:
         if len(secret) < 32:

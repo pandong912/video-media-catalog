@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from video_media_catalog.community_release import ReleasePolicyContext
+import pytest
+
 from video_media_catalog.gold import (
     GoldResolutionStatus,
     build_gold_field,
     build_gold_release_plan,
-    community_display_policy,
+    personal_research_context,
+    personal_research_policy,
 )
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
-from video_media_catalog.rights import PolicyZone
 
 
 def _counts(**overrides) -> dict[str, int]:
@@ -18,18 +19,11 @@ def _counts(**overrides) -> dict[str, int]:
 
 
 def test_gold_policy_and_plan_are_deterministic() -> None:
-    policy = community_display_policy()
+    policy = personal_research_policy()
     plan = build_gold_release_plan(
-        policy_context=ReleasePolicyContext(
-            context_id="public-sharealike",
-            audience="public",
-            purpose="catalog",
+        owner_subject="owner-123",
+        policy_context=personal_research_context(
             as_of="2026-09-19T00:00:00Z",
-            allowed_zones=(
-                PolicyZone.OPEN_CC0,
-                PolicyZone.OPEN_ATTRIBUTED,
-                PolicyZone.OPEN_SHAREALIKE,
-            ),
         ),
         committed_run_ids=("sha256:" + ("a" * 64),),
         silver_snapshot_ids={"community_field_assertion": 10},
@@ -45,6 +39,23 @@ def test_gold_policy_and_plan_are_deterministic() -> None:
     assert plan == type(plan).model_validate_json(plan.json_bytes())
     assert policy.rule_for("genre").operator.value == "SET_UNION"
     assert policy.rule_for("unknown").operator.value == "NEVER_RESOLVE"
+    assert {action.value for action in policy.requested_actions} == {
+        "display",
+        "search",
+        "store",
+        "transform",
+    }
+    assert "research_private" in {
+        zone.value for zone in plan.policy_context.allowed_zones
+    }
+    assert plan.policy_context.context_id == "personal-research"
+    assert plan.owner_subject == "owner-123"
+    invalid = plan.model_dump(mode="python")
+    invalid["policy_context"] = plan.policy_context.model_copy(
+        update={"context_id": "public-sharealike"}
+    )
+    with pytest.raises(ValueError, match="single personal-research"):
+        type(plan).model_validate(invalid)
 
 
 def test_gold_field_binds_scope_status_and_lineage() -> None:

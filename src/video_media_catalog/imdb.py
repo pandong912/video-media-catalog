@@ -202,7 +202,9 @@ def iter_imdb_rows(path: Path, dataset: str) -> Iterator[dict[str, str | None]]:
     if expected is None:
         raise ValueError(f"unsupported IMDb dataset: {dataset}")
     with gzip.open(path, mode="rt", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
+        # IMDb publishes plain TSV, not CSV-with-tab-delimiters. Literal quote
+        # characters can therefore appear unmatched in title fields.
+        reader = csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE)
         if tuple(reader.fieldnames or ()) != expected:
             raise ValueError(f"IMDb {dataset} columns do not match the contract")
         for line_number, row in enumerate(reader, start=2):

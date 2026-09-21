@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from video_media_catalog.community_ingest import (
@@ -158,41 +159,31 @@ class CommunityCatalogTables:
         self,
         *,
         run: CommunityIngestRun,
-        dataframes: dict[str, Any],
+        dataframes: Mapping[str, Any],
         committed_at: str,
+        dataframe_factory: Callable[[str], Any] | None = None,
     ) -> CommunityIngestCommit:
         """Stage all rows and publish one immutable run commit last."""
 
         committed = require_rfc3339(committed_at, label="committed_at")
-        if set(dataframes) != set(DATA_TABLE_COLUMNS):
-            raise ValueError("all community Silver dataframes are required")
+        unknown_tables = sorted(set(dataframes) - set(DATA_TABLE_COLUMNS))
+        if unknown_tables:
+            raise ValueError(f"unknown community Silver dataframes: {unknown_tables}")
+        if dataframe_factory is not None and not callable(dataframe_factory):
+            raise TypeError("dataframe_factory must be callable")
         self.create_tables()
         existing = self.read_commit(run.run_id)
         if existing is not None:
             return self._reuse_existing_commit(run, existing)
 
-        run_frame = self.spark.createDataFrame([ingest_run_row(run)])
-        self.merge_insert_only("community_ingest_run", run_frame)
-        self._verify_run_manifest(run)
+        self._ensure_run_manifest(run)
 
         for table in DATA_TABLE_COLUMNS:
-            staged_count = dataframes[table].count()
-            if staged_count != run.expected_counts[table]:
-                raise ValueError(
-                    f"{table} staged count {staged_count} differs from "
-                    f"expected {run.expected_counts[table]}"
-                )
-            if (
-                dataframes[table]
-                .where(f"`run_id` IS NULL OR `run_id` <> '{run.run_id}'")
-                .limit(1)
-                .count()
-            ):
-                raise ValueError(f"{table} contains rows for another run")
-            self.merge_insert_only(
+            self._stage_data_table(
                 table,
-                dataframes[table],
-                snapshot_properties={_RUN_SNAPSHOT_PROPERTY: run.run_id},
+                run,
+                dataframes=dataframes,
+                dataframe_factory=dataframe_factory,
             )
 
         actual_counts = {
@@ -218,13 +209,209 @@ class CommunityCatalogTables:
             table_snapshot_ids=snapshot_ids,
         )
         commit_frame = self.spark.createDataFrame([ingest_commit_row(commit)])
-        self.merge_insert_only("community_ingest_commit", commit_frame)
+        try:
+            self.merge_insert_only("community_ingest_commit", commit_frame)
+        except Exception:
+            published = self.read_commit(run.run_id)
+            if published is None:
+                raise
+            return self._reuse_existing_commit(run, published)
         published = self.read_commit(run.run_id)
         if published != commit:
             if published is None:
                 raise RuntimeError("community ingest commit could not be verified")
             return self._reuse_existing_commit(run, published)
         return published
+
+    def _stage_data_table(
+        self,
+        table: str,
+        run: CommunityIngestRun,
+        *,
+        dataframes: Mapping[str, Any],
+        dataframe_factory: Callable[[str], Any] | None,
+    ) -> None:
+        """Write one missing run table or verify an already complete write."""
+
+        expected = run.expected_counts[table]
+        current = self._run_row_count(table, run.run_id)
+        if self._verify_completed_table(
+            table,
+            run.run_id,
+            current_row_count=current,
+            expected_row_count=expected,
+        ):
+            return
+        if self._verify_no_snapshot_or_concurrent_winner(
+            table,
+            run.run_id,
+            expected_row_count=expected,
+        ):
+            return
+
+        frame = dataframes.get(table)
+        if frame is None and expected > 0:
+            if dataframe_factory is None:
+                raise ValueError(f"{table} dataframe is required for missing rows")
+            frame = dataframe_factory(table)
+            if frame is None:
+                raise ValueError(f"{table} dataframe factory returned no dataframe")
+        if frame is None:
+            return
+
+        self._validate_run_frame(
+            table,
+            frame,
+            run_id=run.run_id,
+            expected_row_count=expected,
+        )
+
+        # Counting/validating a large frame can take long enough for another
+        # exact submitter to win. Re-read state immediately before MERGE so the
+        # loser does not intentionally create a second run-tagged snapshot.
+        current = self._run_row_count(table, run.run_id)
+        if self._verify_completed_table(
+            table,
+            run.run_id,
+            current_row_count=current,
+            expected_row_count=expected,
+        ):
+            return
+        if self._verify_no_snapshot_or_concurrent_winner(
+            table,
+            run.run_id,
+            expected_row_count=expected,
+        ):
+            return
+
+        if expected == 0:
+            merged_count = self.merge_insert_only(
+                table,
+                frame,
+                snapshot_properties={_RUN_SNAPSHOT_PROPERTY: run.run_id},
+            )
+            if merged_count != 0:
+                raise RuntimeError(f"{table} wrote rows for an empty run table")
+            if self._run_row_count(table, run.run_id) != 0:
+                raise RuntimeError(f"{table} has rows despite zero expected rows")
+            self._run_snapshot_id(table, run.run_id, expected_row_count=0)
+            return
+
+        try:
+            self.merge_insert_only(
+                table,
+                frame,
+                snapshot_properties={_RUN_SNAPSHOT_PROPERTY: run.run_id},
+            )
+        except Exception:
+            current = self._run_row_count(table, run.run_id)
+            if self._verify_completed_table(
+                table,
+                run.run_id,
+                current_row_count=current,
+                expected_row_count=expected,
+            ):
+                return
+            # Preserve the MERGE failure only when it left no ambiguous tagged
+            # snapshot. Any tagged/partial state is a stronger fail-closed error.
+            self._run_snapshot_id(table, run.run_id, expected_row_count=0)
+            raise
+
+        current = self._run_row_count(table, run.run_id)
+        if not self._verify_completed_table(
+            table,
+            run.run_id,
+            current_row_count=current,
+            expected_row_count=expected,
+        ):
+            raise RuntimeError(f"{table} MERGE committed no rows for this run")
+
+    def _verify_completed_table(
+        self,
+        table: str,
+        run_id: str,
+        *,
+        current_row_count: int,
+        expected_row_count: int,
+    ) -> bool:
+        if current_row_count == 0:
+            return False
+        if current_row_count != expected_row_count:
+            relation = (
+                "partial"
+                if current_row_count < expected_row_count
+                else "more than expected"
+            )
+            raise RuntimeError(
+                f"{table} has {relation} persisted rows for this run: "
+                f"{current_row_count} of {expected_row_count}"
+            )
+        self._run_snapshot_id(
+            table,
+            run_id,
+            expected_row_count=expected_row_count,
+        )
+        return True
+
+    def _verify_no_snapshot_or_concurrent_winner(
+        self,
+        table: str,
+        run_id: str,
+        *,
+        expected_row_count: int,
+    ) -> bool:
+        try:
+            self._run_snapshot_id(table, run_id, expected_row_count=0)
+        except RuntimeError:
+            current = self._run_row_count(table, run_id)
+            if expected_row_count > 0 and current == expected_row_count:
+                self._run_snapshot_id(
+                    table,
+                    run_id,
+                    expected_row_count=expected_row_count,
+                )
+                return True
+            raise
+        return False
+
+    @staticmethod
+    def _validate_run_frame(
+        table: str,
+        dataframe: Any,
+        *,
+        run_id: str,
+        expected_row_count: int,
+    ) -> None:
+        staged_count = dataframe.count()
+        if staged_count != expected_row_count:
+            raise ValueError(
+                f"{table} staged count {staged_count} differs from "
+                f"expected {expected_row_count}"
+            )
+        if (
+            dataframe.where(f"`run_id` IS NULL OR `run_id` <> '{run_id}'")
+            .limit(1)
+            .count()
+        ):
+            raise ValueError(f"{table} contains rows for another run")
+
+    def _ensure_run_manifest(self, run: CommunityIngestRun) -> None:
+        stored = self._read_run_manifest(run.run_id)
+        if stored is not None:
+            if stored != run:
+                raise RuntimeError("community ingest run manifest conflicts")
+            return
+        run_frame = self.spark.createDataFrame([ingest_run_row(run)])
+        try:
+            self.merge_insert_only("community_ingest_run", run_frame)
+        except Exception:
+            stored = self._read_run_manifest(run.run_id)
+            if stored is None:
+                raise
+            if stored != run:
+                raise RuntimeError("community ingest run manifest conflicts") from None
+            return
+        self._verify_run_manifest(run)
 
     def _reuse_existing_commit(
         self,
@@ -403,18 +590,26 @@ class CommunityCatalogTables:
             visible[table] = frame.join(commits, "run_id", "inner")
         return visible
 
-    def _verify_run_manifest(self, run: CommunityIngestRun) -> None:
+    def _read_run_manifest(self, run_id: str) -> CommunityIngestRun | None:
+        run_id = require_sha256(run_id, label="run_id")
         rows = self.spark.sql(
             f"""
             SELECT manifest_json
             FROM {self.table_identifier("community_ingest_run")}
-            WHERE run_id = '{run.run_id}'
+            WHERE run_id = '{run_id}'
             LIMIT 2
             """
         ).collect()
+        if not rows:
+            return None
         if len(rows) != 1:
-            raise RuntimeError("community ingest run manifest is missing or duplicated")
-        stored = CommunityIngestRun.model_validate_json(rows[0]["manifest_json"])
+            raise RuntimeError("community ingest run manifest is duplicated")
+        return CommunityIngestRun.model_validate_json(rows[0]["manifest_json"])
+
+    def _verify_run_manifest(self, run: CommunityIngestRun) -> None:
+        stored = self._read_run_manifest(run.run_id)
+        if stored is None:
+            raise RuntimeError("community ingest run manifest is missing")
         if stored != run:
             raise RuntimeError("community ingest run manifest conflicts")
 

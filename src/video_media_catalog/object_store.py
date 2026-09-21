@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import re
 import tempfile
 from contextlib import suppress
 from dataclasses import dataclass
@@ -45,12 +46,29 @@ class UploadResult:
 
 
 class RuntimeObjectStore(Protocol):
+    def head(
+        self,
+        object_ref: ObjectRef,
+        *,
+        max_bytes: int,
+        require_immutable_metadata: bool = False,
+    ) -> ObjectRef: ...
+
     def verify(
         self,
         object_ref: ObjectRef,
         *,
         max_bytes: int,
     ) -> None: ...
+
+    def read_range(
+        self,
+        object_ref: ObjectRef,
+        *,
+        offset: int,
+        length: int,
+        max_bytes: int,
+    ) -> bytes: ...
 
     def download(
         self,
@@ -244,9 +262,25 @@ class BoundedObjectStore:
     ) -> None:
         """Verify immutable object metadata without materializing S3 bytes."""
 
+        self.head(object_ref, max_bytes=max_bytes)
+
+    def head(
+        self,
+        object_ref: ObjectRef,
+        *,
+        max_bytes: int,
+        require_immutable_metadata: bool = False,
+    ) -> ObjectRef:
+        """Verify object metadata and return the exact immutable S3 identity."""
+
         if max_bytes < 1:
             raise ValueError("max_bytes must be positive")
         if urlsplit(object_ref.uri).scheme == "file":
+            if require_immutable_metadata:
+                raise ObjectStoreError(
+                    "IMMUTABLE_METADATA_REQUIRED",
+                    "immutable S3 ETag and object version are required",
+                )
             if object_ref.etag is not None or object_ref.object_version is not None:
                 raise ObjectStoreError(
                     "UNVERIFIABLE_LOCAL_METADATA",
@@ -267,7 +301,7 @@ class BoundedObjectStore:
                     "OBJECT_CHECKSUM_MISMATCH",
                     "local object differs from immutable declaration",
                 )
-            return
+            return object_ref
 
         location = S3Location.parse(object_ref.uri)
         request: dict[str, Any] = {
@@ -321,6 +355,110 @@ class BoundedObjectStore:
                 "OBJECT_VERSION_MISMATCH",
                 "S3 version differs from immutable declaration",
             )
+        actual_etag = _etag(response.get("ETag"))
+        actual_version = response.get("VersionId")
+        if require_immutable_metadata and (actual_etag is None or not actual_version):
+            raise ObjectStoreError(
+                "IMMUTABLE_METADATA_REQUIRED",
+                "S3 object must expose an ETag and object version",
+            )
+        return object_ref.model_copy(
+            update={
+                "etag": actual_etag,
+                "object_version": actual_version,
+                "created_at": _timestamp(response.get("LastModified"))
+                or object_ref.created_at,
+            }
+        )
+
+    def read_range(
+        self,
+        object_ref: ObjectRef,
+        *,
+        offset: int,
+        length: int,
+        max_bytes: int,
+    ) -> bytes:
+        """Read one exact, strictly bounded range from an immutable S3 object."""
+
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        if offset < 0:
+            raise ValueError("offset must not be negative")
+        if length < 1:
+            raise ValueError("length must be positive")
+        if length > max_bytes:
+            raise ObjectStoreError(
+                "RANGE_TOO_LARGE",
+                "requested S3 range exceeds configured limit",
+            )
+        if offset + length > object_ref.size_bytes:
+            raise ObjectStoreError(
+                "INVALID_OBJECT_RANGE",
+                "requested S3 range exceeds declared object size",
+            )
+        if object_ref.etag is None or object_ref.object_version is None:
+            raise ObjectStoreError(
+                "IMMUTABLE_METADATA_REQUIRED",
+                "bounded S3 range reads require ETag and object version",
+            )
+        location = S3Location.parse(object_ref.uri)
+        end = offset + length - 1
+        response = self.client.get_object(
+            Bucket=location.bucket,
+            Key=location.key,
+            VersionId=object_ref.object_version,
+            IfMatch=f'"{_etag(object_ref.etag)}"',
+            Range=f"bytes={offset}-{end}",
+            ChecksumMode="ENABLED",
+        )
+        body = response.get("Body")
+        if body is None or not hasattr(body, "read"):
+            raise ObjectStoreError(
+                "OBJECT_RANGE_FAILED",
+                "S3 range response has no readable body",
+            )
+        try:
+            if response.get("ContentLength") != length:
+                raise ObjectStoreError(
+                    "OBJECT_RANGE_SIZE_MISMATCH",
+                    "S3 range response length differs from request",
+                )
+            content_range = re.fullmatch(
+                r"bytes (\d+)-(\d+)/(\d+)",
+                str(response.get("ContentRange", "")),
+            )
+            if content_range is None or tuple(
+                int(value) for value in content_range.groups()
+            ) != (offset, end, object_ref.size_bytes):
+                raise ObjectStoreError(
+                    "OBJECT_RANGE_MISMATCH",
+                    "S3 Content-Range differs from immutable declaration",
+                )
+            if _etag(response.get("ETag")) != _etag(object_ref.etag):
+                raise ObjectStoreError(
+                    "OBJECT_ETAG_MISMATCH",
+                    "S3 range ETag differs from immutable declaration",
+                )
+            if response.get("VersionId") != object_ref.object_version:
+                raise ObjectStoreError(
+                    "OBJECT_VERSION_MISMATCH",
+                    "S3 range version differs from immutable declaration",
+                )
+            payload = bytearray()
+            while len(payload) < length:
+                chunk = body.read(min(TRANSFER_CHUNK_BYTES, length - len(payload)))
+                if not chunk:
+                    break
+                payload.extend(chunk)
+            if len(payload) != length or body.read(1):
+                raise ObjectStoreError(
+                    "OBJECT_RANGE_SIZE_MISMATCH",
+                    "S3 range body differs from declared response length",
+                )
+            return bytes(payload)
+        finally:
+            body.close()
 
     def download(
         self,

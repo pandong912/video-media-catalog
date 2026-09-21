@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -24,19 +25,70 @@ from video_media_catalog.object_store import (
     RuntimeObjectStore,
 )
 from video_media_catalog.record_shard_materialization import (
+    MAX_MATERIALIZE_WORKERS,
     MAX_RECORD_SHARD_COUNT,
+    PrevalidatedRecordSetGrant,
+    RecordShardMaterializationProgress,
     materialize_record_shards,
+    prevalidated_grant_applies,
     resolve_record_staging_prefix,
 )
 from video_media_catalog.source_silver import (
     build_source_silver_dataframes,
     mapper_for_product,
+    unpersist_source_silver_frames,
 )
+from video_media_catalog.source_silver_checkpoint import (
+    DEFAULT_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE,
+    MAX_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE,
+    SourceSilverCheckpointConfig,
+    SourceSilverCheckpointProgress,
+    resolve_source_silver_checkpoint_prefix,
+)
+from video_media_catalog.v2_contracts import require_rfc3339, require_sha256
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
 MAX_RECORD_OBJECT_MAX_BYTES = 128 * 1024 * 1024
 DEFAULT_RECORD_OBJECT_MAX_BYTES = MAX_RECORD_OBJECT_MAX_BYTES
 DEFAULT_RAW_OBJECT_MAX_BYTES = 32 * 1024**3
+_PREVALIDATED_GRANT_ARGUMENTS = (
+    "prevalidated_record_set_id",
+    "prevalidated_batch_id",
+    "prevalidated_record_count",
+    "prevalidated_shard_count",
+    "prevalidated_size_bytes",
+    "prevalidated_expires_at",
+)
+
+
+def _prevalidated_digest(value: str) -> str:
+    try:
+        return require_sha256(value, label="prevalidated digest")
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return parsed
+
+
+def _prevalidated_expiry(value: str) -> str:
+    try:
+        return require_rfc3339(value, label="prevalidated expires_at")
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _materialize_workers(value: str) -> int:
+    parsed = _positive_int(value)
+    if parsed > MAX_MATERIALIZE_WORKERS:
+        raise argparse.ArgumentTypeError(
+            f"value must not exceed {MAX_MATERIALIZE_WORKERS}"
+        )
+    return parsed
 
 
 def _add_object_args(parser: argparse.ArgumentParser, prefix: str) -> None:
@@ -100,6 +152,32 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=MAX_RECORD_SHARD_COUNT,
     )
+    parser.add_argument(
+        "--prevalidated-record-set-id",
+        type=_prevalidated_digest,
+    )
+    parser.add_argument(
+        "--prevalidated-batch-id",
+        type=_prevalidated_digest,
+    )
+    parser.add_argument("--prevalidated-record-count", type=_positive_int)
+    parser.add_argument("--prevalidated-shard-count", type=_positive_int)
+    parser.add_argument("--prevalidated-size-bytes", type=_positive_int)
+    parser.add_argument(
+        "--prevalidated-expires-at",
+        type=_prevalidated_expiry,
+    )
+    parser.add_argument(
+        "--materialize-workers",
+        type=_materialize_workers,
+        default=1,
+    )
+    parser.add_argument("--silver-checkpoint-prefix")
+    parser.add_argument(
+        "--checkpoint-group-size",
+        type=_positive_int,
+        default=DEFAULT_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE,
+    )
     return parser
 
 
@@ -152,6 +230,44 @@ def _read_model[T: (ConnectorBatchManifest, ConnectorRecordSetManifest)](
         return model.model_validate_json(materialized.path.read_bytes())
 
 
+def _has_prevalidated_record_set_grant(parsed: argparse.Namespace) -> bool:
+    supplied = [
+        getattr(parsed, argument) is not None
+        for argument in _PREVALIDATED_GRANT_ARGUMENTS
+    ]
+    if any(supplied) and not all(supplied):
+        raise ValueError(
+            "prevalidated record-set grant arguments must be provided together"
+        )
+    return all(supplied)
+
+
+def _prevalidated_record_set_grant(
+    parsed: argparse.Namespace,
+    *,
+    batch_manifest_ref: ObjectRef,
+    record_set_manifest_ref: ObjectRef,
+    staging_prefix: str | None,
+) -> PrevalidatedRecordSetGrant | None:
+    if not _has_prevalidated_record_set_grant(parsed):
+        return None
+    if staging_prefix is None:
+        raise ValueError(
+            "prevalidated record-set grant requires --record-staging-prefix"
+        )
+    return PrevalidatedRecordSetGrant(
+        record_set_id=str(parsed.prevalidated_record_set_id),
+        batch_id=str(parsed.prevalidated_batch_id),
+        record_count=int(parsed.prevalidated_record_count),
+        shard_count=int(parsed.prevalidated_shard_count),
+        size_bytes=int(parsed.prevalidated_size_bytes),
+        expires_at=str(parsed.prevalidated_expires_at),
+        batch_manifest_ref=batch_manifest_ref,
+        record_set_manifest_ref=record_set_manifest_ref,
+        staging_prefix=staging_prefix,
+    )
+
+
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if min(parsed.max_record_object_bytes, parsed.max_raw_object_bytes) < 1:
         raise ValueError("raw and record object byte limits must be positive")
@@ -159,6 +275,19 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("max-record-object-bytes exceeds the reviewed 128 MiB cap")
     if not 1 <= parsed.max_record_shards <= MAX_RECORD_SHARD_COUNT:
         raise ValueError("max-record-shards is outside the reviewed bound")
+    if not 1 <= parsed.materialize_workers <= MAX_MATERIALIZE_WORKERS:
+        raise ValueError(
+            "materialize-workers is outside the reviewed bound "
+            f"of 1..{MAX_MATERIALIZE_WORKERS}"
+        )
+    if not (
+        1 <= parsed.checkpoint_group_size <= MAX_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE
+    ):
+        raise ValueError(
+            "checkpoint-group-size is outside the reviewed bound "
+            f"of 1..{MAX_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE}"
+        )
+    _has_prevalidated_record_set_grant(parsed)
     if parsed.shuffle_partitions is not None and parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
     batch_ref = _object_ref(
@@ -201,6 +330,26 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         warehouse=parsed.warehouse,
         references=record_set.record_objects,
     )
+    checkpoint_prefix = resolve_source_silver_checkpoint_prefix(
+        parsed.silver_checkpoint_prefix,
+        warehouse=parsed.warehouse,
+    )
+    prevalidated_grant = _prevalidated_record_set_grant(
+        parsed,
+        batch_manifest_ref=batch_ref,
+        record_set_manifest_ref=record_set_ref,
+        staging_prefix=staging_prefix,
+    )
+    prevalidated_reuse = False
+    if prevalidated_grant is not None:
+        prevalidated_reuse = prevalidated_grant_applies(
+            prevalidated_grant,
+            batch=batch,
+            record_set=record_set,
+            batch_manifest_ref=batch_ref,
+            record_set_manifest_ref=record_set_ref,
+            staging_prefix=staging_prefix,
+        )
     mapper_for_product(batch.source_product_id)
 
     config = CatalogConfig(
@@ -228,15 +377,58 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         builder = builder.config("spark.jars.packages", parsed.spark_packages)
     spark = builder.getOrCreate()
     frames = None
+    checkpoint_counts = {"MATERIALIZED": 0, "REUSED": 0}
+
+    def materialization_progress(
+        event: RecordShardMaterializationProgress,
+    ) -> None:
+        if (
+            event.completed_shards == 1
+            or event.completed_shards == event.total_shards
+            or event.completed_shards % 25 == 0
+        ):
+            print(
+                canonical_json(
+                    {
+                        "completedShards": event.completed_shards,
+                        "event": "record-shard-materialization-progress",
+                        "shardIndex": event.shard_index,
+                        "status": event.status,
+                        "totalShards": event.total_shards,
+                    }
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+
+    def checkpoint_progress(event: SourceSilverCheckpointProgress) -> None:
+        checkpoint_counts[event.status] += 1
+        print(
+            canonical_json(
+                {
+                    "checkpointId": event.checkpoint_id,
+                    "completedGroups": event.completed_groups,
+                    "event": "source-silver-checkpoint-progress",
+                    "groupId": event.group_id,
+                    "groupIndex": event.group_index,
+                    "status": event.status,
+                    "totalGroups": event.total_groups,
+                }
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+
     with tempfile.TemporaryDirectory(prefix="community-catalog-scratch-") as scratch:
         scratch_dir = Path(scratch)
         for reference in batch.raw_objects:
             store.verify(reference, max_bytes=parsed.max_raw_object_bytes)
-        for reference in record_set.record_objects:
-            store.verify(
-                reference,
-                max_bytes=parsed.max_record_object_bytes,
-            )
+        if not prevalidated_reuse:
+            for reference in record_set.record_objects:
+                store.verify(
+                    reference,
+                    max_bytes=parsed.max_record_object_bytes,
+                )
         materialized_shards = materialize_record_shards(
             store,
             record_set.record_objects,
@@ -244,6 +436,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             scratch_dir=scratch_dir,
             max_bytes=parsed.max_record_object_bytes,
             max_shards=parsed.max_record_shards,
+            workers=parsed.materialize_workers,
+            prevalidated_grant=prevalidated_grant,
+            batch=batch,
+            record_set=record_set,
+            batch_manifest_ref=batch_ref,
+            record_set_manifest_ref=record_set_ref,
+            progress_callback=materialization_progress,
         )
         try:
             ingest_run, frames = build_source_silver_dataframes(
@@ -252,23 +451,50 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 batch=batch,
                 record_set=record_set,
                 materialized_shards=materialized_shards,
+                checkpoint_config=(
+                    None
+                    if checkpoint_prefix is None
+                    else SourceSilverCheckpointConfig(
+                        aws_region=parsed.aws_region,
+                        s3_endpoint=parsed.s3_endpoint,
+                        s3_path_style_access=parsed.s3_path_style_access,
+                    )
+                ),
+                checkpoint_prefix=checkpoint_prefix,
+                checkpoint_group_size=parsed.checkpoint_group_size,
+                checkpoint_progress=(
+                    checkpoint_progress if checkpoint_prefix is not None else None
+                ),
             )
             commit = CommunityCatalogTables(spark, config).stage_and_commit(
                 run=ingest_run,
                 dataframes=frames,
                 committed_at=parsed.committed_at,
             )
-            return {
+            result = {
                 "runId": ingest_run.run_id,
                 "commitKey": commit.commit_key,
                 "sourceProductId": ingest_run.source_product_id,
                 "tableCounts": commit.table_counts,
                 "tableSnapshotIds": commit.table_snapshot_ids,
+                "recordShardMaterialization": {
+                    "reuseCount": sum(
+                        shard.prevalidated_reuse for shard in materialized_shards
+                    ),
+                    "fullCount": sum(
+                        not shard.prevalidated_reuse for shard in materialized_shards
+                    ),
+                },
             }
+            if checkpoint_prefix is not None:
+                result["sourceSilverCheckpoint"] = {
+                    "materializedGroupCount": checkpoint_counts["MATERIALIZED"],
+                    "reusedGroupCount": checkpoint_counts["REUSED"],
+                    "totalGroupCount": sum(checkpoint_counts.values()),
+                }
+            return result
         finally:
-            if frames is not None:
-                for frame in frames.values():
-                    frame.unpersist()
+            unpersist_source_silver_frames(frames)
             spark.stop()
 
 

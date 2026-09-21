@@ -22,6 +22,7 @@ from video_media_catalog.community_ingest import (
 from video_media_catalog.community_rows import (
     empty_data_rows,
     entity_ledger_row,
+    ingest_run_row,
 )
 from video_media_catalog.community_snapshot import CommunitySilverSnapshotSet
 from video_media_catalog.community_spark import create_community_dataframes
@@ -245,11 +246,45 @@ def test_community_run_commit_hides_uncommitted_rows(tmp_path: Path) -> None:
         ]
         frames = create_community_dataframes(spark, rows)
         tables = CommunityCatalogTables(spark, config)
+        tables.create_tables()
+        tables.merge_insert_only(
+            "community_ingest_run",
+            spark.createDataFrame([ingest_run_row(run)]),
+        )
+        tables.merge_insert_only(
+            "community_entity_ledger",
+            frames["community_entity_ledger"],
+            snapshot_properties={"video-media-catalog.run-id": run.run_id},
+        )
+        staged_snapshot_id = tables._run_snapshot_id(
+            "community_entity_ledger",
+            run.run_id,
+            expected_row_count=1,
+        )
         commit = tables.stage_and_commit(
             run=run,
             dataframes=frames,
             committed_at="2026-09-19T00:01:00Z",
         )
+        assert (
+            commit.table_snapshot_ids["community_entity_ledger"] == staged_snapshot_id
+        )
+        assert (
+            tables.stage_and_commit(
+                run=run,
+                dataframes={},
+                committed_at="2026-09-19T00:02:00Z",
+            )
+            == commit
+        )
+        owned_snapshots = spark.sql(
+            f"""
+            SELECT snapshot_id
+            FROM {tables.table_identifier("community_entity_ledger")}.snapshots
+            WHERE summary['video-media-catalog.run-id'] = '{run.run_id}'
+            """
+        ).collect()
+        assert len(owned_snapshots) == 1
 
         uncommitted = spark.createDataFrame(
             [

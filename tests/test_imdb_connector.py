@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import gzip
+import json
 from argparse import Namespace
 
 import pytest
@@ -117,6 +118,48 @@ def test_imdb_tsv_treats_unmatched_quotes_as_literal_text(tmp_path) -> None:
             "genres": "Reality-TV",
         }
     ]
+
+
+def test_imdb_mapper_omits_ambiguous_ancient_years(tmp_path) -> None:
+    paths = _datasets(tmp_path / "inputs")
+    _write(
+        paths["name.basics.tsv.gz"],
+        "name.basics.tsv.gz",
+        [
+            "nm1414200",
+            "Xenophon",
+            "430",
+            "354",
+            "writer",
+            r"\N",
+        ],
+    )
+    result = capture_imdb_snapshot(
+        dataset_paths=paths,
+        destination_prefix=(tmp_path / "output").as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        store=BoundedObjectStore(client=object()),
+        record_shard_bytes=32 * 1024,
+    )
+
+    envelope = next(
+        item
+        for item in _records(result)
+        if item.source_record_id == "name.basics:nm1414200"
+    )
+    payload = json.loads(envelope.payload_json or "{}")
+    assert payload["row"]["birthYear"] == "430"
+    assert payload["row"]["deathYear"] == "354"
+
+    mapped = map_imdb_record(envelope)
+    predicates = {item.predicate for item in mapped.field_assertions}
+    assert "birth_year" not in predicates
+    assert "death_year" not in predicates
+    assert {item.provenance.mapper_version for item in mapped.field_assertions} == {
+        "1.0.1"
+    }
 
 
 def test_imdb_official_snapshot_is_replayable_and_maps_all_row_families(

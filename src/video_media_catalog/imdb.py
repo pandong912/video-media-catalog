@@ -246,6 +246,21 @@ def _integer(value: Any) -> int | None:
         return None
 
 
+def _year(value: Any) -> str | None:
+    if (
+        not isinstance(value, str)
+        or len(value) != 4
+        or not value.isascii()
+        or not value.isdigit()
+    ):
+        # IMDb includes ambiguous ancient values such as Xenophon=430 and
+        # Socrates=470. They represent BCE years but carry no era marker, so
+        # zero-padding would create a false Common Era DATE assertion. The raw
+        # value remains available in the source record for future remapping.
+        return None
+    return value
+
+
 def _subject_for_row(
     dataset: str,
     row: dict[str, Any],
@@ -311,7 +326,7 @@ def map_imdb_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
         envelope=envelope,
         source_node=node,
         mapper_id="imdb-official-tsv-mapper",
-        mapper_version="1.0.0",
+        mapper_version="1.0.1",
     )
     builder.add_identifier(
         node.namespace_id,
@@ -356,7 +371,7 @@ def map_imdb_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
             builder.add_field(
                 predicate,
                 ValueType.DATE,
-                row.get(key),
+                _year(row.get(key)),
                 f"/row/{key}",
             )
         builder.add_field(
@@ -497,7 +512,7 @@ def map_imdb_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
             builder.add_field(
                 predicate,
                 ValueType.DATE,
-                row.get(key),
+                _year(row.get(key)),
                 f"/row/{key}",
             )
         for index, profession in enumerate(_split(row.get("primaryProfession"))):

@@ -5,6 +5,8 @@ import hashlib
 import io
 import json
 import tempfile
+import threading
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import ClassVar
@@ -12,10 +14,14 @@ from urllib.parse import urlparse, urlunparse
 
 import pytest
 
+import video_media_catalog.record_shard_materialization as materialization
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import (
     ChangeSemantics,
     Completeness,
+    ConnectorBatchManifest,
+    ConnectorRecordEnvelope,
+    ConnectorRecordSetManifest,
     DeleteCoverage,
     RecordOperation,
     Serialization,
@@ -28,6 +34,7 @@ from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore, ObjectStoreError
 from video_media_catalog.record_shard_materialization import (
     MaterializedRecordShard,
+    PrevalidatedRecordSetGrant,
     bind_materialized_shards,
     materialize_record_shards,
     record_staging_uri,
@@ -71,7 +78,9 @@ class VersionedRaceClient:
         self.latest_payload = latest_payload
         self.version_id = version_id
         self.staged: dict[str, bytes] = {}
+        self.head_requests: list[dict] = []
         self.get_requests: list[dict] = []
+        self.put_requests: list[dict] = []
 
     def _metadata(self, payload: bytes, *, version_id: str) -> dict:
         digest = hashlib.sha256(payload).digest()
@@ -83,6 +92,15 @@ class VersionedRaceClient:
         }
 
     def head_object(self, **request):
+        self.head_requests.append(request)
+        key = f"{request['Bucket']}/{request['Key']}"
+        if key in self.staged:
+            return self._metadata(
+                self.staged[key],
+                version_id="staged-version",
+            )
+        if key != "bucket/captures/records.ndjson":
+            raise KeyError(key)
         payload = (
             self.versioned_payload
             if request.get("VersionId") == self.version_id
@@ -92,16 +110,37 @@ class VersionedRaceClient:
 
     def get_object(self, **request):
         self.get_requests.append(request)
-        payload = (
-            self.versioned_payload
-            if request.get("VersionId") == self.version_id
-            else self.latest_payload
-        )
-        version = request.get("VersionId", "latest")
+        key = f"{request['Bucket']}/{request['Key']}"
+        if key in self.staged:
+            payload = self.staged[key]
+            version = "staged-version"
+        elif key == "bucket/captures/records.ndjson":
+            payload = (
+                self.versioned_payload
+                if request.get("VersionId") == self.version_id
+                else self.latest_payload
+            )
+            version = request.get("VersionId", "latest")
+        else:
+            raise KeyError(key)
         metadata = self._metadata(payload, version_id=version)
-        return {**metadata, "Body": io.BytesIO(payload)}
+        range_header = request.get("Range")
+        if range_header is None:
+            return {**metadata, "Body": io.BytesIO(payload)}
+        prefix, bounds = range_header.split("=", 1)
+        assert prefix == "bytes"
+        start_text, end_text = bounds.split("-", 1)
+        start, end = int(start_text), int(end_text)
+        selected = payload[start : end + 1]
+        return {
+            **metadata,
+            "ContentLength": len(selected),
+            "ContentRange": f"bytes {start}-{end}/{len(payload)}",
+            "Body": io.BytesIO(selected),
+        }
 
     def put_object(self, **request):
+        self.put_requests.append(request)
         key = f"{request['Bucket']}/{request['Key']}"
         body = request["Body"]
         payload = body.read() if hasattr(body, "read") else body
@@ -193,7 +232,13 @@ def _s3_ref(
     )
 
 
-def _capture_record(payload_line: bytes) -> tuple[object, object, object]:
+def _capture_record(
+    payload_line: bytes,
+) -> tuple[
+    ConnectorBatchManifest,
+    ConnectorRecordSetManifest,
+    ConnectorRecordEnvelope,
+]:
     policy = tvmaze_rights_profile()
     raw_object = ObjectRef(
         uri="file:///tmp/raw.json",
@@ -246,13 +291,76 @@ def _capture_record(payload_line: bytes) -> tuple[object, object, object]:
         source_product_id=batch.source_product_id,
         policy_id=batch.policy_id,
         policy_digest=batch.policy_digest,
-        record_objects=(_s3_ref(payload_line),),
+        record_objects=(_s3_ref(envelope.json_bytes()),),
         record_count=1,
         first_envelope_key=envelope.envelope_key,
         last_envelope_key=envelope.envelope_key,
         created_at=batch.acquired_at,
     )
     return batch, record_set, envelope
+
+
+def _control_ref(uri: str, checksum: str) -> ObjectRef:
+    return ObjectRef(
+        uri=uri,
+        format="OBJECT_FORMAT_JSON",
+        media_type="application/json",
+        checksum=Checksum(value=checksum),
+        size_bytes=100,
+        etag="control-etag",
+        object_version="control-version",
+    )
+
+
+def _prevalidated_grant(
+    batch: ConnectorBatchManifest,
+    record_set: ConnectorRecordSetManifest,
+    *,
+    expires_at: str = "2099-01-01T00:00:00Z",
+) -> tuple[PrevalidatedRecordSetGrant, ObjectRef, ObjectRef]:
+    batch_ref = _control_ref("s3://bucket/control/batch.json", "b" * 64)
+    record_set_ref = _control_ref(
+        "s3://bucket/control/record-set.json",
+        "c" * 64,
+    )
+    return (
+        PrevalidatedRecordSetGrant(
+            record_set_id=record_set.record_set_id,
+            batch_id=batch.batch_id,
+            record_count=record_set.record_count,
+            shard_count=len(record_set.record_objects),
+            size_bytes=sum(
+                reference.size_bytes for reference in record_set.record_objects
+            ),
+            expires_at=expires_at,
+            batch_manifest_ref=batch_ref,
+            record_set_manifest_ref=record_set_ref,
+            staging_prefix=CONTROL_STAGING_PREFIX,
+        ),
+        batch_ref,
+        record_set_ref,
+    )
+
+
+def _captured_envelope_set() -> tuple[
+    ConnectorBatchManifest,
+    ConnectorRecordSetManifest,
+    bytes,
+]:
+    batch, record_set, envelope = _capture_record(
+        json.dumps(
+            {
+                "id": 1,
+                "name": "Example",
+                "type": "Scripted",
+                "language": "English",
+                "updated": 1_700_000_000,
+                "genres": ["Drama"],
+                "externals": {"imdb": "tt0000001"},
+            }
+        ).encode()
+    )
+    return batch, record_set, envelope.json_bytes()
 
 
 def test_record_staging_uri_is_checksum_addressed() -> None:
@@ -395,6 +503,336 @@ def test_materialize_reuses_existing_staging_with_matching_checksum(
     )[0]
     assert first.spark_uri == second.spark_uri
     assert first.checksum == second.checksum == reference.checksum.value
+
+
+def test_prevalidated_grant_reuses_staged_shard_without_full_download(
+    tmp_path: Path,
+) -> None:
+    batch, record_set, payload = _captured_envelope_set()
+    grant, batch_ref, record_set_ref = _prevalidated_grant(batch, record_set)
+    client = VersionedRaceClient(
+        versioned_payload=payload,
+        latest_payload=payload,
+    )
+    staged_uri = record_staging_uri(
+        CONTROL_STAGING_PREFIX,
+        record_set.record_objects[0].checksum.value,
+    )
+    client.staged[staged_uri.removeprefix("s3://")] = payload
+
+    result = materialize_record_shards(
+        BoundedObjectStore(client=client),
+        record_set.record_objects,
+        staging_prefix=CONTROL_STAGING_PREFIX,
+        scratch_dir=tmp_path,
+        max_bytes=len(payload),
+        prevalidated_grant=grant,
+        batch=batch,
+        record_set=record_set,
+        batch_manifest_ref=batch_ref,
+        record_set_manifest_ref=record_set_ref,
+    )
+
+    assert result[0].prevalidated_reuse is True
+    assert result[0].first_envelope_key == record_set.first_envelope_key
+    assert result[0].last_envelope_key == record_set.last_envelope_key
+    assert len(client.head_requests) == 2
+    assert client.get_requests
+    assert all("Range" in request for request in client.get_requests)
+    assert all(request["IfMatch"] == '"etag-1"' for request in client.get_requests)
+    assert client.put_requests == []
+
+
+def test_prevalidated_reuse_reads_only_bounded_first_and_last_ranges(
+    tmp_path: Path,
+) -> None:
+    batch, _record_set, _payload = _captured_envelope_set()
+    first_key = "sha256:" + ("1" * 64)
+    middle_key = "sha256:" + ("2" * 64)
+    last_key = "sha256:" + ("3" * 64)
+    payload = (
+        b"\n".join(
+            (
+                json.dumps({"envelopeKey": first_key}).encode(),
+                json.dumps(
+                    {
+                        "envelopeKey": middle_key,
+                        "padding": "x"
+                        * (materialization.MAX_ENVELOPE_BOUNDARY_BYTES * 2),
+                    }
+                ).encode(),
+                json.dumps({"envelopeKey": last_key}).encode(),
+            )
+        )
+        + b"\n"
+    )
+    record_set = build_connector_record_set_manifest(
+        batch_id=batch.batch_id,
+        source_product_id=batch.source_product_id,
+        policy_id=batch.policy_id,
+        policy_digest=batch.policy_digest,
+        record_objects=(_s3_ref(payload),),
+        record_count=batch.record_count,
+        first_envelope_key=first_key,
+        last_envelope_key=last_key,
+        created_at=batch.acquired_at,
+    )
+    grant, batch_ref, record_set_ref = _prevalidated_grant(batch, record_set)
+    client = VersionedRaceClient(
+        versioned_payload=payload,
+        latest_payload=payload,
+    )
+    staged_uri = record_staging_uri(
+        CONTROL_STAGING_PREFIX,
+        record_set.record_objects[0].checksum.value,
+    )
+    client.staged[staged_uri.removeprefix("s3://")] = payload
+
+    result = materialize_record_shards(
+        BoundedObjectStore(client=client),
+        record_set.record_objects,
+        staging_prefix=CONTROL_STAGING_PREFIX,
+        scratch_dir=tmp_path,
+        max_bytes=len(payload),
+        prevalidated_grant=grant,
+        batch=batch,
+        record_set=record_set,
+        batch_manifest_ref=batch_ref,
+        record_set_manifest_ref=record_set_ref,
+    )
+
+    assert result[0].first_envelope_key == first_key
+    assert result[0].last_envelope_key == last_key
+    assert len(client.get_requests) == 2
+    assert all("Range" in request for request in client.get_requests)
+    assert all(
+        int(request["Range"].split("-")[1])
+        - int(request["Range"].split("=")[1].split("-")[0])
+        + 1
+        < len(payload)
+        for request in client.get_requests
+    )
+
+
+def test_expired_prevalidated_grant_uses_full_path(tmp_path: Path) -> None:
+    batch, record_set, payload = _captured_envelope_set()
+    grant, batch_ref, record_set_ref = _prevalidated_grant(
+        batch,
+        record_set,
+        expires_at="2000-01-01T00:00:00Z",
+    )
+    client = VersionedRaceClient(
+        versioned_payload=payload,
+        latest_payload=payload,
+    )
+
+    result = materialize_record_shards(
+        BoundedObjectStore(client=client),
+        record_set.record_objects,
+        staging_prefix=CONTROL_STAGING_PREFIX,
+        scratch_dir=tmp_path,
+        max_bytes=len(payload),
+        prevalidated_grant=grant,
+        batch=batch,
+        record_set=record_set,
+        batch_manifest_ref=batch_ref,
+        record_set_manifest_ref=record_set_ref,
+    )
+
+    assert result[0].prevalidated_reuse is False
+    assert any("Range" not in request for request in client.get_requests)
+    assert client.put_requests
+
+
+def test_new_batch_does_not_use_prevalidated_grant(tmp_path: Path) -> None:
+    batch, record_set, payload = _captured_envelope_set()
+    grant, batch_ref, record_set_ref = _prevalidated_grant(batch, record_set)
+    grant = replace(grant, batch_id="sha256:" + ("f" * 64))
+    client = VersionedRaceClient(
+        versioned_payload=payload,
+        latest_payload=payload,
+    )
+
+    result = materialize_record_shards(
+        BoundedObjectStore(client=client),
+        record_set.record_objects,
+        staging_prefix=CONTROL_STAGING_PREFIX,
+        scratch_dir=tmp_path,
+        max_bytes=len(payload),
+        prevalidated_grant=grant,
+        batch=batch,
+        record_set=record_set,
+        batch_manifest_ref=batch_ref,
+        record_set_manifest_ref=record_set_ref,
+    )
+
+    assert result[0].prevalidated_reuse is False
+    assert any("Range" not in request for request in client.get_requests)
+    assert client.put_requests
+
+
+def test_prevalidated_grant_rejects_manifest_identity_drift(
+    tmp_path: Path,
+) -> None:
+    batch, record_set, payload = _captured_envelope_set()
+    grant, batch_ref, record_set_ref = _prevalidated_grant(batch, record_set)
+    drifted_record_set_ref = record_set_ref.model_copy(
+        update={"checksum": Checksum(value="d" * 64)}
+    )
+    client = VersionedRaceClient(
+        versioned_payload=payload,
+        latest_payload=payload,
+    )
+
+    with pytest.raises(ValueError, match="manifest binding drifted"):
+        materialize_record_shards(
+            BoundedObjectStore(client=client),
+            record_set.record_objects,
+            staging_prefix=CONTROL_STAGING_PREFIX,
+            scratch_dir=tmp_path,
+            max_bytes=len(payload),
+            prevalidated_grant=grant,
+            batch=batch,
+            record_set=record_set,
+            batch_manifest_ref=batch_ref,
+            record_set_manifest_ref=drifted_record_set_ref,
+        )
+    assert client.get_requests == []
+    assert client.put_requests == []
+
+
+def test_prevalidated_grant_fails_on_staged_head_mismatch(
+    tmp_path: Path,
+) -> None:
+    batch, record_set, payload = _captured_envelope_set()
+    grant, batch_ref, record_set_ref = _prevalidated_grant(batch, record_set)
+    client = VersionedRaceClient(
+        versioned_payload=payload,
+        latest_payload=payload,
+    )
+    staged_uri = record_staging_uri(
+        CONTROL_STAGING_PREFIX,
+        record_set.record_objects[0].checksum.value,
+    )
+    client.staged[staged_uri.removeprefix("s3://")] = payload + b"tampered"
+
+    with pytest.raises(ObjectStoreError, match="size"):
+        materialize_record_shards(
+            BoundedObjectStore(client=client),
+            record_set.record_objects,
+            staging_prefix=CONTROL_STAGING_PREFIX,
+            scratch_dir=tmp_path,
+            max_bytes=len(payload) + len(b"tampered"),
+            prevalidated_grant=grant,
+            batch=batch,
+            record_set=record_set,
+            batch_manifest_ref=batch_ref,
+            record_set_manifest_ref=record_set_ref,
+        )
+    assert client.get_requests == []
+
+
+def test_prevalidated_grant_fails_on_staged_range_error(
+    tmp_path: Path,
+) -> None:
+    batch, record_set, payload = _captured_envelope_set()
+    grant, batch_ref, record_set_ref = _prevalidated_grant(batch, record_set)
+
+    class RangeFailureClient(VersionedRaceClient):
+        def get_object(self, **request):
+            if "Range" in request:
+                raise ObjectStoreError("OBJECT_RANGE_FAILED", "range failed")
+            return super().get_object(**request)
+
+    client = RangeFailureClient(
+        versioned_payload=payload,
+        latest_payload=payload,
+    )
+    staged_uri = record_staging_uri(
+        CONTROL_STAGING_PREFIX,
+        record_set.record_objects[0].checksum.value,
+    )
+    client.staged[staged_uri.removeprefix("s3://")] = payload
+
+    with pytest.raises(ObjectStoreError, match="range failed"):
+        materialize_record_shards(
+            BoundedObjectStore(client=client),
+            record_set.record_objects,
+            staging_prefix=CONTROL_STAGING_PREFIX,
+            scratch_dir=tmp_path,
+            max_bytes=len(payload),
+            prevalidated_grant=grant,
+            batch=batch,
+            record_set=record_set,
+            batch_manifest_ref=batch_ref,
+            record_set_manifest_ref=record_set_ref,
+        )
+
+
+def test_materialize_workers_preserve_manifest_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    references = tuple(
+        ObjectRef(
+            uri=f"file:///tmp/record-{index}.ndjson",
+            format="OBJECT_FORMAT_OTHER",
+            media_type="application/x-ndjson",
+            checksum=Checksum(value=str(index) * 64),
+            size_bytes=1,
+        )
+        for index in range(3)
+    )
+    second_done = threading.Event()
+    third_done = threading.Event()
+    completion_order: list[int] = []
+    progress = []
+
+    def fake_materialize(
+        reference: ObjectRef,
+        *,
+        scratch_dir: Path,
+        max_bytes: int,
+    ) -> MaterializedRecordShard:
+        del scratch_dir, max_bytes
+        index = int(reference.uri.split("-")[-1].split(".")[0])
+        if index == 0:
+            assert second_done.wait(timeout=2)
+        elif index == 1:
+            assert third_done.wait(timeout=2)
+        completion_order.append(index)
+        if index == 2:
+            third_done.set()
+        elif index == 1:
+            second_done.set()
+        return MaterializedRecordShard(
+            source=reference,
+            spark_uri=reference.uri,
+            checksum=reference.checksum.value,
+            size_bytes=reference.size_bytes,
+            first_envelope_key=f"first-{index}",
+            last_envelope_key=f"last-{index}",
+        )
+
+    monkeypatch.setattr(
+        materialization,
+        "_materialize_file_shard",
+        fake_materialize,
+    )
+    result = materialize_record_shards(
+        BoundedObjectStore(client=object()),
+        references,
+        scratch_dir=tmp_path,
+        max_bytes=1,
+        workers=3,
+        progress_callback=progress.append,
+    )
+
+    assert completion_order == [2, 1, 0]
+    assert [item.shard_index for item in progress] == completion_order
+    assert [item.completed_shards for item in progress] == [1, 2, 3]
+    assert all(item.status == "FULL_VERIFY" for item in progress)
+    assert tuple(shard.source for shard in result) == references
 
 
 def test_materialize_rejects_checksum_mismatch(tmp_path: Path) -> None:

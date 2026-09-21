@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -39,6 +39,12 @@ from video_media_catalog.source_mapper import MappedAssertions
 from video_media_catalog.source_registry import (
     RegistryStatus,
     SourceRegistrySnapshot,
+)
+from video_media_catalog.source_silver_checkpoint import (
+    DEFAULT_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE,
+    SourceSilverCheckpointConfig,
+    SourceSilverCheckpointProgress,
+    build_source_silver_checkpoint_frames,
 )
 from video_media_catalog.storage import local_path
 
@@ -308,8 +314,14 @@ def build_source_silver_dataframes(
     batch: ConnectorBatchManifest,
     record_set: ConnectorRecordSetManifest,
     materialized_shards: Sequence[MaterializedRecordShard] | None = None,
-) -> tuple[CommunityIngestRun, dict[str, Any]]:
-    """Map immutable envelope shards on Spark without any source API access."""
+    checkpoint_config: SourceSilverCheckpointConfig | None = None,
+    checkpoint_prefix: str | None = None,
+    checkpoint_group_size: int = DEFAULT_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE,
+    checkpoint_progress: (
+        Callable[[SourceSilverCheckpointProgress], None] | None
+    ) = None,
+) -> tuple[CommunityIngestRun, Mapping[str, Any]]:
+    """Map immutable envelope shards, optionally resuming durable mapped groups."""
 
     namespace_products, product_policies, policy_digests = _validate_inputs(
         registry,
@@ -335,15 +347,64 @@ def build_source_silver_dataframes(
             policy_digests=policy_digests,
         )
 
+    if checkpoint_prefix is None:
+        if checkpoint_config is not None:
+            raise ValueError("checkpoint_config requires checkpoint_prefix")
+        if checkpoint_group_size != DEFAULT_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE:
+            raise ValueError("checkpoint_group_size requires checkpoint_prefix")
+        if checkpoint_progress is not None:
+            raise ValueError("checkpoint_progress requires checkpoint_prefix")
+    else:
+        checkpoint = build_source_silver_checkpoint_frames(
+            spark,
+            registry_digest=registry.digest,
+            batch=batch,
+            record_set=record_set,
+            materialized_shards=materialized_shards,
+            checkpoint_prefix=checkpoint_prefix,
+            checkpoint_group_size=checkpoint_group_size,
+            checkpoint_config=checkpoint_config or SourceSilverCheckpointConfig(),
+            parse_record=parse_record,
+            mapper=mapper,
+            progress_callback=checkpoint_progress,
+        )
+        run = _build_run(
+            registry=registry,
+            batch=batch,
+            record_set=record_set,
+            expected_counts=checkpoint.expected_counts,
+        )
+        dataframes = checkpoint.frames_for_run(run.run_id)
+        try:
+            source_records = dataframes.get("community_source_record")
+            if source_records is not None:
+                duplicate = (
+                    source_records.groupBy("envelope_key")
+                    .count()
+                    .where("count > 1")
+                    .limit(1)
+                    .count()
+                )
+                if duplicate:
+                    raise ValueError("record set contains duplicate envelope keys")
+            return run, dataframes
+        except Exception:
+            dataframes.unpersist_loaded()
+            raise
+
+    from pyspark import StorageLevel
+
     if materialized_shards:
         envelopes = (
             spark.read.text([shard.spark_uri for shard in materialized_shards])
             .rdd.map(parse_record)
-            .persist()
+            .persist(StorageLevel.MEMORY_AND_DISK)
         )
     else:
-        envelopes = spark.sparkContext.emptyRDD().persist()
-    mapped = envelopes.map(lambda envelope: (envelope, mapper(envelope))).persist()
+        envelopes = spark.sparkContext.emptyRDD().persist(StorageLevel.MEMORY_AND_DISK)
+    mapped = envelopes.map(lambda envelope: (envelope, mapper(envelope))).persist(
+        StorageLevel.MEMORY_AND_DISK
+    )
     try:
         record_count = envelopes.count()
         if record_count != record_set.record_count:
@@ -418,7 +479,7 @@ def build_source_silver_dataframes(
                         else spark.sparkContext.emptyRDD()
                     ),
                     schema=community_table_schema(table),
-                ).persist()
+                ).persist(StorageLevel.MEMORY_AND_DISK)
                 if frame.count() != expected_counts[table]:
                     frame.unpersist()
                     raise RuntimeError(f"{table} materialized count changed")
@@ -431,3 +492,19 @@ def build_source_silver_dataframes(
     finally:
         mapped.unpersist()
         envelopes.unpersist()
+
+
+def unpersist_source_silver_frames(
+    frames: Mapping[str, Any] | None,
+) -> None:
+    """Release ordinary eager frames or a lazy checkpoint frame manager."""
+
+    if frames is None:
+        return
+    unpersist_loaded = getattr(frames, "unpersist_loaded", None)
+    if callable(unpersist_loaded):
+        unpersist_loaded()
+        return
+    for frame in frames.values():
+        if frame is not None:
+            frame.unpersist()

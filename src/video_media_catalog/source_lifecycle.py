@@ -33,6 +33,21 @@ SOURCE_BATCH_METADATA_COLUMNS = (
     "_batch_record_count",
 )
 
+SOURCE_LIFECYCLE_RECORD_COLUMNS = (
+    "run_id",
+    "envelope_key",
+    "batch_id",
+    *RECORD_IDENTITY_COLUMNS,
+    "operation",
+    "observed_at",
+    "ingested_at",
+    "valid_from",
+    "valid_to",
+    "expires_at",
+    "policy_id",
+    "policy_digest",
+)
+
 
 def assert_no_membership_closure_conflicts(memberships: Any) -> None:
     """Fail closed when one membership version has multiple closure times."""
@@ -227,7 +242,10 @@ def bind_committed_source_records(
         selected_records.alias("r")
         .join(metadata.alias("m"), "run_id", "inner")
         .select(
-            "r.*",
+            *(
+                F.col(f"r.{column}").alias(column)
+                for column in SOURCE_LIFECYCLE_RECORD_COLUMNS
+            ),
             *(
                 F.col(f"m.{column}").alias(column)
                 for column in required_metadata

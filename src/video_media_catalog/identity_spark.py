@@ -1201,6 +1201,9 @@ def build_identity_resolution_dataframes(
             committed_run_ids=committed_source_run_ids,
             registry=registry,
             as_of=started_at,
+            repartition_count=int(
+                spark.conf.get("spark.sql.shuffle.partitions", "200")
+            ),
         )
     )
     current_envelope_keys = current_envelope_keys_from_latest(

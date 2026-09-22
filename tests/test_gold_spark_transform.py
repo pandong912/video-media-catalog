@@ -1005,10 +1005,22 @@ def test_persist_latest_source_record_states_materializes_once(
             committed_run_ids=(capture[0].run_id,),
             registry=build_community_registry(),
             as_of="2026-09-20T01:00:00Z",
+            repartition_count=4,
         )
         try:
             assert build_calls["count"] == 1
+            assert bound.rdd.getNumPartitions() == 4
             assert latest.count() == 1
         finally:
             latest.unpersist()
             bound.unpersist()
+
+    with pytest.raises(ValueError, match="repartition_count must be positive"):
+        persist_latest_source_record_states(
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_run_ids=(capture[0].run_id,),
+            registry=build_community_registry(),
+            as_of="2026-09-20T01:00:00Z",
+            repartition_count=0,
+        )

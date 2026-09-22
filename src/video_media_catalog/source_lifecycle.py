@@ -140,11 +140,16 @@ def bind_committed_source_records(
     committed_run_ids: tuple[str, ...] | None = None,
     committed_runs: Any | None = None,
     registry: SourceRegistrySnapshot,
+    repartition_count: int | None = None,
 ) -> Any:
     """Bind committed source records to pinned ingest-run batch metadata."""
 
     from pyspark.sql import functions as F
 
+    if repartition_count is not None and (
+        isinstance(repartition_count, bool) or repartition_count < 1
+    ):
+        raise ValueError("source lifecycle repartition_count must be positive")
     committed = _committed_run_frame(
         source_records=source_records,
         committed_run_ids=committed_run_ids,
@@ -252,8 +257,10 @@ def bind_committed_source_records(
                 if column != "_registry_digest"
             ),
         )
-        .persist()
     )
+    if repartition_count is not None:
+        bound = bound.repartition(repartition_count, "envelope_key")
+    bound = bound.persist()
     if bound.count() != selected_records.count():
         metadata.unpersist()
         bound.unpersist()
@@ -550,11 +557,8 @@ def persist_latest_source_record_states(
         committed_run_ids=committed_run_ids,
         committed_runs=committed_runs,
         registry=registry,
+        repartition_count=repartition_count,
     )
-    if repartition_count is not None:
-        if isinstance(repartition_count, bool) or repartition_count < 1:
-            raise ValueError("source lifecycle repartition_count must be positive")
-        raw_bound = raw_bound.repartition(repartition_count, "envelope_key")
     bound = None
     try:
         bound = raw_bound.localCheckpoint(eager=True)

@@ -103,7 +103,7 @@ _DEFAULT_MAPPER_IDENTITIES = {
     ),
     "imdb-non-commercial-datasets": SourceSilverMapperIdentity(
         mapper_id="imdb-official-tsv-mapper",
-        mapper_version="1.0.1",
+        mapper_version="1.0.2",
     ),
     "tmdb-research": SourceSilverMapperIdentity(
         mapper_id="tmdb-research-mapper",

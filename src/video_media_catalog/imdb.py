@@ -285,7 +285,7 @@ def _subject_for_row(
     entity_type = (
         _TITLE_TYPE_MAP.get(str(row.get("titleType") or "").lower())
         if dataset == "title.basics.tsv.gz"
-        else ("TV_EPISODE" if dataset == "title.episode.tsv.gz" else None)
+        else None
     )
     return (
         SourceNodeRef(
@@ -326,7 +326,7 @@ def map_imdb_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
         envelope=envelope,
         source_node=node,
         mapper_id="imdb-official-tsv-mapper",
-        mapper_version="1.0.1",
+        mapper_version="1.0.2",
     )
     builder.add_identifier(
         node.namespace_id,

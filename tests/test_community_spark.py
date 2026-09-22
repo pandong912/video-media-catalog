@@ -473,15 +473,28 @@ def _imdb_series_datasets(tmp_path: Path) -> dict[str, Path]:
 
     rows = {
         "title.basics.tsv.gz": [
-            "tt0000099",
-            "tvseries",
-            "Series Example",
-            "Series Example",
-            "0",
-            "2020",
-            r"\N",
-            "45",
-            "Drama",
+            [
+                "tt0000099",
+                "tvseries",
+                "Series Example",
+                "Series Example",
+                "0",
+                "2020",
+                r"\N",
+                "45",
+                "Drama",
+            ],
+            [
+                "tt0000002",
+                "tvepisode",
+                "Episode Example",
+                "Episode Example",
+                "0",
+                "2020",
+                r"\N",
+                "45",
+                "Drama",
+            ],
         ],
         "title.akas.tsv.gz": [
             "tt0000099",
@@ -520,7 +533,10 @@ def _imdb_series_datasets(tmp_path: Path) -> dict[str, Path]:
         with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
             writer.writerow(IMDB_DATASET_COLUMNS[dataset])
-            writer.writerow(rows[dataset])
+            if dataset == "title.basics.tsv.gz":
+                writer.writerows(rows[dataset])
+            else:
+                writer.writerow(rows[dataset])
         paths[dataset] = path
     return paths
 

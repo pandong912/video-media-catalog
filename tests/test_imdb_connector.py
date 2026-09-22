@@ -158,8 +158,58 @@ def test_imdb_mapper_omits_ambiguous_ancient_years(tmp_path) -> None:
     assert "birth_year" not in predicates
     assert "death_year" not in predicates
     assert {item.provenance.mapper_version for item in mapped.field_assertions} == {
-        "1.0.1"
+        "1.0.2"
     }
+
+
+def test_imdb_episode_rows_do_not_override_title_basics_type(tmp_path) -> None:
+    paths = _datasets(tmp_path / "inputs")
+    _write(
+        paths["title.basics.tsv.gz"],
+        "title.basics.tsv.gz",
+        [
+            "tt21828822",
+            "movie",
+            "Well, Just You Wait! Joyta",
+            "Well, Just You Wait! Joyta",
+            "0",
+            "1994",
+            r"\N",
+            "1",
+            r"\N",
+        ],
+    )
+    _write(
+        paths["title.episode.tsv.gz"],
+        "title.episode.tsv.gz",
+        ["tt21828822", "tt21821596", "1", "1"],
+    )
+    result = capture_imdb_snapshot(
+        dataset_paths=paths,
+        destination_prefix=(tmp_path / "output").as_uri(),
+        acquired_at="2026-09-20T00:00:00Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        store=BoundedObjectStore(client=object()),
+        record_shard_bytes=32 * 1024,
+    )
+    records = {
+        item.source_record_id: item
+        for item in _records(result)
+        if "tt21828822" in item.source_record_id
+    }
+
+    basics = map_imdb_record(records["title.basics:tt21828822"])
+    episode = map_imdb_record(records["title.episode:tt21828822"])
+
+    assert [item.entity_type for item in basics.entity_type_assertions] == ["MOVIE"]
+    assert episode.entity_type_assertions == ()
+    assert [item.predicate for item in episode.relationship_assertions] == [
+        "part_of_series"
+    ]
+    assert {
+        item.provenance.mapper_version for item in episode.relationship_assertions
+    } == {"1.0.2"}
 
 
 def test_imdb_official_snapshot_is_replayable_and_maps_all_row_families(

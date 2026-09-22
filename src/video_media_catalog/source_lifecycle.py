@@ -522,6 +522,7 @@ def persist_latest_source_record_states(
     committed_runs: Any | None = None,
     registry: SourceRegistrySnapshot,
     as_of: str,
+    repartition_count: int | None = None,
 ) -> tuple[Any, Any]:
     """Build and persist the shared as-of latest source record lifecycle projection."""
 
@@ -532,6 +533,10 @@ def persist_latest_source_record_states(
         committed_runs=committed_runs,
         registry=registry,
     )
+    if repartition_count is not None:
+        if isinstance(repartition_count, bool) or repartition_count < 1:
+            raise ValueError("source lifecycle repartition_count must be positive")
+        raw_bound = raw_bound.repartition(repartition_count, "envelope_key")
     bound = None
     try:
         bound = raw_bound.localCheckpoint(eager=True)

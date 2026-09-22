@@ -21,6 +21,7 @@ from video_media_catalog.connector import (
 )
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.source_silver import (
+    _has_duplicate_checkpoint_envelope_keys,
     _spark_input_uri,
     build_source_silver_dataframes,
     unpersist_source_silver_frames,
@@ -69,6 +70,29 @@ def spark():
     )
     yield session
     session.stop()
+
+
+@pytest.mark.spark
+def test_checkpoint_duplicate_check_uses_bounded_shuffle_partitions(spark) -> None:
+    unique = spark.createDataFrame(
+        [("sha256:" + ("a" * 64),), ("sha256:" + ("b" * 64),)],
+        ["envelope_key"],
+    )
+    duplicate = unique.unionByName(unique.limit(1))
+
+    assert not _has_duplicate_checkpoint_envelope_keys(
+        unique,
+        shuffle_partitions=8,
+    )
+    assert _has_duplicate_checkpoint_envelope_keys(
+        duplicate,
+        shuffle_partitions=8,
+    )
+    with pytest.raises(ValueError, match="must be positive"):
+        _has_duplicate_checkpoint_envelope_keys(
+            unique,
+            shuffle_partitions=0,
+        )
 
 
 def _file_object(

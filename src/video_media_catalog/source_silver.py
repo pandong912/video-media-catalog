@@ -186,6 +186,27 @@ def _expected_counts(
     return counts
 
 
+def _has_duplicate_checkpoint_envelope_keys(
+    source_records: Any,
+    *,
+    shuffle_partitions: int,
+) -> bool:
+    """Detect duplicates without collapsing hundreds of millions of keys."""
+
+    if shuffle_partitions < 1:
+        raise ValueError("duplicate-check shuffle partitions must be positive")
+    return bool(
+        source_records.select("envelope_key")
+        .rdd.map(lambda row: (row["envelope_key"], 1))
+        .reduceByKey(
+            lambda left, right: left + right,
+            numPartitions=shuffle_partitions,
+        )
+        .filter(lambda pair: pair[1] > 1)
+        .take(1)
+    )
+
+
 def _build_run(
     *,
     registry: SourceRegistrySnapshot,
@@ -377,16 +398,11 @@ def build_source_silver_dataframes(
         dataframes = checkpoint.frames_for_run(run.run_id)
         try:
             source_records = dataframes.get("community_source_record")
-            if source_records is not None:
-                duplicate = (
-                    source_records.groupBy("envelope_key")
-                    .count()
-                    .where("count > 1")
-                    .limit(1)
-                    .count()
-                )
-                if duplicate:
-                    raise ValueError("record set contains duplicate envelope keys")
+            if source_records is not None and _has_duplicate_checkpoint_envelope_keys(
+                source_records,
+                shuffle_partitions=max(1, len(materialized_shards)),
+            ):
+                raise ValueError("record set contains duplicate envelope keys")
             return run, dataframes
         except Exception:
             dataframes.unpersist_loaded()

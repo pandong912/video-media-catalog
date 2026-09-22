@@ -45,6 +45,8 @@ def test_identity_spark_exposes_bounded_component_limits() -> None:
 def test_identity_spark_reuses_single_lifecycle_projection() -> None:
     source = _identity_spark_source()
     assert "persist_latest_source_record_states" in source
+    assert "SOURCE_LIFECYCLE_BYPASS_REPARTITIONS = 128" in source
+    assert "repartition_count=min(" in source
     assert "current_envelope_keys_from_latest" in source
     assert "build_inactive_membership_revocation_worklist" in source
     assert "current_upsert_envelope_keys(" not in source

@@ -130,6 +130,7 @@ MAX_EXACT_BLOCKING_LABEL_ITERATIONS = 64
 MAX_EXACT_BLOCKING_RESOLUTION_COMPONENT_SIZE = 256
 MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS = 256
 MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS = 256
+SOURCE_LIFECYCLE_BYPASS_REPARTITIONS = 128
 
 
 class IdentityResolutionConfig(V2ContractModel):
@@ -1201,8 +1202,9 @@ def build_identity_resolution_dataframes(
             committed_run_ids=committed_source_run_ids,
             registry=registry,
             as_of=started_at,
-            repartition_count=int(
-                spark.conf.get("spark.sql.shuffle.partitions", "200")
+            repartition_count=min(
+                SOURCE_LIFECYCLE_BYPASS_REPARTITIONS,
+                int(spark.conf.get("spark.sql.shuffle.partitions", "200")),
             ),
         )
     )

@@ -1010,6 +1010,10 @@ def test_persist_latest_source_record_states_materializes_once(
         try:
             assert build_calls["count"] == 1
             assert bound.rdd.getNumPartitions() == 4
+            assert "payload_json" not in bound.columns
+            assert "raw_object_json" not in bound.columns
+            assert "envelope_key" in bound.columns
+            assert "_batch_acquired_at" in bound.columns
             assert latest.count() == 1
         finally:
             latest.unpersist()

@@ -205,7 +205,7 @@ _SOURCE_NODE_COLUMNS = (
 
 
 def _ensure_identity_checkpoint_dir(spark: Any) -> None:
-    """Give localCheckpoint a writable directory before truncating lineage."""
+    """Give reliable checkpoints a durable directory before truncating lineage."""
 
     sc = spark.sparkContext
     java_dir = sc._jsc.sc().getCheckpointDir()
@@ -215,41 +215,41 @@ def _ensure_identity_checkpoint_dir(spark: Any) -> None:
     sc.setCheckpointDir(f"{warehouse}/identity-checkpoints")
 
 
+def _materialize_identity_frame(
+    frame: Any,
+    *,
+    label: str,
+) -> Any:
+    """Truncate lineage with a reliable checkpoint and recomputable disk cache."""
+
+    from pyspark import StorageLevel
+
+    _ensure_identity_checkpoint_dir(frame.sparkSession)
+    materialized = None
+    try:
+        materialized = frame.checkpoint(eager=True).persist(StorageLevel.DISK_ONLY)
+        materialized.count()
+    except Exception as exc:
+        if materialized is not None:
+            with contextlib.suppress(Exception):
+                materialized.unpersist()
+        raise RuntimeError(
+            f"{label} durable checkpoint failed; refusing incomplete merge"
+        ) from exc
+    return materialized
+
+
 def _materialize_exact_blocking_labels(
     frame: Any,
     *,
     label: str = "label",
 ) -> Any:
-    """Truncate label propagation lineage; fail closed on checkpoint loss."""
+    """Reliably truncate label propagation lineage; fail closed on loss."""
 
-    from pyspark import StorageLevel
-
-    spark = frame.sparkSession
-    _ensure_identity_checkpoint_dir(spark)
-    persisted = frame.persist(StorageLevel.MEMORY_AND_DISK)
-    try:
-        persisted.count()
-        materialized = persisted.localCheckpoint(eager=True)
-    except Exception as exc:
-        with contextlib.suppress(Exception):
-            persisted.unpersist()
-        raise RuntimeError(
-            f"exact blocking {label} localCheckpoint failed; refusing incomplete merge"
-        ) from exc
-    try:
-        materialized.take(1)
-    except Exception as exc:
-        with contextlib.suppress(Exception):
-            persisted.unpersist()
-            materialized.unpersist()
-        raise RuntimeError(
-            f"exact blocking {label} checkpoint is unreadable; "
-            "refusing incomplete merge"
-        ) from exc
-    if persisted is not materialized:
-        with contextlib.suppress(Exception):
-            persisted.unpersist()
-    return materialized
+    return _materialize_identity_frame(
+        frame,
+        label=f"exact blocking {label}",
+    )
 
 
 def _release_exact_blocking_labels(frame: Any) -> None:
@@ -1236,21 +1236,20 @@ def build_identity_resolution_dataframes(
         )
     finally:
         current_envelope_keys.unpersist()
-    type_groups = (
+    type_groups = _materialize_identity_frame(
         type_assertions.groupBy(
             "subject_namespace_id",
             "subject_source_id",
             "subject_referent_kind",
-        )
-        .agg(
+        ).agg(
             F.sort_array(F.collect_set("entity_type")).alias("entity_types"),
             F.sort_array(F.collect_set("assertion_id")).alias("type_assertion_ids"),
             F.min("observed_at").alias("observed_at"),
             F.min("policy_id").alias("policy_id"),
             F.min("policy_digest").alias("policy_digest"),
             F.countDistinct("policy_id").alias("policy_count"),
-        )
-        .localCheckpoint(eager=True)
+        ),
+        label="identity type groups",
     )
     invalid_type = type_groups.where(
         (F.size("entity_types") != 1) | (F.col("policy_count") != 1)
@@ -1269,9 +1268,8 @@ def build_identity_resolution_dataframes(
         "source_id",
         "source_referent_kind",
     ).dropDuplicates()
-    all_unassigned = (
-        type_groups.alias("t")
-        .join(
+    all_unassigned = _materialize_identity_frame(
+        type_groups.alias("t").join(
             assigned_nodes.alias("m"),
             (
                 (F.col("t.subject_namespace_id") == F.col("m.source_namespace_id"))
@@ -1279,23 +1277,25 @@ def build_identity_resolution_dataframes(
                 & (F.col("t.subject_referent_kind") == F.col("m.source_referent_kind"))
             ),
             "left_anti",
-        )
-        .localCheckpoint(eager=True)
+        ),
+        label="identity unassigned nodes",
     )
     source_entity_type = F.upper(F.element_at(F.col("entity_types"), 1))
     hierarchy_types = ("SEASON", "TV_SEASON", "EPISODE", "TV_EPISODE")
-    unassigned = all_unassigned.where(
-        ~source_entity_type.isin(*hierarchy_types)
-    ).localCheckpoint(eager=True)
-    hierarchy_unassigned = all_unassigned.where(
-        source_entity_type.isin(*hierarchy_types)
-    ).localCheckpoint(eager=True)
+    unassigned = _materialize_identity_frame(
+        all_unassigned.where(~source_entity_type.isin(*hierarchy_types)),
+        label="identity non-hierarchy nodes",
+    )
+    hierarchy_unassigned = _materialize_identity_frame(
+        all_unassigned.where(source_entity_type.isin(*hierarchy_types)),
+        label="identity hierarchy nodes",
+    )
 
     from pyspark.sql.types import BooleanType
 
     compatible_referent_kind = F.udf(referent_kinds_compatible, BooleanType())
 
-    registered_identifiers = (
+    registered_identifiers = _materialize_identity_frame(
         identifier_assertions.alias("i")
         .join(
             type_groups.alias("t"),
@@ -1343,8 +1343,8 @@ def build_identity_resolution_dataframes(
             .alias("normalized_value"),
             F.col("n.referent_kind").alias("referent_kind"),
         )
-        .dropDuplicates()
-        .localCheckpoint(eager=True)
+        .dropDuplicates(),
+        label="identity registered identifiers",
     )
 
     assigned_identifier_index = (

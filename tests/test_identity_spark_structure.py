@@ -55,9 +55,12 @@ def test_identity_spark_reuses_single_lifecycle_projection() -> None:
     assert "bound_source_records.unpersist()" in source
 
 
-def test_identity_spark_truncates_label_lineage_with_local_checkpoint() -> None:
+def test_identity_spark_truncates_lineage_with_durable_checkpoints() -> None:
     source = _identity_spark_source()
-    assert "localCheckpoint(eager=True)" in source
+    assert "localCheckpoint(" not in source
+    assert "frame.checkpoint(eager=True)" in source
+    assert "StorageLevel.DISK_ONLY" in source
+    assert "_materialize_identity_frame(" in source
     assert "refusing incomplete merge" in source
     assert 'countDistinct("candidate_entity_key")' in source
     assert "node_candidate_counts" in source

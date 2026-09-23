@@ -164,7 +164,13 @@ def test_owned_snapshot_rejects_zero_or_multiple_marked_snapshots(
     snapshot_rows: list[dict[str, int | None]],
     expected: str,
 ) -> None:
-    spark = SnapshotSpark(snapshot_rows, {})
+    snapshots = {
+        int(row["snapshot_id"]): [
+            {"row_key": f"own-{row['snapshot_id']}", "run_id": RUN_ID}
+        ]
+        for row in snapshot_rows
+    }
+    spark = SnapshotSpark(snapshot_rows, snapshots)
     with pytest.raises(RuntimeError, match=expected):
         find_owned_snapshot_id(
             spark,
@@ -178,12 +184,16 @@ def test_owned_snapshot_rejects_zero_or_multiple_marked_snapshots(
         )
 
 
-def test_owned_snapshot_ignores_empty_tagged_attempt() -> None:
+def test_owned_snapshot_ignores_orphan_tagged_attempt() -> None:
     parent = [{"row_key": "old", "run_id": OTHER_RUN_ID}]
     own = [*parent, {"row_key": "own", "run_id": RUN_ID}]
     spark = SnapshotSpark(
         [
-            {"snapshot_id": 101, "parent_id": 100, "added_records": "0"},
+            {
+                "snapshot_id": 101,
+                "parent_id": 100,
+                "added_records": "214127556",
+            },
             {"snapshot_id": 102, "parent_id": 101, "added_records": "1"},
         ],
         {100: parent, 101: parent, 102: own},
@@ -203,10 +213,17 @@ def test_owned_snapshot_ignores_empty_tagged_attempt() -> None:
     )
 
 
-def test_empty_tagged_attempt_does_not_block_zero_row_probe() -> None:
+def test_orphan_tagged_attempt_does_not_block_zero_row_probe() -> None:
+    foreign = [{"row_key": "old", "run_id": OTHER_RUN_ID}]
     spark = SnapshotSpark(
-        [{"snapshot_id": 101, "parent_id": 100, "added_records": "0"}],
-        {},
+        [
+            {
+                "snapshot_id": 101,
+                "parent_id": 100,
+                "added_records": "214127556",
+            }
+        ],
+        {101: foreign},
     )
     assert (
         find_owned_snapshot_id(

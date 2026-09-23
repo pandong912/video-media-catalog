@@ -49,6 +49,7 @@ def _event(run_id: str, started_at: str) -> dict[str, str | None]:
     }
 
 
+@pytest.mark.spark
 def test_republished_envelope_keeps_later_mapper_run(spark: SparkSession) -> None:
     events = spark.createDataFrame(
         [

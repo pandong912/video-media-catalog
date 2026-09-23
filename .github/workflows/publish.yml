@@ -2,6 +2,12 @@ name: Publish image
 
 on:
   workflow_dispatch:
+    inputs:
+      skip_verify:
+        description: Publish images without running verification
+        required: false
+        default: false
+        type: boolean
   push:
     tags: ["v*"]
 
@@ -14,6 +20,7 @@ env:
 
 jobs:
   verify:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_verify }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -33,6 +40,14 @@ jobs:
 
   publish:
     needs: verify
+    if: >-
+      ${{
+        always() &&
+        (
+          needs.verify.result == 'success' ||
+          (github.event_name == 'workflow_dispatch' && inputs.skip_verify)
+        )
+      }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -119,6 +119,31 @@ def execute_iceberg_sql(
     )
 
 
+def _snapshot_field(row: Any, name: str) -> Any:
+    if isinstance(row, dict):
+        return row.get(name)
+    try:
+        return row[name]
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _is_empty_tagged_snapshot(row: Any) -> bool:
+    """True when Iceberg recorded a tagged commit that added no records.
+
+    A MERGE that matches every existing key still commits a snapshot. Those
+    empty attempts must not block a later write of the same run.
+    """
+
+    value = _snapshot_field(row, "added_records")
+    if value is None:
+        return False
+    try:
+        return int(value) == 0
+    except (TypeError, ValueError):
+        return False
+
+
 def find_owned_snapshot_id(
     spark: Any,
     *,
@@ -132,13 +157,18 @@ def find_owned_snapshot_id(
 ) -> int | None:
     """Find one identity-tagged snapshot and verify its exact row additions."""
 
-    rows = spark.sql(
-        f"""
-        SELECT snapshot_id, parent_id
-        FROM {table_identifier}.snapshots
-        WHERE summary['{snapshot_property}'] = '{identity_value}'
-        """
-    ).collect()
+    rows = [
+        row
+        for row in spark.sql(
+            f"""
+            SELECT snapshot_id, parent_id,
+                   summary['added-records'] AS added_records
+            FROM {table_identifier}.snapshots
+            WHERE summary['{snapshot_property}'] = '{identity_value}'
+            """
+        ).collect()
+        if not _is_empty_tagged_snapshot(row)
+    ]
     if expected_row_count == 0:
         if rows:
             raise RuntimeError(
@@ -180,8 +210,9 @@ def find_owned_snapshot_id(
             raise RuntimeError(
                 f"{table_name} identity rows existed before its tagged snapshot"
             )
-        parent_keys = parent.select(primary_key).dropDuplicates([primary_key])
-        additions = candidate.join(parent_keys, primary_key, "left_anti")
+        addition_key = [primary_key, identity_column]
+        parent_keys = parent.select(*addition_key).dropDuplicates(addition_key)
+        additions = candidate.join(parent_keys, addition_key, "left_anti")
 
     additions = additions.persist()
     try:

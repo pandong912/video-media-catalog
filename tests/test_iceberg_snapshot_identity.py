@@ -52,10 +52,17 @@ class FakeFrame:
                 rows.append(row)
         return FakeFrame(rows)
 
-    def join(self, other, key: str, how: str):
+    def join(self, other, key: str | list[str], how: str):
         assert how == "left_anti"
-        other_keys = {row[key] for row in other.rows}
-        return FakeFrame([row for row in self.rows if row[key] not in other_keys])
+        keys = (key,) if isinstance(key, str) else tuple(key)
+        other_keys = {tuple(row[item] for item in keys) for row in other.rows}
+        return FakeFrame(
+            [
+                row
+                for row in self.rows
+                if tuple(row[item] for item in keys) not in other_keys
+            ]
+        )
 
     def persist(self):
         return self
@@ -169,6 +176,73 @@ def test_owned_snapshot_rejects_zero_or_multiple_marked_snapshots(
             snapshot_property="video-media-catalog.run-id",
             expected_row_count=1,
         )
+
+
+def test_owned_snapshot_ignores_empty_tagged_attempt() -> None:
+    parent = [{"row_key": "old", "run_id": OTHER_RUN_ID}]
+    own = [*parent, {"row_key": "own", "run_id": RUN_ID}]
+    spark = SnapshotSpark(
+        [
+            {"snapshot_id": 101, "parent_id": 100, "added_records": "0"},
+            {"snapshot_id": 102, "parent_id": 101, "added_records": "1"},
+        ],
+        {100: parent, 101: parent, 102: own},
+    )
+    assert (
+        find_owned_snapshot_id(
+            spark,
+            table_identifier="`media`.`community`.`records`",
+            table_name="media.community.records",
+            primary_key="row_key",
+            identity_column="run_id",
+            identity_value=RUN_ID,
+            snapshot_property="video-media-catalog.run-id",
+            expected_row_count=1,
+        )
+        == 102
+    )
+
+
+def test_empty_tagged_attempt_does_not_block_zero_row_probe() -> None:
+    spark = SnapshotSpark(
+        [{"snapshot_id": 101, "parent_id": 100, "added_records": "0"}],
+        {},
+    )
+    assert (
+        find_owned_snapshot_id(
+            spark,
+            table_identifier="`media`.`community`.`records`",
+            table_name="media.community.records",
+            primary_key="row_key",
+            identity_column="run_id",
+            identity_value=RUN_ID,
+            snapshot_property="video-media-catalog.run-id",
+            expected_row_count=0,
+        )
+        is None
+    )
+
+
+def test_owned_snapshot_counts_republished_key_as_addition() -> None:
+    parent = [{"row_key": "same", "run_id": OTHER_RUN_ID}]
+    own = [*parent, {"row_key": "same", "run_id": RUN_ID}]
+    spark = SnapshotSpark(
+        [{"snapshot_id": 102, "parent_id": 101, "added_records": "1"}],
+        {101: parent, 102: own},
+    )
+    assert (
+        find_owned_snapshot_id(
+            spark,
+            table_identifier="`media`.`community`.`records`",
+            table_name="media.community.records",
+            primary_key="row_key",
+            identity_column="run_id",
+            identity_value=RUN_ID,
+            snapshot_property="video-media-catalog.run-id",
+            expected_row_count=1,
+        )
+        == 102
+    )
 
 
 def test_owned_snapshot_rejects_foreign_additions() -> None:

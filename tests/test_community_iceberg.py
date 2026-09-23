@@ -62,7 +62,8 @@ class FakeFrame:
         return self
 
     def dropDuplicates(self, keys: list[str]):
-        assert len(keys) == 1
+        assert keys
+        assert set(keys).issubset(self.columns)
         return self
 
     def persist(self):
@@ -133,6 +134,23 @@ def test_v2_merge_is_insert_only_and_commit_is_unique_by_run(
     merge = spark.statements[-1]
     assert "ON t.`run_id` = s.`run_id`" in merge
     assert "WHEN NOT MATCHED THEN INSERT" in merge
+    assert "WHEN MATCHED" not in merge
+
+
+def test_source_record_merge_matches_envelope_and_run(tmp_path: Path) -> None:
+    spark = FakeSpark()
+    tables = CommunityCatalogTables(
+        spark,
+        CatalogConfig(
+            catalog_name="media",
+            namespace="community_v2",
+            warehouse=(tmp_path / "warehouse").as_uri(),
+        ),
+    )
+    frame = FakeFrame("community_source_record", 2)
+    assert tables.merge_insert_only("community_source_record", frame) == 2
+    merge = spark.statements[-1]
+    assert "ON t.`envelope_key` = s.`envelope_key` AND t.`run_id` = s.`run_id`" in merge
     assert "WHEN MATCHED" not in merge
 
 

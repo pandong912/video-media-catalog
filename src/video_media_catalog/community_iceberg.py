@@ -24,6 +24,7 @@ from video_media_catalog.community_tables import (
     NULLABLE_COLUMNS,
     TABLE_COLUMNS,
     TABLE_KEYS,
+    TABLE_MERGE_KEYS,
     TABLE_PARTITION_COLUMNS,
 )
 from video_media_catalog.iceberg import (
@@ -111,14 +112,14 @@ class CommunityCatalogTables:
         if table not in TABLE_COLUMNS:
             raise KeyError(f"unknown community catalog table: {table}")
         columns = TABLE_COLUMNS[table]
-        key = TABLE_KEYS[table]
+        keys = TABLE_MERGE_KEYS[table]
         missing = sorted(set(columns) - set(dataframe.columns))
         extra = sorted(set(dataframe.columns) - set(columns))
         if missing or extra:
             raise ValueError(
                 f"{table} dataframe columns differ: missing={missing}, extra={extra}"
             )
-        staged = dataframe.select(*columns).dropDuplicates([key]).persist()
+        staged = dataframe.select(*columns).dropDuplicates(list(keys)).persist()
         try:
             row_count = staged.count()
             if row_count == 0:
@@ -133,6 +134,7 @@ class CommunityCatalogTables:
             staged.createOrReplaceTempView(view)
             quoted = ", ".join(f"`{column}`" for column in columns)
             source = ", ".join(f"s.`{column}`" for column in columns)
+            match = " AND ".join(f"t.`{column}` = s.`{column}`" for column in keys)
             nullability_config = "spark.sql.iceberg.check-nullability"
             previous = self.spark.conf.get(nullability_config, "true")
             self.spark.conf.set(nullability_config, "false")
@@ -142,7 +144,7 @@ class CommunityCatalogTables:
                     f"""
                     MERGE INTO {self.table_identifier(table)} t
                     USING `{view}` s
-                    ON t.`{key}` = s.`{key}`
+                    ON {match}
                     WHEN NOT MATCHED THEN INSERT ({quoted})
                     VALUES ({source})
                     """,

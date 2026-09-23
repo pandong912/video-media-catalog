@@ -78,13 +78,16 @@ def _identity_lifecycle_inputs(
 
 
 @pytest.fixture(scope="module")
-def spark():
+def spark(tmp_path_factory: pytest.TempPathFactory):
     session = (
         SparkSession.builder.master("local[2]")
         .appName("community-gold-spark-unit-test")
         .config("spark.ui.enabled", "false")
         .config("spark.sql.shuffle.partitions", "2")
         .getOrCreate()
+    )
+    session.sparkContext.setCheckpointDir(
+        str(tmp_path_factory.mktemp("gold-spark-checkpoints"))
     )
     yield session
     session.stop()
@@ -1015,6 +1018,10 @@ def test_persist_latest_source_record_states_materializes_once(
             assert "envelope_key" in bound.columns
             assert "_batch_acquired_at" in bound.columns
             assert latest.count() == 1
+            assert bound.storageLevel.useDisk
+            assert not bound.storageLevel.useMemory
+            assert latest.storageLevel.useDisk
+            assert not latest.storageLevel.useMemory
         finally:
             latest.unpersist()
             bound.unpersist()

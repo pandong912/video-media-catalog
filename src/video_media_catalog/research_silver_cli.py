@@ -533,7 +533,13 @@ def _spark_session(
         )
     if parsed.spark_packages:
         builder = builder.config("spark.jars.packages", parsed.spark_packages)
-    return builder.getOrCreate()
+    spark = builder.getOrCreate()
+    checkpoint_root = (
+        f"{config.warehouse.rstrip('/')}/research/control/spark-checkpoints/"
+        f"{spark.sparkContext.applicationId}"
+    )
+    spark.sparkContext.setCheckpointDir(checkpoint_root)
+    return spark
 
 
 def _object_store(

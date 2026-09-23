@@ -144,6 +144,7 @@ def bind_committed_source_records(
 ) -> Any:
     """Bind committed source records to pinned ingest-run batch metadata."""
 
+    from pyspark import StorageLevel
     from pyspark.sql import functions as F
 
     if repartition_count is not None and (
@@ -262,7 +263,10 @@ def bind_committed_source_records(
     )
     if repartition_count is not None:
         bound = bound.repartition(repartition_count, "envelope_key")
-    bound = bound.persist()
+    # The full IMDb lifecycle projection is larger than executor storage memory.
+    # Keep it on disk and retain its source lineage so an executor loss can
+    # recompute a missing partition instead of invalidating a local checkpoint.
+    bound = bound.persist(StorageLevel.DISK_ONLY)
     if bound.count() != selected_records.count():
         metadata.unpersist()
         bound.unpersist()
@@ -562,7 +566,9 @@ def persist_latest_source_record_states(
     as_of: str,
     repartition_count: int | None = None,
 ) -> tuple[Any, Any]:
-    """Build and persist the shared as-of latest source record lifecycle projection."""
+    """Build durable shared as-of source lifecycle projections."""
+
+    from pyspark import StorageLevel
 
     raw_bound = bind_committed_source_records(
         source_records=source_records,
@@ -573,18 +579,28 @@ def persist_latest_source_record_states(
         repartition_count=repartition_count,
     )
     bound = None
+    latest = None
     try:
-        bound = raw_bound.localCheckpoint(eager=True)
+        bound = raw_bound.checkpoint(eager=True).persist(StorageLevel.DISK_ONLY)
+        bound.count()
         raw_bound.unpersist()
         events = build_source_lifecycle_events(bound, as_of=as_of)
-        latest = latest_source_record_states(events, as_of=as_of).localCheckpoint(
-            eager=True
+        # Durable checkpoints truncate the very large lifecycle plan without
+        # depending on executor-local blocks. The disk cache then avoids
+        # repeatedly reading checkpoint objects during Identity and Gold.
+        latest = (
+            latest_source_record_states(events, as_of=as_of)
+            .checkpoint(eager=True)
+            .persist(StorageLevel.DISK_ONLY)
         )
+        latest.count()
         return bound, latest
     except Exception:
         raw_bound.unpersist()
         if bound is not None:
             bound.unpersist()
+        if latest is not None:
+            latest.unpersist()
         raise
 
 

@@ -2216,7 +2216,10 @@ def build_identity_resolution_dataframes(
         resolved_key = result.memberships[0].entity_key
         return result, _index_entries(row, resolved_key)
 
-    resolution_results = work.rdd.map(resolve_row).persist(StorageLevel.MEMORY_AND_DISK)
+    # Identity output rows are much larger than the executor JVM cache budget.
+    # Keep them recomputable on local shuffle-optimized disks so Python workers
+    # do not starve executor heartbeats while downstream frames materialize.
+    resolution_results = work.rdd.map(resolve_row).persist(StorageLevel.DISK_ONLY)
     hierarchy_source_type = F.upper(F.element_at(F.col("entity_types"), 1))
     season_source_nodes = hierarchy_unassigned.where(
         hierarchy_source_type.isin("SEASON", "TV_SEASON")
@@ -2502,7 +2505,7 @@ def build_identity_resolution_dataframes(
         .union(episode_results)
         .union(assigned_recheck_results.map(lambda item: (item, ())))
         .union(revocation_results.map(lambda item: (item, ())))
-        .persist(StorageLevel.MEMORY_AND_DISK)
+        .persist(StorageLevel.DISK_ONLY)
     )
     operation_policy = internal_key_continuity_profile()
     seed_entries = v1_index.rdd.map(
@@ -2519,7 +2522,7 @@ def build_identity_resolution_dataframes(
         .keyBy(lambda item: item.index_entry_key)
         .reduceByKey(lambda left, _right: left)
         .values()
-        .persist(StorageLevel.MEMORY_AND_DISK)
+        .persist(StorageLevel.DISK_ONLY)
     )
     try:
         expected_counts = {table: 0 for table in DATA_TABLE_COLUMNS}
@@ -2643,7 +2646,7 @@ def build_identity_resolution_dataframes(
                 frame = spark.createDataFrame(
                     row_rdds.get(table, spark.sparkContext.emptyRDD()),
                     schema=community_table_schema(table),
-                ).persist()
+                ).persist(StorageLevel.DISK_ONLY)
                 if frame.count() != expected_counts[table]:
                     frame.unpersist()
                     raise RuntimeError(f"{table} materialized count changed")

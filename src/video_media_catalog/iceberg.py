@@ -119,31 +119,6 @@ def execute_iceberg_sql(
     )
 
 
-def _snapshot_field(row: Any, name: str) -> Any:
-    if isinstance(row, dict):
-        return row.get(name)
-    try:
-        return row[name]
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
-def _is_empty_tagged_snapshot(row: Any) -> bool:
-    """True when Iceberg recorded a tagged commit that added no records.
-
-    A MERGE that matches every existing key still commits a snapshot. Those
-    empty attempts must not block a later write of the same run.
-    """
-
-    value = _snapshot_field(row, "added_records")
-    if value is None:
-        return False
-    try:
-        return int(value) == 0
-    except (TypeError, ValueError):
-        return False
-
-
 def find_owned_snapshot_id(
     spark: Any,
     *,
@@ -157,39 +132,42 @@ def find_owned_snapshot_id(
 ) -> int | None:
     """Find one identity-tagged snapshot and verify its exact row additions."""
 
-    rows = [
-        row
-        for row in spark.sql(
-            f"""
-            SELECT snapshot_id, parent_id,
-                   summary['added-records'] AS added_records
-            FROM {table_identifier}.snapshots
-            WHERE summary['{snapshot_property}'] = '{identity_value}'
-            """
-        ).collect()
-        if not _is_empty_tagged_snapshot(row)
-    ]
+    rows = spark.sql(
+        f"""
+        SELECT snapshot_id, parent_id
+        FROM {table_identifier}.snapshots
+        WHERE summary['{snapshot_property}'] = '{identity_value}'
+        """
+    ).collect()
+    identity_predicate = f"`{identity_column}` = '{identity_value}'"
+    owned_snapshots = []
+    for row in rows:
+        snapshot_id = int(row["snapshot_id"])
+        candidate = (
+            spark.read.format("iceberg")
+            .option("snapshot-id", str(snapshot_id))
+            .load(table_name)
+            .select(primary_key, identity_column)
+        )
+        candidate_identity_count = candidate.where(identity_predicate).count()
+        if candidate_identity_count:
+            owned_snapshots.append((row, candidate, candidate_identity_count))
+
     if expected_row_count == 0:
-        if rows:
+        if owned_snapshots:
             raise RuntimeError(
                 f"{table_name} has an identity snapshot despite zero expected rows"
             )
         return None
-    if len(rows) != 1:
+    if len(owned_snapshots) != 1:
         raise RuntimeError(
-            f"{table_name} must have exactly one identity snapshot; found {len(rows)}"
+            f"{table_name} must have exactly one identity snapshot; "
+            f"found {len(owned_snapshots)}"
         )
 
-    snapshot_id = int(rows[0]["snapshot_id"])
-    parent_id = rows[0]["parent_id"]
-    candidate = (
-        spark.read.format("iceberg")
-        .option("snapshot-id", str(snapshot_id))
-        .load(table_name)
-        .select(primary_key, identity_column)
-    )
-    identity_predicate = f"`{identity_column}` = '{identity_value}'"
-    candidate_identity_count = candidate.where(identity_predicate).count()
+    row, candidate, candidate_identity_count = owned_snapshots[0]
+    snapshot_id = int(row["snapshot_id"])
+    parent_id = row["parent_id"]
     if candidate_identity_count != expected_row_count:
         raise RuntimeError(
             f"{table_name} identity snapshot contains "

@@ -199,6 +199,7 @@ def bind_committed_source_records(
             F.get_json_object("manifest_json", batch_path + "recordCount")
             .cast("long")
             .alias("_batch_record_count"),
+            F.col("started_at").alias("_run_started_at"),
         )
         .persist()
     )
@@ -256,6 +257,7 @@ def bind_committed_source_records(
                 for column in required_metadata
                 if column != "_registry_digest"
             ),
+            F.col("m._run_started_at").alias("_run_started_at"),
         )
     )
     if repartition_count is not None:
@@ -445,6 +447,7 @@ def build_source_lifecycle_events(
         )
         inferred_events = missing.select(
             F.lit(None).cast("string").alias("envelope_key"),
+            F.col("_snapshot_run_id").alias("run_id"),
             *RECORD_IDENTITY_COLUMNS,
             F.lit("INFERRED_ABSENCE").alias("operation"),
             F.col("_batch_acquired_at").alias("observed_at"),
@@ -453,11 +456,13 @@ def build_source_lifecycle_events(
             F.lit(None).cast("string").alias("valid_to"),
             F.lit(None).cast("string").alias("expires_at"),
             F.col("_batch_id").alias("batch_id"),
+            F.lit(None).cast("string").alias("_run_started_at"),
         )
         actual_events = bound.where(
             F.to_timestamp("_batch_acquired_at") <= as_of_timestamp
         ).select(
             "envelope_key",
+            "run_id",
             *RECORD_IDENTITY_COLUMNS,
             "operation",
             "observed_at",
@@ -466,6 +471,7 @@ def build_source_lifecycle_events(
             "valid_to",
             "expires_at",
             "batch_id",
+            "_run_started_at",
         )
         return actual_events.unionByName(inferred_events)
     finally:
@@ -487,14 +493,21 @@ def latest_source_record_states(events: Any, *, as_of: str) -> Any:
             F.to_timestamp("observed_at"),
         ),
     ).where(F.col("_effective_at") <= as_of_timestamp)
-    event_window = Window.partitionBy(*RECORD_IDENTITY_COLUMNS).orderBy(
+    order_by = [
         F.col("_effective_at").desc(),
         F.to_timestamp("observed_at").desc(),
         F.to_timestamp("ingested_at").desc(),
         F.when(F.col("operation") == "UPSERT", F.lit(0)).otherwise(F.lit(1)).desc(),
         F.col("batch_id").desc(),
-        F.col("envelope_key").desc_nulls_last(),
-    )
+    ]
+    # Same envelope republished by a later mapper shares observed/ingested
+    # timestamps. Prefer the later ingest, then a stable run id.
+    if "_run_started_at" in events.columns:
+        order_by.append(F.to_timestamp("_run_started_at").desc_nulls_last())
+    if "run_id" in events.columns:
+        order_by.append(F.col("run_id").desc_nulls_last())
+    order_by.append(F.col("envelope_key").desc_nulls_last())
+    event_window = Window.partitionBy(*RECORD_IDENTITY_COLUMNS).orderBy(*order_by)
     return (
         with_effective.withColumn("_record_version", F.row_number().over(event_window))
         .where(F.col("_record_version") == 1)
@@ -578,9 +591,12 @@ def persist_latest_source_record_states(
 def current_envelope_keys_from_latest(latest: Any, *, as_of: str) -> Any:
     """Derive active UPSERT envelope keys from a persisted latest-state projection."""
 
+    columns = ["envelope_key"]
+    if "run_id" in latest.columns:
+        columns.append("run_id")
     return (
         latest.where(_is_active_upsert(latest, as_of=as_of))
-        .select("envelope_key")
+        .select(*columns)
         .dropDuplicates(["envelope_key"])
     )
 
@@ -843,8 +859,11 @@ def filter_assertions_for_current_envelopes(
     valid_to = F.to_timestamp(
         F.get_json_object("provenance_json", "$.validTo"),
     )
+    join_columns = ["envelope_key"]
+    if "run_id" in current_envelope_keys.columns and "run_id" in active.columns:
+        join_columns.append("run_id")
     return (
-        active.join(current_envelope_keys, "envelope_key", "inner")
+        active.join(current_envelope_keys, join_columns, "inner")
         .where(valid_to.isNull() | (valid_to > as_of_timestamp))
         .drop("envelope_key")
     )

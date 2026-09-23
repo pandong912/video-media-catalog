@@ -294,6 +294,7 @@ def _validate_assertion_product_policies(
     source_metadata = (
         source_records.select(
             "envelope_key",
+            "run_id",
             "source_product_id",
             F.col("policy_id").alias("record_policy_id"),
             F.col("policy_digest").alias("record_policy_digest"),
@@ -301,6 +302,7 @@ def _validate_assertion_product_policies(
         .join(source_products, "source_product_id", "inner")
         .select(
             "envelope_key",
+            "run_id",
             "record_policy_id",
             "record_policy_digest",
             "source_product_policy_id",
@@ -308,7 +310,7 @@ def _validate_assertion_product_policies(
     )
     bound = active.alias("a").join(
         source_metadata.alias("s"),
-        "envelope_key",
+        ["envelope_key", "run_id"],
         "inner",
     )
     if bound.count() != active.count():
@@ -346,6 +348,7 @@ def _eligible_assertions(
 
     source_metadata = source_records.select(
         "envelope_key",
+        "run_id",
         "source_product_id",
         "source_record_id",
         "citation_keys_json",
@@ -363,6 +366,7 @@ def _eligible_assertions(
     bound = active.alias("a").join(
         source_metadata.select(
             "envelope_key",
+            "run_id",
             "source_product_id",
             "source_name",
             "source_documentation_url",
@@ -372,7 +376,7 @@ def _eligible_assertions(
             "record_policy_digest",
             "source_product_policy_id",
         ).alias("s"),
-        "envelope_key",
+        ["envelope_key", "run_id"],
         "inner",
     )
     active_count = active.count()
@@ -450,9 +454,12 @@ def _eligible_assertions(
         )
         .persist()
     )
+    current_join = ["envelope_key"]
+    if "run_id" in current_source_envelope_keys.columns:
+        current_join.append("run_id")
     with_source = rights_eligible.join(
         current_source_envelope_keys,
-        "envelope_key",
+        current_join,
         "inner",
     )
     current_count = with_source.count()

@@ -262,6 +262,14 @@ TABLE_KEYS: dict[str, str] = {
     "community_entity_split_event": "split_event_key",
 }
 
+# Source envelopes are immutable, but a corrected mapper republishes the same
+# envelope under a new run. Match run_id so that republish inserts its own rows
+# instead of no-op merging into the previous run.
+TABLE_MERGE_KEYS: dict[str, tuple[str, ...]] = {
+    table: (key,) for table, key in TABLE_KEYS.items()
+}
+TABLE_MERGE_KEYS["community_source_record"] = ("envelope_key", "run_id")
+
 NULLABLE_COLUMNS: dict[str, frozenset[str]] = {
     "community_ingest_run": frozenset(),
     "community_ingest_commit": frozenset(),

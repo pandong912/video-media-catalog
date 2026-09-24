@@ -892,6 +892,7 @@ def build_distributed_gold(
             raise ValueError("termination fence is not bound to the source registry")
     from pyspark.sql import functions as F
 
+    bounded_run_ids = committed_runs is None
     if committed_runs is None:
         if not committed_run_ids:
             raise ValueError("Gold build requires committed runs")
@@ -908,6 +909,7 @@ def build_distributed_gold(
             [(run_id,) for run_id in committed_run_ids],
             "run_id STRING",
         )
+        selected_runs = F.broadcast(selected_runs)
     else:
         if committed_run_ids:
             raise ValueError("Gold build cannot mix run IDs and a run dataframe")
@@ -925,7 +927,11 @@ def build_distributed_gold(
         selected_runs = committed_runs.select("run_id").dropDuplicates(["run_id"])
     committed_silver = {
         table: (
-            frame.join(selected_runs, "run_id", "inner")
+            frame.join(
+                selected_runs,
+                "run_id",
+                "left_semi" if bounded_run_ids else "inner",
+            )
             if "run_id" in frame.columns
             else frame
         )
@@ -948,13 +954,15 @@ def build_distributed_gold(
         current_source_envelope_keys.unpersist()
         raise
     try:
-        rights = _rights_frame(
-            spark,
-            registry=registry,
-            context=policy_context,
-            policy=field_policy,
+        rights = F.broadcast(
+            _rights_frame(
+                spark,
+                registry=registry,
+                context=policy_context,
+                policy=field_policy,
+            )
         )
-        source_products = _source_products_frame(spark, registry)
+        source_products = F.broadcast(_source_products_frame(spark, registry))
     except Exception:
         memberships.unpersist()
         current_source_envelope_keys.unpersist()

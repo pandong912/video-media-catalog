@@ -584,7 +584,8 @@ def _ensure_source_lifecycle_checkpoint_dir(frame: Any) -> None:
             )
     checkpoint_run_id = f"{context.applicationId}-{uuid.uuid4().hex}"
     context.setCheckpointDir(
-        f"{warehouse.rstrip('/')}/source-lifecycle-checkpoints/{checkpoint_run_id}"
+        f"{warehouse.rstrip('/')}/research/control/spark-checkpoints/"
+        f"source-lifecycle/{checkpoint_run_id}"
     )
 
 

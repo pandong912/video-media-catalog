@@ -137,6 +137,29 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes": "64m",
         "spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m",
         "spark.speculation": "false",
+        # Transient S3/Iceberg read failures can leave an executor's AWS SDK
+        # connection pool shut down; pin retries away from that executor.
+        "spark.excludeOnFailure.enabled": "true",
+        "spark.excludeOnFailure.task.maxTaskAttemptsPerExecutor": "1",
+        "spark.excludeOnFailure.task.maxTaskAttemptsPerNode": "2",
+        "spark.excludeOnFailure.stage.maxFailedTasksPerExecutor": "2",
+        "spark.excludeOnFailure.application.maxFailedTasksPerExecutor": "2",
+        # A closed Iceberg client permanently poisons that executor. Kill it
+        # immediately so EMR replaces it instead of re-admitting it after the
+        # default one-hour exclusion timeout.
+        "spark.excludeOnFailure.killExcludedExecutors": "true",
+        "spark.excludeOnFailure.timeout": "24h",
+        "spark.task.maxFailures": "6",
+        "spark.stage.maxConsecutiveAttempts": "8",
+        "spark.shuffle.io.maxRetries": "8",
+        "spark.shuffle.io.retryWait": "10s",
+        # Preserve cached RDD and shuffle blocks during graceful executor
+        # retirement. Abrupt executor loss is covered by replicated Gold RDDs.
+        "spark.decommission.enabled": "true",
+        "spark.storage.decommission.enabled": "true",
+        "spark.storage.decommission.rddBlocks.enabled": "true",
+        "spark.storage.decommission.shuffleBlocks.enabled": "true",
+        "spark.storage.replication.proactive": "true",
         "spark.scheduler.listenerbus.eventqueue.capacity": "200000",
         "spark.rpc.askTimeout": "600s",
         "spark.network.timeout": "600s",

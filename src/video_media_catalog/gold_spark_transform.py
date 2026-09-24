@@ -890,8 +890,13 @@ def build_distributed_gold(
             or profile.digest != fence.policy_digest
         ):
             raise ValueError("termination fence is not bound to the source registry")
+    from pyspark import StorageLevel
     from pyspark.sql import functions as F
 
+    # These drafts feed several downstream actions. Materialize two disk
+    # replicas before composing Stage 939 so one executor loss cannot force the
+    # three expensive resolution shuffles to replay from Iceberg.
+    draft_storage = StorageLevel.DISK_ONLY_2
     bounded_run_ids = committed_runs is None
     if committed_runs is None:
         if not committed_run_ids:
@@ -1044,8 +1049,11 @@ def build_distributed_gold(
             )
             .groupByKey()
             .flatMap(_resolve_field_group)
-            .persist()
+            .persist(draft_storage)
         )
+        field_metrics = field_drafts.map(lambda item: item[0]).countByValue()
+        field_count = int(field_metrics.get("field", 0))
+        field_conflict_count = int(field_metrics.get("conflict", 0))
 
         identifier_rule_udf = _field_rule_udf(
             field_policy,
@@ -1098,8 +1106,9 @@ def build_distributed_gold(
                     policy_version=field_policy.policy_version,
                 )
             )
-            .persist()
+            .persist(draft_storage)
         )
+        identifier_count = identifier_drafts.count()
 
         resolved_relation_subjects, rel_withheld, rel_subject_unresolved = (
             _eligible_assertions(
@@ -1179,8 +1188,11 @@ def build_distributed_gold(
             )
             .groupByKey()
             .flatMap(_resolve_relation_group)
-            .persist()
+            .persist(draft_storage)
         )
+        relation_metrics = relation_drafts.map(lambda item: item[0]).countByValue()
+        relation_count = int(relation_metrics.get("relation", 0))
+        relation_conflict_count = int(relation_metrics.get("conflict", 0))
 
         used_entity_keys = (
             field_drafts.map(lambda item: (item[1].entity_key,))
@@ -1298,18 +1310,7 @@ def build_distributed_gold(
             .collect()
         )
 
-        field_count = field_drafts.filter(lambda item: item[0] == "field").count()
-        field_conflict_count = field_drafts.filter(
-            lambda item: item[0] == "conflict"
-        ).count()
-        relation_conflict_count = relation_drafts.filter(
-            lambda item: item[0] == "conflict"
-        ).count()
         conflict_count = field_conflict_count + relation_conflict_count
-        identifier_count = identifier_drafts.count()
-        relation_count = relation_drafts.filter(
-            lambda item: item[0] == "relation"
-        ).count()
         entity_count = entity_summary.count()
         table_counts = {
             "community_gold_entity": entity_count,

@@ -225,6 +225,15 @@ def _materialize_identity_frame(
     from pyspark import StorageLevel
 
     _ensure_identity_checkpoint_dir(frame.sparkSession)
+    checkpoint_partitions = int(
+        frame.sparkSession.conf.get("spark.sql.shuffle.partitions", "200")
+    )
+    if frame.rdd.getNumPartitions() < checkpoint_partitions:
+        # Several identity graph branches naturally collapse to 5-7 partitions.
+        # At production scale one such partition can spill more than an entire
+        # executor disk. Redistribute before checkpointing so all executors can
+        # share the sort and durable-write work.
+        frame = frame.repartition(checkpoint_partitions)
     materialized = None
     try:
         materialized = frame.checkpoint(eager=True).persist(StorageLevel.DISK_ONLY)

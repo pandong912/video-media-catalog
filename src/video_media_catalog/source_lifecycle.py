@@ -556,6 +556,18 @@ def _is_inactive_record(latest: Any, *, as_of: str) -> Any:
     )
 
 
+def _ensure_source_lifecycle_checkpoint_dir(frame: Any) -> None:
+    """Configure durable lifecycle checkpoints for every Spark entry point."""
+
+    spark = frame.sparkSession
+    context = spark.sparkContext
+    java_dir = context._jsc.sc().getCheckpointDir()
+    if java_dir.isDefined():
+        return
+    warehouse = str(spark.conf.get("spark.sql.warehouse.dir", "/tmp")).rstrip("/")
+    context.setCheckpointDir(f"{warehouse}/source-lifecycle-checkpoints")
+
+
 def persist_latest_source_record_states(
     *,
     source_records: Any,
@@ -578,6 +590,7 @@ def persist_latest_source_record_states(
         registry=registry,
         repartition_count=repartition_count,
     )
+    _ensure_source_lifecycle_checkpoint_dir(raw_bound)
     bound = None
     latest = None
     try:

@@ -46,9 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--driver-cores", type=int, default=4)
     parser.add_argument("--driver-memory", default="16g")
+    parser.add_argument("--driver-memory-overhead")
     parser.add_argument("--driver-disk", default="50G")
     parser.add_argument("--executor-cores", type=int, default=4)
     parser.add_argument("--executor-memory", default="24g")
+    parser.add_argument("--executor-memory-overhead")
     parser.add_argument("--executor-disk", default="200G")
     parser.add_argument("--executor-instances", type=int, default=4)
     parser.add_argument("--shuffle-partitions", type=int, default=96)
@@ -127,10 +129,12 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.executor.instances": str(parsed.executor_instances),
         "spark.dynamicAllocation.enabled": "false",
         "spark.sql.shuffle.partitions": str(parsed.shuffle_partitions),
+        "spark.default.parallelism": str(parsed.shuffle_partitions),
         "spark.speculation": "false",
         "spark.scheduler.listenerbus.eventqueue.capacity": "200000",
-        "spark.rpc.askTimeout": "300s",
-        "spark.network.timeout": "300s",
+        "spark.rpc.askTimeout": "600s",
+        "spark.network.timeout": "600s",
+        "spark.executor.heartbeatInterval": "60s",
         "spark.emr-serverless.driver.disk": parsed.driver_disk,
         "spark.emr-serverless.executor.disk": parsed.executor_disk,
         "spark.emr-serverless.driver.disk.type": "SHUFFLE_OPTIMIZED",
@@ -139,6 +143,10 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.emr-serverless.driverEnv.PYSPARK_PYTHON": python,
         "spark.executorEnv.PYSPARK_PYTHON": python,
     }
+    if parsed.driver_memory_overhead:
+        properties["spark.driver.memoryOverhead"] = parsed.driver_memory_overhead
+    if parsed.executor_memory_overhead:
+        properties["spark.executor.memoryOverhead"] = parsed.executor_memory_overhead
     arguments: list[str] = []
     for key, value in properties.items():
         arguments.extend(("--conf", f"{key}={value}"))

@@ -283,7 +283,8 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     config_digest = sha256_digest(canonical_json(nonsecret_config))
     resolver_digest = sha256_digest("community-gold-spark-v3")
 
-    from pyspark.sql import SparkSession, functions as F
+    from pyspark.sql import SparkSession
+    from pyspark.sql import functions as F
 
     builder = SparkSession.builder.appName(parsed.app_name)
     if parsed.master:
@@ -340,10 +341,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             run_id_filters=(
                 None
                 if epoch_input
-                else {
-                    table: committed_run_ids
-                    for table in DATA_TABLE_COLUMNS
-                }
+                else {table: committed_run_ids for table in DATA_TABLE_COLUMNS}
             ),
         )
         visible["community_ingest_run"] = silver_tables.visible_run_dataframe(

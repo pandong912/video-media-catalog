@@ -251,6 +251,16 @@ class CatalogConfig:
                 "org.apache.iceberg.aws.glue.GlueCatalog"
             )
             configs[f"{prefix}.io-impl"] = "org.apache.iceberg.aws.s3.S3FileIO"
+            # Iceberg 1.7.x can close a shared Apache HTTP connection pool when
+            # Spark evicts a serialized table broadcast. URLConnection does not
+            # expose that executor-wide lifecycle failure mode.
+            configs[f"{prefix}.http-client.type"] = "urlconnection"
+            configs[f"{prefix}.http-client.urlconnection.connection-timeout-ms"] = (
+                "60000"
+            )
+            configs[f"{prefix}.http-client.urlconnection.socket-timeout-ms"] = "120000"
+            # Iceberg recommends 32 retries for high-throughput S3 workloads.
+            configs[f"{prefix}.s3.retry.num-retries"] = "32"
             # Hadoop S3A uses AWS SDK v1. EKS requires explicit web identity,
             # while EMR Serverless injects credentials through the default
             # provider chain. Iceberg S3FileIO uses SDK v2 independently.

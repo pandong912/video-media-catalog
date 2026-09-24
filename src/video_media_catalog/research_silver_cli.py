@@ -769,26 +769,21 @@ def _manifest_committed_runs(
 
 
 def _selected_silver_frames(
-    spark: Any,
     *,
     tables: CommunityCatalogTables,
     snapshot: CommunitySilverManifest,
     committed_runs: Any,
     source_run_ids: tuple[str, ...],
 ) -> dict[str, Any]:
-    visible = tables.visible_dataframes(
+    return tables.visible_dataframes(
         data_snapshot_ids=snapshot.data_snapshot_ids,
         commit_snapshot_id=snapshot.commit_snapshot_id,
         committed_runs=committed_runs,
+        run_id_filters={
+            table: source_run_ids
+            for table in SOURCE_DATA_TABLES
+        },
     )
-    source_runs = spark.createDataFrame(
-        [(run_id,) for run_id in source_run_ids],
-        "run_id STRING",
-    )
-    result = dict(visible)
-    for table in SOURCE_DATA_TABLES:
-        result[table] = result[table].join(source_runs, "run_id", "inner")
-    return result
 
 
 def _run_v1_migration(parsed: argparse.Namespace) -> dict[str, Any]:
@@ -939,7 +934,6 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
                 + ", ".join(wrong_kind)
             )
         visible = _selected_silver_frames(
-            spark,
             tables=tables,
             snapshot=silver_snapshot,
             committed_runs=committed_runs,

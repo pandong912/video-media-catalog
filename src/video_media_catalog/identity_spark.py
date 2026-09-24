@@ -219,6 +219,7 @@ def _materialize_identity_frame(
     frame: Any,
     *,
     label: str,
+    partition_by: tuple[Any, ...] = (),
 ) -> Any:
     """Truncate lineage with a reliable checkpoint and recomputable disk cache."""
 
@@ -228,7 +229,12 @@ def _materialize_identity_frame(
     checkpoint_partitions = int(
         frame.sparkSession.conf.get("spark.sql.shuffle.partitions", "200")
     )
-    if frame.rdd.getNumPartitions() < checkpoint_partitions:
+    if partition_by:
+        # Apply high-cardinality partitioning while the frame is still a JVM
+        # DataFrame. Calling frame.rdd first can freeze an AQE-coalesced hot
+        # partition and leave one Python task to spill an entire source run.
+        frame = frame.repartition(checkpoint_partitions, *partition_by)
+    elif frame.rdd.getNumPartitions() < checkpoint_partitions:
         # Several identity graph branches naturally collapse to 5-7 partitions.
         # At production scale one such partition can spill more than an entire
         # executor disk. Redistribute before checkpointing so all executors can
@@ -252,12 +258,14 @@ def _materialize_exact_blocking_labels(
     frame: Any,
     *,
     label: str = "label",
+    partition_by: tuple[Any, ...] = (),
 ) -> Any:
     """Reliably truncate label propagation lineage; fail closed on loss."""
 
     return _materialize_identity_frame(
         frame,
         label=f"exact blocking {label}",
+        partition_by=partition_by,
     )
 
 
@@ -2245,13 +2253,21 @@ def build_identity_resolution_dataframes(
     season_results = spark.sparkContext.emptyRDD()
     episode_results = spark.sparkContext.emptyRDD()
     if has_season_children or has_episode_children:
+        assertion_envelope_partition = (
+            F.coalesce(
+                F.get_json_object("provenance_json", "$.envelopeKey"),
+                F.col("assertion_id"),
+            ),
+        )
         relationship_assertions = _materialize_exact_blocking_labels(
             relationship_assertions,
             label="current relationship assertions",
+            partition_by=assertion_envelope_partition,
         )
         field_assertions = _materialize_exact_blocking_labels(
             field_assertions,
             label="current field assertions",
+            partition_by=assertion_envelope_partition,
         )
         exact_memberships = spark.createDataFrame(
             resolution_results.flatMap(_project_active_memberships),

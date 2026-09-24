@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from video_media_catalog.community_ingest import (
@@ -567,13 +567,41 @@ class CommunityCatalogTables:
         data_snapshot_ids: dict[str, int | None],
         commit_snapshot_id: int,
         committed_runs: Any | None = None,
+        run_id_filters: Mapping[str, Sequence[str]] | None = None,
     ) -> dict[str, Any]:
-        """Read exact snapshots and filter every row through committed runs."""
+        """Read exact snapshots and filter every row through committed runs.
+
+        Bounded run filters are pushed into Iceberg before a broadcast
+        left-semi commit fence. This avoids shuffling an entire large run by
+        its constant run_id merely to prove that the run is committed.
+        """
+
+        from pyspark.sql import functions as F
 
         if set(data_snapshot_ids) != set(DATA_TABLE_COLUMNS):
             raise ValueError("all community data snapshot IDs are required")
         if commit_snapshot_id <= 0:
             raise ValueError("commit_snapshot_id must be positive")
+        raw_filters = dict(run_id_filters or {})
+        unknown_filter_tables = sorted(set(raw_filters) - set(DATA_TABLE_COLUMNS))
+        if unknown_filter_tables:
+            raise ValueError(
+                "run ID filters contain unknown community tables: "
+                + ", ".join(unknown_filter_tables)
+            )
+        normalized_filters: dict[str, tuple[str, ...]] = {}
+        for table, run_ids in raw_filters.items():
+            if isinstance(run_ids, (str, bytes)):
+                raise TypeError(f"{table} run ID filter must be a sequence")
+            normalized = tuple(
+                dict.fromkeys(
+                    require_sha256(run_id, label=f"{table} run_id")
+                    for run_id in run_ids
+                )
+            )
+            if not normalized:
+                raise ValueError(f"{table} run ID filter must be non-empty")
+            normalized_filters[table] = normalized
         commits = (
             self.committed_runs_dataframe(commit_snapshot_id)
             if committed_runs is None
@@ -589,7 +617,22 @@ class CommunityCatalogTables:
                 .option("snapshot-id", str(snapshot_id))
                 .load(self.table_name(table))
             )
-            visible[table] = frame.join(commits, "run_id", "inner")
+            run_ids = normalized_filters.get(table)
+            if run_ids is None:
+                visible[table] = frame.join(commits, "run_id", "inner")
+                continue
+            predicate = (
+                F.col("run_id") == F.lit(run_ids[0])
+                if len(run_ids) == 1
+                else F.col("run_id").isin(*run_ids)
+            )
+            selected_rows = frame.where(predicate)
+            selected_commits = commits.where(predicate)
+            visible[table] = selected_rows.join(
+                F.broadcast(selected_commits),
+                "run_id",
+                "left_semi",
+            )
         return visible
 
     def _read_run_manifest(self, run_id: str) -> CommunityIngestRun | None:

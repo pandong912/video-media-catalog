@@ -1203,6 +1203,12 @@ def build_identity_resolution_dataframes(
         sorted(_V1_REFERENT_KIND.items()),
         "v1_entity_type STRING, referent_kind STRING",
     )
+    # These registry projections are tiny but LogicalRDDs have no reliable
+    # statistics. Hint them explicitly so low-cardinality type/scheme keys do
+    # not force hundreds of millions of identifiers through skewed shuffles.
+    namespace_schemes = F.broadcast(namespace_schemes)
+    type_configs = F.broadcast(type_configs)
+    v1_type_configs = F.broadcast(v1_type_configs)
     if (
         source_records is None
         or ingest_runs is None

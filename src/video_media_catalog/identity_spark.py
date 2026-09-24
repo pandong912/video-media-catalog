@@ -2604,7 +2604,7 @@ def build_identity_resolution_dataframes(
             merge_result_summaries,
             depth=3,
         )
-        for table, count in zip(result_count_tables, result_counts):
+        for table, count in zip(result_count_tables, result_counts, strict=True):
             expected_counts[table] = int(count)
         conflict_counts_by_reason = dict(sorted(raw_conflict_counts.items()))
         if (

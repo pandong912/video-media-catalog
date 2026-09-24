@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from video_media_catalog.source_registry import SourceRegistrySnapshot
@@ -564,8 +565,27 @@ def _ensure_source_lifecycle_checkpoint_dir(frame: Any) -> None:
     java_dir = context._jsc.sc().getCheckpointDir()
     if java_dir.isDefined():
         return
-    warehouse = str(spark.conf.get("spark.sql.warehouse.dir", "/tmp")).rstrip("/")
-    context.setCheckpointDir(f"{warehouse}/source-lifecycle-checkpoints")
+    warehouse = str(spark.conf.get("spark.sql.warehouse.dir", "/tmp"))
+    if not warehouse.startswith(("s3://", "s3a://")):
+        catalog_warehouses = sorted(
+            {
+                str(value)
+                for key, value in context.getConf().getAll()
+                if key.startswith("spark.sql.catalog.")
+                and key.endswith(".warehouse")
+                and str(value).startswith(("s3://", "s3a://"))
+            }
+        )
+        if catalog_warehouses:
+            warehouse = catalog_warehouses[0]
+        elif not context.master.startswith("local"):
+            raise RuntimeError(
+                "distributed source lifecycle checkpoints require a remote warehouse"
+            )
+    checkpoint_run_id = f"{context.applicationId}-{uuid.uuid4().hex}"
+    context.setCheckpointDir(
+        f"{warehouse.rstrip('/')}/source-lifecycle-checkpoints/{checkpoint_run_id}"
+    )
 
 
 def persist_latest_source_record_states(

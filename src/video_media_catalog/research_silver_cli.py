@@ -779,10 +779,7 @@ def _selected_silver_frames(
         data_snapshot_ids=snapshot.data_snapshot_ids,
         commit_snapshot_id=snapshot.commit_snapshot_id,
         committed_runs=committed_runs,
-        run_id_filters={
-            table: source_run_ids
-            for table in SOURCE_DATA_TABLES
-        },
+        run_id_filters={table: source_run_ids for table in SOURCE_DATA_TABLES},
     )
 
 

@@ -341,10 +341,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             run_id_filters=(
                 None
                 if epoch_input
-                else {
-                    table: committed_run_ids
-                    for table in DATA_TABLE_COLUMNS
-                }
+                else {table: committed_run_ids for table in DATA_TABLE_COLUMNS}
             ),
         )
         visible["community_ingest_run"] = silver_tables.visible_run_dataframe(

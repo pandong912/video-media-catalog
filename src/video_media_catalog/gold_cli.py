@@ -23,6 +23,7 @@ from video_media_catalog.community_snapshot import (
     parse_community_silver_manifest,
 )
 from video_media_catalog.community_sources import build_community_registry
+from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.gold import (
     research_context,
     research_policy,
@@ -282,7 +283,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     config_digest = sha256_digest(canonical_json(nonsecret_config))
     resolver_digest = sha256_digest("community-gold-spark-v3")
 
-    from pyspark.sql import SparkSession
+    from pyspark.sql import SparkSession, functions as F
 
     builder = SparkSession.builder.appName(parsed.app_name)
     if parsed.master:
@@ -327,15 +328,23 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             ):
                 raise ValueError("Silver snapshot set references an uncommitted run")
             committed_runs = all_committed_runs.join(
-                selected_runs,
+                F.broadcast(selected_runs),
                 "run_id",
-                "inner",
+                "left_semi",
             )
             committed_run_ids = snapshot.committed_run_ids
         visible = silver_tables.visible_dataframes(
             data_snapshot_ids=snapshot.data_snapshot_ids,
             commit_snapshot_id=snapshot.commit_snapshot_id,
             committed_runs=committed_runs,
+            run_id_filters=(
+                None
+                if epoch_input
+                else {
+                    table: committed_run_ids
+                    for table in DATA_TABLE_COLUMNS
+                }
+            ),
         )
         visible["community_ingest_run"] = silver_tables.visible_run_dataframe(
             run_snapshot_id=snapshot.run_snapshot_id,

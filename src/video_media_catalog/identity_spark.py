@@ -2558,52 +2558,55 @@ def build_identity_resolution_dataframes(
     try:
         expected_counts = {table: 0 for table in DATA_TABLE_COLUMNS}
         expected_counts["community_external_id_index"] = int(index_entries.count())
-        expected_counts["community_entity_ledger"] = int(
-            results.map(lambda item: len(item[0].entities)).sum()
-        )
-        expected_counts["community_identity_evidence"] = int(
-            results.map(lambda item: len(item[0].evidence)).sum()
-        )
-        expected_counts["community_identity_conflict"] = int(
-            results.map(lambda item: len(item[0].conflicts)).sum()
-        )
-        expected_counts["community_identity_decision"] = int(
-            results.map(lambda item: len(item[0].decisions)).sum()
-        )
-        expected_counts["community_entity_membership"] = int(
-            results.map(lambda item: len(item[0].memberships)).sum()
+        result_count_tables = (
+            "community_entity_ledger",
+            "community_identity_evidence",
+            "community_identity_conflict",
+            "community_identity_decision",
+            "community_entity_membership",
         )
 
-        def count_conflict_reasons(
-            counts: dict[str, int],
+        def accumulate_result_summary(
+            summary: tuple[list[int], dict[str, int]],
             item: tuple[
                 IdentityResolutionResult,
                 tuple[ExternalIdIndexEntry, ...],
             ],
-        ) -> dict[str, int]:
-            updated = dict(counts)
-            for conflict in item[0].conflicts:
-                updated[conflict.reason] = updated.get(conflict.reason, 0) + 1
-            return updated
+        ) -> tuple[list[int], dict[str, int]]:
+            row_counts, reason_counts = summary
+            result = item[0]
+            row_counts[0] += len(result.entities)
+            row_counts[1] += len(result.evidence)
+            row_counts[2] += len(result.conflicts)
+            row_counts[3] += len(result.decisions)
+            row_counts[4] += len(result.memberships)
+            for conflict in result.conflicts:
+                reason_counts[conflict.reason] = (
+                    reason_counts.get(conflict.reason, 0) + 1
+                )
+            return summary
 
-        def merge_conflict_reason_counts(
-            left: dict[str, int],
-            right: dict[str, int],
-        ) -> dict[str, int]:
-            merged = dict(left)
-            for reason, count in right.items():
-                merged[reason] = merged.get(reason, 0) + count
-            return merged
+        def merge_result_summaries(
+            left: tuple[list[int], dict[str, int]],
+            right: tuple[list[int], dict[str, int]],
+        ) -> tuple[list[int], dict[str, int]]:
+            left_counts, left_reasons = left
+            right_counts, right_reasons = right
+            for index, count in enumerate(right_counts):
+                left_counts[index] += count
+            for reason, count in right_reasons.items():
+                left_reasons[reason] = left_reasons.get(reason, 0) + count
+            return left
 
-        conflict_counts_by_reason = dict(
-            sorted(
-                results.aggregate(
-                    {},
-                    count_conflict_reasons,
-                    merge_conflict_reason_counts,
-                ).items()
-            )
+        result_counts, raw_conflict_counts = results.treeAggregate(
+            ([0] * len(result_count_tables), {}),
+            accumulate_result_summary,
+            merge_result_summaries,
+            depth=3,
         )
+        for table, count in zip(result_count_tables, result_counts):
+            expected_counts[table] = int(count)
+        conflict_counts_by_reason = dict(sorted(raw_conflict_counts.items()))
         if (
             sum(conflict_counts_by_reason.values())
             != expected_counts["community_identity_conflict"]

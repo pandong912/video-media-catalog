@@ -24,6 +24,7 @@ SOURCE_BATCH_METADATA_COLUMNS = (
     "_batch_id",
     "_batch_source_system_id",
     "_batch_source_product_id",
+    "_batch_connector_id",
     "_batch_policy_id",
     "_batch_policy_digest",
     "_change_semantics",
@@ -177,6 +178,9 @@ def bind_committed_source_records(
             F.get_json_object("manifest_json", batch_path + "sourceProductId").alias(
                 "_batch_source_product_id"
             ),
+            F.get_json_object("manifest_json", batch_path + "connectorId").alias(
+                "_batch_connector_id"
+            ),
             F.get_json_object("manifest_json", batch_path + "policyId").alias(
                 "_batch_policy_id"
             ),
@@ -215,13 +219,86 @@ def bind_committed_source_records(
     if metadata.where(invalid_metadata).limit(1).count():
         metadata.unpersist()
         raise ValueError("source ingest run lacks pinned batch metadata")
-    if (
-        metadata.where(F.col("_registry_digest") != F.lit(registry.digest))
+    rights_digests = {
+        profile.policy_id: profile.digest for profile in registry.rights_profiles
+    }
+    compatible_bindings = source_records.sparkSession.createDataFrame(
+        [
+            (
+                product.source_product_id,
+                product.source_system_id,
+                connector_id,
+                product.policy_id,
+                rights_digests[product.policy_id],
+            )
+            for product in registry.source_products
+            if product.status.value == "active"
+            for connector_id in product.connector_ids
+        ],
+        """
+        _expected_product_id STRING,
+        _expected_system_id STRING,
+        _expected_connector_id STRING,
+        _expected_policy_id STRING,
+        _expected_policy_digest STRING
+        """,
+    )
+    incompatible_run = (
+        metadata.alias("m")
+        .join(
+            compatible_bindings.alias("e"),
+            (
+                (F.col("m._batch_source_product_id") == F.col("e._expected_product_id"))
+                & (F.col("m._batch_source_system_id") == F.col("e._expected_system_id"))
+                & (F.col("m._batch_connector_id") == F.col("e._expected_connector_id"))
+                & (F.col("m._batch_policy_id") == F.col("e._expected_policy_id"))
+                & (
+                    F.col("m._batch_policy_digest")
+                    == F.col("e._expected_policy_digest")
+                )
+            ),
+            "left_anti",
+        )
         .limit(1)
-        .count()
-    ):
+    )
+    if incompatible_run.count():
         metadata.unpersist()
-        raise ValueError("source ingest run used another registry snapshot")
+        raise ValueError(
+            "source ingest run differs from current source product rights policy "
+            "or connector registry"
+        )
+    compatible_namespaces = source_records.sparkSession.createDataFrame(
+        [
+            (namespace.namespace_id, namespace.source_product_id)
+            for namespace in registry.source_namespaces
+        ],
+        "_expected_namespace_id STRING, _expected_namespace_product_id STRING",
+    )
+    incompatible_namespace = (
+        selected_records.select(
+            "source_namespace_id",
+            "source_product_id",
+        )
+        .dropDuplicates()
+        .alias("r")
+        .join(
+            compatible_namespaces.alias("n"),
+            (
+                (F.col("r.source_namespace_id") == F.col("n._expected_namespace_id"))
+                & (
+                    F.col("r.source_product_id")
+                    == F.col("n._expected_namespace_product_id")
+                )
+            ),
+            "left_anti",
+        )
+        .limit(1)
+    )
+    if incompatible_namespace.count():
+        metadata.unpersist()
+        raise ValueError(
+            "source record namespace is incompatible with the current registry"
+        )
     if (
         metadata.where(
             F.col("_run_source_product_id") != F.col("_batch_source_product_id")

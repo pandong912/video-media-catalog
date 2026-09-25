@@ -10,6 +10,16 @@ from typing import Any
 
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.object_store import BoundedObjectStore
+from video_media_catalog.wikidata_backfill_io import (
+    dump_reference,
+    join_s3,
+    load_or_build_normalized_staging,
+    normalization_locations,
+    parse_s3_prefix,
+    s3_client,
+    spark_session,
+    spark_uri,
+)
 from video_media_catalog.wikidata_full_backfill import (
     DEFAULT_MAX_SHARD_BYTES,
     DEFAULT_PARTITIONS_PER_EPOCH,
@@ -29,19 +39,7 @@ from video_media_catalog.wikidata_full_backfill_spark import (
     build_full_media_backfill,
     write_full_media_staging,
 )
-from video_media_catalog.wikidata_subset_cli import (
-    _dump_reference,
-    _join,
-    _load_or_build_staging,
-    _normalization_locations,
-    _prefix,
-    _s3_client,
-    _spark_session,
-    _spark_uri,
-)
-from video_media_catalog.wikidata_subset_spark import (
-    configure_bfs_materialize_dir,
-)
+from video_media_catalog.wikidata_spark import configure_bfs_materialize_dir
 from video_media_catalog.wikidata_sync import DEFAULT_MAX_DUMP_BYTES
 
 
@@ -170,14 +168,14 @@ def run(
     if parsed.shuffle_partitions is not None and parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
     config = _config(parsed)
-    client = s3 or _s3_client(parsed)
+    client = s3 or s3_client(parsed)
     store = BoundedObjectStore(
         region=parsed.aws_region,
         endpoint_url=parsed.s3_endpoint,
         path_style_access=parsed.s3_path_style_access,
         client=client,
     )
-    dump, dump_date = _dump_reference(parsed, s3=client, store=store)
+    dump, dump_date = dump_reference(parsed, s3=client, store=store)
     build_digest = full_media_build_digest(
         dump=dump,
         config_digest=config.digest,
@@ -199,29 +197,29 @@ def run(
         if existing is not None:
             return existing
 
-    staging_prefix = _prefix(parsed.staging_prefix)
-    normalized_data, normalized_marker, _ = _normalization_locations(
+    staging_prefix = parse_s3_prefix(parsed.staging_prefix)
+    normalized_data, normalized_marker = normalization_locations(
         staging_prefix,
         dump,
     )
-    attempt = _join(
+    attempt = join_s3(
         staging_prefix,
         "full-media",
         f"dump-sha256={dump.checksum.value}",
         f"build-sha256={build_digest.removeprefix('sha256:')}",
         f"attempt={uuid.uuid4().hex}",
     )
-    bfs_uri = _spark_uri(_join(attempt, "bfs-materialize").uri)
-    record_staging = _join(attempt, "record-shards")
-    summary_staging = _join(attempt, "shard-summaries")
+    bfs_uri = spark_uri(join_s3(attempt, "bfs-materialize").uri)
+    record_staging = join_s3(attempt, "record-shards")
+    summary_staging = join_s3(attempt, "shard-summaries")
     owns_spark = spark is None
-    session = spark or _spark_session(parsed)
+    session = spark or spark_session(parsed)
     normalized = None
     build = None
     summaries = None
     configure_bfs_materialize_dir(session, bfs_uri)
     try:
-        normalized = _load_or_build_staging(
+        normalized = load_or_build_normalized_staging(
             spark=session,
             s3=client,
             store=store,
@@ -243,8 +241,8 @@ def run(
         assert output_root is not None
         summaries = write_full_media_staging(
             build,
-            record_uri=_spark_uri(record_staging.uri),
-            summary_uri=_spark_uri(summary_staging.uri),
+            record_uri=spark_uri(record_staging.uri),
+            summary_uri=spark_uri(summary_staging.uri),
         )
         store.verify(dump, max_bytes=parsed.max_dump_bytes)
         return publish_full_media_backfill(

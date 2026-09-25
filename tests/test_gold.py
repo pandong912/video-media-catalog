@@ -104,5 +104,5 @@ def test_gold_plan_binds_epoch_summary_without_historical_run_list() -> None:
 
     invalid = plan.model_dump(mode="python")
     invalid["committed_run_ids"] = ("sha256:" + ("9" * 64),)
-    with pytest.raises(ValueError, match="either legacy run IDs"):
+    with pytest.raises(ValueError, match="either snapshot run IDs"):
         type(plan).model_validate(invalid)

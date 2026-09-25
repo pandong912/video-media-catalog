@@ -23,8 +23,7 @@ from video_media_catalog.object_store import (
     RuntimeObjectStore,
     S3Location,
 )
-from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.storage import local_path
+from video_media_catalog.storage import join_uri, local_path
 from video_media_catalog.wikidata_full_backfill import (
     FullMediaBackfillConfig,
     WikidataFullMediaBackfillCommit,

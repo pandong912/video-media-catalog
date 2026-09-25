@@ -63,11 +63,6 @@ jobs:
             tag_prefix: emr-sha
             release_prefix: emr-
             artifact: video-media-catalog-emr
-          - repository: video-media-catalog-api
-            dockerfile: Dockerfile.api
-            tag_prefix: sha
-            release_prefix: ""
-            artifact: video-media-catalog-api
     env:
       ECR_REPOSITORY: ${{ matrix.repository }}
     steps:

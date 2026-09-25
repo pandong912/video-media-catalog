@@ -12,7 +12,7 @@ from pyspark.sql import SparkSession
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.wikidata_full_backfill import FullMediaBackfillConfig
 from video_media_catalog.wikidata_full_backfill_spark import build_full_media_backfill
-from video_media_catalog.wikidata_subset_spark import (
+from video_media_catalog.wikidata_spark import (
     configure_bfs_materialize_dir,
     normalize_dump,
 )

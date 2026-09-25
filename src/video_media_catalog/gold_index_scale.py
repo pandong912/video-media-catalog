@@ -16,7 +16,7 @@ from video_media_catalog.gold_search_index import (
     DEFAULT_GOLD_BULK_WORKERS,
     RESEARCH_INDEX_PREFIX,
 )
-from video_media_catalog.search_index import DEFAULT_MAX_BULK_BYTES
+from video_media_catalog.opensearch_index import DEFAULT_MAX_BULK_BYTES
 from video_media_catalog.v2_contracts import V2ContractModel, require_sha256
 
 SYNTHETIC_SCALE_DOCUMENTS = {

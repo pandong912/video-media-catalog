@@ -19,10 +19,10 @@ from video_media_catalog.identity_resolution import (
 from video_media_catalog.identity_v2 import (
     DecisionStatus,
     EntityLevel,
+    allocate_entity,
     build_entity_membership,
     build_entity_redirect,
     build_identity_decision,
-    import_v1_entity,
 )
 
 TIMESTAMP = "2026-09-19T00:00:00Z"
@@ -37,8 +37,8 @@ def _node(value: str = "1") -> SourceNodeRef:
 
 
 def _entity(value: str):
-    return import_v1_entity(
-        entity_key="sha256:" + (value * 64),
+    return allocate_entity(
+        allocation_id=f"01a081e8-6420-7000-8000-{int(value):012d}",
         entity_level=EntityLevel.SERIES,
         entity_kind="TV_SERIES",
         created_at=TIMESTAMP,

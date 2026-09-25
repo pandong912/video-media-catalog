@@ -8,7 +8,6 @@ from video_media_catalog.eidr import (
     EidrProviderNotConfiguredError,
     fetch_exact,
     iter_eidr_payloads,
-    iter_eidr_records,
     normalize_eidr_id,
     normalize_imdb_id,
 )
@@ -42,13 +41,6 @@ def test_namespace_tolerant_offline_parser_extracts_metadata(
     assert records[4]["recordType"] == "EPISODE"
     assert records[4]["referentType"] == "TV"
     assert records[5]["recordType"] == "EDIT"
-
-
-def test_eidr_landing_records_are_stable(fixture_dir: Path) -> None:
-    first = list(iter_eidr_records(fixture_dir / "eidr.xml"))
-    second = list(iter_eidr_records(fixture_dir / "eidr.xml"))
-    assert first == second
-    assert first[0].source_revision == "2026-03-01T00:00:00Z"
 
 
 def test_network_lookup_requires_explicit_provider() -> None:

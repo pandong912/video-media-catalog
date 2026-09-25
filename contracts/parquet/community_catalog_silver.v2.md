@@ -3,8 +3,7 @@
 ## Scope
 
 This contract persists immutable connector records, source assertions, and
-identity-ledger changes. It is parallel to the six v1 curated tables and does
-not alter their schema or semantics.
+identity-ledger changes. These tables are the active Silver boundary.
 
 All tables use Iceberg format version 2 and Zstandard Parquet. JSON columns use
 the repository's canonical UTF-8 JSON encoding. Digests and logical keys use
@@ -42,11 +41,9 @@ snapshot, then join only committed runs.
 
 ## Silver snapshot and epoch manifests
 
-`CommunitySilverSnapshotSet` schema `2.0` remains readable for existing
-releases. It contains the exact committed run IDs plus exact run, commit, and
-data snapshot IDs. The contract itself no longer rejects lists above 4,096,
-but `publish-snapshot` remains a bounded compatibility publisher and must not
-be used for an indefinitely growing history.
+`CommunitySilverSnapshotSet` schema `2.0` contains exact committed run IDs plus
+exact run, commit, and data snapshot IDs. `publish-snapshot` is bounded and
+must not be used for an indefinitely growing history.
 
 `CommunitySilverEpochManifest` schema `3.0` is the production handoff for an
 unbounded committed-run history. The normative control-object field contract
@@ -79,8 +76,8 @@ Epoch readers verify the immutable ObjectRef, time-travel the pinned commit
 snapshot into a distributed committed-runs DataFrame, validate count/digest,
 and join that DataFrame to every exact data snapshot. They read run metadata
 from the exact run snapshot. No epoch consumer may collect all historical run
-IDs or reconstruct them from a parent chain. V2 readers retain the bounded
-legacy list behavior.
+IDs or reconstruct them from a parent chain. V2 readers retain bounded
+snapshot-list behavior.
 
 The published JSON itself is an immutable `ObjectRef`. S3 publication is valid
 only when the returned reference includes URI, SHA-256, byte size, VersionId,
@@ -91,23 +88,20 @@ fields and may not resolve an unversioned latest key.
 ## Production stages
 
 `video-media-catalog-research-silver` and
-`video-media-catalog-identity-curation` provide five auditable Spark stages:
+`video-media-catalog-identity-curation` provide four auditable Spark stages:
 
-1. `migrate-v1` verifies an immutable v1 `SnapshotSet`, time-travels all six
-   declared v1 table snapshots, preserves every legacy key, and commits the v2
-   ledger/map rows last.
-2. `resolve-identity` verifies a pinned Silver snapshot, requires every
+1. `resolve-identity` verifies a pinned Silver snapshot, requires every
    explicitly selected source run to be a committed `SOURCE_ASSERTIONS` run,
-   time-travels the pinned v1 entity/external-ID snapshots, and delegates to
-   the registry-driven identity implementation. All identity tables, including
-   empty redirect/merge/split frames, share one commit-last run boundary.
-3. `identity-curation apply` verifies an immutable curation manifest and its
+   and delegates to the registry-driven identity implementation. Existing
+   source-run memberships and external-ID index rows are the only identity
+   history inputs. All identity tables, including empty redirect/merge/split
+   frames, share one commit-last run boundary.
+2. `identity-curation apply` verifies an immutable curation manifest and its
    pinned Silver snapshot, materializes `ACCEPT`, `REJECT`, `MERGE`, `SPLIT`,
    or `REDIRECT` outputs, and writes one `IDENTITY_CURATION` run through the
    same commit-last boundary.
-4. `publish-snapshot` remains the v2 compatibility publisher for a bounded,
-   explicitly selected run list.
-5. `publish-epoch` validates a parent epoch, bounded delta, source watermarks,
+3. `publish-snapshot` publishes a bounded, explicitly selected run list.
+4. `publish-epoch` validates a parent epoch, bounded delta, source watermarks,
    all distributed commit/data counts, and publishes the exact v3 epoch
    consumed by Identity and Gold.
 
@@ -284,6 +278,11 @@ Primary key: `entity_key`.
 - `created_at`, nullable `first_release_id`
 - `imported_v1 BOOLEAN NOT NULL`
 
+Current source-run Identity requires `allocation_id` and always writes
+`imported_v1=false`. The existing column remains part of the physical
+`community_entity_ledger` contract so historical Iceberg rows can be read
+without rewriting or deleting cloud data.
+
 ### `community_legacy_key_map`
 
 Primary key: `legacy_key`.
@@ -291,7 +290,8 @@ Primary key: `legacy_key`.
 - `legacy_key`, `run_id`, `legacy_kind`, `target_key`
 - `imported_at`, `source_snapshot_set_id`
 
-Published v1 keys are copied verbatim. They are never recomputed.
+This existing `community_*` table is retained as immutable historical storage.
+No current run kind or CLI writes it.
 
 ### `community_identity_evidence`
 

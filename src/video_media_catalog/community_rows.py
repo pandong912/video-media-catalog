@@ -32,7 +32,6 @@ from video_media_catalog.identity_v2 import (
     IdentityConflict,
     IdentityDecision,
     IdentityEvidence,
-    LegacyKeyMap,
 )
 from video_media_catalog.v2_contracts import require_sha256
 
@@ -225,20 +224,6 @@ def external_id_index_row(
         "policy_id": entry.policy_id,
         "policy_digest": entry.policy_digest,
         "index_json": _model_json(entry),
-    }
-
-
-def legacy_key_map_row(
-    run_id: str,
-    mapping: LegacyKeyMap,
-) -> dict[str, Any]:
-    return {
-        "legacy_key": mapping.legacy_key,
-        "run_id": require_sha256(run_id, label="run_id"),
-        "legacy_kind": mapping.legacy_kind,
-        "target_key": mapping.target_key,
-        "imported_at": mapping.imported_at,
-        "source_snapshot_set_id": mapping.source_snapshot_set_id,
     }
 
 

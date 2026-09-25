@@ -64,6 +64,12 @@ def mapper_for_product(source_product_id: str) -> Mapper:
         IMDB_SOURCE_PRODUCT_ID,
         map_imdb_record,
     )
+    from video_media_catalog.source_mappers import (
+        EIDR_SOURCE_PRODUCT_ID,
+        WIKIDATA_SOURCE_PRODUCT_ID,
+        map_eidr_record,
+        map_wikidata_record,
+    )
     from video_media_catalog.tmdb import (
         TMDB_SOURCE_PRODUCT_ID,
         map_tmdb_record,
@@ -71,12 +77,6 @@ def mapper_for_product(source_product_id: str) -> Mapper:
     from video_media_catalog.tvmaze import (
         TVMAZE_SOURCE_PRODUCT_ID,
         map_tvmaze_show,
-    )
-    from video_media_catalog.v1_adapters import (
-        EIDR_SOURCE_PRODUCT_ID,
-        WIKIDATA_SOURCE_PRODUCT_ID,
-        map_eidr_record,
-        map_wikidata_record,
     )
 
     registry: dict[str, Mapper] = {

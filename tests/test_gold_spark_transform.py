@@ -222,13 +222,13 @@ def _visible_silver(
             {
                 "entity_key": entity_key,
                 "run_id": identity_run_id,
-                "allocation_id": None,
+                "allocation_id": "01a081e8-6420-7000-8000-000000000202",
                 "entity_level": "SERIES",
                 "entity_kind": "TV_SERIES",
                 "status": "ACTIVE",
                 "created_at": "2026-09-18T00:00:00Z",
                 "first_release_id": None,
-                "imported_v1": True,
+                "imported_v1": False,
             }
         )
         rows["community_entity_membership"].append(
@@ -368,14 +368,6 @@ def test_distributed_silver_identity_and_gold_pipeline(
         identity_run, identity_frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=silver_frames,
-            v1_external_identifiers=spark.createDataFrame(
-                [],
-                "entity_key STRING, scheme STRING, value STRING",
-            ),
-            v1_entities=spark.createDataFrame(
-                [],
-                "entity_key STRING, entity_type STRING",
-            ),
             input_id="sha256:" + ("c" * 64),
             image_digest="sha256:" + ("d" * 64),
             config_digest="sha256:" + ("e" * 64),
@@ -462,13 +454,13 @@ def test_resolved_memberships_reject_conflicting_closure_times(
             {
                 "entity_key": entity_key,
                 "run_id": run_id,
-                "allocation_id": None,
+                "allocation_id": "01a081e8-6420-7000-8000-000000000202",
                 "entity_level": "SERIES",
                 "entity_kind": "TV_SERIES",
                 "status": "ACTIVE",
                 "created_at": "2026-09-18T00:00:00Z",
                 "first_release_id": None,
-                "imported_v1": True,
+                "imported_v1": False,
             }
         ],
         schema=community_table_schema("community_entity_ledger"),
@@ -526,13 +518,13 @@ def test_membership_closure_supersedes_open_version(
             {
                 "entity_key": entity_key,
                 "run_id": run_id,
-                "allocation_id": None,
+                "allocation_id": "01a081e8-6420-7000-8000-000000000202",
                 "entity_level": "SERIES",
                 "entity_kind": "TV_SERIES",
                 "status": "ACTIVE",
                 "created_at": "2026-09-18T00:00:00Z",
                 "first_release_id": None,
-                "imported_v1": True,
+                "imported_v1": False,
             }
         ],
         schema=community_table_schema("community_entity_ledger"),
@@ -742,14 +734,6 @@ def test_identity_revokes_open_membership_when_source_is_deleted(
         _, identity_frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=visible,
-            v1_external_identifiers=spark.createDataFrame(
-                [],
-                "entity_key STRING, scheme STRING, value STRING",
-            ),
-            v1_entities=spark.createDataFrame(
-                [],
-                "entity_key STRING, entity_type STRING",
-            ),
             input_id="sha256:" + ("8" * 64),
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),
@@ -808,14 +792,6 @@ def test_identity_skips_deleted_source_assertions(
         _, identity_frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=visible,
-            v1_external_identifiers=spark.createDataFrame(
-                [],
-                "entity_key STRING, scheme STRING, value STRING",
-            ),
-            v1_entities=spark.createDataFrame(
-                [],
-                "entity_key STRING, entity_type STRING",
-            ),
             input_id="sha256:" + ("8" * 64),
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),
@@ -954,14 +930,6 @@ def test_identity_builds_shared_lifecycle_projection_once(
         _, identity_frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=visible,
-            v1_external_identifiers=spark.createDataFrame(
-                [],
-                "entity_key STRING, scheme STRING, value STRING",
-            ),
-            v1_entities=spark.createDataFrame(
-                [],
-                "entity_key STRING, entity_type STRING",
-            ),
             input_id="sha256:" + ("8" * 64),
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from video_media_catalog.douban import douban_jump_url, normalize_douban_id
-from video_media_catalog.gold_api_models import GoldExternalIdentifier
 
 
 def test_douban_jump_urls_use_distinct_fixed_paths() -> None:
@@ -65,40 +63,3 @@ def test_douban_jump_url_fails_closed(
 def test_douban_id_normalization_rejects_invalid_values(value: str) -> None:
     with pytest.raises(ValueError, match="Douban ID"):
         normalize_douban_id(value)
-
-
-def test_gold_api_model_accepts_only_derived_douban_url() -> None:
-    identifier = GoldExternalIdentifier(
-        namespace="douban-work",
-        value="1295644",
-        issuer="Douban",
-        referent_kind="EDITORIAL_WORK",
-        url="https://movie.douban.com/subject/1295644/",
-    )
-    assert identifier.url == "https://movie.douban.com/subject/1295644/"
-
-    legacy_without_url = GoldExternalIdentifier(
-        namespace="douban-subject",
-        value="1295644",
-        issuer="Douban",
-        referent_kind="EDITORIAL_WORK",
-    )
-    assert legacy_without_url.url is None
-
-    for namespace, value, url in (
-        (
-            "douban-work",
-            "1295644",
-            "https://movie.douban.com/celebrity/1295644/",
-        ),
-        ("douban-work", "1295644/../../admin", "https://evil.example/"),
-        ("unknown", "1295644", "https://movie.douban.com/subject/1295644/"),
-    ):
-        with pytest.raises(ValidationError, match="safe derived URL"):
-            GoldExternalIdentifier(
-                namespace=namespace,
-                value=value,
-                issuer="Douban",
-                referent_kind="EDITORIAL_WORK",
-                url=url,
-            )

@@ -6,11 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from video_media_catalog.canonical import source_hash
 from video_media_catalog.constants import RELEVANT_WIKIDATA_PROPERTIES
 from video_media_catalog.wikidata import (
     iter_wikidata_entities,
-    iter_wikidata_records,
     normalize_wikidata_entity,
 )
 
@@ -49,19 +47,6 @@ def test_preserves_multilingual_values_sitelinks_claim_rank_and_p1545(
     director = normalized["claims"]["P57"][0]
     assert director["rank"] == "preferred"
     assert director["qualifiers"]["P1545"][0]["datavalue"]["value"] == "1"
-
-
-def test_wikidata_landing_record_is_stable(fixture_dir: Path) -> None:
-    path = fixture_dir / "wikidata.json"
-    first = list(iter_wikidata_records(path))
-    second = list(iter_wikidata_records(path))
-
-    assert first == second
-    assert first[5].source_hash == source_hash(
-        normalize_wikidata_entity(
-            list(iter_wikidata_entities(path))[5],
-        )
-    )
 
 
 def test_reports_line_number_for_non_line_oriented_json(tmp_path: Path) -> None:

@@ -48,7 +48,7 @@ from video_media_catalog.object_store import (
     RuntimeObjectStore,
     UploadResult,
 )
-from video_media_catalog.runtime_args import join_uri
+from video_media_catalog.storage import join_uri
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,

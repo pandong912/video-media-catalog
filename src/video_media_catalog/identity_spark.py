@@ -91,26 +91,7 @@ _LEVEL_MAP = {
     "ORGANIZATION": (EntityLevel.AGENT, "ORGANIZATION", "ORGANIZATION"),
 }
 
-_V1_REFERENT_KIND = {
-    "MOVIE": "EDITORIAL_WORK",
-    "EDITORIAL_WORK": "EDITORIAL_WORK",
-    "TV_SERIES": "SERIES",
-    "SERIES": "SERIES",
-    "TV_SEASON": "SEASON",
-    "SEASON": "SEASON",
-    "TV_EPISODE": "EPISODE",
-    "EPISODE": "EPISODE",
-    "EDIT": "EDIT",
-    "MANIFESTATION": "MANIFESTATION",
-    "PERSON": "AGENT",
-    "AGENT": "AGENT",
-    "ORGANIZATION": "ORGANIZATION",
-}
-
-_REFERENT_KIND_ALIASES = {
-    **{kind: values[2] for kind, values in _LEVEL_MAP.items()},
-    **_V1_REFERENT_KIND,
-}
+_REFERENT_KIND_ALIASES = {kind: values[2] for kind, values in _LEVEL_MAP.items()}
 
 
 def _source_node_id(namespace_id: str, source_id: str, referent_kind: str) -> str:
@@ -1079,42 +1060,10 @@ def _empty_known_index(spark: Any) -> Any:
     )
 
 
-def _build_seed_index_entry(
-    row: Any,
-    *,
-    materialization_id: str,
-    observed_at: str,
-    policy_id: str,
-    policy_digest: str,
-) -> ExternalIdIndexEntry:
-    source_key = deterministic_key(
-        "v1-external-id-index-source-v2",
-        {
-            "namespaceId": row["namespace_id"],
-            "normalizedValue": row["normalized_value"],
-            "referentKind": row["referent_kind"],
-            "entityKey": row["entity_key"],
-        },
-    )
-    return build_external_id_index_entry(
-        materialization_id=materialization_id,
-        namespace_id=row["namespace_id"],
-        normalized_value=row["normalized_value"],
-        referent_kind=row["referent_kind"],
-        entity_key=row["entity_key"],
-        assertion_keys=(source_key,),
-        observed_at=observed_at,
-        policy_id=policy_id,
-        policy_digest=policy_digest,
-    )
-
-
 def build_identity_resolution_dataframes(
     spark: Any,
     *,
     visible_silver: dict[str, Any],
-    v1_external_identifiers: Any,
-    v1_entities: Any,
     input_id: str,
     image_digest: str,
     config_digest: str,
@@ -1154,12 +1103,6 @@ def build_identity_resolution_dataframes(
     }
     if not required.issubset(visible_silver):
         raise ValueError("identity resolution is missing Silver tables")
-    required_external_columns = {"entity_key", "scheme", "value"}
-    required_entity_columns = {"entity_key", "entity_type"}
-    if not required_external_columns.issubset(v1_external_identifiers.columns):
-        raise ValueError("v1 external identifiers are missing required columns")
-    if not required_entity_columns.issubset(v1_entities.columns):
-        raise ValueError("v1 entities are missing required columns")
 
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
@@ -1199,16 +1142,11 @@ def build_identity_resolution_dataframes(
             "entity_kind STRING, referent_kind STRING"
         ),
     )
-    v1_type_configs = spark.createDataFrame(
-        sorted(_V1_REFERENT_KIND.items()),
-        "v1_entity_type STRING, referent_kind STRING",
-    )
     # These registry projections are tiny but LogicalRDDs have no reliable
     # statistics. Hint them explicitly so low-cardinality type/scheme keys do
     # not force hundreds of millions of identifiers through skewed shuffles.
     namespace_schemes = F.broadcast(namespace_schemes)
     type_configs = F.broadcast(type_configs)
-    v1_type_configs = F.broadcast(v1_type_configs)
     if (
         source_records is None
         or ingest_runs is None
@@ -1390,44 +1328,6 @@ def build_identity_resolution_dataframes(
         .dropDuplicates()
     )
 
-    v1_index = (
-        v1_external_identifiers.alias("x")
-        .join(
-            v1_entities.select("entity_key", "entity_type").alias("e"),
-            F.col("x.entity_key") == F.col("e.entity_key"),
-            "inner",
-        )
-        .join(
-            v1_type_configs.alias("vt"),
-            F.upper(F.trim(F.col("e.entity_type"))) == F.col("vt.v1_entity_type"),
-            "inner",
-        )
-        .join(
-            namespace_schemes.alias("n"),
-            (
-                (F.lower(F.trim(F.col("x.scheme"))) == F.col("n.scheme"))
-                & (F.col("vt.referent_kind") == F.col("n.referent_kind"))
-            ),
-            "inner",
-        )
-        .where(
-            F.col("n.match_pattern").isNull()
-            | F.expr("trim(x.value) RLIKE n.match_pattern")
-        )
-        .select(
-            F.col("n.namespace_id").alias("namespace_id"),
-            F.when(
-                F.col("n.case_sensitive"),
-                F.trim(F.col("x.value")),
-            )
-            .otherwise(F.upper(F.trim(F.col("x.value"))))
-            .alias("normalized_value"),
-            F.col("n.referent_kind").alias("referent_kind"),
-            F.col("e.entity_key").alias("entity_key"),
-        )
-        .dropDuplicates()
-    )
-
     existing_index = visible_silver.get("community_external_id_index")
     existing_known_raw = (
         _empty_known_index(spark)
@@ -1469,17 +1369,13 @@ def build_identity_resolution_dataframes(
     existing_known = existing_known_raw.unionByName(
         existing_known_aliases
     ).dropDuplicates()
-    known_index = (
-        existing_known.unionByName(assigned_identifier_index)
-        .unionByName(v1_index)
-        .dropDuplicates(
-            [
-                "namespace_id",
-                "normalized_value",
-                "referent_kind",
-                "entity_key",
-            ]
-        )
+    known_index = existing_known.unionByName(assigned_identifier_index).dropDuplicates(
+        [
+            "namespace_id",
+            "normalized_value",
+            "referent_kind",
+            "entity_key",
+        ]
     )
 
     candidate_links = _materialize_exact_blocking_labels(
@@ -2539,17 +2435,8 @@ def build_identity_resolution_dataframes(
         .persist(StorageLevel.DISK_ONLY)
     )
     operation_policy = internal_key_continuity_profile()
-    seed_entries = v1_index.rdd.map(
-        lambda row: _build_seed_index_entry(
-            row,
-            materialization_id=materialization_id,
-            observed_at=started_at,
-            policy_id=operation_policy.policy_id,
-            policy_digest=operation_policy.digest,
-        )
-    )
     index_entries = (
-        seed_entries.union(results.flatMap(lambda item: item[1]))
+        results.flatMap(lambda item: item[1])
         .keyBy(lambda item: item.index_entry_key)
         .reduceByKey(lambda left, _right: left)
         .values()

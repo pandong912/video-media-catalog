@@ -14,35 +14,6 @@ from video_media_catalog.tmdb_sync_cli import build_parser as tmdb_parser
 from video_media_catalog.tvmaze_delta_sync_cli import (
     build_parser as tvmaze_delta_parser,
 )
-from video_media_catalog.v1_adapter_cli import (
-    _input_object,
-)
-from video_media_catalog.v1_adapter_cli import (
-    build_parser as adapter_parser,
-)
-
-
-def test_v1_adapter_cli_requires_s3_version_and_etag() -> None:
-    parsed = adapter_parser().parse_args(
-        [
-            "--source",
-            "eidr",
-            "--input-uri",
-            "s3://bucket/eidr.xml",
-            "--input-hash",
-            "a" * 64,
-            "--input-size",
-            "100",
-            "--destination-prefix",
-            "s3://bucket/output",
-            "--coverage-id",
-            "discovered-ids",
-            "--image-digest",
-            "sha256:" + ("b" * 64),
-        ]
-    )
-    with pytest.raises(ValueError, match="version"):
-        _input_object(parsed)
 
 
 def test_imdb_and_tmdb_entrypoints_expose_explicit_acquisition_modes() -> None:

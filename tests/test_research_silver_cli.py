@@ -23,24 +23,6 @@ from video_media_catalog.research_silver_cli import (
 )
 
 
-def _migration_arguments() -> list[str]:
-    return [
-        "migrate-v1",
-        "--v1-snapshot-uri",
-        "file:///tmp/v1-snapshot.json",
-        "--v1-snapshot-hash",
-        "a" * 64,
-        "--v1-snapshot-size",
-        "100",
-        "--committed-at",
-        "2026-09-20T00:00:00Z",
-        "--catalog-type",
-        "hadoop",
-        "--warehouse",
-        "file:///tmp/warehouse",
-    ]
-
-
 def _identity_arguments() -> list[str]:
     return [
         "resolve-identity",
@@ -49,12 +31,6 @@ def _identity_arguments() -> list[str]:
         "--silver-snapshot-hash",
         "b" * 64,
         "--silver-snapshot-size",
-        "100",
-        "--v1-snapshot-uri",
-        "file:///tmp/v1-snapshot.json",
-        "--v1-snapshot-hash",
-        "a" * 64,
-        "--v1-snapshot-size",
         "100",
         "--source-run-id",
         "sha256:" + ("c" * 64),
@@ -74,13 +50,6 @@ def _identity_arguments() -> list[str]:
 
 
 def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
-    parsed = build_parser().parse_args(_migration_arguments())
-    assert parsed.command == "migrate-v1"
-    assert parsed.namespace == "video_media_catalog"
-    assert parsed.v1_namespace == "media_catalog"
-    assert parsed.catalog_name == "media"
-    assert parsed.s3_credentials_provider == "web-identity"
-
     identity = build_parser().parse_args(
         [*_identity_arguments(), "--s3-credentials-provider", "default"]
     )
@@ -135,30 +104,30 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
 
 
 def test_control_object_requires_pinned_s3_version_and_etag() -> None:
-    arguments = _migration_arguments()
-    arguments[2] = "s3://bucket/v1-snapshot.json"
+    arguments = _identity_arguments()
+    arguments[2] = "s3://bucket/silver-snapshot.json"
     parsed = build_parser().parse_args(arguments)
     with pytest.raises(ValueError, match="requires version and ETag"):
         _control_object_ref(
             parsed,
-            "v1_snapshot",
+            "silver_snapshot",
             media_type="application/vnd.example+json",
         )
 
 
 def test_control_object_rejects_local_s3_metadata() -> None:
     arguments = [
-        *_migration_arguments(),
-        "--v1-snapshot-version",
+        *_identity_arguments(),
+        "--silver-snapshot-version",
         "version-1",
-        "--v1-snapshot-etag",
+        "--silver-snapshot-etag",
         "etag-1",
     ]
     parsed = build_parser().parse_args(arguments)
     with pytest.raises(ValueError, match="file object cannot declare"):
         _control_object_ref(
             parsed,
-            "v1_snapshot",
+            "silver_snapshot",
             media_type="application/vnd.example+json",
         )
 

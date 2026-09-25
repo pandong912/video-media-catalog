@@ -12,7 +12,7 @@ from video_media_catalog.connector import (
 )
 from video_media_catalog.constants import MEDIA_ENTITY_TYPES
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.v1_adapters import WIKIDATA_SOURCE_PRODUCT_ID
+from video_media_catalog.source_mappers import WIKIDATA_SOURCE_PRODUCT_ID
 from video_media_catalog.wikidata_full_backfill import (
     FullMediaBackfillConfig,
     WikidataFullMediaProfile,

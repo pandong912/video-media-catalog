@@ -11,7 +11,7 @@ pytest.importorskip("pyspark")
 from pyspark.sql import SparkSession
 
 from video_media_catalog.community_ingest import CommunityIngestRun
-from video_media_catalog.community_rows import ingest_run_row
+from video_media_catalog.community_rows import external_id_index_row, ingest_run_row
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.community_spark import community_table_schema
 from video_media_catalog.connector import (
@@ -31,6 +31,7 @@ from video_media_catalog.identity_spark import (
     assign_exact_blocking_component_ids,
     build_identity_resolution_dataframes,
 )
+from video_media_catalog.identity_v2 import build_external_id_index_entry
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.source_silver import build_source_silver_dataframes
 from video_media_catalog.tvmaze import (
@@ -215,19 +216,30 @@ def test_exact_blocking_rejects_single_node_with_too_many_candidates(
     )
     overflow_count = MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS + 1
     entity_keys = tuple(f"sha256:{index:064x}" for index in range(overflow_count))
+    entries = [
+        build_external_id_index_entry(
+            materialization_id="sha256:" + ("5" * 64),
+            namespace_id="imdb-title",
+            normalized_value="TT0000001",
+            referent_kind="SERIES",
+            entity_key=entity_key,
+            assertion_keys=(f"sha256:{index + 1:064x}",),
+            observed_at="2026-09-18T00:00:00Z",
+            policy_id=policy.policy_id,
+            policy_digest=policy.digest,
+        )
+        for index, entity_key in enumerate(entity_keys)
+    ]
+    silver_frames["community_external_id_index"].unpersist()
+    silver_frames["community_external_id_index"] = spark.createDataFrame(
+        [external_id_index_row("sha256:" + ("4" * 64), entry) for entry in entries],
+        schema=community_table_schema("community_external_id_index"),
+    )
     identity_frames = None
     try:
         identity_run, identity_frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=silver_frames,
-            v1_external_identifiers=spark.createDataFrame(
-                [(entity_key, "imdb", "tt0000001") for entity_key in entity_keys],
-                "entity_key STRING, scheme STRING, value STRING",
-            ),
-            v1_entities=spark.createDataFrame(
-                [(entity_key, "TV_SERIES") for entity_key in entity_keys],
-                "entity_key STRING, entity_type STRING",
-            ),
             input_id="sha256:" + ("8" * 64),
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),

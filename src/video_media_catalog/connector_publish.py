@@ -37,8 +37,7 @@ from video_media_catalog.object_store import (
     UploadResult,
     conditional_publish_bytes,
 )
-from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.storage import local_path
+from video_media_catalog.storage import join_uri, local_path
 from video_media_catalog.v2_contracts import V2ContractModel
 
 CONTROL_OBJECT_MAX_BYTES = 16 * 1024 * 1024

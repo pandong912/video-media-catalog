@@ -44,11 +44,11 @@ from video_media_catalog.object_store import (
     conditional_publish_bytes,
 )
 from video_media_catalog.record_shard_materialization import MaterializedRecordShard
-from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.spark_input import spark_uri
+from video_media_catalog.spark_config import spark_uri
 from video_media_catalog.storage import (
     ImmutableObjectConflictError,
     digest_file,
+    join_uri,
     local_path,
 )
 from video_media_catalog.v2_contracts import (

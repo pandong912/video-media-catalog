@@ -11,9 +11,6 @@ from typing import Protocol
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import iterparse
 
-from video_media_catalog.canonical import canonical_json, deterministic_key, source_hash
-from video_media_catalog.models import LandingRecord
-
 _EIDR_ID = re.compile(
     r"^10\.5240/(?:[0-9A-Z]{4}-){5}[0-9A-Z]$",
     re.IGNORECASE,
@@ -291,34 +288,6 @@ def iter_eidr_payloads(path: Path) -> Iterator[dict[str, object]]:
             root.clear()
     except (ET.ParseError, DefusedXmlException) as exc:
         raise EidrParseError(f"{path}: invalid XML: {exc}") from exc
-
-
-def landing_record(payload: dict[str, object]) -> LandingRecord:
-    digest = source_hash(payload)
-    modified = payload.get("modified")
-    source_revision = str(modified) if modified else None
-    return LandingRecord(
-        record_key=deterministic_key(
-            "source-record",
-            {
-                "source": "eidr",
-                "sourceRecordId": payload["id"],
-                "sourceRevision": source_revision,
-                "sourceHash": digest,
-            },
-        ),
-        source="eidr",
-        source_record_id=str(payload["id"]),
-        source_revision=source_revision,
-        modified=source_revision,
-        source_hash=digest,
-        payload_json=canonical_json(payload),
-    )
-
-
-def iter_eidr_records(path: Path) -> Iterator[LandingRecord]:
-    for payload in iter_eidr_payloads(path):
-        yield landing_record(payload)
 
 
 def fetch_exact(

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import tempfile
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -16,7 +18,10 @@ from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.connector import (
     ConnectorBatchManifest,
+    ConnectorRecordSetEpochManifest,
     ConnectorRecordSetManifest,
+    ConnectorRecordSetPartitionManifest,
+    ConnectorShardedRecordSetManifest,
 )
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
@@ -51,6 +56,10 @@ CONTROL_MAX_BYTES = 16 * 1024 * 1024
 MAX_RECORD_OBJECT_MAX_BYTES = 128 * 1024 * 1024
 DEFAULT_RECORD_OBJECT_MAX_BYTES = MAX_RECORD_OBJECT_MAX_BYTES
 DEFAULT_RAW_OBJECT_MAX_BYTES = 32 * 1024**3
+RECORD_SET_MEDIA_TYPE = "application/vnd.video-media-catalog.record-set.v2+json"
+SHARDED_RECORD_SET_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.sharded-record-set.v2.1+json"
+)
 _PREVALIDATED_GRANT_ARGUMENTS = (
     "prevalidated_record_set_id",
     "prevalidated_batch_id",
@@ -215,11 +224,10 @@ def _object_ref(
     )
 
 
-def _read_model[T: (ConnectorBatchManifest, ConnectorRecordSetManifest)](
+def _read_control_payload(
     store: RuntimeObjectStore,
     reference: ObjectRef,
-    model: type[T],
-) -> T:
+) -> bytes:
     store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
     with tempfile.TemporaryDirectory(prefix="community-catalog-control-") as directory:
         materialized = store.download(
@@ -227,7 +235,161 @@ def _read_model[T: (ConnectorBatchManifest, ConnectorRecordSetManifest)](
             Path(directory) / "object.json",
             max_bytes=CONTROL_MAX_BYTES,
         )
-        return model.model_validate_json(materialized.path.read_bytes())
+        return materialized.path.read_bytes()
+
+
+def _read_model[
+    T: (
+        ConnectorBatchManifest,
+        ConnectorRecordSetManifest,
+        ConnectorRecordSetEpochManifest,
+        ConnectorRecordSetPartitionManifest,
+        ConnectorShardedRecordSetManifest,
+    )
+](
+    store: RuntimeObjectStore,
+    reference: ObjectRef,
+    model: type[T],
+) -> T:
+    return model.model_validate_json(_read_control_payload(store, reference))
+
+
+@dataclass(frozen=True)
+class ResolvedConnectorRecordSet:
+    """Validated root identity plus flattened immutable record shard references."""
+
+    schema_version: str
+    record_set_id: str
+    batch_id: str
+    source_product_id: str
+    policy_id: str
+    policy_digest: str
+    record_objects: tuple[ObjectRef, ...]
+    record_count: int
+    first_envelope_key: str
+    last_envelope_key: str
+    created_at: str
+
+
+def _require_record_set_binding(
+    child: ConnectorRecordSetEpochManifest | ConnectorRecordSetPartitionManifest,
+    root: ConnectorShardedRecordSetManifest,
+    *,
+    label: str,
+) -> None:
+    if (
+        child.batch_id != root.batch_id
+        or child.source_product_id != root.source_product_id
+        or child.policy_id != root.policy_id
+        or child.policy_digest != root.policy_digest
+        or child.created_at != root.created_at
+    ):
+        raise ValueError(f"{label} does not bind the sharded record set")
+
+
+def _resolve_sharded_record_set(
+    store: RuntimeObjectStore,
+    root: ConnectorShardedRecordSetManifest,
+) -> ResolvedConnectorRecordSet:
+    epochs: list[
+        tuple[
+            ConnectorRecordSetEpochManifest,
+            list[ConnectorRecordSetPartitionManifest],
+        ]
+    ] = []
+    epoch_indexes: list[int] = []
+    for epoch_reference in root.epoch_objects:
+        epoch = _read_model(
+            store,
+            epoch_reference,
+            ConnectorRecordSetEpochManifest,
+        )
+        _require_record_set_binding(epoch, root, label="record-set epoch")
+        epoch_indexes.append(epoch.epoch_index)
+        partitions: list[ConnectorRecordSetPartitionManifest] = []
+        partition_indexes: list[int] = []
+        for partition_reference in epoch.partition_objects:
+            partition = _read_model(
+                store,
+                partition_reference,
+                ConnectorRecordSetPartitionManifest,
+            )
+            _require_record_set_binding(
+                partition,
+                root,
+                label="record-set partition",
+            )
+            if partition.epoch_index != epoch.epoch_index:
+                raise ValueError("record-set partition belongs to another epoch")
+            partition_indexes.append(partition.partition_index)
+            partitions.append(partition)
+        if partition_indexes != sorted(set(partition_indexes)):
+            raise ValueError(
+                "record-set partition indexes must be unique and increasing"
+            )
+        if (
+            epoch.partition_count != len(partitions)
+            or epoch.shard_count != sum(item.shard_count for item in partitions)
+            or epoch.record_count != sum(item.record_count for item in partitions)
+            or epoch.size_bytes != sum(item.size_bytes for item in partitions)
+            or epoch.first_envelope_key != partitions[0].first_envelope_key
+            or epoch.last_envelope_key != partitions[-1].last_envelope_key
+        ):
+            raise ValueError("record-set epoch totals do not match its partitions")
+        epochs.append((epoch, partitions))
+    if epoch_indexes != sorted(set(epoch_indexes)):
+        raise ValueError("record-set epoch indexes must be unique and increasing")
+
+    partitions = [
+        partition for _, epoch_partitions in epochs for partition in epoch_partitions
+    ]
+    shards = [shard for partition in partitions for shard in partition.shards]
+    shard_indexes = [item.shard_index for item in shards]
+    shard_uris = [item.object_ref.uri for item in shards]
+    if shard_indexes != sorted(set(shard_indexes)):
+        raise ValueError("record-set shard indexes must be unique and increasing")
+    if len(shard_uris) != len(set(shard_uris)):
+        raise ValueError("sharded record set contains duplicate shard object URIs")
+    if (
+        root.epoch_count != len(epochs)
+        or root.partition_count != len(partitions)
+        or root.shard_count != len(shards)
+        or root.record_count != sum(item.record_count for item in shards)
+        or root.size_bytes != sum(item.object_ref.size_bytes for item in shards)
+        or root.first_envelope_key != shards[0].first_envelope_key
+        or root.last_envelope_key != shards[-1].last_envelope_key
+    ):
+        raise ValueError("sharded record-set totals do not match its manifests")
+    return ResolvedConnectorRecordSet(
+        schema_version=root.schema_version,
+        record_set_id=root.record_set_id,
+        batch_id=root.batch_id,
+        source_product_id=root.source_product_id,
+        policy_id=root.policy_id,
+        policy_digest=root.policy_digest,
+        record_objects=tuple(item.object_ref for item in shards),
+        record_count=root.record_count,
+        first_envelope_key=root.first_envelope_key,
+        last_envelope_key=root.last_envelope_key,
+        created_at=root.created_at,
+    )
+
+
+def _read_record_set(
+    store: RuntimeObjectStore,
+    reference: ObjectRef,
+) -> tuple[ObjectRef, ConnectorRecordSetManifest | ResolvedConnectorRecordSet]:
+    payload = _read_control_payload(store, reference)
+    value = json.loads(payload)
+    if not isinstance(value, dict):
+        raise ValueError("record-set manifest must be a JSON object")
+    if "epochObjects" not in value:
+        return reference, ConnectorRecordSetManifest.model_validate(value)
+    sharded = ConnectorShardedRecordSetManifest.model_validate(value)
+    return (
+        reference.model_copy(update={"media_type": SHARDED_RECORD_SET_MEDIA_TYPE}),
+        _resolve_sharded_record_set(store, sharded),
+    )
 
 
 def _has_prevalidated_record_set_grant(parsed: argparse.Namespace) -> bool:
@@ -298,7 +460,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     record_set_ref = _object_ref(
         parsed,
         "record_set_manifest",
-        media_type="application/vnd.video-media-catalog.record-set.v2+json",
+        media_type=RECORD_SET_MEDIA_TYPE,
     )
     local_inputs = all(
         urlsplit(reference.uri).scheme == "file"
@@ -311,11 +473,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         client=object() if local_inputs else None,
     )
     batch = _read_model(store, batch_ref, ConnectorBatchManifest)
-    record_set = _read_model(
-        store,
-        record_set_ref,
-        ConnectorRecordSetManifest,
-    )
+    record_set_ref, record_set = _read_record_set(store, record_set_ref)
     embedded_references = (*batch.raw_objects, *record_set.record_objects)
     if local_inputs and any(
         urlsplit(reference.uri).scheme == "s3" for reference in embedded_references

@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from video_media_catalog.community_cli import (
+    SHARDED_RECORD_SET_MEDIA_TYPE,
     _has_prevalidated_record_set_grant,
     _object_ref,
     _prevalidated_record_set_grant,
+    _read_record_set,
     build_parser,
     run,
 )
+from video_media_catalog.connector import (
+    ConnectorRecordShard,
+    build_connector_record_set_epoch_manifest,
+    build_connector_record_set_partition_manifest,
+    build_connector_sharded_record_set_manifest,
+)
 from video_media_catalog.models import Checksum, ObjectRef
+from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.record_shard_materialization import (
     resolve_record_staging_prefix,
 )
@@ -69,6 +80,23 @@ def _grant_arguments() -> list[str]:
         "--prevalidated-expires-at",
         "2099-01-01T00:00:00Z",
     ]
+
+
+def _write_object(
+    path,
+    payload: bytes,
+    *,
+    media_type: str,
+    object_format: str = "OBJECT_FORMAT_JSON",
+) -> ObjectRef:
+    path.write_bytes(payload)
+    return ObjectRef(
+        uri=path.as_uri(),
+        format=object_format,
+        media_type=media_type,
+        checksum=Checksum(value=hashlib.sha256(payload).hexdigest()),
+        size_bytes=len(payload),
+    )
 
 
 def test_community_cli_builds_bounded_control_object_ref() -> None:
@@ -210,6 +238,109 @@ def test_community_cli_rejects_capture_sibling_record_staging_prefix() -> None:
             warehouse="s3://bucket/community-warehouse",
             references=(reference,),
         )
+
+
+def test_community_cli_resolves_hierarchical_record_set(tmp_path) -> None:
+    first_key = "sha256:" + ("1" * 64)
+    last_key = "sha256:" + ("2" * 64)
+    shard_payload = (
+        b'{"envelopeKey":"' + first_key.encode() + b'"}\n'
+        b'{"envelopeKey":"' + last_key.encode() + b'"}\n'
+    )
+    shard_ref = _write_object(
+        tmp_path / "records.ndjson",
+        shard_payload,
+        media_type="application/x-ndjson",
+        object_format="OBJECT_FORMAT_OTHER",
+    )
+    shard = ConnectorRecordShard(
+        shard_index=0,
+        object_ref=shard_ref,
+        record_count=2,
+        first_envelope_key=first_key,
+        last_envelope_key=last_key,
+    )
+    batch_id = "sha256:" + ("3" * 64)
+    policy_digest = "sha256:" + ("4" * 64)
+    created_at = "2026-09-20T00:00:00Z"
+    partition = build_connector_record_set_partition_manifest(
+        batch_id=batch_id,
+        source_product_id="wikidata-json-dump",
+        policy_id="wikidata-structured-data-cc0",
+        policy_digest=policy_digest,
+        epoch_index=0,
+        partition_index=0,
+        shards=(shard,),
+        shard_count=1,
+        record_count=2,
+        size_bytes=shard_ref.size_bytes,
+        first_envelope_key=first_key,
+        last_envelope_key=last_key,
+        created_at=created_at,
+    )
+    partition_ref = _write_object(
+        tmp_path / "partition.json",
+        partition.json_bytes(),
+        media_type=(
+            "application/vnd.video-media-catalog.record-set-partition.v2.1+json"
+        ),
+    )
+    epoch = build_connector_record_set_epoch_manifest(
+        batch_id=batch_id,
+        source_product_id="wikidata-json-dump",
+        policy_id="wikidata-structured-data-cc0",
+        policy_digest=policy_digest,
+        epoch_index=0,
+        partition_objects=(partition_ref,),
+        partition_count=1,
+        shard_count=1,
+        record_count=2,
+        size_bytes=shard_ref.size_bytes,
+        first_envelope_key=first_key,
+        last_envelope_key=last_key,
+        created_at=created_at,
+    )
+    epoch_ref = _write_object(
+        tmp_path / "epoch.json",
+        epoch.json_bytes(),
+        media_type=("application/vnd.video-media-catalog.record-set-epoch.v2.1+json"),
+    )
+    root = build_connector_sharded_record_set_manifest(
+        batch_id=batch_id,
+        source_product_id="wikidata-json-dump",
+        policy_id="wikidata-structured-data-cc0",
+        policy_digest=policy_digest,
+        epoch_objects=(epoch_ref,),
+        epoch_count=1,
+        partition_count=1,
+        shard_count=1,
+        record_count=2,
+        size_bytes=shard_ref.size_bytes,
+        first_envelope_key=first_key,
+        last_envelope_key=last_key,
+        created_at=created_at,
+    )
+    root_ref = _write_object(
+        tmp_path / "record-set.json",
+        root.json_bytes(),
+        media_type=SHARDED_RECORD_SET_MEDIA_TYPE,
+    )
+
+    resolved_ref, resolved = _read_record_set(
+        BoundedObjectStore(client=object()),
+        root_ref.model_copy(
+            update={
+                "media_type": ("application/vnd.video-media-catalog.record-set.v2+json")
+            }
+        ),
+    )
+
+    assert resolved_ref.media_type == SHARDED_RECORD_SET_MEDIA_TYPE
+    assert resolved.record_set_id == root.record_set_id
+    assert resolved.record_objects == (shard_ref,)
+    assert resolved.record_count == 2
+    assert resolved.first_envelope_key == first_key
+    assert resolved.last_envelope_key == last_key
 
 
 def test_source_silver_checkpoint_prefix_is_confined_to_warehouse() -> None:

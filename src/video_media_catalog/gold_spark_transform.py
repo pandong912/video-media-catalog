@@ -35,6 +35,7 @@ from video_media_catalog.gold_freshness import (
     ReleaseFreshnessPolicy,
     build_release_freshness_matrix,
     disabled_release_freshness_policy,
+    scope_release_freshness_policy,
 )
 from video_media_catalog.gold_quality import (
     GoldBuildMode,
@@ -1545,13 +1546,21 @@ def build_distributed_gold(
             .select("manifest_json")
             .collect()
         )
+        effective_freshness_policy = (
+            freshness_policy
+            if freshness_policy is not None
+            else disabled_release_freshness_policy()
+        )
+        if bounded_run_ids:
+            effective_freshness_policy = scope_release_freshness_policy(
+                effective_freshness_policy,
+                selected_source_product_ids={
+                    run.source_product_id for run in selected_ingest_runs
+                },
+            )
         release_freshness = build_release_freshness_matrix(
             ingest_runs=selected_ingest_runs,
-            policy=(
-                freshness_policy
-                if freshness_policy is not None
-                else disabled_release_freshness_policy()
-            ),
+            policy=effective_freshness_policy,
             as_of=policy_context.as_of,
         )
         quality = build_gold_quality_report_from_metrics(

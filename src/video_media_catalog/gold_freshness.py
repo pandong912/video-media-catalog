@@ -139,6 +139,29 @@ def disabled_release_freshness_policy() -> ReleaseFreshnessPolicy:
     )
 
 
+def scope_release_freshness_policy(
+    policy: ReleaseFreshnessPolicy,
+    *,
+    selected_source_product_ids: Iterable[str],
+) -> ReleaseFreshnessPolicy:
+    """Make absent sources non-blocking for an immutable bounded run set."""
+
+    selected = {
+        require_slug(value, label="selected freshness source_product_id")
+        for value in selected_source_product_ids
+    }
+    return policy.model_copy(
+        update={
+            "requirements": tuple(
+                requirement
+                if not requirement.required or requirement.source_product_id in selected
+                else requirement.model_copy(update={"required": False})
+                for requirement in policy.requirements
+            )
+        }
+    )
+
+
 class SourceCoverageWatermark(V2ContractModel):
     run_id: str
     watermark: str

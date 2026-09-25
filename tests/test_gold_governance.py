@@ -21,6 +21,7 @@ from video_media_catalog.gold_freshness import (
     SourceFreshnessRequirement,
     build_release_freshness_matrix,
     research_release_freshness_policy,
+    scope_release_freshness_policy,
 )
 from video_media_catalog.gold_quality import (
     GoldBuildMode,
@@ -166,6 +167,17 @@ def test_release_freshness_tracks_complete_delta_partial_and_slos() -> None:
     assert defaults["tvmaze-public-api"].slo_hours == 36
     assert defaults["imdb-non-commercial-datasets"].slo_hours == 10 * 24
     assert defaults["wikidata-json-dump"].slo_hours == 45 * 24
+
+
+def test_bounded_freshness_scope_only_blocks_selected_sources() -> None:
+    scoped = scope_release_freshness_policy(
+        research_release_freshness_policy(),
+        selected_source_product_ids={"imdb-non-commercial-datasets"},
+    )
+    requirements = {item.source_product_id: item for item in scoped.requirements}
+    assert requirements["imdb-non-commercial-datasets"].required
+    assert not requirements["tmdb-research"].required
+    assert requirements["tmdb-research"].feed_freshness_required
 
 
 def test_quality_report_blocks_governance_failures_in_backfill_mode() -> None:

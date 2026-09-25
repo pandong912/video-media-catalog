@@ -273,6 +273,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             by_alias=True,
             exclude_none=True,
         ),
+        "releaseFreshnessScope": (
+            "ALL_COMMITTED_RUNS"
+            if isinstance(snapshot, CommunitySilverEpochManifest)
+            else "SELECTED_RUNS"
+        ),
         "buildMode": build_mode.value,
         "terminationFences": [
             fence.model_dump(mode="json", by_alias=True, exclude_none=True)

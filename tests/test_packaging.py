@@ -23,6 +23,11 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert (
         "ARG AWS_JAVA_SDK_BUNDLE_SHA1=308a3af95a47e0c4e1f8bd98a37657d4661ae45e"
     ) in dockerfile
+    assert "ARG AWS_SDK_V2_VERSION=2.29.52" in dockerfile
+    assert (
+        "ARG AWS_URL_CONNECTION_CLIENT_SHA1=b6732201e4ae7a2d9994c4b5bd3d3694551338c2"
+    ) in dockerfile
+    assert "aws-sdk-url-connection-client.jar" in dockerfile
     assert '"$SPARK_HOME/kubernetes/dockerfiles/spark/entrypoint.sh"' in dockerfile
     assert 'ENTRYPOINT ["/opt/entrypoint.sh"]' in dockerfile
     assert 'CMD ["video-media-catalog-community-spark", "--help"]' in dockerfile

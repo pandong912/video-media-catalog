@@ -98,8 +98,8 @@ class SourceSilverMapperIdentity(V2ContractModel):
 
 _DEFAULT_MAPPER_IDENTITIES = {
     "eidr-public-registry": SourceSilverMapperIdentity(
-        mapper_id="eidr-v2-mapper",
-        mapper_version="1.0.0",
+        mapper_id="eidr-source-mapper",
+        mapper_version="2.0.0",
     ),
     "imdb-non-commercial-datasets": SourceSilverMapperIdentity(
         mapper_id="imdb-official-tsv-mapper",

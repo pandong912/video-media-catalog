@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -17,26 +18,41 @@ from video_media_catalog.community_sources import (
 )
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.connector import (
+    ChangeSemantics,
     Completeness,
+    ConnectorBatchManifest,
     ConnectorRecordEnvelope,
     DeleteCoverage,
 )
 from video_media_catalog.eidr_backfill import (
+    EidrBackfillStopReason,
     EidrExactLookupResult,
     EidrLookupStatus,
     EidrProviderNotAuthorizedError,
     build_discovered_eidr_id_frame,
     build_eidr_discovery_source_binding,
     build_eidr_provider_authorization,
+    expand_eidr_source_silver_inputs,
     iter_discovered_eidr_rows,
     publish_discovered_eidr_id_manifest,
     read_discovered_eidr_id_manifest,
+    read_eidr_backfill_run_manifest,
     read_eidr_backfill_watermark,
     run_eidr_exact_lookup_batch,
+    run_eidr_exact_lookup_manifest,
 )
-from video_media_catalog.eidr_backfill_cli import build_parser
+from video_media_catalog.eidr_backfill_cli import (
+    _resolve_lookup_provider,
+    build_parser,
+    main,
+    run,
+)
+from video_media_catalog.eidr_public_provider import (
+    EIDR_PUBLIC_PROVIDER_ID,
+    EidrPublicProvider,
+)
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.object_store import BoundedObjectStore
+from video_media_catalog.object_store import BoundedObjectStore, ObjectStoreError
 from video_media_catalog.storage import local_path
 
 pytest.importorskip("pyspark")
@@ -60,6 +76,28 @@ def _object(
         size_bytes=len(payload),
         created_at=created_at,
     )
+
+
+def _ref_args(prefix: str, reference: ObjectRef) -> list[str]:
+    dashed = prefix.replace("_", "-")
+    return [
+        f"--{dashed}-uri",
+        reference.uri,
+        f"--{dashed}-hash",
+        reference.checksum.value,
+        f"--{dashed}-size",
+        str(reference.size_bytes),
+        *(
+            [
+                f"--{dashed}-version",
+                reference.object_version,
+                f"--{dashed}-etag",
+                reference.etag,
+            ]
+            if reference.object_version is not None and reference.etag is not None
+            else []
+        ),
+    ]
 
 
 def _movie_xml(eidr_id: str = "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C") -> bytes:
@@ -258,6 +296,7 @@ def test_exact_lookup_publishes_partial_capture_and_window_receipt(
     assert result.watermark_object is not None
     assert result.capture is not None
     assert result.capture.batch_manifest.completeness == Completeness.PARTIAL
+    assert result.capture.batch_manifest.change_semantics == ChangeSemantics.DELTA
     assert result.capture.batch_manifest.delete_coverage == DeleteCoverage.NONE
     assert result.capture.batch_manifest.connector_id == EIDR_EXACT_LOOKUP_CONNECTOR_ID
     assert result.receipt.retry_count == 1
@@ -423,6 +462,434 @@ def test_read_helpers_bind_immutable_objects(tmp_path: Path) -> None:
         store=store,
     )
     assert loaded_watermark == result.watermark
+
+
+def test_manifest_runner_preserves_commits_and_partial_source_semantics(
+    tmp_path: Path,
+) -> None:
+    first_id = "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C"
+    missing_id = "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A"
+    third_id = "10.5240/1111-1111-1111-1111-1111-A"
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=(first_id, missing_id, third_id),
+        page_size=1,
+    )
+    provider = FakeAuthorizedProvider(
+        tmp_path=tmp_path,
+        responses={
+            missing_id: EidrExactLookupResult(
+                eidr_id=missing_id,
+                status=EidrLookupStatus.NOT_FOUND,
+            )
+        },
+    )
+    store = BoundedObjectStore(client=object())
+    result = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "manifest-run").as_uri(),
+        acquired_at="2026-09-20T00:01:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=provider,
+        batch_size=2,
+        max_batches=10,
+        max_duration_seconds=60,
+        max_ids=2,
+    )
+
+    aggregate = result.manifest
+    assert aggregate.completed is False
+    assert aggregate.stop_reason == EidrBackfillStopReason.MAX_IDS
+    assert aggregate.source_completeness == "PARTIAL"
+    assert aggregate.complete_feed_allowed is False
+    assert aggregate.batch_count == 1
+    assert aggregate.attempted_id_count == 2
+    assert aggregate.found_count == 1
+    assert aggregate.not_found_count == 1
+    batch = aggregate.batches[0]
+    assert local_path(batch.lookup_batch_object.uri).is_file()
+    assert local_path(batch.receipt_object.uri).is_file()
+    assert local_path(batch.watermark_object.uri).is_file()
+    assert batch.connector_batch_object is not None
+    assert batch.record_set_object is not None
+    connector_batch = ConnectorBatchManifest.model_validate_json(
+        local_path(batch.connector_batch_object.uri).read_bytes()
+    )
+    assert connector_batch.completeness == Completeness.PARTIAL
+    assert connector_batch.change_semantics == ChangeSemantics.DELTA
+    assert connector_batch.delete_coverage == DeleteCoverage.NONE
+    assert expand_eidr_source_silver_inputs(aggregate) == (
+        (batch.connector_batch_object, batch.record_set_object),
+    )
+    assert (
+        read_eidr_backfill_run_manifest(
+            reference=result.manifest_object,
+            store=store,
+        )
+        == aggregate
+    )
+
+
+def test_manifest_runner_enforces_batch_and_duration_bounds(tmp_path: Path) -> None:
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=(
+            "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C",
+            "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A",
+        ),
+        page_size=1,
+    )
+    provider = FakeAuthorizedProvider(tmp_path=tmp_path)
+    store = BoundedObjectStore(client=object())
+    batch_limited = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "batch-limited").as_uri(),
+        acquired_at="2026-09-20T00:01:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=provider,
+        batch_size=1,
+        max_batches=1,
+        max_duration_seconds=60,
+        max_ids=2,
+    )
+    assert batch_limited.manifest.stop_reason == EidrBackfillStopReason.MAX_BATCHES
+    assert batch_limited.manifest.batch_count == 1
+
+    ticks = iter((0.0, 1.0))
+    duration_limited = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "duration-limited").as_uri(),
+        acquired_at="2026-09-20T00:02:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=provider,
+        batch_size=1,
+        max_batches=2,
+        max_duration_seconds=0.5,
+        max_ids=2,
+        clock=lambda: next(ticks),
+    )
+    assert duration_limited.manifest.stop_reason == (
+        EidrBackfillStopReason.MAX_DURATION
+    )
+    assert duration_limited.manifest.batch_count == 0
+    assert duration_limited.manifest.attempted_id_count == 0
+
+    exhausted = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "exhausted").as_uri(),
+        acquired_at="2026-09-20T00:03:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=provider,
+        batch_size=2,
+        max_batches=1,
+        max_duration_seconds=60,
+        max_ids=2,
+    )
+    assert exhausted.manifest.completed is True
+    assert exhausted.manifest.stop_reason == (EidrBackfillStopReason.MANIFEST_EXHAUSTED)
+    assert exhausted.manifest.source_completeness == "PARTIAL"
+    assert exhausted.manifest.complete_feed_allowed is False
+
+
+def test_lookup_manifest_cli_returns_aggregate_object_contract(tmp_path: Path) -> None:
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=(
+            "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C",
+            "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A",
+        ),
+        page_size=1,
+    )
+    del manifest
+    parsed = build_parser().parse_args(
+        [
+            "lookup-manifest",
+            "--manifest-uri",
+            manifest_object.uri,
+            "--manifest-hash",
+            manifest_object.checksum.value,
+            "--manifest-size",
+            str(manifest_object.size_bytes),
+            "--destination-prefix",
+            (tmp_path / "cli-manifest-run").as_uri(),
+            "--acquired-at",
+            "2026-09-20T00:01:00Z",
+            "--image-digest",
+            "sha256:" + ("c" * 64),
+            "--batch-size",
+            "1",
+            "--max-batches",
+            "1",
+            "--max-duration-seconds",
+            "60",
+            "--max-ids",
+            "2",
+        ]
+    )
+    response = run(
+        parsed,
+        provider=FakeAuthorizedProvider(tmp_path=tmp_path),
+        store=BoundedObjectStore(client=object()),
+    )
+    assert response["completed"] is False
+    assert response["stopReason"] == EidrBackfillStopReason.MAX_BATCHES
+    assert response["sourceCompleteness"] == "PARTIAL"
+    assert response["completeFeedAllowed"] is False
+    assert response["batchCount"] == 1
+    assert response["sourceSilverInputCount"] == 1
+    assert response["runManifest"]["mediaType"].endswith(
+        "eidr-backfill-run-manifest.v1+json"
+    )
+
+
+def test_expand_source_silver_inputs_emits_argo_array(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    found_id = "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C"
+    missing_id = "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A"
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=(found_id, missing_id),
+    )
+    provider = FakeAuthorizedProvider(
+        tmp_path=tmp_path,
+        responses={
+            missing_id: EidrExactLookupResult(
+                eidr_id=missing_id,
+                status=EidrLookupStatus.NOT_FOUND,
+            )
+        },
+    )
+    result = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "expand-complete").as_uri(),
+        acquired_at="2026-09-20T00:04:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=BoundedObjectStore(client=object()),
+        provider=provider,
+        batch_size=2,
+        max_batches=1,
+        max_duration_seconds=60,
+        max_ids=2,
+    )
+    assert (
+        main(
+            [
+                "expand-source-silver-inputs",
+                *_ref_args("run_manifest", result.manifest_object),
+            ]
+        )
+        == 0
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert isinstance(output, list)
+    assert len(output) == 1
+    assert set(output[0]) == {"batchManifest", "recordSetManifest"}
+    batch = result.manifest.batches[0]
+    assert output[0]["batchManifest"]["uri"] == batch.connector_batch_object.uri
+    assert output[0]["recordSetManifest"]["uri"] == batch.record_set_object.uri
+
+
+def test_expand_source_silver_inputs_rejects_incomplete_by_default(
+    tmp_path: Path,
+) -> None:
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=(
+            "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C",
+            "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A",
+        ),
+        page_size=1,
+    )
+    store = BoundedObjectStore(client=object())
+    result = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "expand-partial").as_uri(),
+        acquired_at="2026-09-20T00:05:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=FakeAuthorizedProvider(tmp_path=tmp_path),
+        batch_size=1,
+        max_batches=1,
+        max_duration_seconds=60,
+        max_ids=2,
+    )
+    arguments = [
+        "expand-source-silver-inputs",
+        *_ref_args("run_manifest", result.manifest_object),
+    ]
+    with pytest.raises(ValueError, match="allow-partial-run"):
+        run(build_parser().parse_args(arguments), store=store)
+    output = run(
+        build_parser().parse_args([*arguments, "--allow-partial-run"]),
+        store=store,
+    )
+    assert isinstance(output, list)
+    assert len(output) == 1
+
+
+def test_expand_source_silver_inputs_omits_not_found_batches(
+    tmp_path: Path,
+) -> None:
+    eidr_id = "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A"
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=(eidr_id,),
+    )
+    store = BoundedObjectStore(client=object())
+    result = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "expand-not-found").as_uri(),
+        acquired_at="2026-09-20T00:06:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=FakeAuthorizedProvider(
+            tmp_path=tmp_path,
+            responses={
+                eidr_id: EidrExactLookupResult(
+                    eidr_id=eidr_id,
+                    status=EidrLookupStatus.NOT_FOUND,
+                )
+            },
+        ),
+        batch_size=1,
+        max_batches=1,
+        max_duration_seconds=60,
+        max_ids=1,
+    )
+    output = run(
+        build_parser().parse_args(
+            [
+                "expand-source-silver-inputs",
+                *_ref_args("run_manifest", result.manifest_object),
+            ]
+        ),
+        store=store,
+    )
+    assert output == []
+
+
+def test_expand_source_silver_inputs_enforces_count_and_byte_bounds(
+    tmp_path: Path,
+) -> None:
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=(
+            "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C",
+            "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A",
+        ),
+        page_size=1,
+    )
+    store = BoundedObjectStore(client=object())
+    result = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "expand-bounds").as_uri(),
+        acquired_at="2026-09-20T00:07:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=FakeAuthorizedProvider(tmp_path=tmp_path),
+        batch_size=1,
+        max_batches=2,
+        max_duration_seconds=60,
+        max_ids=2,
+    )
+    base = [
+        "expand-source-silver-inputs",
+        *_ref_args("run_manifest", result.manifest_object),
+    ]
+    with pytest.raises(ValueError, match="max-inputs"):
+        run(
+            build_parser().parse_args([*base, "--max-inputs", "1"]),
+            store=store,
+        )
+    with pytest.raises(ValueError, match="max-output-bytes"):
+        run(
+            build_parser().parse_args([*base, "--max-output-bytes", "2"]),
+            store=store,
+        )
+
+
+def test_expand_source_silver_inputs_verifies_nested_objects(
+    tmp_path: Path,
+) -> None:
+    manifest, manifest_object, _, _ = _publish_fixture_manifest(
+        tmp_path,
+        eidr_ids=("10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C",),
+    )
+    store = BoundedObjectStore(client=object())
+    result = run_eidr_exact_lookup_manifest(
+        manifest=manifest,
+        manifest_object=manifest_object,
+        destination_prefix=(tmp_path / "expand-corrupt").as_uri(),
+        acquired_at="2026-09-20T00:08:00Z",
+        image_digest="sha256:" + ("c" * 64),
+        store=store,
+        provider=FakeAuthorizedProvider(tmp_path=tmp_path),
+        batch_size=1,
+        max_batches=1,
+        max_duration_seconds=60,
+        max_ids=1,
+    )
+    local_path(result.manifest.batches[0].receipt_object.uri).write_bytes(
+        b'{"tampered":true}'
+    )
+    parsed = build_parser().parse_args(
+        [
+            "expand-source-silver-inputs",
+            *_ref_args("run_manifest", result.manifest_object),
+        ]
+    )
+    with pytest.raises(ObjectStoreError, match="differs"):
+        run(parsed, store=store)
+
+
+def test_cli_constructs_public_provider_from_pinned_evidence() -> None:
+    parsed = build_parser().parse_args(
+        [
+            "lookup-batch",
+            "--manifest-uri",
+            "file:///tmp/manifest.json",
+            "--manifest-hash",
+            "c" * 64,
+            "--manifest-size",
+            "100",
+            "--destination-prefix",
+            "file:///tmp/out",
+            "--acquired-at",
+            "2026-09-20T00:01:00Z",
+            "--image-digest",
+            "sha256:" + ("d" * 64),
+            "--authorization-evidence-uri",
+            "file:///tmp/eidr-authorization.json",
+            "--authorization-evidence-hash",
+            "e" * 64,
+            "--authorization-evidence-size",
+            "100",
+            "--authorization-issued-at",
+            "2026-09-20T00:00:00Z",
+        ]
+    )
+    provider = _resolve_lookup_provider(parsed, injected=None)
+    assert isinstance(provider, EidrPublicProvider)
+    assert provider.authorization.provider_id == EIDR_PUBLIC_PROVIDER_ID
+    assert provider.authorization.complete_feed_allowed is False
+    assert (
+        provider.authorization.authorization_object.uri
+        == "file:///tmp/eidr-authorization.json"
+    )
 
 
 def test_cli_parser_exposes_discovery_and_lookup_commands() -> None:

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import tempfile
 import threading
+import time
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
@@ -76,6 +78,9 @@ LOOKUP_RECEIPT_MEDIA_TYPE = (
 BACKFILL_WATERMARK_MEDIA_TYPE = (
     "application/vnd.video-media-catalog.eidr-backfill-watermark.v1+json"
 )
+BACKFILL_RUN_MANIFEST_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.eidr-backfill-run-manifest.v1+json"
+)
 
 DEFAULT_DISCOVERED_PAGE_IDS = 4_096
 MAX_DISCOVERED_PAGE_IDS = 16_384
@@ -85,8 +90,15 @@ DEFAULT_LOOKUP_BATCH_IDS = 100
 MAX_LOOKUP_BATCH_IDS = 1_000
 DEFAULT_MAX_XML_BYTES = 8 * 1024 * 1024
 MAX_MAX_XML_BYTES = 64 * 1024 * 1024
+MAX_RECORD_SHARD_BYTES = 128 * 1024 * 1024
 MAX_AUTHORIZATION_OBJECT_BYTES = CONTROL_MAX_BYTES
 EIDR_SOURCE_SEMAPHORE_PERMITS = 1
+DEFAULT_BACKFILL_MAX_BATCHES = 1_000
+MAX_BACKFILL_MAX_BATCHES = 4_096
+DEFAULT_BACKFILL_MAX_DURATION_SECONDS = 6 * 60 * 60
+MAX_BACKFILL_MAX_DURATION_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_BACKFILL_MAX_IDS = 100_000
+MAX_BACKFILL_MAX_IDS = MAX_BACKFILL_MAX_BATCHES * MAX_LOOKUP_BATCH_IDS
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
 _SHARD_PATTERN = re.compile(r"^[0-9a-f]{2}$")
 _SOURCE_SEMAPHORE = threading.BoundedSemaphore(EIDR_SOURCE_SEMAPHORE_PERMITS)
@@ -1470,6 +1482,311 @@ class EidrBackfillBatchResult:
     watermark_object: ObjectRef | None = None
 
 
+class EidrBackfillStopReason(StrEnum):
+    MANIFEST_EXHAUSTED = "MANIFEST_EXHAUSTED"
+    MAX_BATCHES = "MAX_BATCHES"
+    MAX_DURATION = "MAX_DURATION"
+    MAX_IDS = "MAX_IDS"
+
+
+class EidrBackfillRunBatch(V2ContractModel):
+    """One preserved single-batch commit inside a bounded manifest run."""
+
+    batch_index: int = Field(ge=0)
+    start_ordinal: int = Field(ge=0)
+    next_ordinal: int = Field(gt=0)
+    lookup_batch_id: str
+    lookup_batch_object: ObjectRef
+    receipt_id: str
+    receipt_object: ObjectRef
+    watermark_id: str
+    watermark_object: ObjectRef
+    connector_batch_id: str | None = None
+    connector_batch_object: ObjectRef | None = None
+    record_set_id: str | None = None
+    record_set_object: ObjectRef | None = None
+    found_count: int = Field(ge=0)
+    not_found_count: int = Field(ge=0)
+    attempt_count: int = Field(ge=1)
+    retry_count: int = Field(ge=0)
+    rate_limit_count: int = Field(ge=0)
+
+    @field_validator(
+        "lookup_batch_id",
+        "receipt_id",
+        "watermark_id",
+        "connector_batch_id",
+        "record_set_id",
+    )
+    @classmethod
+    def validate_digest(cls, value: str | None) -> str | None:
+        return None if value is None else require_sha256(value)
+
+    @model_validator(mode="after")
+    def validate_batch(self) -> Self:
+        item_count = self.next_ordinal - self.start_ordinal
+        if item_count <= 0:
+            raise ValueError("backfill run batch ordinal range must be non-empty")
+        if self.found_count + self.not_found_count != item_count:
+            raise ValueError("backfill run batch counts do not match its range")
+        if self.attempt_count < item_count:
+            raise ValueError("backfill run batch attempts are below its item count")
+        if self.retry_count != self.attempt_count - item_count:
+            raise ValueError("backfill run batch retry count does not match attempts")
+        if self.rate_limit_count > self.retry_count:
+            raise ValueError("backfill run batch rate limits exceed retries")
+        _validate_json_control_ref(
+            self.lookup_batch_object,
+            label="run lookup batch",
+            media_type=LOOKUP_BATCH_MEDIA_TYPE,
+        )
+        _validate_json_control_ref(
+            self.receipt_object,
+            label="run lookup receipt",
+            media_type=LOOKUP_RECEIPT_MEDIA_TYPE,
+        )
+        _validate_json_control_ref(
+            self.watermark_object,
+            label="run backfill watermark",
+            media_type=BACKFILL_WATERMARK_MEDIA_TYPE,
+        )
+        capture_values = (
+            self.connector_batch_id,
+            self.connector_batch_object,
+            self.record_set_id,
+            self.record_set_object,
+        )
+        if any(value is not None for value in capture_values) != all(
+            value is not None for value in capture_values
+        ):
+            raise ValueError("backfill run Connector capture references must be paired")
+        if (self.found_count > 0) != (self.connector_batch_id is not None):
+            raise ValueError("backfill run capture presence must match found records")
+        if self.connector_batch_object is not None:
+            _validate_json_control_ref(
+                self.connector_batch_object,
+                label="run Connector batch",
+                media_type=(
+                    "application/vnd.video-media-catalog.connector-batch.v2+json"
+                ),
+            )
+        if self.record_set_object is not None:
+            _validate_json_control_ref(
+                self.record_set_object,
+                label="run Connector record set",
+                media_type=("application/vnd.video-media-catalog.record-set.v2+json"),
+            )
+        return self
+
+
+class EidrBackfillRunManifest(V2ContractModel):
+    """Bounded index of independent partial captures for Source Silver fan-out."""
+
+    schema_version: str = "1.0"
+    run_manifest_id: str
+    discovered_manifest_id: str
+    discovered_manifest_object: ObjectRef
+    source_binding_id: str
+    authorization_id: str
+    start_ordinal: int = Field(ge=0)
+    next_ordinal: int = Field(ge=0)
+    total_id_count: int = Field(ge=0)
+    watermark_before_id: str | None = None
+    watermark_before_object: ObjectRef | None = None
+    watermark_after_id: str | None = None
+    watermark_after_object: ObjectRef | None = None
+    batches: tuple[EidrBackfillRunBatch, ...] = Field(
+        max_length=MAX_BACKFILL_MAX_BATCHES
+    )
+    batch_count: int = Field(ge=0, le=MAX_BACKFILL_MAX_BATCHES)
+    attempted_id_count: int = Field(ge=0, le=MAX_BACKFILL_MAX_IDS)
+    found_count: int = Field(ge=0)
+    not_found_count: int = Field(ge=0)
+    attempt_count: int = Field(ge=0)
+    retry_count: int = Field(ge=0)
+    rate_limit_count: int = Field(ge=0)
+    completed: bool
+    stop_reason: EidrBackfillStopReason
+    source_completeness: Literal["PARTIAL"] = "PARTIAL"
+    complete_feed_allowed: Literal[False] = False
+    created_at: str
+
+    @field_validator(
+        "run_manifest_id",
+        "discovered_manifest_id",
+        "source_binding_id",
+        "authorization_id",
+        "watermark_before_id",
+        "watermark_after_id",
+    )
+    @classmethod
+    def validate_digest(cls, value: str | None) -> str | None:
+        return None if value is None else require_sha256(value)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_created_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @model_validator(mode="after")
+    def validate_manifest(self, info: ValidationInfo) -> Self:
+        _validate_json_control_ref(
+            self.discovered_manifest_object,
+            label="run discovered-ID manifest",
+            media_type=DISCOVERED_ID_MANIFEST_MEDIA_TYPE,
+        )
+        if (self.watermark_before_id is None) != (self.watermark_before_object is None):
+            raise ValueError("run input watermark ID/ObjectRef must be paired")
+        if (self.watermark_after_id is None) != (self.watermark_after_object is None):
+            raise ValueError("run output watermark ID/ObjectRef must be paired")
+        for label, reference in (
+            ("run input watermark", self.watermark_before_object),
+            ("run output watermark", self.watermark_after_object),
+        ):
+            if reference is not None:
+                _validate_json_control_ref(
+                    reference,
+                    label=label,
+                    media_type=BACKFILL_WATERMARK_MEDIA_TYPE,
+                )
+        if not (self.start_ordinal <= self.next_ordinal <= self.total_id_count):
+            raise ValueError("backfill run ordinals exceed the discovered manifest")
+        if self.batch_count != len(self.batches):
+            raise ValueError("backfill run batch_count does not match batches")
+        if [item.batch_index for item in self.batches] != list(
+            range(len(self.batches))
+        ):
+            raise ValueError("backfill run batch indexes must be contiguous")
+        for field_name in (
+            "lookup_batch_id",
+            "receipt_id",
+            "watermark_id",
+            "connector_batch_id",
+            "record_set_id",
+        ):
+            values = [
+                value
+                for batch in self.batches
+                if (value := getattr(batch, field_name)) is not None
+            ]
+            if len(values) != len(set(values)):
+                raise ValueError(f"backfill run contains duplicate {field_name} values")
+        expected_ordinal = self.start_ordinal
+        for batch in self.batches:
+            if batch.start_ordinal != expected_ordinal:
+                raise ValueError("backfill run batch ordinals must be contiguous")
+            expected_ordinal = batch.next_ordinal
+        if expected_ordinal != self.next_ordinal:
+            raise ValueError("backfill run next ordinal does not match batches")
+        if self.attempted_id_count != self.next_ordinal - self.start_ordinal:
+            raise ValueError("backfill run attempted IDs do not match its range")
+        for field_name in (
+            "found_count",
+            "not_found_count",
+            "attempt_count",
+            "retry_count",
+            "rate_limit_count",
+        ):
+            if getattr(self, field_name) != sum(
+                getattr(batch, field_name) for batch in self.batches
+            ):
+                raise ValueError(
+                    f"backfill run {field_name} does not match its batches"
+                )
+        if self.found_count + self.not_found_count != self.attempted_id_count:
+            raise ValueError("backfill run result counts do not match attempted IDs")
+        if self.batches:
+            if (
+                self.watermark_after_id != self.batches[-1].watermark_id
+                or self.watermark_after_object != self.batches[-1].watermark_object
+            ):
+                raise ValueError("backfill run output watermark does not match batches")
+        elif (
+            self.watermark_after_id != self.watermark_before_id
+            or self.watermark_after_object != self.watermark_before_object
+        ):
+            raise ValueError("empty backfill run must preserve its input watermark")
+        exhausted = self.next_ordinal == self.total_id_count
+        if self.completed != exhausted:
+            raise ValueError("backfill run completed flag does not match its ordinal")
+        if exhausted != (self.stop_reason == EidrBackfillStopReason.MANIFEST_EXHAUSTED):
+            raise ValueError("backfill run stop reason does not match completion")
+        if not (info.context or {}).get("skip_identity"):
+            expected = deterministic_key(
+                "eidr-backfill-run-manifest-v1",
+                _backfill_run_manifest_identity(self),
+            )
+            if self.run_manifest_id != expected:
+                raise ValueError("run_manifest_id does not match backfill run manifest")
+        return self
+
+
+def _backfill_run_manifest_identity(
+    manifest: EidrBackfillRunManifest,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": manifest.schema_version,
+        "discoveredManifestId": manifest.discovered_manifest_id,
+        "discoveredManifestObject": _object_identity(
+            manifest.discovered_manifest_object
+        ),
+        "sourceBindingId": manifest.source_binding_id,
+        "authorizationId": manifest.authorization_id,
+        "startOrdinal": manifest.start_ordinal,
+        "nextOrdinal": manifest.next_ordinal,
+        "totalIdCount": manifest.total_id_count,
+        "watermarkBeforeId": manifest.watermark_before_id,
+        "watermarkBeforeObject": (
+            None
+            if manifest.watermark_before_object is None
+            else _object_identity(manifest.watermark_before_object)
+        ),
+        "watermarkAfterId": manifest.watermark_after_id,
+        "watermarkAfterObject": (
+            None
+            if manifest.watermark_after_object is None
+            else _object_identity(manifest.watermark_after_object)
+        ),
+        "batches": [
+            item.model_dump(mode="json", by_alias=True, exclude_none=True)
+            for item in manifest.batches
+        ],
+        "batchCount": manifest.batch_count,
+        "attemptedIdCount": manifest.attempted_id_count,
+        "foundCount": manifest.found_count,
+        "notFoundCount": manifest.not_found_count,
+        "attemptCount": manifest.attempt_count,
+        "retryCount": manifest.retry_count,
+        "rateLimitCount": manifest.rate_limit_count,
+        "completed": manifest.completed,
+        "stopReason": manifest.stop_reason,
+        "sourceCompleteness": manifest.source_completeness,
+        "completeFeedAllowed": manifest.complete_feed_allowed,
+        "createdAt": manifest.created_at,
+    }
+
+
+def build_eidr_backfill_run_manifest(**values: Any) -> EidrBackfillRunManifest:
+    provisional = EidrBackfillRunManifest.model_validate(
+        {"run_manifest_id": _ZERO_DIGEST, **values},
+        context={"skip_identity": True},
+    )
+    normalized = provisional.model_dump(mode="python")
+    normalized["run_manifest_id"] = deterministic_key(
+        "eidr-backfill-run-manifest-v1",
+        _backfill_run_manifest_identity(provisional),
+    )
+    return EidrBackfillRunManifest.model_validate(normalized)
+
+
+@dataclass(frozen=True)
+class EidrBackfillRunResult:
+    manifest: EidrBackfillRunManifest
+    manifest_object: ObjectRef
+    watermark: EidrBackfillWatermark | None
+    watermark_object: ObjectRef | None
+
+
 def _read_page(
     *,
     pointer: DiscoveredEidrIdPageRef,
@@ -1712,8 +2029,8 @@ def _run_eidr_exact_lookup_batch(
         raise ValueError("batch_size is outside the supported bound")
     if not 0 < max_xml_bytes <= MAX_MAX_XML_BYTES:
         raise ValueError("max_xml_bytes is outside the supported bound")
-    if record_shard_bytes < 1:
-        raise ValueError("record_shard_bytes must be positive")
+    if not 0 < record_shard_bytes <= MAX_RECORD_SHARD_BYTES:
+        raise ValueError("record_shard_bytes is outside the supported bound")
     _require_model_reference(
         manifest,
         manifest_object,
@@ -1860,7 +2177,9 @@ def _run_eidr_exact_lookup_batch(
             policy_digest=policy.digest,
             transport_kind=TransportKind.API,
             serialization=Serialization.XML,
-            change_semantics=ChangeSemantics.FULL_SNAPSHOT,
+            change_semantics=(
+                ChangeSemantics.FULL_SNAPSHOT if complete else ChangeSemantics.DELTA
+            ),
             completeness=(Completeness.COMPLETE if complete else Completeness.PARTIAL),
             delete_coverage=(
                 DeleteCoverage.SNAPSHOT_DIFF if complete else DeleteCoverage.NONE
@@ -2012,4 +2331,317 @@ def _run_eidr_exact_lookup_batch(
         receipt_object=receipt_object,
         watermark=next_watermark,
         watermark_object=next_watermark_object,
+    )
+
+
+def read_eidr_backfill_run_manifest(
+    *,
+    reference: ObjectRef,
+    store: RuntimeObjectStore,
+) -> EidrBackfillRunManifest:
+    """Read and content-bind one aggregate backfill run manifest."""
+
+    _validate_json_control_ref(
+        reference,
+        label="EIDR backfill run manifest",
+        media_type=BACKFILL_RUN_MANIFEST_MEDIA_TYPE,
+    )
+    store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
+    with tempfile.TemporaryDirectory(prefix="eidr-backfill-run-") as directory:
+        materialized = store.download(
+            reference,
+            Path(directory) / "manifest.json",
+            max_bytes=CONTROL_MAX_BYTES,
+        )
+        manifest = EidrBackfillRunManifest.model_validate_json(
+            materialized.path.read_bytes()
+        )
+    _require_model_reference(
+        manifest,
+        reference,
+        label="EIDR backfill run manifest",
+        media_type=BACKFILL_RUN_MANIFEST_MEDIA_TYPE,
+    )
+    return manifest
+
+
+def verify_eidr_backfill_run_manifest_objects(
+    *,
+    manifest: EidrBackfillRunManifest,
+    store: RuntimeObjectStore,
+) -> None:
+    """Verify every immutable control ObjectRef nested in a run manifest."""
+
+    references: list[ObjectRef] = [manifest.discovered_manifest_object]
+    references.extend(
+        reference
+        for reference in (
+            manifest.watermark_before_object,
+            manifest.watermark_after_object,
+        )
+        if reference is not None
+    )
+    for batch in manifest.batches:
+        references.extend(
+            (
+                batch.lookup_batch_object,
+                batch.receipt_object,
+                batch.watermark_object,
+            )
+        )
+        references.extend(
+            reference
+            for reference in (
+                batch.connector_batch_object,
+                batch.record_set_object,
+            )
+            if reference is not None
+        )
+    verified: set[tuple[str, str, int, str | None, str | None]] = set()
+    for reference in references:
+        identity = (
+            reference.uri,
+            reference.checksum.value,
+            reference.size_bytes,
+            reference.etag,
+            reference.object_version,
+        )
+        if identity in verified:
+            continue
+        store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
+        verified.add(identity)
+
+
+def expand_eidr_source_silver_inputs(
+    manifest: EidrBackfillRunManifest,
+) -> tuple[tuple[ObjectRef, ObjectRef], ...]:
+    """Return existing Connector batch/record-set pairs for Source Silver fan-out."""
+
+    inputs: list[tuple[ObjectRef, ObjectRef]] = []
+    for batch in manifest.batches:
+        if batch.connector_batch_object is None:
+            continue
+        assert batch.record_set_object is not None
+        inputs.append((batch.connector_batch_object, batch.record_set_object))
+    return tuple(inputs)
+
+
+def run_eidr_exact_lookup_manifest(
+    *,
+    manifest: DiscoveredEidrIdManifest,
+    manifest_object: ObjectRef,
+    destination_prefix: str,
+    acquired_at: str,
+    image_digest: str,
+    store: RuntimeObjectStore,
+    provider: EidrProvider | None,
+    watermark: EidrBackfillWatermark | None = None,
+    watermark_object: ObjectRef | None = None,
+    batch_size: int = DEFAULT_LOOKUP_BATCH_IDS,
+    max_xml_bytes: int = DEFAULT_MAX_XML_BYTES,
+    record_shard_bytes: int = DEFAULT_RECORD_SHARD_BYTES,
+    max_batches: int = DEFAULT_BACKFILL_MAX_BATCHES,
+    max_duration_seconds: float = DEFAULT_BACKFILL_MAX_DURATION_SECONDS,
+    max_ids: int = DEFAULT_BACKFILL_MAX_IDS,
+    clock=time.monotonic,
+) -> EidrBackfillRunResult:
+    """Reuse the single-batch primitive until one reviewed run bound is reached."""
+
+    if (
+        isinstance(max_batches, bool)
+        or not isinstance(max_batches, int)
+        or not 0 < max_batches <= MAX_BACKFILL_MAX_BATCHES
+    ):
+        raise ValueError("max_batches is outside the supported bound")
+    duration = float(max_duration_seconds)
+    if (
+        not math.isfinite(duration)
+        or not 0 < duration <= MAX_BACKFILL_MAX_DURATION_SECONDS
+    ):
+        raise ValueError("max_duration_seconds is outside the supported bound")
+    if (
+        isinstance(max_ids, bool)
+        or not isinstance(max_ids, int)
+        or not 0 < max_ids <= MAX_BACKFILL_MAX_IDS
+    ):
+        raise ValueError("max_ids is outside the supported bound")
+    if not 0 < batch_size <= MAX_LOOKUP_BATCH_IDS:
+        raise ValueError("batch_size is outside the supported bound")
+    if not 0 < max_xml_bytes <= MAX_MAX_XML_BYTES:
+        raise ValueError("max_xml_bytes is outside the supported bound")
+    if not 0 < record_shard_bytes <= MAX_RECORD_SHARD_BYTES:
+        raise ValueError("record_shard_bytes is outside the supported bound")
+    acquired = require_rfc3339(acquired_at, label="acquired_at")
+    image = require_sha256(image_digest, label="image_digest")
+    authorization = _validate_provider(provider, store=store)
+    _require_model_reference(
+        manifest,
+        manifest_object,
+        label="discovered-ID manifest",
+        media_type=DISCOVERED_ID_MANIFEST_MEDIA_TYPE,
+    )
+    store.verify(manifest_object, max_bytes=CONTROL_MAX_BYTES)
+    if (watermark is None) != (watermark_object is None):
+        raise ValueError("watermark and watermark ObjectRef must be supplied together")
+    if watermark is not None and watermark_object is not None:
+        _require_model_reference(
+            watermark,
+            watermark_object,
+            label="EIDR backfill watermark",
+            media_type=BACKFILL_WATERMARK_MEDIA_TYPE,
+        )
+        store.verify(watermark_object, max_bytes=CONTROL_MAX_BYTES)
+        if (
+            watermark.manifest_id != manifest.manifest_id
+            or watermark.source_binding_id != manifest.source.binding_id
+            or watermark.total_id_count != manifest.id_count
+        ):
+            raise ValueError("watermark does not bind this discovered-ID manifest")
+
+    start_ordinal = 0 if watermark is None else watermark.next_ordinal
+    current_watermark = watermark
+    current_watermark_object = watermark_object
+    entries: list[EidrBackfillRunBatch] = []
+    started_at = float(clock())
+    if not math.isfinite(started_at):
+        raise ValueError("runner clock returned a non-finite value")
+
+    while True:
+        current_ordinal = (
+            start_ordinal
+            if current_watermark is None
+            else current_watermark.next_ordinal
+        )
+        attempted = current_ordinal - start_ordinal
+        if current_ordinal == manifest.id_count:
+            stop_reason = EidrBackfillStopReason.MANIFEST_EXHAUSTED
+            break
+        if attempted >= max_ids:
+            stop_reason = EidrBackfillStopReason.MAX_IDS
+            break
+        if len(entries) >= max_batches:
+            stop_reason = EidrBackfillStopReason.MAX_BATCHES
+            break
+        now = float(clock())
+        if not math.isfinite(now) or now < started_at:
+            raise ValueError("runner clock must be finite and monotonic")
+        if now - started_at >= duration:
+            stop_reason = EidrBackfillStopReason.MAX_DURATION
+            break
+
+        effective_batch_size = min(
+            batch_size,
+            max_ids - attempted,
+            manifest.id_count - current_ordinal,
+        )
+        result = run_eidr_exact_lookup_batch(
+            manifest=manifest,
+            manifest_object=manifest_object,
+            destination_prefix=destination_prefix,
+            acquired_at=acquired,
+            image_digest=image,
+            store=store,
+            provider=provider,
+            watermark=current_watermark,
+            watermark_object=current_watermark_object,
+            batch_size=effective_batch_size,
+            max_xml_bytes=max_xml_bytes,
+            record_shard_bytes=record_shard_bytes,
+            complete_feed_proof=None,
+        )
+        if (
+            result.lookup_batch is None
+            or result.lookup_batch_object is None
+            or result.receipt is None
+            or result.receipt_object is None
+            or result.watermark is None
+            or result.watermark_object is None
+        ):
+            raise RuntimeError("non-empty EIDR batch omitted commit artifacts")
+        found_count = sum(
+            item.status == EidrLookupStatus.FOUND for item in result.receipt.items
+        )
+        not_found_count = len(result.receipt.items) - found_count
+        attempt_count = sum(item.attempt_count for item in result.receipt.items)
+        entries.append(
+            EidrBackfillRunBatch(
+                batch_index=len(entries),
+                start_ordinal=result.receipt.start_ordinal,
+                next_ordinal=result.receipt.next_ordinal,
+                lookup_batch_id=result.lookup_batch.batch_id,
+                lookup_batch_object=result.lookup_batch_object,
+                receipt_id=result.receipt.receipt_id,
+                receipt_object=result.receipt_object,
+                watermark_id=result.watermark.watermark_id,
+                watermark_object=result.watermark_object,
+                connector_batch_id=result.receipt.connector_batch_id,
+                connector_batch_object=result.receipt.connector_batch_object,
+                record_set_id=result.receipt.record_set_id,
+                record_set_object=result.receipt.record_set_object,
+                found_count=found_count,
+                not_found_count=not_found_count,
+                attempt_count=attempt_count,
+                retry_count=result.receipt.retry_count,
+                rate_limit_count=result.receipt.rate_limit_count,
+            )
+        )
+        current_watermark = result.watermark
+        current_watermark_object = result.watermark_object
+
+    next_ordinal = (
+        start_ordinal if current_watermark is None else current_watermark.next_ordinal
+    )
+    run_manifest = build_eidr_backfill_run_manifest(
+        discovered_manifest_id=manifest.manifest_id,
+        discovered_manifest_object=manifest_object,
+        source_binding_id=manifest.source.binding_id,
+        authorization_id=authorization.authorization_id,
+        start_ordinal=start_ordinal,
+        next_ordinal=next_ordinal,
+        total_id_count=manifest.id_count,
+        watermark_before_id=(None if watermark is None else watermark.watermark_id),
+        watermark_before_object=watermark_object,
+        watermark_after_id=(
+            None if current_watermark is None else current_watermark.watermark_id
+        ),
+        watermark_after_object=current_watermark_object,
+        batches=tuple(entries),
+        batch_count=len(entries),
+        attempted_id_count=next_ordinal - start_ordinal,
+        found_count=sum(item.found_count for item in entries),
+        not_found_count=sum(item.not_found_count for item in entries),
+        attempt_count=sum(item.attempt_count for item in entries),
+        retry_count=sum(item.retry_count for item in entries),
+        rate_limit_count=sum(item.rate_limit_count for item in entries),
+        completed=next_ordinal == manifest.id_count,
+        stop_reason=stop_reason,
+        source_completeness="PARTIAL",
+        complete_feed_allowed=False,
+        created_at=acquired,
+    )
+    timestamped_store = _TimestampedStore(store, acquired)
+    run_manifest_object = timestamped_store.upload_bytes(
+        run_manifest.json_bytes(),
+        join_uri(
+            destination_prefix,
+            "eidr",
+            "backfill-run-manifests",
+            run_manifest.run_manifest_id.removeprefix("sha256:"),
+            "manifest.json",
+        ),
+        media_type=BACKFILL_RUN_MANIFEST_MEDIA_TYPE,
+        object_format="OBJECT_FORMAT_JSON",
+        max_bytes=CONTROL_MAX_BYTES,
+    ).object_ref
+    _require_model_reference(
+        run_manifest,
+        run_manifest_object,
+        label="EIDR backfill run manifest",
+        media_type=BACKFILL_RUN_MANIFEST_MEDIA_TYPE,
+    )
+    return EidrBackfillRunResult(
+        manifest=run_manifest,
+        manifest_object=run_manifest_object,
+        watermark=current_watermark,
+        watermark_object=current_watermark_object,
     )

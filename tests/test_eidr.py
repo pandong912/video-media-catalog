@@ -22,6 +22,7 @@ def test_namespace_tolerant_offline_parser_extracts_metadata(
     movie = records[0]
     assert movie["id"] == "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C"
     assert movie["referentType"] == "Movie"
+    assert movie["structuralType"] == "Abstraction"
     assert movie["releaseDate"] == "2020-01-02"
     assert movie["duration"] == "PT2H"
     assert movie["countries"] == ["US"]
@@ -41,6 +42,24 @@ def test_namespace_tolerant_offline_parser_extracts_metadata(
     assert records[4]["recordType"] == "EPISODE"
     assert records[4]["referentType"] == "TV"
     assert records[5]["recordType"] == "EDIT"
+    assert records[5]["structuralType"] == "Performance"
+
+
+def test_parser_extracts_digital_structural_type(tmp_path: Path) -> None:
+    path = tmp_path / "digital.xml"
+    path.write_text(
+        """
+        <FullMetadata xmlns="urn:eidr:test">
+          <BaseObjectData>
+            <ID>10.5240/5555-5555-5555-5555-5555-A</ID>
+            <ReferentType>Movie</ReferentType>
+            <StructuralType>Digital</StructuralType>
+          </BaseObjectData>
+        </FullMetadata>
+        """,
+        encoding="utf-8",
+    )
+    assert next(iter_eidr_payloads(path))["structuralType"] == "Digital"
 
 
 def test_network_lookup_requires_explicit_provider() -> None:

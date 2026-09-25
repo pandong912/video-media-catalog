@@ -4,6 +4,7 @@
     <md:BaseObjectData>
       <md:ID>10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C</md:ID>
       <md:ReferentType>Movie</md:ReferentType>
+      <md:StructuralType>Abstraction</md:StructuralType>
       <md:ResourceName xml:lang="en">Example Movie EIDR</md:ResourceName>
       <md:AlternateResourceName xml:lang="zh">EIDR 示例电影</md:AlternateResourceName>
       <md:OriginalLanguage>en</md:OriginalLanguage>
@@ -18,6 +19,7 @@
     <md:BaseObjectData>
       <md:ID>10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A</md:ID>
       <md:ReferentType>Movie</md:ReferentType>
+      <md:StructuralType>Abstraction</md:StructuralType>
       <md:ResourceName xml:lang="en">Conflicting exact record</md:ResourceName>
       <md:AlternateID domain="IMDB">tt9999999</md:AlternateID>
     </md:BaseObjectData>
@@ -26,6 +28,7 @@
     <md:BaseObjectData>
       <md:ID>10.5240/1111-1111-1111-1111-1111-A</md:ID>
       <md:ReferentType>TV</md:ReferentType>
+      <md:StructuralType>Abstraction</md:StructuralType>
       <md:ResourceName xml:lang="en">Offline Series</md:ResourceName>
     </md:BaseObjectData>
     <md:SeriesInfo>
@@ -37,6 +40,7 @@
     <md:BaseObjectData>
       <md:ID>10.5240/2222-2222-2222-2222-2222-A</md:ID>
       <md:ReferentType>TV</md:ReferentType>
+      <md:StructuralType>Abstraction</md:StructuralType>
       <md:ResourceName xml:lang="en">Offline Season</md:ResourceName>
     </md:BaseObjectData>
     <md:SeasonInfo>
@@ -48,6 +52,7 @@
     <md:BaseObjectData>
       <md:ID>10.5240/3333-3333-3333-3333-3333-A</md:ID>
       <md:ReferentType>TV</md:ReferentType>
+      <md:StructuralType>Abstraction</md:StructuralType>
       <md:ResourceName xml:lang="en">Offline Episode</md:ResourceName>
     </md:BaseObjectData>
     <md:EpisodeInfo>
@@ -59,6 +64,7 @@
     <md:BaseObjectData>
       <md:ID>10.5240/4444-4444-4444-4444-4444-A</md:ID>
       <md:ReferentType>Movie</md:ReferentType>
+      <md:StructuralType>Performance</md:StructuralType>
       <md:ResourceName xml:lang="en">Offline Edit</md:ResourceName>
     </md:BaseObjectData>
     <md:EditInfo>

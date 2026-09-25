@@ -9,6 +9,7 @@ from typing import Any
 
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.douban import douban_jump_url
+from video_media_catalog.eidr import normalize_eidr_id
 from video_media_catalog.gold import (
     RESEARCH_CONTEXT_ID,
     GoldAssertionLineage,
@@ -38,6 +39,20 @@ _ATTRIBUTE_PREDICATES = {
     "average_runtime_minutes": "averageRuntimeMinutes",
     "genre": "genres",
 }
+
+
+def _external_identifier_url(
+    namespace: str,
+    identifier: str,
+    referent_kind: str,
+) -> str | None:
+    if namespace.strip().lower() == "eidr-content":
+        try:
+            normalized = normalize_eidr_id(identifier)
+        except ValueError:
+            return None
+        return f"https://doi.org/{normalized}"
+    return douban_jump_url(namespace, identifier, referent_kind)
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -225,7 +240,11 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
             "value": identifier,
             "issuer": issuer,
             "referentKind": referent_kind,
-            "url": douban_jump_url(namespace, identifier, referent_kind),
+            "url": _external_identifier_url(
+                namespace,
+                identifier,
+                referent_kind,
+            ),
         }
         for namespace, identifier, issuer, referent_kind in identifiers[
             :MAX_IDENTIFIERS

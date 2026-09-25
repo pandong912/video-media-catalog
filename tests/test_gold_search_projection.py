@@ -157,6 +157,17 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
                 ),
                 "selected_assertion_id": None,
             },
+            {
+                "namespace_id": "eidr-content",
+                "value": "doi:10.5240/aaaa-bbbb-cccc-dddd-eeee-c",
+                "issuer": "EIDR Association",
+                "referent_kind": "EDITORIAL_WORK",
+                **_wikidata_lineage_fields(
+                    1007,
+                    source_path="/claims/P2704/0/mainsnak/datavalue/value",
+                ),
+                "selected_assertion_id": None,
+            },
         ],
         "relation_summary": [{"predicate": "episode_of", "count": 3}],
         "conflict_count": 1,
@@ -189,6 +200,9 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     )
     assert identifiers["douban-person"]["url"] == (
         "https://movie.douban.com/celebrity/30123456/"
+    )
+    assert identifiers["eidr-content"]["url"] == (
+        "https://doi.org/10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C"
     )
     assert document["conflictPredicates"] == ["status"]
     assert document["contextId"] == "research"

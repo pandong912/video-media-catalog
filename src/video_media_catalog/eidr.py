@@ -218,12 +218,14 @@ def parse_eidr_element(element: ET.Element) -> dict[str, object]:
     except ValueError as exc:
         raise EidrParseError(str(exc)) from exc
     referent_type = _first_text(element, {"ReferentType"})
+    structural_type = _first_text(element, {"StructuralType"})
     modified = _first_text(
         element, {"LastModificationDate", "LastModified", "Modified"}
     )
     return {
         "id": eidr_id,
         "referentType": referent_type,
+        "structuralType": structural_type,
         "recordType": _record_type(element),
         "titles": _extract_titles(element),
         "languages": _extract_values(

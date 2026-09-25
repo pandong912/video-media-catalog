@@ -1,4 +1,4 @@
-"""CLI boundaries for snapshot discovery and injected EIDR exact lookup."""
+"""CLI boundaries for EIDR discovery, exact lookup, and Silver fan-out."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from video_media_catalog.canonical import canonical_json
+from video_media_catalog.canonical import canonical_json, canonical_json_bytes
 from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_snapshot import (
     CONTROL_MAX_BYTES,
@@ -18,22 +18,44 @@ from video_media_catalog.community_snapshot import (
     CommunitySilverSnapshotSet,
 )
 from video_media_catalog.eidr_backfill import (
+    BACKFILL_RUN_MANIFEST_MEDIA_TYPE,
     BACKFILL_WATERMARK_MEDIA_TYPE,
+    DEFAULT_BACKFILL_MAX_BATCHES,
+    DEFAULT_BACKFILL_MAX_DURATION_SECONDS,
+    DEFAULT_BACKFILL_MAX_IDS,
     DEFAULT_DISCOVERED_PAGE_IDS,
     DEFAULT_LOOKUP_BATCH_IDS,
     DEFAULT_MAX_XML_BYTES,
     DISCOVERED_ID_MANIFEST_MEDIA_TYPE,
     EIDR_SOURCE_SEMAPHORE_PERMITS,
+    MAX_BACKFILL_MAX_BATCHES,
+    MAX_BACKFILL_MAX_DURATION_SECONDS,
+    MAX_BACKFILL_MAX_IDS,
     MAX_DISCOVERED_PAGE_IDS,
     MAX_LOOKUP_BATCH_IDS,
     MAX_MAX_XML_BYTES,
+    MAX_RECORD_SHARD_BYTES,
     EidrCompleteFeedProof,
     EidrProvider,
     EidrProviderNotAuthorizedError,
+    expand_eidr_source_silver_inputs,
     extract_and_publish_discovered_eidr_ids,
     read_discovered_eidr_id_manifest,
+    read_eidr_backfill_run_manifest,
     read_eidr_backfill_watermark,
     run_eidr_exact_lookup_batch,
+    run_eidr_exact_lookup_manifest,
+    verify_eidr_backfill_run_manifest_objects,
+)
+from video_media_catalog.eidr_public_provider import (
+    DEFAULT_EIDR_PUBLIC_USER_AGENT,
+    DEFAULT_MAX_ATTEMPTS,
+    DEFAULT_MAX_RETRY_AFTER_SECONDS,
+    DEFAULT_MINIMUM_REQUEST_INTERVAL_SECONDS,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_RETRY_INITIAL_BACKOFF_SECONDS,
+    DEFAULT_RETRY_MAX_BACKOFF_SECONDS,
+    EidrPublicProvider,
 )
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
@@ -42,6 +64,11 @@ from video_media_catalog.v2_contracts import require_sha256
 
 DEFAULT_RECORD_SHARD_BYTES = 8 * 1024 * 1024
 MAX_URI_LENGTH = 2_048
+EIDR_AUTHORIZATION_EVIDENCE_MEDIA_TYPE = "application/json"
+DEFAULT_MAX_SOURCE_SILVER_INPUTS = DEFAULT_BACKFILL_MAX_BATCHES
+MAX_SOURCE_SILVER_INPUTS = MAX_BACKFILL_MAX_BATCHES
+DEFAULT_MAX_SOURCE_SILVER_OUTPUT_BYTES = 1024 * 1024
+MAX_SOURCE_SILVER_OUTPUT_BYTES = CONTROL_MAX_BYTES
 
 
 def _add_object_ref_args(
@@ -85,12 +112,74 @@ def _add_catalog_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--spark-packages")
 
 
+def _add_public_provider_args(parser: argparse.ArgumentParser) -> None:
+    _add_object_ref_args(parser, "authorization_evidence", required=False)
+    parser.add_argument("--authorization-issued-at")
+    parser.add_argument("--user-agent", default=DEFAULT_EIDR_PUBLIC_USER_AGENT)
+    parser.add_argument(
+        "--request-timeout-seconds",
+        type=float,
+        default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    )
+    parser.add_argument(
+        "--minimum-request-interval-seconds",
+        type=float,
+        default=DEFAULT_MINIMUM_REQUEST_INTERVAL_SECONDS,
+    )
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=DEFAULT_MAX_ATTEMPTS,
+    )
+    parser.add_argument(
+        "--retry-initial-backoff-seconds",
+        type=float,
+        default=DEFAULT_RETRY_INITIAL_BACKOFF_SECONDS,
+    )
+    parser.add_argument(
+        "--retry-max-backoff-seconds",
+        type=float,
+        default=DEFAULT_RETRY_MAX_BACKOFF_SECONDS,
+    )
+    parser.add_argument(
+        "--max-retry-after-seconds",
+        type=float,
+        default=DEFAULT_MAX_RETRY_AFTER_SECONDS,
+    )
+
+
+def _add_lookup_args(parser: argparse.ArgumentParser) -> None:
+    _add_object_ref_args(parser, "manifest", required=True)
+    _add_object_ref_args(parser, "watermark", required=False)
+    parser.add_argument("--destination-prefix", required=True)
+    parser.add_argument("--acquired-at", required=True)
+    parser.add_argument("--image-digest", required=True)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_LOOKUP_BATCH_IDS,
+    )
+    parser.add_argument(
+        "--max-xml-bytes",
+        type=int,
+        default=DEFAULT_MAX_XML_BYTES,
+    )
+    parser.add_argument(
+        "--record-shard-bytes",
+        type=int,
+        default=DEFAULT_RECORD_SHARD_BYTES,
+    )
+    _add_public_provider_args(parser)
+    _add_store_args(parser)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-eidr-backfill",
         description=(
-            "Extract pinned EIDR identifiers or run one authorized exact-ID batch. "
-            "No search, crawl, or default network provider is included. "
+            "Extract pinned EIDR identifiers or run bounded anonymous exact-ID "
+            "resolution. No title search, crawl, credentials, or complete-feed "
+            "semantics are provided. "
             f"Exact lookup is source-semaphore={EIDR_SOURCE_SEMAPHORE_PERMITS}."
         ),
     )
@@ -115,31 +204,60 @@ def build_parser() -> argparse.ArgumentParser:
     lookup = commands.add_parser(
         "lookup-batch",
         help=(
-            "run one bounded exact-ID batch with an injected authorized provider; "
+            "run one bounded exact-ID batch with a public or injected provider; "
             f"source semaphore={EIDR_SOURCE_SEMAPHORE_PERMITS}"
         ),
     )
-    _add_object_ref_args(lookup, "manifest", required=True)
-    _add_object_ref_args(lookup, "watermark", required=False)
-    lookup.add_argument("--destination-prefix", required=True)
-    lookup.add_argument("--acquired-at", required=True)
-    lookup.add_argument("--image-digest", required=True)
-    lookup.add_argument(
-        "--batch-size",
-        type=int,
-        default=DEFAULT_LOOKUP_BATCH_IDS,
+    _add_lookup_args(lookup)
+
+    manifest_lookup = commands.add_parser(
+        "lookup-manifest",
+        help=(
+            "run repeated partial exact-ID batches and publish one aggregate "
+            "Source Silver fan-out manifest"
+        ),
     )
-    lookup.add_argument(
-        "--max-xml-bytes",
+    _add_lookup_args(manifest_lookup)
+    manifest_lookup.add_argument(
+        "--max-batches",
         type=int,
-        default=DEFAULT_MAX_XML_BYTES,
+        default=DEFAULT_BACKFILL_MAX_BATCHES,
     )
-    lookup.add_argument(
-        "--record-shard-bytes",
+    manifest_lookup.add_argument(
+        "--max-duration-seconds",
+        type=float,
+        default=DEFAULT_BACKFILL_MAX_DURATION_SECONDS,
+    )
+    manifest_lookup.add_argument(
+        "--max-ids",
         type=int,
-        default=DEFAULT_RECORD_SHARD_BYTES,
+        default=DEFAULT_BACKFILL_MAX_IDS,
     )
-    _add_store_args(lookup)
+
+    expansion = commands.add_parser(
+        "expand-source-silver-inputs",
+        help=(
+            "verify a pinned EIDR run manifest and emit bounded Connector "
+            "batch/record-set ObjectRef pairs for Argo withParam"
+        ),
+    )
+    _add_object_ref_args(expansion, "run_manifest", required=True)
+    expansion.add_argument(
+        "--allow-partial-run",
+        action="store_true",
+        help="explicitly permit an incomplete run; disabled by default",
+    )
+    expansion.add_argument(
+        "--max-inputs",
+        type=int,
+        default=DEFAULT_MAX_SOURCE_SILVER_INPUTS,
+    )
+    expansion.add_argument(
+        "--max-output-bytes",
+        type=int,
+        default=DEFAULT_MAX_SOURCE_SILVER_OUTPUT_BYTES,
+    )
+    _add_store_args(expansion)
     return parser
 
 
@@ -213,6 +331,56 @@ def _object_ref(
     )
 
 
+def _resolve_lookup_provider(
+    parsed: argparse.Namespace,
+    *,
+    injected: EidrProvider | None,
+) -> EidrProvider:
+    evidence_supplied = any(
+        (
+            parsed.authorization_evidence_uri is not None,
+            parsed.authorization_evidence_hash is not None,
+            parsed.authorization_evidence_size is not None,
+            bool(str(parsed.authorization_evidence_version or "").strip()),
+            bool(str(parsed.authorization_evidence_etag or "").strip()),
+            bool(str(parsed.authorization_issued_at or "").strip()),
+        )
+    )
+    if injected is not None:
+        if evidence_supplied:
+            raise ValueError(
+                "injected provider cannot be combined with public provider evidence"
+            )
+        return injected
+    if not evidence_supplied:
+        raise EidrProviderNotAuthorizedError(
+            "lookup command requires an injected provider or pinned public "
+            "authorization evidence"
+        )
+    evidence = _object_ref(
+        parsed,
+        "authorization_evidence",
+        media_type=EIDR_AUTHORIZATION_EVIDENCE_MEDIA_TYPE,
+        required=True,
+    )
+    assert evidence is not None
+    issued_at = str(parsed.authorization_issued_at or "").strip()
+    if not issued_at:
+        raise ValueError("public provider requires --authorization-issued-at")
+    return EidrPublicProvider(
+        authorization_object=evidence,
+        authorization_issued_at=issued_at,
+        user_agent=parsed.user_agent,
+        request_timeout_seconds=parsed.request_timeout_seconds,
+        minimum_request_interval_seconds=(parsed.minimum_request_interval_seconds),
+        max_attempts=parsed.max_attempts,
+        max_xml_bytes=parsed.max_xml_bytes,
+        retry_initial_backoff_seconds=parsed.retry_initial_backoff_seconds,
+        retry_max_backoff_seconds=parsed.retry_max_backoff_seconds,
+        max_retry_after_seconds=parsed.max_retry_after_seconds,
+    )
+
+
 def _output_prefix(value: str) -> str:
     normalized = _validate_uri(value, label="destination prefix")
     return normalized.rstrip("/")
@@ -227,6 +395,20 @@ def _runtime_store(
     local = urlsplit(destination_prefix).scheme == "file" and all(
         urlsplit(reference.uri).scheme == "file" for reference in input_refs
     )
+    return BoundedObjectStore(
+        region=parsed.aws_region,
+        endpoint_url=parsed.s3_endpoint,
+        path_style_access=parsed.s3_path_style_access,
+        client=object() if local else None,
+    )
+
+
+def _input_store(
+    parsed: argparse.Namespace,
+    *,
+    input_refs: Sequence[ObjectRef],
+) -> RuntimeObjectStore:
+    local = all(urlsplit(reference.uri).scheme == "file" for reference in input_refs)
     return BoundedObjectStore(
         region=parsed.aws_region,
         endpoint_url=parsed.s3_endpoint,
@@ -348,6 +530,56 @@ def _run_extract(
             session.stop()
 
 
+def _run_expand_source_silver_inputs(
+    parsed: argparse.Namespace,
+    *,
+    store: RuntimeObjectStore | None,
+) -> list[dict[str, Any]]:
+    if not 0 < parsed.max_inputs <= MAX_SOURCE_SILVER_INPUTS:
+        raise ValueError("max-inputs is outside the supported bound")
+    if not 0 < parsed.max_output_bytes <= MAX_SOURCE_SILVER_OUTPUT_BYTES:
+        raise ValueError("max-output-bytes is outside the supported bound")
+    reference = _object_ref(
+        parsed,
+        "run_manifest",
+        media_type=BACKFILL_RUN_MANIFEST_MEDIA_TYPE,
+    )
+    assert reference is not None
+    runtime_store = store or _input_store(parsed, input_refs=(reference,))
+    manifest = read_eidr_backfill_run_manifest(
+        reference=reference,
+        store=runtime_store,
+    )
+    if not manifest.completed and not parsed.allow_partial_run:
+        raise ValueError("incomplete EIDR run manifest requires --allow-partial-run")
+    inputs = expand_eidr_source_silver_inputs(manifest)
+    if len(inputs) > parsed.max_inputs:
+        raise ValueError("Source Silver input count exceeds --max-inputs")
+    output = [
+        {
+            "batchManifest": batch_manifest.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            ),
+            "recordSetManifest": record_set_manifest.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            ),
+        }
+        for batch_manifest, record_set_manifest in inputs
+    ]
+    output_bytes = len(canonical_json_bytes(output)) + 1
+    if output_bytes > parsed.max_output_bytes:
+        raise ValueError("Source Silver input JSON exceeds --max-output-bytes")
+    verify_eidr_backfill_run_manifest_objects(
+        manifest=manifest,
+        store=runtime_store,
+    )
+    return output
+
+
 def _run_lookup(
     parsed: argparse.Namespace,
     *,
@@ -355,17 +587,25 @@ def _run_lookup(
     complete_feed_proof: EidrCompleteFeedProof | None,
     store: RuntimeObjectStore | None,
 ) -> dict[str, Any]:
-    if provider is None:
-        raise EidrProviderNotAuthorizedError(
-            "lookup-batch requires an injected authorized EIDR provider"
-        )
     if not 0 < parsed.batch_size <= MAX_LOOKUP_BATCH_IDS:
         raise ValueError("batch-size is outside the supported bound")
     if not 0 < parsed.max_xml_bytes <= MAX_MAX_XML_BYTES:
         raise ValueError("max-xml-bytes is outside the supported bound")
-    if parsed.record_shard_bytes < 1:
-        raise ValueError("record-shard-bytes must be positive")
+    if not 0 < parsed.record_shard_bytes <= MAX_RECORD_SHARD_BYTES:
+        raise ValueError("record-shard-bytes is outside the supported bound")
+    if parsed.command == "lookup-manifest":
+        if complete_feed_proof is not None:
+            raise ValueError(
+                "lookup-manifest is always partial and rejects complete-feed proof"
+            )
+        if not 0 < parsed.max_batches <= MAX_BACKFILL_MAX_BATCHES:
+            raise ValueError("max-batches is outside the supported bound")
+        if not 0 < parsed.max_duration_seconds <= (MAX_BACKFILL_MAX_DURATION_SECONDS):
+            raise ValueError("max-duration-seconds is outside the supported bound")
+        if not 0 < parsed.max_ids <= MAX_BACKFILL_MAX_IDS:
+            raise ValueError("max-ids is outside the supported bound")
     destination = _output_prefix(parsed.destination_prefix)
+    resolved_provider = _resolve_lookup_provider(parsed, injected=provider)
     manifest_ref = _object_ref(
         parsed,
         "manifest",
@@ -378,7 +618,11 @@ def _run_lookup(
         media_type=BACKFILL_WATERMARK_MEDIA_TYPE,
         required=False,
     )
-    refs = (manifest_ref,) if watermark_ref is None else (manifest_ref, watermark_ref)
+    refs = (
+        manifest_ref,
+        resolved_provider.authorization.authorization_object,
+        *((watermark_ref,) if watermark_ref is not None else ()),
+    )
     runtime_store = store or _runtime_store(
         parsed,
         input_refs=refs,
@@ -396,6 +640,57 @@ def _run_lookup(
             store=runtime_store,
         )
     )
+    if parsed.command == "lookup-manifest":
+        run_result = run_eidr_exact_lookup_manifest(
+            manifest=manifest,
+            manifest_object=manifest_ref,
+            destination_prefix=destination,
+            acquired_at=parsed.acquired_at,
+            image_digest=parsed.image_digest,
+            store=runtime_store,
+            provider=resolved_provider,
+            watermark=watermark,
+            watermark_object=watermark_ref,
+            batch_size=parsed.batch_size,
+            max_xml_bytes=parsed.max_xml_bytes,
+            record_shard_bytes=parsed.record_shard_bytes,
+            max_batches=parsed.max_batches,
+            max_duration_seconds=parsed.max_duration_seconds,
+            max_ids=parsed.max_ids,
+        )
+        run_manifest = run_result.manifest
+        response = {
+            "completed": run_manifest.completed,
+            "stopReason": run_manifest.stop_reason,
+            "sourceCompleteness": run_manifest.source_completeness,
+            "completeFeedAllowed": run_manifest.complete_feed_allowed,
+            "runManifestId": run_manifest.run_manifest_id,
+            "runManifest": run_result.manifest_object.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            ),
+            "batchCount": run_manifest.batch_count,
+            "attemptedIdCount": run_manifest.attempted_id_count,
+            "foundCount": run_manifest.found_count,
+            "notFoundCount": run_manifest.not_found_count,
+            "attemptCount": run_manifest.attempt_count,
+            "retryCount": run_manifest.retry_count,
+            "rateLimitCount": run_manifest.rate_limit_count,
+            "sourceSilverInputCount": sum(
+                item.connector_batch_object is not None for item in run_manifest.batches
+            ),
+        }
+        if run_result.watermark is not None and run_result.watermark_object is not None:
+            response["watermarkId"] = run_result.watermark.watermark_id
+            response["watermark"] = run_result.watermark_object.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            )
+            response["nextOrdinal"] = run_result.watermark.next_ordinal
+        return response
+
     result = run_eidr_exact_lookup_batch(
         manifest=manifest,
         manifest_object=manifest_ref,
@@ -403,7 +698,7 @@ def _run_lookup(
         acquired_at=parsed.acquired_at,
         image_digest=parsed.image_digest,
         store=runtime_store,
-        provider=provider,
+        provider=resolved_provider,
         watermark=watermark,
         watermark_object=watermark_ref,
         batch_size=parsed.batch_size,
@@ -449,13 +744,19 @@ def run(
     complete_feed_proof: EidrCompleteFeedProof | None = None,
     store: RuntimeObjectStore | None = None,
     spark: Any | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | list[dict[str, Any]]:
+    if parsed.command == "expand-source-silver-inputs":
+        if provider is not None or complete_feed_proof is not None or spark is not None:
+            raise ValueError(
+                "expand-source-silver-inputs accepts only immutable object inputs"
+            )
+        return _run_expand_source_silver_inputs(parsed, store=store)
     if parsed.command == "extract-ids":
         if provider is not None or complete_feed_proof is not None:
             raise ValueError("extract-ids does not accept provider injection")
         return _run_extract(parsed, store=store, spark=spark)
     if spark is not None:
-        raise ValueError("lookup-batch does not accept a Spark session")
+        raise ValueError("lookup commands do not accept a Spark session")
     return _run_lookup(
         parsed,
         provider=provider,

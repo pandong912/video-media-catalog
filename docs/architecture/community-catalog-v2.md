@@ -36,6 +36,45 @@ Supported acquisition remains:
 - IMDb official TSV snapshot capture;
 - TMDB daily inventory and changes/detail capture.
 
+### EIDR public exact resolution
+
+The public EIDR path is anonymous and accepts only identifiers discovered from
+a pinned Silver snapshot. It can issue only
+`GET https://resolve.eidr.org/EIDR/object/{normalized-id}?type=Full&followAlias=false`
+with XML `Accept` and an identifying `User-Agent`; it has no title-search or
+credential surface. Redirects cannot change the HTTPS host, path, identifier,
+or query. One explicit urllib request timeout bounds both connection and socket
+reads; response bytes, request spacing, attempts, `Retry-After`, and
+exponential backoff are also bounded. Successful responses must declare
+`application/xml` or `text/xml`, with an optional charset. HTTP 404 becomes
+`NOT_FOUND`; every other non-retryable 4xx fails closed.
+
+The provider authorization is built from a checksum- and version-pinned
+evidence `ObjectRef`, binds the current `eidr_rights_profile()`, and always has
+`completeFeedAllowed=false`. Consequently every Connector capture remains
+`PARTIAL` with `changeSemantics=DELTA` and `deleteCoverage=NONE`; this path
+cannot create or consume an `EidrCompleteFeedProof`.
+
+`lookup-manifest` repeats the existing commit-last single-batch primitive and
+stops at the first of the discovered-manifest end, `max-batches`,
+`max-duration-seconds`, or `max-ids`. Each aggregate entry preserves its lookup
+batch, receipt, watermark, and optional existing Connector batch/record-set
+pair. The final
+`application/vnd.video-media-catalog.eidr-backfill-run-manifest.v1+json`
+object is the bounded Source Silver fan-out input. The Connector sharded
+record-set v2.1 contract is intentionally not used for this index: it binds one
+`batchId`, while each exact-lookup window is an independently committed batch
+with its own policy-bound envelopes.
+
+`expand-source-silver-inputs` is the read-only orchestration boundary for this
+aggregate. It accepts a pinned run-manifest `ObjectRef`, rejects an incomplete
+run unless `--allow-partial-run` is explicitly present, verifies every nested
+control `ObjectRef`, and emits only a bounded JSON array of
+`batchManifest`/`recordSetManifest` ObjectRef pairs. Batches containing only
+`NOT_FOUND` results have no Connector capture and therefore produce no array
+entry. Argo may pass this exact array to `withParam`; each item remains an
+ordinary single-batch input to `video-media-catalog-community-spark`.
+
 ## Silver and Identity
 
 Silver schema `2.x` stores source records and assertions under deterministic

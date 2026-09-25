@@ -42,11 +42,13 @@ _TYPE_PRECEDENCE = {
     "ORGANIZATION": 5,
 }
 _EIDR_REFERENT_KIND = {
+    "WORK": "EDITORIAL_WORK",
     "MOVIE": "MOVIE",
     "TV_SERIES": "SERIES",
     "TV_SEASON": "SEASON",
     "TV_EPISODE": "EPISODE",
     "EDIT": "EDIT",
+    "MANIFESTATION": "MANIFESTATION",
 }
 
 
@@ -149,14 +151,23 @@ def _quantity(value: Any) -> str | None:
 
 def _eidr_entity_type(payload: dict[str, Any]) -> str:
     record_type = str(payload.get("recordType") or "").upper()
-    mapped = {
+    hierarchy_type = {
         "EPISODE": "TV_EPISODE",
         "SEASON": "TV_SEASON",
         "SERIES": "TV_SERIES",
-        "EDIT": "EDIT",
     }.get(record_type)
-    if mapped is not None:
-        return mapped
+    if hierarchy_type is not None:
+        return hierarchy_type
+    structural_type = str(payload.get("structuralType") or "").strip().lower()
+    structural = {
+        "abstraction": "WORK",
+        "performance": "EDIT",
+        "digital": "MANIFESTATION",
+    }.get(structural_type)
+    if structural is not None:
+        return structural
+    if record_type == "EDIT":
+        return "EDIT"
     referent_type = str(payload.get("referentType") or "").lower()
     if "episode" in referent_type:
         return "TV_EPISODE"
@@ -406,7 +417,15 @@ def map_eidr_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
         "/id",
     )
     if entity_type != "UNKNOWN":
-        builder.add_entity_type(entity_type, "/recordType")
+        structural_type = str(payload.get("structuralType") or "").strip().lower()
+        source_path = (
+            "/structuralType"
+            if str(payload.get("recordType") or "").upper()
+            not in {"EPISODE", "SEASON", "SERIES"}
+            and structural_type in {"abstraction", "performance", "digital"}
+            else "/recordType"
+        )
+        builder.add_entity_type(entity_type, source_path)
     for index, title in enumerate(payload.get("titles") or []):
         if not isinstance(title, dict):
             continue
@@ -423,6 +442,7 @@ def map_eidr_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
     for predicate, key, value_type in (
         ("release_date", "releaseDate", ValueType.DATE),
         ("referent_type", "referentType", ValueType.STRING),
+        ("structural_type", "structuralType", ValueType.STRING),
     ):
         builder.add_field(predicate, value_type, payload.get(key), f"/{key}")
     duration = payload.get("duration")

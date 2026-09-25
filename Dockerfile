@@ -60,14 +60,6 @@ RUN apt-get update \
     && useradd --system --uid 10001 --gid catalog \
         --home-dir /nonexistent --shell /usr/sbin/nologin catalog
 
-ARG AWS_SDK_V2_VERSION=2.29.52
-ARG AWS_URL_CONNECTION_CLIENT_SHA1=b6732201e4ae7a2d9994c4b5bd3d3694551338c2
-RUN curl --fail --location --retry 5 \
-        --output "$SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
-        "https://repo.maven.apache.org/maven2/software/amazon/awssdk/url-connection-client/${AWS_SDK_V2_VERSION}/url-connection-client-${AWS_SDK_V2_VERSION}.jar" \
-    && echo "${AWS_URL_CONNECTION_CLIENT_SHA1}  $SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
-        | sha1sum --check --strict
-
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project --extra index
@@ -80,6 +72,14 @@ RUN uv sync --frozen --no-dev --extra index \
     && chown --recursive 10001:10001 \
         /app "$SPARK_HOME/work-dir" \
         /tmp/spark-local /tmp/spark-warehouse
+
+ARG AWS_SDK_V2_VERSION=2.29.52
+ARG AWS_URL_CONNECTION_CLIENT_SHA1=b6732201e4ae7a2d9994c4b5bd3d3694551338c2
+RUN curl --fail --location --retry 5 \
+        --output "$SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
+        "https://repo.maven.apache.org/maven2/software/amazon/awssdk/url-connection-client/${AWS_SDK_V2_VERSION}/url-connection-client-${AWS_SDK_V2_VERSION}.jar" \
+    && echo "${AWS_URL_CONNECTION_CLIENT_SHA1}  $SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
+        | sha1sum --check --strict
 
 WORKDIR /opt/spark/work-dir
 USER 10001:10001

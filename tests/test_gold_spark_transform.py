@@ -1003,3 +1003,64 @@ def test_persist_latest_source_record_states_materializes_once(
             as_of="2026-09-20T01:00:00Z",
             repartition_count=0,
         )
+
+
+@pytest.mark.spark
+def test_source_lifecycle_accepts_compatible_historical_registry(
+    spark: SparkSession,
+) -> None:
+    capture = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Historical registry source"),),
+    )
+    manifest = dict(capture[0].input_manifest)
+    manifest["registryDigest"] = "sha256:" + ("9" * 64)
+    historical_run = capture[0].model_copy(update={"input_manifest": manifest})
+    visible = create_community_dataframes(spark, capture[1])
+    ingest_runs = spark.createDataFrame(
+        [ingest_run_row(historical_run)],
+        schema=community_table_schema("community_ingest_run"),
+    )
+
+    bound, latest = persist_latest_source_record_states(
+        source_records=visible["community_source_record"],
+        ingest_runs=ingest_runs,
+        committed_run_ids=(historical_run.run_id,),
+        registry=build_community_registry(),
+        as_of="2026-09-20T01:00:00Z",
+    )
+    try:
+        assert bound.count() == 1
+        assert latest.count() == 1
+    finally:
+        latest.unpersist()
+        bound.unpersist()
+
+
+@pytest.mark.spark
+def test_source_lifecycle_rejects_changed_product_binding(
+    spark: SparkSession,
+) -> None:
+    capture = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(("1", RecordOperation.UPSERT, "Changed connector source"),),
+    )
+    manifest = dict(capture[0].input_manifest)
+    batch_manifest = dict(manifest["batchManifest"])
+    batch_manifest["connectorId"] = "unregistered-tvmaze-connector"
+    manifest["batchManifest"] = batch_manifest
+    incompatible_run = capture[0].model_copy(update={"input_manifest": manifest})
+    visible = create_community_dataframes(spark, capture[1])
+    ingest_runs = spark.createDataFrame(
+        [ingest_run_row(incompatible_run)],
+        schema=community_table_schema("community_ingest_run"),
+    )
+
+    with pytest.raises(ValueError, match="source product rights policy"):
+        persist_latest_source_record_states(
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_run_ids=(incompatible_run.run_id,),
+            registry=build_community_registry(),
+            as_of="2026-09-20T01:00:00Z",
+        )

@@ -4,13 +4,11 @@ ARG SPARK_VERSION=3.5.5
 ARG ICEBERG_VERSION=1.8.1
 ARG HADOOP_AWS_VERSION=3.3.4
 ARG AWS_JAVA_SDK_BUNDLE_VERSION=1.12.780
-ARG AWS_SDK_V2_VERSION=2.29.52
 ARG SPARK_SHA512=ec5ff678136b1ff981e396d1f7b5dfbf399439c5cb853917e8c954723194857607494a89b7e205fce988ec48b1590b5caeae3b18e1b5db1370c0522b256ff376
 ARG ICEBERG_RUNTIME_SHA512=7445f9b3962d6382f4de8040a51c62950c39649fb204373bc8fabb41ff7127224c04b4dc9c792b696589f26325f60d13c56cd5b25d9b8127972386cf8ed659dd
 ARG ICEBERG_AWS_SHA512=ba928446b65c2fe030beddb827acab12db9f38e17620a29dc82041bae9b556f2266df76f40f78070192db265545fdf6e75e0b149548e52dc06c81ea98c1a1058
 ARG HADOOP_AWS_SHA1=a65839fbf1869f81a1632e09f415e586922e4f80
 ARG AWS_JAVA_SDK_BUNDLE_SHA1=308a3af95a47e0c4e1f8bd98a37657d4661ae45e
-ARG AWS_URL_CONNECTION_CLIENT_SHA1=b6732201e4ae7a2d9994c4b5bd3d3694551338c2
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -47,8 +45,6 @@ RUN apt-get update \
         "https://repo.maven.apache.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_VERSION}/hadoop-aws-${HADOOP_AWS_VERSION}.jar" \
     && curl --fail --location --retry 5 --output "$SPARK_HOME/jars/aws-java-sdk-bundle.jar" \
         "https://repo.maven.apache.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_JAVA_SDK_BUNDLE_VERSION}/aws-java-sdk-bundle-${AWS_JAVA_SDK_BUNDLE_VERSION}.jar" \
-    && curl --fail --location --retry 5 --output "$SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
-        "https://repo.maven.apache.org/maven2/software/amazon/awssdk/url-connection-client/${AWS_SDK_V2_VERSION}/url-connection-client-${AWS_SDK_V2_VERSION}.jar" \
     && echo "${ICEBERG_RUNTIME_SHA512}  $SPARK_HOME/jars/iceberg-spark-runtime.jar" \
         | sha512sum --check --strict \
     && echo "${ICEBERG_AWS_SHA512}  $SPARK_HOME/jars/iceberg-aws-bundle.jar" \
@@ -57,14 +53,20 @@ RUN apt-get update \
         | sha1sum --check --strict \
     && echo "${AWS_JAVA_SDK_BUNDLE_SHA1}  $SPARK_HOME/jars/aws-java-sdk-bundle.jar" \
         | sha1sum --check --strict \
-    && echo "${AWS_URL_CONNECTION_CLIENT_SHA1}  $SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
-        | sha1sum --check --strict \
     && rm /tmp/spark.tgz \
     && python3.12 -m pip install --break-system-packages \
         --no-cache-dir "uv==0.9.7" \
     && groupadd --system --gid 10001 catalog \
     && useradd --system --uid 10001 --gid catalog \
         --home-dir /nonexistent --shell /usr/sbin/nologin catalog
+
+ARG AWS_SDK_V2_VERSION=2.29.52
+ARG AWS_URL_CONNECTION_CLIENT_SHA1=b6732201e4ae7a2d9994c4b5bd3d3694551338c2
+RUN curl --fail --location --retry 5 \
+        --output "$SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
+        "https://repo.maven.apache.org/maven2/software/amazon/awssdk/url-connection-client/${AWS_SDK_V2_VERSION}/url-connection-client-${AWS_SDK_V2_VERSION}.jar" \
+    && echo "${AWS_URL_CONNECTION_CLIENT_SHA1}  $SPARK_HOME/jars/aws-sdk-url-connection-client.jar" \
+        | sha1sum --check --strict
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./

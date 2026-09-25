@@ -927,7 +927,7 @@ def build_distributed_gold(
                 committed_run_digest,
             )
         ):
-            raise ValueError("legacy Gold input cannot declare an epoch summary")
+            raise ValueError("snapshot-set Gold input cannot declare an epoch summary")
         selected_runs = spark.createDataFrame(
             [(run_id,) for run_id in committed_run_ids],
             "run_id STRING",

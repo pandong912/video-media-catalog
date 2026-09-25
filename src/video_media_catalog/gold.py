@@ -195,7 +195,6 @@ def research_policy() -> GoldResolutionPolicy:
         "tvmaze-public-api",
         "wikidata-json-dump",
         "eidr-public-registry",
-        "media-catalog-v1",
     )
     fact_priority = (
         "imdb-non-commercial-datasets",
@@ -203,7 +202,6 @@ def research_policy() -> GoldResolutionPolicy:
         "wikidata-json-dump",
         "tvmaze-public-api",
         "eidr-public-registry",
-        "media-catalog-v1",
     )
     identifier_namespaces = (
         "douban-subject",
@@ -573,7 +571,7 @@ class GoldReleasePlan(V2ContractModel):
             raise ValueError("Gold epoch summary fields must be provided together")
         if bool(self.committed_run_ids) == has_epoch:
             raise ValueError(
-                "Gold release requires either legacy run IDs or one epoch summary"
+                "Gold release requires either snapshot run IDs or one epoch summary"
             )
         if (
             context.context_id != RESEARCH_CONTEXT_ID

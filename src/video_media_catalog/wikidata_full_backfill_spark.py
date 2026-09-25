@@ -27,7 +27,7 @@ from video_media_catalog.constants import (
     MEDIA_ENTITY_TYPES,
 )
 from video_media_catalog.models import ObjectRef
-from video_media_catalog.v1_adapters import (
+from video_media_catalog.source_mappers import (
     WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
     WIKIDATA_NAMESPACE_ID,
     WIKIDATA_SOURCE_PRODUCT_ID,
@@ -43,7 +43,7 @@ from video_media_catalog.wikidata_full_backfill import (
     full_media_coverage_scope,
     full_media_dump_window,
 )
-from video_media_catalog.wikidata_subset_spark import (
+from video_media_catalog.wikidata_spark import (
     _materialize,
     classify_entities,
 )
@@ -306,7 +306,7 @@ def _envelope_rows(
         payload = json.loads(row["payload_json"])
         entity_type = str(row["entity_type"])
         if entity_type != "UNKNOWN":
-            payload["v1EntityType"] = entity_type
+            payload["entityTypeHint"] = entity_type
         revision = payload.get("lastrevid")
         modified = payload.get("modified")
         qid = str(row["qid"])

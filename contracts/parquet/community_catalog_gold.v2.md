@@ -6,8 +6,9 @@ Gold is the release-isolated resolution of committed Silver assertions for the
 single `research` context. This contract does not publish parallel
 public, attributed, commercial, or ML Gold variants.
 
-Gold never changes v1 keys. Research-private data is eligible only when its
-registered policy explicitly permits the required research actions.
+Gold never rewrites internal entity keys. Research-private data is eligible
+only when its registered policy explicitly permits the required research
+actions.
 
 ## Release plan
 
@@ -15,7 +16,7 @@ Before Gold rows are written, the builder publishes an immutable release plan:
 
 - `release_plan_id`;
 - policy context, as-of time, territories, and allowed policy zones;
-- either the bounded legacy v2 committed Silver run IDs, or the v3 Silver
+- either bounded v2 committed Silver run IDs, or the v3 Silver
   `epochId` plus committed-run count/digest;
 - exact Silver data snapshot IDs;
 - identity membership snapshot;
@@ -214,15 +215,15 @@ completed/partial/failed receipt; a dry-run plan cannot produce a receipt.
 Rows are staged first. The release commit is inserted last. Search indexing
 reads exact Gold snapshots plus the exact commit-table snapshot.
 
-## Research serving projection
+## Research search projection
 
-The only v2 serving index is isolated from v1:
+The active research index family is:
 
 - index prefix: `media-catalog-research`;
 - versioned indexes: `media-catalog-research-<build-id>`;
 - read alias: `media-catalog-research-read`;
 - document ID: internal `entityKey`;
-- mapping: strict and version/digest bound;
+- mapping: strict, projectionVersion `6`, and digest bound;
 - source: one immutable Gold release commit and its exact table snapshots.
 
 The default and authoritative publication path is a full rebuild into a new
@@ -257,11 +258,11 @@ edges remain in Iceberg. This slice exposes bounded citation keys plus source
 record/path metadata because the current Silver schema has no dedicated
 Citation table.
 
-`externalIdentifiers[].url` is optional and derived at projection/API time.
+`externalIdentifiers[].url` is optional and derived during index projection.
 Only bounded positive ASCII decimal IDs in a known namespace and compatible
 referent kind receive a URL. `douban-work` uses
 `https://movie.douban.com/subject/{id}/`; `douban-person` uses
-`https://movie.douban.com/celebrity/{id}/`. Legacy `douban` and
+`https://movie.douban.com/celebrity/{id}/`. Alias schemes `douban` and
 `douban-subject` values are disambiguated by referent kind. Unknown namespaces,
 conflicting kinds, zero/leading-zero IDs, overlong values, path/query fragments,
 Unicode digits, and all other malformed values produce no URL. The URL is a
@@ -270,16 +271,8 @@ does not fetch or store Douban titles, ratings, reviews, or images, and lineage
 and rights remain Wikidata.
 
 Release commit, index config digest, and index build manifest bind the exact
-research release identity. Serving routes are only:
-
-- `GET /api/v2/research/search`;
-- `GET /api/v2/research/entities/{entityKey}`;
-- `GET /api/v2/research/external-identifiers/{namespace}/{value}`.
-
-Every v2 route requires bearer-token authentication and the fixed
-`governance.read` scope. All authorized principals share one research catalog.
-Building or switching the research alias never modifies
-`media-catalog-entities-read`.
+research release identity. The batch indexer publishes only the fixed
+`media-catalog-research-read` alias. HTTP serving is outside this repository.
 
 ## Optional affected-entity indexing
 
@@ -295,8 +288,8 @@ The incremental path never mutates the concrete index currently serving the
 read alias. It copies the manifest-bound base into the target release's new
 versioned index, updates release provenance, applies partitioned upsert/delete
 actions, verifies every affected ID, then performs the same full target
-release/count checks before an atomic alias switch. This preserves the v2
-cursor contract: cursors already issued against the base continue querying that
+release/count checks before an atomic alias switch. Readers already bound to the
+base concrete index continue querying that
 unchanged concrete index. The next weekly full rebuild remains authoritative.
 
 ## Offline sizing contract

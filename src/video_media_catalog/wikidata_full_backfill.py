@@ -24,7 +24,7 @@ from video_media_catalog.constants import (
     MEDIA_ENTITY_TYPES,
 )
 from video_media_catalog.models import ObjectRef
-from video_media_catalog.v1_adapters import WIKIDATA_SOURCE_PRODUCT_ID
+from video_media_catalog.source_mappers import WIKIDATA_SOURCE_PRODUCT_ID
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,

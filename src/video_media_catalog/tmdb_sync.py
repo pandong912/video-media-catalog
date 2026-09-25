@@ -41,7 +41,7 @@ from video_media_catalog.connector_publish import (
 )
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.object_store import RuntimeObjectStore
-from video_media_catalog.runtime_args import join_uri
+from video_media_catalog.storage import join_uri
 from video_media_catalog.tmdb import (
     TMDB_API_ORIGIN,
     TMDB_CHANGES_CONNECTOR_ID,

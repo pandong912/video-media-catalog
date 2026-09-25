@@ -57,13 +57,13 @@ from video_media_catalog.opensearch_client import (
     OpenSearchConnection,
     create_opensearch_client,
 )
-from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.search_index import (
+from video_media_catalog.opensearch_index import (
     DEFAULT_MAX_BULK_BYTES,
     current_alias_indices,
     index_document_count,
     switch_read_alias,
 )
+from video_media_catalog.storage import join_uri
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
 INDEX_MANIFEST_MEDIA_TYPE = (

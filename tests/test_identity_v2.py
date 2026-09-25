@@ -14,7 +14,6 @@ from video_media_catalog.identity_v2 import (
     EntityLevel,
     EntitySplitAssignment,
     EvidenceKind,
-    LegacyKeyMap,
     ParentConstraint,
     allocate_entity,
     allocate_source_entity,
@@ -26,7 +25,6 @@ from video_media_catalog.identity_v2 import (
     build_identity_decision,
     build_identity_evidence,
     build_parent_constrained_evidence,
-    import_v1_entity,
     resolve_redirect_target,
     select_merge_survivor,
     validate_redirect_graph,
@@ -72,26 +70,6 @@ def test_source_allocation_is_retry_stable_and_then_internal() -> None:
     assert first == second
     assert first.allocation_id is not None
     assert "tvmaze" not in first.entity_key
-
-
-def test_v1_import_preserves_published_key_verbatim() -> None:
-    legacy_key = "sha256:" + ("a" * 64)
-    entity = import_v1_entity(
-        entity_key=legacy_key,
-        entity_level=EntityLevel.EDITORIAL_WORK,
-        entity_kind="MOVIE",
-        created_at=TIMESTAMP,
-    )
-    assert entity.entity_key == legacy_key
-    assert entity.imported_v1
-    mapping = LegacyKeyMap(
-        legacy_key=legacy_key,
-        legacy_kind="entity",
-        target_key=legacy_key,
-        imported_at=TIMESTAMP,
-        source_snapshot_set_id=UUID7_A,
-    )
-    assert mapping.target_key == legacy_key
 
 
 def test_identity_evidence_decision_and_membership_are_replayable() -> None:

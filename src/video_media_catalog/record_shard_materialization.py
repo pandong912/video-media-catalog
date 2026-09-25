@@ -19,9 +19,13 @@ from video_media_catalog.connector import (
 )
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.object_store import RuntimeObjectStore
-from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.spark_input import spark_uri
-from video_media_catalog.storage import digest_file, local_path, publish_file_immutable
+from video_media_catalog.spark_config import spark_uri
+from video_media_catalog.storage import (
+    digest_file,
+    join_uri,
+    local_path,
+    publish_file_immutable,
+)
 from video_media_catalog.v2_contracts import (
     parse_rfc3339,
     require_rfc3339,

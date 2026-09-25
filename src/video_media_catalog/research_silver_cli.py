@@ -12,7 +12,6 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, deterministic_key
-from video_media_catalog.commit import SNAPSHOT_SET_MEDIA_TYPE
 from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_ingest import (
     CommunityIngestCommit,
@@ -35,24 +34,16 @@ from video_media_catalog.community_snapshot import (
 )
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
-from video_media_catalog.constants import CURATED_TABLE_KEYS
-from video_media_catalog.iceberg import (
-    TABLE_COLUMNS as V1_TABLE_COLUMNS,
-)
-from video_media_catalog.iceberg import (
-    CatalogConfig,
-    MediaCatalogTables,
-)
+from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.identity_spark import (
     IdentityResolutionConfig,
     build_identity_resolution_dataframes,
 )
-from video_media_catalog.models import Checksum, ObjectRef, SnapshotSet
+from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import (
     BoundedObjectStore,
     RuntimeObjectStore,
 )
-from video_media_catalog.v1_migration import build_v1_key_migration
 from video_media_catalog.v2_contracts import (
     parse_rfc3339,
     require_rfc3339,
@@ -87,14 +78,6 @@ def _add_control_object_args(
     parser.add_argument(f"--{dashed}-size", required=required, type=int)
     parser.add_argument(f"--{dashed}-version", default="")
     parser.add_argument(f"--{dashed}-etag", default="")
-
-
-def _add_v1_namespace_arg(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--v1-namespace",
-        default=os.environ.get("MEDIA_CATALOG_V1_NAMESPACE", "media_catalog"),
-        help="Glue/Iceberg namespace for pinned v1 curated tables",
-    )
 
 
 def _add_catalog_args(
@@ -144,24 +127,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-research-silver",
         description=(
-            "Run snapshot-pinned research Silver migration, identity, and "
-            "snapshot publication stages."
+            "Run source-pinned research Silver identity and snapshot "
+            "publication stages."
         ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
-
-    migration = commands.add_parser(
-        "migrate-v1",
-        help="migrate published v1 keys from an immutable SnapshotSet",
-    )
-    _add_control_object_args(migration, "v1_snapshot")
-    migration.add_argument("--committed-at", required=True)
-    _add_v1_namespace_arg(migration)
-    _add_catalog_args(
-        migration,
-        app_name="media-catalog-research-v1-migration",
-    )
-    migration.set_defaults(stage_runner=_run_v1_migration)
 
     identity = commands.add_parser(
         "resolve-identity",
@@ -173,7 +143,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=(SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE),
         default=SILVER_SNAPSHOT_MEDIA_TYPE,
     )
-    _add_control_object_args(identity, "v1_snapshot")
     identity.add_argument(
         "--source-run-id",
         dest="source_run_ids",
@@ -205,7 +174,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     identity.add_argument("--started-at", required=True)
     identity.add_argument("--committed-at", required=True)
-    _add_v1_namespace_arg(identity)
     _add_catalog_args(
         identity,
         app_name="media-catalog-research-identity",
@@ -434,27 +402,6 @@ def _validate_source_watermark_changes(
         )
 
 
-def _v1_catalog_config(parsed: argparse.Namespace) -> CatalogConfig:
-    base = _catalog_config(parsed)
-    v1_namespace = _bounded(
-        parsed.v1_namespace,
-        label="v1-namespace",
-        max_length=128,
-        required=True,
-    )
-    assert v1_namespace is not None
-    return CatalogConfig(
-        catalog_name=base.catalog_name,
-        namespace=v1_namespace,
-        warehouse=base.warehouse,
-        catalog_type=base.catalog_type,
-        aws_region=base.aws_region,
-        s3_endpoint=base.s3_endpoint,
-        s3_path_style_access=base.s3_path_style_access,
-        s3_credentials_provider=base.s3_credentials_provider,
-    )
-
-
 def _catalog_config(parsed: argparse.Namespace) -> CatalogConfig:
     catalog_name = _bounded(
         parsed.catalog_name,
@@ -560,6 +507,8 @@ def _read_model[T](
     reference: ObjectRef,
     model: type[T],
 ) -> T:
+    """Read one bounded immutable control object into a validated model."""
+
     store.verify(reference, max_bytes=CONTROL_MAX_BYTES)
     with tempfile.TemporaryDirectory(prefix="research-silver-control-") as directory:
         materialized = store.download(
@@ -590,37 +539,6 @@ def _read_silver_manifest(
     if reference.media_type != expected_media_type:
         raise ValueError("Silver manifest media type does not match schema version")
     return manifest
-
-
-def _load_v1_tables(
-    spark: Any,
-    *,
-    config: CatalogConfig,
-    snapshot_set: SnapshotSet,
-) -> dict[str, Any]:
-    catalog = MediaCatalogTables(spark, config)
-    declared = {
-        table.table_name.rsplit(".", 1)[-1]: table for table in snapshot_set.tables
-    }
-    if set(declared) != set(CURATED_TABLE_KEYS):
-        raise ValueError("v1 SnapshotSet must contain all six curated tables")
-    frames: dict[str, Any] = {}
-    for table in V1_TABLE_COLUMNS:
-        snapshot = declared[table]
-        expected_name = catalog.table_name(table)
-        if snapshot.table_name != expected_name:
-            raise ValueError(
-                f"v1 snapshot table {snapshot.table_name!r} does not match "
-                f"configured table {expected_name!r}"
-            )
-        frames[table] = (
-            spark.table(expected_name).limit(0)
-            if snapshot.snapshot_id is None
-            else spark.read.format("iceberg")
-            .option("snapshot-id", str(snapshot.snapshot_id))
-            .load(expected_name)
-        )
-    return frames
 
 
 def _exact_control_rows(
@@ -783,54 +701,6 @@ def _selected_silver_frames(
     )
 
 
-def _run_v1_migration(parsed: argparse.Namespace) -> dict[str, Any]:
-    committed_at = require_rfc3339(parsed.committed_at, label="committed-at")
-    reference = _control_object_ref(
-        parsed,
-        "v1_snapshot",
-        media_type=SNAPSHOT_SET_MEDIA_TYPE,
-    )
-    store = _object_store(
-        parsed,
-        local_only=urlsplit(reference.uri).scheme == "file",
-    )
-    snapshot_set = _read_model(store, reference, SnapshotSet)
-    config = _catalog_config(parsed)
-    spark = _spark_session(parsed, config)
-    frames: dict[str, Any] | None = None
-    try:
-        v1_tables = _load_v1_tables(
-            spark,
-            config=_v1_catalog_config(parsed),
-            snapshot_set=snapshot_set,
-        )
-        run, frames = build_v1_key_migration(
-            spark,
-            snapshot_set=snapshot_set,
-            v1_tables=v1_tables,
-            snapshot_object_ref=reference,
-        )
-        commit = CommunityCatalogTables(spark, config).stage_and_commit(
-            run=run,
-            dataframes=frames,
-            committed_at=committed_at,
-        )
-        return {
-            "context": "research",
-            "stage": "v1-migration",
-            "runId": run.run_id,
-            "commitKey": commit.commit_key,
-            "v1SnapshotSetId": snapshot_set.snapshot_set_id,
-            "tableCounts": commit.table_counts,
-            "tableSnapshotIds": commit.table_snapshot_ids,
-        }
-    finally:
-        if frames is not None:
-            for frame in frames.values():
-                frame.unpersist()
-        spark.stop()
-
-
 def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
     source_run_ids = _normalize_run_ids(
         parsed.source_run_ids,
@@ -861,17 +731,11 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         "silver_snapshot",
         media_type=parsed.silver_snapshot_media_type,
     )
-    v1_ref = _control_object_ref(
+    store = _object_store(
         parsed,
-        "v1_snapshot",
-        media_type=SNAPSHOT_SET_MEDIA_TYPE,
+        local_only=urlsplit(silver_ref.uri).scheme == "file",
     )
-    local_inputs = all(
-        urlsplit(reference.uri).scheme == "file" for reference in (silver_ref, v1_ref)
-    )
-    store = _object_store(parsed, local_only=local_inputs)
     silver_snapshot = _read_silver_manifest(store, silver_ref)
-    v1_snapshot = _read_model(store, v1_ref, SnapshotSet)
     if isinstance(silver_snapshot, CommunitySilverSnapshotSet):
         if len(silver_snapshot.committed_run_ids) > MAX_EXPLICIT_RUN_IDS:
             raise ValueError("large Silver histories must use an epoch manifest")
@@ -936,11 +800,6 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             committed_runs=committed_runs,
             source_run_ids=source_run_ids,
         )
-        v1_tables = _load_v1_tables(
-            spark,
-            config=_v1_catalog_config(parsed),
-            snapshot_set=v1_snapshot,
-        )
         silver_input = {
             "object": silver_ref.model_dump(
                 mode="json",
@@ -958,14 +817,6 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         pinned_inputs = {
             "silverSnapshot": silver_input,
             "sourceRunIds": source_run_ids,
-            "v1Snapshot": {
-                "object": v1_ref.model_dump(
-                    mode="json",
-                    by_alias=True,
-                    exclude_none=True,
-                ),
-                "snapshotSetId": v1_snapshot.snapshot_set_id,
-            },
         }
         registry = build_community_registry()
         input_id = deterministic_key(
@@ -979,8 +830,6 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         run, frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=visible,
-            v1_external_identifiers=v1_tables["catalog_external_identifier"],
-            v1_entities=v1_tables["catalog_entity"],
             input_id=input_id,
             image_digest=image_digest,
             config_digest=config_digest,

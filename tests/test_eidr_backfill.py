@@ -38,7 +38,6 @@ from video_media_catalog.eidr_backfill_cli import build_parser
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.storage import local_path
-from video_media_catalog.v1_adapters import EIDR_CONNECTOR_ID
 
 pytest.importorskip("pyspark")
 
@@ -172,10 +171,9 @@ def test_registry_declares_exact_lookup_connector() -> None:
         item.source_product_id: item
         for item in build_community_registry().source_products
     }
-    assert set(products["eidr-public-registry"].connector_ids) == {
-        EIDR_CONNECTOR_ID,
+    assert products["eidr-public-registry"].connector_ids == (
         EIDR_EXACT_LOOKUP_CONNECTOR_ID,
-    }
+    )
 
 
 def test_discovered_manifest_is_deterministic_and_replayable(tmp_path: Path) -> None:

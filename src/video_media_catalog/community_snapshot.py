@@ -34,7 +34,7 @@ _BUCKET = re.compile(r"^[0-9a-f]{2}$")
 
 
 class CommunitySilverSnapshotSet(V2ContractModel):
-    """Legacy v2 handoff.
+    """Bounded v2 handoff.
 
     The model no longer imposes an artificial run-count limit. New production
     publications use ``CommunitySilverEpochManifest`` so historical run IDs do

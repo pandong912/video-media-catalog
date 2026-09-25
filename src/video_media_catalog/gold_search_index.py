@@ -36,9 +36,12 @@ from video_media_catalog.opensearch_client import (
     OpenSearchConnection,
     create_opensearch_client,
 )
-from video_media_catalog.runtime_args import join_uri
-from video_media_catalog.search_index import BulkResult, current_alias_indices
-from video_media_catalog.storage import ImmutableObjectConflictError, local_path
+from video_media_catalog.opensearch_index import BulkResult, current_alias_indices
+from video_media_catalog.storage import (
+    ImmutableObjectConflictError,
+    join_uri,
+    local_path,
+)
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     require_rfc3339,

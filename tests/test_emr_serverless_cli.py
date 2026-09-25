@@ -11,15 +11,18 @@ def _parsed(*extra: str):
     return build_parser().parse_args(
         [
             "--application-name",
-            "media-catalog-reference",
+            "media-catalog-wikidata-full-media",
             "--execution-role-arn",
             "arn:aws:iam::123456789012:role/media-catalog-emr-runtime",
             "--job-name",
-            "reference-100k-run",
+            "wikidata-full-media-run",
             "--client-token",
             "workflow-uid-1",
             "--entry-point",
-            "local:///opt/video-media-catalog/reference_subset_cli.py",
+            (
+                "local:///opt/video-media-catalog/src/video_media_catalog/"
+                "wikidata_full_backfill_cli.py"
+            ),
             "--log-uri",
             "s3://catalog/raw/wikidata/emr-logs/",
             "--aws-region",
@@ -43,7 +46,7 @@ class _Client:
             "applications": [
                 {
                     "id": "00fakerefapp",
-                    "name": "media-catalog-reference",
+                    "name": "media-catalog-wikidata-full-media",
                     "state": "STARTED",
                 }
             ]
@@ -117,15 +120,15 @@ def test_submit_requires_forwarded_entry_point_arguments() -> None:
     parsed = build_parser().parse_args(
         [
             "--application-name",
-            "media-catalog-reference",
+            "media-catalog-wikidata-full-media",
             "--execution-role-arn",
             "arn:aws:iam::123456789012:role/runtime",
             "--job-name",
-            "reference-100k-run",
+            "wikidata-full-media-run",
             "--client-token",
             "workflow-uid-1",
             "--entry-point",
-            "local:///opt/reference_subset_cli.py",
+            "local:///opt/wikidata_full_backfill_cli.py",
             "--log-uri",
             "s3://catalog/raw/logs/",
             "--aws-region",

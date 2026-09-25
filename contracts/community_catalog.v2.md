@@ -1,14 +1,10 @@
 # Community catalog v2 contracts
 
-## Compatibility
+## Scope
 
-These contracts are additive and do not replace `media_catalog.v1`. V1 source
-manifests, landing records, six curated tables, algorithm identity, control
-objects, and API remain unchanged.
-
-V2 identifiers use canonical JSON and domain-separated SHA-256 keys in the
-existing `sha256:<64 lowercase hex>` form. New contracts must never reinterpret
-or recompute a published v1 key.
+These contracts define the active capture and Silver boundaries. Identifiers use
+canonical JSON and domain-separated SHA-256 keys in the existing
+`sha256:<64 lowercase hex>` form.
 
 ## Rights profile
 
@@ -247,12 +243,13 @@ The identity ledger contains:
 - immutable identity conflicts;
 - reversible decisions;
 - effective entity memberships;
-- entity redirects and merge/split events;
-- `LegacyKeyMap` for every published v1 key.
+- entity redirects and merge/split events.
 
-The additive Silver tables are `community_external_id_index`,
+The Silver identity tables include `community_external_id_index`,
 `community_identity_conflict`, `community_entity_merge_event`, and
-`community_entity_split_event`.
+`community_entity_split_event`. The existing `community_legacy_key_map` table
+remains immutable historical storage; current source-run and identity stages
+do not write it.
 
 New entity keys are allocated from an internal canonical UUIDv7 allocation ID.
 Provider identifiers are never key inputs. A redirect may not form a cycle.

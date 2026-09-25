@@ -995,7 +995,6 @@ def _entity_from_row(row: Any) -> EntityLedgerEntry:
         status=row["status"],
         created_at=row["created_at"],
         first_release_id=row["first_release_id"],
-        imported_v1=bool(row["imported_v1"]),
     )
 
 

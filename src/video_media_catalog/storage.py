@@ -21,6 +21,22 @@ class ImmutableObjectConflictError(RuntimeError):
     """Raised when an immutable output already exists with different bytes."""
 
 
+def join_uri(prefix: str, *parts: str) -> str:
+    """Join safe URI path components without permitting dot segments."""
+
+    normalized: list[str] = []
+    for part in parts:
+        item = part.strip("/")
+        if (
+            not item
+            or item in {".", ".."}
+            or any(segment in {".", ".."} for segment in item.split("/"))
+        ):
+            raise ValueError("URI path components must not contain dot segments")
+        normalized.append(item)
+    return "/".join([prefix.rstrip("/"), *normalized])
+
+
 def local_path(uri: str | Path) -> Path:
     if isinstance(uri, Path):
         return uri

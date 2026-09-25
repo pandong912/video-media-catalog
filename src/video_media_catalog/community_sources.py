@@ -17,6 +17,7 @@ from video_media_catalog.imdb import (
     imdb_rights_profile,
 )
 from video_media_catalog.rights import PolicyZone, RightsProfile, UsageAction
+from video_media_catalog.source_mappers import WIKIDATA_FULL_MEDIA_CONNECTOR_ID
 from video_media_catalog.source_registry import (
     SourceNamespace,
     SourceProduct,
@@ -31,11 +32,6 @@ from video_media_catalog.tmdb import (
 from video_media_catalog.tvmaze import (
     tvmaze_registry_entries,
     tvmaze_rights_profile,
-)
-from video_media_catalog.v1_adapters import (
-    EIDR_CONNECTOR_ID,
-    WIKIDATA_CONNECTOR_ID,
-    WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
 )
 
 EIDR_EXACT_LOOKUP_CONNECTOR_ID = "eidr-discovered-id-exact-lookup"
@@ -104,7 +100,7 @@ def internal_key_continuity_profile() -> RightsProfile:
         audiences=("internal",),
         territories=("*",),
         notes=(
-            "Covers project-created stable keys and migration metadata, not "
+            "Covers project-created stable identity keys and curation metadata, not "
             "the external source facts referenced by those keys."
         ),
     )
@@ -162,10 +158,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="Wikidata JSON entity dump",
         kind=SourceProductKind.KNOWLEDGE_GRAPH,
         policy_id="wikidata-structured-data-cc0",
-        connector_ids=(
-            WIKIDATA_CONNECTOR_ID,
-            WIKIDATA_FULL_MEDIA_CONNECTOR_ID,
-        ),
+        connector_ids=(WIKIDATA_FULL_MEDIA_CONNECTOR_ID,),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
     eidr_product = SourceProduct(
@@ -174,20 +167,8 @@ def build_community_registry() -> SourceRegistrySnapshot:
         name="EIDR public registry records",
         kind=SourceProductKind.IDENTIFIER_REGISTRY,
         policy_id="eidr-public-registry",
-        connector_ids=(
-            EIDR_CONNECTOR_ID,
-            EIDR_EXACT_LOOKUP_CONNECTOR_ID,
-        ),
+        connector_ids=(EIDR_EXACT_LOOKUP_CONNECTOR_ID,),
         documentation_url="https://www.eidr.org/faq",
-    )
-    v1_product = SourceProduct(
-        source_product_id="media-catalog-v1",
-        source_system_id="video-media-catalog",
-        name="Published Wikidata/EIDR v1 catalog",
-        kind=SourceProductKind.INTERNAL_CATALOG,
-        policy_id="internal-key-continuity",
-        connector_ids=("media-catalog-v1-key-migration",),
-        documentation_url=("https://github.com/pandong912/video-media-catalog"),
     )
     identity_product = SourceProduct(
         source_product_id="identity-resolution-v2",
@@ -211,7 +192,6 @@ def build_community_registry() -> SourceRegistrySnapshot:
         source_products=(
             wikidata_product,
             eidr_product,
-            v1_product,
             identity_product,
             tvmaze_product,
             imdb_product,

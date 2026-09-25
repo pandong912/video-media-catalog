@@ -48,7 +48,7 @@ from video_media_catalog.imdb import (
 )
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore, RuntimeObjectStore
-from video_media_catalog.runtime_args import join_uri
+from video_media_catalog.storage import join_uri
 from video_media_catalog.v2_contracts import require_rfc3339, require_sha256
 
 DEFAULT_MAX_DATASET_BYTES = 5 * 1024**3

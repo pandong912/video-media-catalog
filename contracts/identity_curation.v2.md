@@ -82,19 +82,9 @@ and returns the existing commit without restaging. Reusing a logical row key
 under a different run cannot satisfy per-run counts and therefore cannot
 publish a commit.
 
-## API and submission boundary
+## Submission boundary
 
-The FastAPI deployment remains read-only. The shared authenticated endpoints are:
-
-- `GET /api/v2/research/identity-conflicts`;
-- `GET /api/v2/research/identity-curation/requests/{requestId}`;
-- `GET /api/v2/research/identity-curation/requests/{requestId}/manifest`.
-
-They reuse the existing bearer-token verification and fixed `governance.read`
-scope. Any authorized principal may read the shared review projection through the
-`IdentityReviewReader` boundary and perform no writes.
-
-Submission and application belong to the existing batch control plane:
+Submission and application belong exclusively to the batch control plane:
 
 - `video-media-catalog-identity-curation publish` validates and immutably
   publishes a complete manifest;
@@ -103,7 +93,4 @@ Submission and application belong to the existing batch control plane:
   manifest, time-travels the pinned Silver snapshots, and commits the curation
   run.
 
-Deployments may project request status and manifests into an existing readable
-projection. The API service account must retain only its existing read
-permissions; it must not receive Silver, S3 control-write, or auth bypass
-permissions.
+This repository does not expose identity review or curation over HTTP.

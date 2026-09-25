@@ -1,225 +1,89 @@
-# Community-first media catalog v2
+# Research catalog batch architecture
 
-## Status
+## Boundary
 
-This document defines the v2 supplier-neutral source strategy and its unified
-shared authenticated research serving context. It does not change the published
-Wikidata/EIDR v1 contracts.
-V1 remains the compatibility source for existing entity keys, snapshots,
-OpenSearch indexes, and API responses.
-
-The v2 goal is one supplier-neutral processing platform and one
-`research` Gold/serving output. Sources share code, Silver, identity,
-Gold, and the research index while retaining source-level policy, attribution,
-expiry, and removal duties.
-
-The current implementation includes the source/rights/connector/identity
-contracts, Wikidata/EIDR adapters, TVmaze full/delta capture, IMDb TSV and TMDB
-capture/mapping, and the run-fenced Silver Iceberg tables defined in
-[`contracts/parquet/community_catalog_silver.v2.md`](../../contracts/parquet/community_catalog_silver.v2.md).
-It also defines the deterministic Gold identity/rights/field-resolution
-semantics, quality report, attribution binding, and release-fenced Gold tables
-in
-[`contracts/parquet/community_catalog_gold.v2.md`](../../contracts/parquet/community_catalog_gold.v2.md).
-The distributed identity stage and Silver-to-Gold transform consume exact
-Silver epoch snapshots. They derive committed runs from the pinned Iceberg
-commit snapshot and bind the release by epoch count/digest without collecting
-historical run IDs to the driver. A bounded, strict-mapping OpenSearch
-projection publishes only to
-`media-catalog-research-read`. Shared `/api/v2/research` routes require
-`governance.read`, bearer-token authentication, and pagination
-cursors bound to one concrete immutable index; v1 routes and alias remain
-unchanged.
-
-## Source portfolio
-
-The initial source portfolio is split by effective rights rather than by
-transport or provider:
-
-- `open_cc0`: Wikidata structured data, Europeana metadata, DPLA metadata, and
-  MusicBrainz core data.
-- `open_attributed`: Japan Media Arts Database, BnF descriptive metadata, and
-  individually approved national datasets.
-- `open_sharealike`: TVmaze, the reusable fields from Bangumi Archive, and
-  optional Wikipedia text.
-- `public_registry`: EIDR records. EIDR is an identifier registry, not a rich
-  metadata provider.
-- `research_private`: IMDb non-commercial datasets, TMDB developer data, and
-  project-licensed TheTVDB data.
-- `federated_ephemeral`: user-triggered MAL, AniDB, AniList, YouTube, Vimeo, or
-  platform-partner requests whose terms do not permit a permanent mirror.
-
-Unknown or disputed rights always route to quarantine. Export, public serving,
-and training paths fail closed.
-
-## Shared architecture
+This repository is a batch data-processing project. Its supported path is:
 
 ```text
-source product
-  -> immutable raw capture
-  -> connector batch manifest
-  -> source-native record envelopes
-  -> typed assertions and citations
-  -> identity evidence and decisions
-  -> shared research Gold release
-  -> bounded OpenSearch projection / analytical Iceberg views
+official capture
+  -> immutable connector manifests and record shards
+  -> Silver source assertions
+  -> Identity ledger
+  -> research Gold release
+  -> versioned OpenSearch index build
 ```
 
-Network acquisition is separate from deterministic transformation. API
-credentials are available only to acquisition workloads. Spark consumes
-immutable object references and never calls source APIs.
+It does not host an HTTP service. OpenSearch documents are a rebuildable
+projection; Silver and Gold Iceberg tables plus their commit-last control
+objects remain the authoritative data products.
 
-## Source registry
+## Capture
 
-The registry distinguishes concepts that v1 currently compresses into one
-`source` string:
+Acquisition and transformation are separate trust boundaries:
 
-- source system: the operating organization or registry;
-- source product: one API, dump, archive, or contracted feed;
-- source namespace: one identifier namespace and referent scope;
-- dataset release: one complete or partial source publication;
-- ingest run: one processing attempt over a pinned release;
-- schema contract: native schema and compatibility policy;
-- rights profile: machine-enforced permitted actions and retention duties.
+- capture workloads access only reviewed official origins;
+- every raw response or dataset file is stored as an immutable `ObjectRef`;
+- batch, record-set, partition, and epoch manifests bind checksums, sizes,
+  policy, source window, completeness, and deletion coverage;
+- Spark reads committed immutable record shards and never receives provider
+  credentials or calls provider endpoints.
 
-Provider renames, acquisitions, product migrations, and contract changes do not
-alter internal entity keys.
+Supported acquisition remains:
 
-## Connector contract
+- Wikidata official dump sync and full-media backfill;
+- EIDR discovered-ID exact lookup;
+- TVmaze full and delta capture;
+- IMDb official TSV snapshot capture;
+- TMDB daily inventory and changes/detail capture.
 
-Every connector emits a batch manifest and record envelopes.
+## Silver and Identity
 
-The batch manifest declares:
+Silver schema `2.x` stores source records and assertions under deterministic
+source-run IDs. Data becomes visible only after
+`community_ingest_commit` verifies exact per-table counts and owned Iceberg
+snapshots.
 
-- source product, connector, code/config/policy digests;
-- dump, API, or feed transport and source serialization;
-- full, delta, or leased change semantics;
-- complete or partial coverage scope;
-- source window, watermark, and delete coverage;
-- immutable raw object references;
-- acquisition time, replay deadline, row and error counts;
-- retry and rate-limit observations.
+Identity resolution consumes only pinned committed source runs. Exact external
+identifiers and existing source-run identity index rows provide blocking;
+unmatched components allocate permanent internal UUIDv7-backed entity keys.
+Ambiguity, oversized components, parent mismatch, and lifecycle uncertainty
+emit conflicts instead of guessed memberships.
 
-Each record envelope declares:
+The bounded `CommunitySilverSnapshotSet` remains schema `2.0`. Long-running
+histories use `CommunitySilverEpochManifest` schema `3.0`, carrying bounded
+deltas and distributed committed-run count/digest rather than a driver-sized
+history list.
 
-- source record ID and optional source revision;
-- `UPSERT`, `DELETE`, `RETRACT`, `EXPIRE`, or inferred absence;
-- source, observation, validity, ingestion, and expiry time;
-- payload schema, canonical payload hash, and raw object location;
-- JSON Pointer, XML path, or RDF statement location;
-- policy ID/digest and citation keys.
+## Gold
 
-Missing records imply deletion only between two complete releases with the same
-coverage scope. Partial feeds and failed pagination never produce tombstones.
+Gold publishes one `research` context. Rights eligibility is applied before
+source priority and field resolution. The release contains entity, field,
+identifier, relation, and conflict tables, plus immutable quality,
+attribution, plan, and release-commit objects.
 
-## Assertions and identity
+Both bounded schema `2.0` Silver snapshots and schema `3.0` epochs are valid
+Gold inputs. Their distinct versioned contracts are preserved.
 
-Source records are not canonical entities. Mappers emit typed field,
-identifier, relationship, and entity-type assertions. Assertions are keyed by
-source record version, source field path, value, and qualifiers—not by the
-current canonical entity key—so a later split does not rewrite source history.
+## OpenSearch build
 
-Identity processing stores:
+The batch indexer builds only the research family:
 
-1. source entity nodes;
-2. identity evidence;
-3. `ACCEPT`, `REJECT`, `UNCERTAIN`, or `REVOKE` decisions;
-4. effective entity memberships;
-5. merge/split events and permanent redirects.
+- prefix `media-catalog-research`;
+- read alias `media-catalog-research-read`;
+- strict mapping with projectionVersion `6`;
+- deterministic build identity bound to one Gold release commit;
+- partition receipts, count reconciliation, and atomic alias update.
 
-Exact identifiers are evidence only when issuer, namespace, referent kind, and
-entity level are compatible. Titles, years, runtimes, and cast similarities may
-create review candidates but never permanent automatic merges.
+Full rebuild is authoritative. The optional affected-entity path copies an
+immutable base into a new concrete index and never mutates the old index.
 
-All published v1 entity keys are imported verbatim into the v2 ledger. New
-entity keys are allocated from an internal allocation ID, not from a provider
-identifier. Merges keep the earliest published survivor and redirect every old
-key. Splits preserve history and require an explicit decision.
+## Operational safety
 
-## Audiovisual domain boundaries
-
-- `EDITORIAL_WORK`: movie, episode, programme, anime, variety-show unit, short,
-  trailer, clip, or original online video.
-- `SERIES`: continuing editorial work that organizes episodes.
-- `SEASON` or `COLLECTION`: optional editorial grouping. Episode numbering is a
-  qualified relation, not identity.
-- `EDIT`: director, censorship, airline, broadcast, restored, or other content
-  version.
-- `MANIFESTATION` or `PACKAGE`: a technical/distribution embodiment such as a
-  DCP, Blu-ray, localized package, or streaming package.
-- `RELEASE_EVENT`, `BROADCAST_EVENT`, and `AVAILABILITY_OFFER`: territorial,
-  temporal distribution facts.
-- `ONLINE_PUBLICATION`: a platform upload, stream, VOD, or repost. A platform
-  item is not automatically an editorial work.
-- `AGENT`, `PLATFORM_ACCOUNT`, `REGULATORY_RECORD`, `METRIC_OBSERVATION`, and
-  `MEDIA_ASSET` remain separate domains.
-
-Schema.org is an output mapping. EBUCorePlus and MovieLabs MDDF are semantic and
-distribution crosswalks. None of them is copied wholesale into physical tables.
-
-## Unified research Gold
-
-V2 publishes one shared authenticated `research` Gold. It does not build parallel
-variants or a runtime mode switch. Open, public-registry, and
-registered research-private assertions can coexist only after their individual
-rights profiles permit research storage, transformation, display, and
-search.
-
-Resolution first evaluates rights eligibility, then entity level, locale,
-territory and valid time, then field-specific authority, evidence, precision,
-freshness, and deterministic tie-breaks. There is no global provider priority.
-Each selected value retains its winning assertion and resolution trace.
-
-## Infrastructure reuse and removal
-
-The research catalog reuses the existing 100k baseline S3, Glue, EMR, IAM, and
-OpenSearch infrastructure. It creates no separate warehouse, role, cluster, or
-domain. Existing `video_media_catalog` Glue namespace tables, release commits,
-release isolation, and the fixed `media-catalog-research-*` index family provide
-logical boundaries. Policy metadata remains mandatory for expiry, attribution,
-and removal.
-
-Source removal:
-
-1. stops acquisition and revokes credentials;
-2. installs a rights fence that immediately blocks serving and export;
-3. expires source assertions, assets, and identity evidence;
-4. recomputes affected identities and Gold releases;
-5. publishes replacement indexes;
-6. removes raw objects, all S3 versions, Iceberg snapshots/orphans, old indexes,
-   backups, CDN caches, and temporary data where the policy requires purge;
-7. publishes a removal receipt containing scope, counts, deadline, and residual
-   checks.
-
-## Release isolation
-
-V1 writes shared tables sequentially and then captures their latest snapshots.
-V2 must not publish a snapshot accidentally advanced by another or failed run.
-
-Every row carries `ingest_run_id`; only committed runs are eligible. Gold writes
-to a run-specific candidate snapshot or WAP branch and validates the exact
-candidate. A release manifest pins committed input runs, source watermarks,
-Silver snapshots, identity/field/rights policy digests, exact Gold snapshots,
-quality reports, and separate affected/total row counts.
-
-## Initial delivery order
-
-1. Publish the v2 source, rights, connector, assertion, identity, and release
-   contracts while freezing v1.
-2. Wrap the existing Wikidata and EIDR paths as v2-conformant adapters without
-   changing their current output.
-3. Add TVmaze as the first community adapter because it offers a documented
-   full index, update indexes, stable IDs, and CC BY-SA API terms.
-4. Add MADB and Bangumi only after their field-level policy maps are reviewed.
-5. Build the single shared research Gold and research index.
-6. Run a representative scale test before replacing the current small
-   OpenSearch development domain.
-
-## Non-goals for this slice
-
-- no IMDb/TMDB webpage scraping or redistribution beyond source terms;
-- no public serving or redistribution of the authenticated research catalog;
-- no automatic fuzzy entity merge;
-- no assumption that a metadata license also clears images or video;
-- no full-platform YouTube, anime-site, or streaming-provider crawl;
-- no v1 table, key, algorithm, or API behavior change.
+- S3 inputs and control objects are checksum- and version-pinned.
+- AWS authentication uses the default credential chain; static keys are not
+  CLI arguments.
+- Iceberg maintenance defaults to plan-only and honors protected snapshots.
+- Source removal is dry-run-first and does not delete data unless a separate
+  explicitly confirmed execution is invoked.
+- Unit and Spark tests use local fixtures; CI does not run real AWS or
+  production Spark jobs.

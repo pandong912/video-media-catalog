@@ -6,7 +6,7 @@ import hashlib
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -161,7 +161,7 @@ class EntityLedgerEntry(V2ContractModel):
     status: EntityStatus = EntityStatus.ACTIVE
     created_at: str
     first_release_id: str | None = None
-    imported_v1: bool = False
+    imported_v1: Literal[False] = False
 
     @field_validator("entity_key")
     @classmethod
@@ -195,17 +195,14 @@ class EntityLedgerEntry(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_allocation(self) -> Self:
-        if self.imported_v1 and self.allocation_id is not None:
-            raise ValueError("imported v1 entities preserve keys without allocation_id")
-        if not self.imported_v1 and self.allocation_id is None:
-            raise ValueError("new v2 entities require allocation_id")
-        if self.allocation_id is not None:
-            expected = deterministic_key(
-                "catalog-entity-anchor-v2",
-                {"allocationId": self.allocation_id},
-            )
-            if self.entity_key != expected:
-                raise ValueError("entity_key does not match allocation_id")
+        if self.allocation_id is None:
+            raise ValueError("entities require allocation_id")
+        expected = deterministic_key(
+            "catalog-entity-anchor-v2",
+            {"allocationId": self.allocation_id},
+        )
+        if self.entity_key != expected:
+            raise ValueError("entity_key does not match allocation_id")
         return self
 
 
@@ -262,26 +259,6 @@ def allocate_source_entity(
         entity_kind=entity_kind,
         created_at=first_observed_at,
         first_release_id=first_release_id,
-    )
-
-
-def import_v1_entity(
-    *,
-    entity_key: str,
-    entity_level: EntityLevel,
-    entity_kind: str,
-    created_at: str,
-    first_release_id: str | None = None,
-) -> EntityLedgerEntry:
-    """Preserve a published v1 key without reinterpreting its hash input."""
-
-    return EntityLedgerEntry(
-        entity_key=entity_key,
-        entity_level=entity_level,
-        entity_kind=entity_kind,
-        created_at=created_at,
-        first_release_id=first_release_id,
-        imported_v1=True,
     )
 
 
@@ -879,37 +856,6 @@ def close_entity_membership(
         valid_from=membership.valid_from,
         valid_to=normalized_time,
     )
-
-
-class LegacyKeyMap(V2ContractModel):
-    legacy_key: str
-    legacy_kind: str
-    target_key: str
-    imported_at: str
-    source_snapshot_set_id: str
-
-    @field_validator("legacy_key", "target_key")
-    @classmethod
-    def validate_key(cls, value: str) -> str:
-        return require_sha256(value)
-
-    @field_validator("source_snapshot_set_id")
-    @classmethod
-    def validate_snapshot_set_id(cls, value: str) -> str:
-        return require_canonical_uuid7(value)
-
-    @field_validator("legacy_kind")
-    @classmethod
-    def validate_kind(cls, value: str) -> str:
-        normalized = value.strip().upper()
-        if not normalized or len(normalized) > 128:
-            raise ValueError("legacy_kind must be non-empty")
-        return normalized
-
-    @field_validator("imported_at")
-    @classmethod
-    def validate_imported_at(cls, value: str) -> str:
-        return require_rfc3339(value)
 
 
 class EntityRedirect(V2ContractModel):

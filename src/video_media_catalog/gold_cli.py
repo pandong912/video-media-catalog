@@ -44,7 +44,7 @@ from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore
 from video_media_catalog.rights import RightsTerminationFence
-from video_media_catalog.runtime_args import join_uri
+from video_media_catalog.storage import join_uri
 
 
 def build_parser() -> argparse.ArgumentParser:

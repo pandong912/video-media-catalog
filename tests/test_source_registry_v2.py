@@ -20,7 +20,6 @@ from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
     TVMAZE_DELTA_CONNECTOR_ID,
 )
-from video_media_catalog.v1_adapters import EIDR_CONNECTOR_ID
 
 
 def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
@@ -34,7 +33,6 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "eidr-public-registry",
         "identity-resolution-v2",
         "imdb-non-commercial-datasets",
-        "media-catalog-v1",
         "tmdb-research",
         "tvmaze-public-api",
     }
@@ -73,10 +71,9 @@ def test_registry_declares_every_source_product_connector() -> None:
         TVMAZE_CONNECTOR_ID,
         TVMAZE_DELTA_CONNECTOR_ID,
     }
-    assert set(products["eidr-public-registry"].connector_ids) == {
-        EIDR_CONNECTOR_ID,
+    assert products["eidr-public-registry"].connector_ids == (
         EIDR_EXACT_LOOKUP_CONNECTOR_ID,
-    }
+    )
 
 
 def test_source_product_accepts_legacy_single_connector_field() -> None:

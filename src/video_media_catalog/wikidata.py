@@ -11,9 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TextIO
 
-from video_media_catalog.canonical import canonical_json, deterministic_key, source_hash
 from video_media_catalog.constants import RELEVANT_WIKIDATA_PROPERTIES
-from video_media_catalog.models import LandingRecord
 
 _ENTITY_ID = re.compile(r"^[A-Z][1-9][0-9]*$")
 
@@ -164,32 +162,3 @@ def normalize_wikidata_entity(entity: dict[str, Any]) -> dict[str, Any]:
         "sitelinks": _copy_sitelinks(entity.get("sitelinks")),
         "claims": claims,
     }
-
-
-def landing_record(entity: dict[str, Any]) -> LandingRecord:
-    payload = normalize_wikidata_entity(entity)
-    digest = source_hash(payload)
-    revision = payload.get("lastrevid")
-    source_revision = None if revision is None else str(revision)
-    return LandingRecord(
-        record_key=deterministic_key(
-            "source-record",
-            {
-                "source": "wikidata",
-                "sourceRecordId": payload["id"],
-                "sourceRevision": source_revision,
-                "sourceHash": digest,
-            },
-        ),
-        source="wikidata",
-        source_record_id=payload["id"],
-        source_revision=source_revision,
-        modified=payload.get("modified"),
-        source_hash=digest,
-        payload_json=canonical_json(payload),
-    )
-
-
-def iter_wikidata_records(path: Path) -> Iterator[LandingRecord]:
-    for entity in iter_wikidata_entities(path):
-        yield landing_record(entity)

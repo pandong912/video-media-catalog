@@ -8,7 +8,6 @@ license = { text = "Apache-2.0" }
 dependencies = [
     "boto3>=1.35,<2",
     "defusedxml>=0.7,<1",
-    "pyarrow>=18,<27",
     "pydantic>=2.10,<3",
 ]
 
@@ -19,27 +18,13 @@ spark = [
 index = [
     "opensearch-py>=2.8,<4",
 ]
-api = [
-    "fastapi>=0.115,<1",
-    "opensearch-py>=2.8,<4",
-    "pyjwt[crypto]>=2.10,<3",
-    "uvicorn>=0.34,<1",
-]
 
 [project.scripts]
-video-media-catalog = "video_media_catalog.cli:main"
-video-media-catalog-spark = "video_media_catalog.spark_cli:main"
-video-media-catalog-index = "video_media_catalog.index_cli:main"
-video-media-catalog-api = "video_media_catalog.api_cli:main"
-video-media-catalog-validate = "video_media_catalog.validate_cli:main"
 video-media-catalog-wikidata-sync = "video_media_catalog.wikidata_sync_cli:main"
-video-media-catalog-wikidata-subset = "video_media_catalog.wikidata_subset_cli:main"
 video-media-catalog-wikidata-full-media = "video_media_catalog.wikidata_full_backfill_cli:main"
-video-media-catalog-reference-subset = "video_media_catalog.reference_subset_cli:main"
 video-media-catalog-emr-submit = "video_media_catalog.emr_serverless_cli:main"
 video-media-catalog-tvmaze-sync = "video_media_catalog.tvmaze_sync_cli:main"
 video-media-catalog-tvmaze-delta-sync = "video_media_catalog.tvmaze_delta_sync_cli:main"
-video-media-catalog-v1-adapter = "video_media_catalog.v1_adapter_cli:main"
 video-media-catalog-imdb-sync = "video_media_catalog.imdb_sync_cli:main"
 video-media-catalog-tmdb-sync = "video_media_catalog.tmdb_sync_cli:main"
 video-media-catalog-source-registry = "video_media_catalog.source_registry_cli:main"
@@ -61,7 +46,6 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28,<1",
     "pytest>=8.3,<10",
     "ruff==0.16.6",
 ]

@@ -1,19 +1,6 @@
-"""Versioned pipeline constants shared by extraction and commit stages."""
+"""Shared source-mapping constants."""
 
 from __future__ import annotations
-
-import hashlib
-
-LANDING_SCHEMA_VERSION = "1.0"
-CURATED_SCHEMA_VERSION = "1.0"
-CONTROL_SCHEMA_VERSION = "1.0"
-
-STAGE = "media-catalog-commit"
-PRODUCER = "video-media-catalog-spark/1.0.0"
-ALGORITHM_SPEC_ID = "media-catalog-wikidata-eidr-v1"
-ALGORITHM_DIGEST = (
-    "sha256:" + hashlib.sha256(ALGORITHM_SPEC_ID.encode("utf-8")).hexdigest()
-)
 
 RELEVANT_WIKIDATA_PROPERTIES = frozenset(
     {
@@ -94,13 +81,4 @@ EXTERNAL_ID_PROPERTIES = {
     "P345": "imdb",
     "P2704": "eidr",
     **{prop: DOUBAN_LEGACY_SCHEME for prop in DOUBAN_EXTERNAL_ID_PROPERTIES},
-}
-
-CURATED_TABLE_KEYS = {
-    "catalog_source_record": "record_key",
-    "catalog_entity": "entity_key",
-    "catalog_name": "name_key",
-    "catalog_external_identifier": "identifier_key",
-    "catalog_relation": "relation_key",
-    "catalog_ingest_error": "error_key",
 }

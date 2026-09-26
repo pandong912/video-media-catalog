@@ -38,6 +38,11 @@ def test_gold_policy_and_plan_are_deterministic() -> None:
     assert plan == type(plan).model_validate_json(plan.json_bytes())
     assert policy.rule_for("genre").operator.value == "SET_UNION"
     assert policy.rule_for("unknown").operator.value == "NEVER_RESOLVE"
+    assert policy.rule_for("title").source_priority[-1] == "europeana-oai-edm"
+    assert policy.rule_for("title").source_priority.index("europeana-oai-edm") > (
+        policy.rule_for("title").source_priority.index("eidr-public-registry")
+    )
+    assert policy.rule_for("edm_rights").operator.value == "SET_UNION"
     assert {action.value for action in policy.requested_actions} == {
         "display",
         "search",

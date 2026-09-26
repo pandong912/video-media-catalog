@@ -60,6 +60,10 @@ def _spark_input_uri(uri: str) -> str:
 def mapper_for_product(source_product_id: str) -> Mapper:
     """Resolve only reviewed, explicitly registered source products."""
 
+    from video_media_catalog.europeana import (
+        EUROPEANA_SOURCE_PRODUCT_ID,
+        map_europeana_record,
+    )
     from video_media_catalog.imdb import (
         IMDB_SOURCE_PRODUCT_ID,
         map_imdb_record,
@@ -85,6 +89,7 @@ def mapper_for_product(source_product_id: str) -> Mapper:
         EIDR_SOURCE_PRODUCT_ID: map_eidr_record,
         IMDB_SOURCE_PRODUCT_ID: map_imdb_record,
         TMDB_SOURCE_PRODUCT_ID: map_tmdb_record,
+        EUROPEANA_SOURCE_PRODUCT_ID: map_europeana_record,
     }
     try:
         return registry[source_product_id]

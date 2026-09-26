@@ -31,6 +31,7 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     assert {product.source_product_id for product in first.source_products} == {
         "wikidata-json-dump",
         "eidr-public-registry",
+        "europeana-oai-edm",
         "identity-resolution-v2",
         "imdb-non-commercial-datasets",
         "tmdb-research",
@@ -136,6 +137,7 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         "tmdb-tv",
         "tmdb-person",
         "eidr-content",
+        "europeana-record",
         "tvmaze-show",
     }.issubset(namespaces)
     assert "douban-subject" not in namespaces
@@ -152,6 +154,7 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         namespaces["eidr-content"].normalize("10.5240/aaaa-bbbb-cccc-dddd-eeee-f")
         == "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-F"
     )
+    assert namespaces["europeana-record"].normalize("/123/item-1") == "/123/item-1"
 
     rows = exact_id_namespace_rows(registry)
     imdb = {

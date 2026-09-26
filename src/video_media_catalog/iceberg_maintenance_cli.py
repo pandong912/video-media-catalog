@@ -256,7 +256,6 @@ def _rollback_table_state(
         f"""
         SELECT
             snapshot_id,
-            sequence_number,
             parent_id,
             committed_at,
             summary['{RUN_SNAPSHOT_PROPERTY}'] AS owner_run_id,
@@ -283,7 +282,7 @@ def _rollback_table_state(
         return run_presence[snapshot_id]
 
     snapshots = []
-    for row in rows:
+    for sequence_number, row in enumerate(rows, start=1):
         snapshot_id = int(row["snapshot_id"])
         parent_snapshot_id = None if row["parent_id"] is None else int(row["parent_id"])
         raw_journal_parent = row["journal_parent_id"]
@@ -303,7 +302,7 @@ def _rollback_table_state(
         snapshots.append(
             FailedRunSnapshotState(
                 snapshot_id=snapshot_id,
-                sequence_number=int(row["sequence_number"]),
+                sequence_number=sequence_number,
                 parent_snapshot_id=parent_snapshot_id,
                 journal_parent_snapshot_id=journal_parent_id,
                 parent_journal_recorded=journal_recorded,

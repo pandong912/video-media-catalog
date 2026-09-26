@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from video_media_catalog.community_tables import build_community_table_mapping
+from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.iceberg_maintenance import (
     MIN_RETENTION_DAYS,
     FailedRunSnapshotState,
@@ -18,7 +19,10 @@ from video_media_catalog.iceberg_maintenance import (
     rewrite_data_files_sql,
     rewrite_manifests_sql,
 )
-from video_media_catalog.iceberg_maintenance_cli import build_parser
+from video_media_catalog.iceberg_maintenance_cli import (
+    _rollback_table_state,
+    build_parser,
+)
 
 TABLE = "community_source_record"
 FAILED_RUN = "sha256:" + ("f" * 64)
@@ -540,3 +544,59 @@ def test_rollback_cli_exposes_failed_run_two_phase_command() -> None:
     )
     assert legacy.identity_generation_id is None
     assert legacy.allow_legacy_parent_inference
+
+
+def test_rollback_inventory_derives_sequence_without_metadata_column() -> None:
+    class Rows:
+        def __init__(self, values):
+            self.values = values
+
+        def collect(self):
+            return self.values
+
+    class Spark:
+        def sql(self, query):
+            assert "sequence_number" not in query
+            if ".history" in query and "LIMIT 1" in query:
+                return Rows([{"snapshot_id": 20}])
+            if ".history" in query:
+                return Rows([{"snapshot_id": 10}, {"snapshot_id": 20}])
+            if ".refs" in query:
+                return Rows([{"name": "main", "type": "BRANCH", "snapshot_id": 20}])
+            if ".snapshots" in query:
+                return Rows(
+                    [
+                        {
+                            "snapshot_id": 10,
+                            "parent_id": None,
+                            "committed_at": "2026-09-20T00:00:00Z",
+                            "owner_run_id": None,
+                            "journal_parent_id": None,
+                            "rollback_run_id": None,
+                        },
+                        {
+                            "snapshot_id": 20,
+                            "parent_id": 10,
+                            "committed_at": "2026-09-20T00:01:00Z",
+                            "owner_run_id": FAILED_RUN,
+                            "journal_parent_id": "10",
+                            "rollback_run_id": None,
+                        },
+                    ]
+                )
+            raise AssertionError(query)
+
+    state = _rollback_table_state(
+        Spark(),
+        config=CatalogConfig(
+            catalog_name="media",
+            namespace="video_media_catalog",
+            warehouse="file:///tmp/warehouse",
+        ),
+        logical_table="community_entity_ledger",
+        physical_table="community_entity_ledger",
+        run_id=FAILED_RUN,
+        allow_legacy_control_inference=False,
+    )
+
+    assert [snapshot.sequence_number for snapshot in state.snapshots] == [1, 2]

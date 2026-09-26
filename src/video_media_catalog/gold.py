@@ -16,6 +16,7 @@ from pydantic import (
 
 from video_media_catalog.canonical import canonical_json, deterministic_key
 from video_media_catalog.community_release import ReleasePolicyContext
+from video_media_catalog.europeana import EUROPEANA_SOURCE_PRODUCT_ID
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.rights import PolicyZone, UsageAction
 from video_media_catalog.v2_contracts import (
@@ -195,6 +196,7 @@ def research_policy() -> GoldResolutionPolicy:
         "tvmaze-public-api",
         "wikidata-json-dump",
         "eidr-public-registry",
+        EUROPEANA_SOURCE_PRODUCT_ID,
     )
     fact_priority = (
         "imdb-non-commercial-datasets",
@@ -202,11 +204,13 @@ def research_policy() -> GoldResolutionPolicy:
         "wikidata-json-dump",
         "tvmaze-public-api",
         "eidr-public-registry",
+        EUROPEANA_SOURCE_PRODUCT_ID,
     )
     identifier_namespaces = (
         "douban-subject",
         "eidr-alternate",
         "eidr-content",
+        "europeana-record",
         "imdb-company",
         "imdb-name",
         "imdb-title",
@@ -262,6 +266,12 @@ def research_policy() -> GoldResolutionPolicy:
                 predicate="original_title",
                 operator=ResolutionOperator.SINGLE,
                 scope_qualifiers=("language", "region"),
+                source_priority=title_priority,
+            ),
+            FieldPolicyRule(
+                predicate="description",
+                operator=ResolutionOperator.SINGLE,
+                scope_qualifiers=("language",),
                 source_priority=title_priority,
             ),
             FieldPolicyRule(
@@ -337,6 +347,34 @@ def research_policy() -> GoldResolutionPolicy:
                 operator=ResolutionOperator.SET_UNION,
                 scope_qualifiers=("vocabulary",),
                 source_priority=fact_priority,
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    operator=ResolutionOperator.SET_UNION,
+                    source_priority=fact_priority,
+                )
+                for predicate in (
+                    "contributor",
+                    "country",
+                    "creator",
+                    "data_provider",
+                    "dc_rights",
+                    "digital_object_rights_status",
+                    "edm_rights",
+                    "external_identifier",
+                    "landing_url",
+                    "license_uri",
+                    "linked_object_rights",
+                    "media_type",
+                    "media_url",
+                    "metadata_license_uri",
+                    "preview_url",
+                    "provider",
+                    "record_url",
+                    "rights_statement",
+                    "temporal",
+                )
             ),
             *(
                 FieldPolicyRule(

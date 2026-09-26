@@ -10,6 +10,8 @@
   ObjectRef、bounded delta、watermark 与分布式 run count / digest；
 - `identity_curation.v2.md`：人工 identity curation manifest、snapshot
   pinning、五类操作与幂等提交；
+- `europeana_oai_capture.v1.md`：Europeana 官方 OAI-PMH 的有界
+  PARTIAL/DELTA Capture、rights 分离、恢复与 commit-last 边界；
 - `parquet/community_catalog_gold.v2.md`：research Gold 五表、quality /
   attribution、release commit 与 OpenSearch projectionVersion `6`。
 

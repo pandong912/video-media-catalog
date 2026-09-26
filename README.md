@@ -128,6 +128,24 @@ video-media-catalog-eidr-backfill extract-ids \
 该入口只补全 Silver 中已发现的 EIDR ID，不提供 title search、crawl 或未授权的
 registry mirror。
 
+### Europeana OAI-PMH
+
+```bash
+video-media-catalog-europeana-oai \
+  --destination-prefix s3://bucket/landing/research/capture \
+  --acquired-at 2026-09-26T00:00:00Z \
+  --window-start 2026-09-25T00:00:00Z \
+  --window-end 2026-09-25T23:59:59Z \
+  --set-spec 9200365 \
+  --image-digest sha256:...
+```
+
+该入口只访问 Europeana 官方免 key OAI-PMH 端点，固定为 PARTIAL/DELTA，
+默认最多 5 页、100 条。它保留每条记录的 `edm:rights`/`dc:rights` 与
+RightsStatements/CC URI；preview、音视频 URL 只作为引用事实，绝不下载媒体
+二进制。Search/Record API key 不支持命令行传入。完整合规与恢复契约见
+`docs/sources/europeana.md` 和 `contracts/europeana_oai_capture.v1.md`。
+
 ## Silver
 
 ```bash

@@ -9,6 +9,10 @@ from video_media_catalog.constants import (
     DOUBAN_WORK_NAMESPACE_ID,
 )
 from video_media_catalog.douban import DOUBAN_IDENTIFIER_PATTERN
+from video_media_catalog.europeana import (
+    europeana_metadata_rights_profile,
+    europeana_registry_entries,
+)
 from video_media_catalog.imdb import (
     IMDB_COMPANY_NAMESPACE_ID,
     IMDB_NAME_NAMESPACE_ID,
@@ -110,6 +114,9 @@ def build_community_registry() -> SourceRegistrySnapshot:
     tvmaze_system, tvmaze_product, tvmaze_namespace = tvmaze_registry_entries()
     imdb_system, imdb_product, imdb_namespaces = imdb_registry_entries()
     tmdb_system, tmdb_product, tmdb_namespaces = tmdb_registry_entries()
+    europeana_system, europeana_product, europeana_namespace = (
+        europeana_registry_entries()
+    )
     tvmaze_namespace = tvmaze_namespace.model_copy(
         update={"scheme_aliases": ("tvmaze",)}
     )
@@ -188,6 +195,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
             tvmaze_system,
             imdb_system,
             tmdb_system,
+            europeana_system,
         ),
         source_products=(
             wikidata_product,
@@ -196,6 +204,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
             tvmaze_product,
             imdb_product,
             tmdb_product,
+            europeana_product,
         ),
         source_namespaces=(
             SourceNamespace(
@@ -286,6 +295,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
             ),
             *imdb_namespaces,
             *tmdb_namespaces,
+            europeana_namespace,
         ),
         schema_contracts=(),
         rights_profiles=(
@@ -295,5 +305,6 @@ def build_community_registry() -> SourceRegistrySnapshot:
             tvmaze_rights_profile(),
             imdb_rights_profile(),
             tmdb_rights_profile(),
+            europeana_metadata_rights_profile(),
         ),
     )

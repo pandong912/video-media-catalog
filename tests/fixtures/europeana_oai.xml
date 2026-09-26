@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:dcterms="http://purl.org/dc/terms/"
+         xmlns:edm="http://www.europeana.eu/schemas/edm/"
+         xmlns:ore="http://www.openarchives.org/ore/terms/"
+         xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+  <responseDate>2026-09-26T00:00:05Z</responseDate>
+  <request verb="ListRecords" metadataPrefix="edm">https://api.europeana.eu/oai</request>
+  <ListRecords>
+    <record>
+      <header>
+        <identifier>http://data.europeana.eu/item/123/item-1</identifier>
+        <datestamp>2026-09-25T12:34:56Z</datestamp>
+        <setSpec>123</setSpec>
+      </header>
+      <metadata>
+        <rdf:RDF>
+          <edm:ProvidedCHO rdf:about="http://data.europeana.eu/item/123/item-1"/>
+          <ore:Aggregation rdf:about="http://data.europeana.eu/aggregation/provider/123/item-1">
+            <edm:aggregatedCHO rdf:resource="http://data.europeana.eu/item/123/item-1"/>
+            <edm:dataProvider rdf:resource="http://data.europeana.eu/organization/data"/>
+            <edm:provider rdf:resource="http://data.europeana.eu/organization/provider"/>
+            <edm:isShownAt rdf:resource="https://museum.example/items/1"/>
+            <edm:isShownBy rdf:resource="https://media.example/video/1.mp4"/>
+            <edm:object rdf:resource="https://media.example/preview/1.jpg"/>
+            <edm:rights rdf:resource="https://creativecommons.org/licenses/by/4.0/"/>
+          </ore:Aggregation>
+          <ore:Proxy rdf:about="http://data.europeana.eu/proxy/provider/123/item-1">
+            <dc:title xml:lang="en">Example archival film</dc:title>
+            <dcterms:alternative xml:lang="fr">Film d'archive exemple</dcterms:alternative>
+            <dc:description xml:lang="en">A preserved description.</dc:description>
+            <dc:date>1927</dc:date>
+            <dc:language>en</dc:language>
+            <dc:type>VIDEO</dc:type>
+            <dc:creator>Example Director</dc:creator>
+            <dc:contributor>Example Archive</dc:contributor>
+            <dc:identifier>10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C</dc:identifier>
+            <dc:identifier>https://www.imdb.com/title/tt1234567/</dc:identifier>
+            <dc:identifier>ARCHIVE-LOCAL-1</dc:identifier>
+            <dc:rights rdf:resource="https://rightsstatements.org/vocab/InC/1.0/"/>
+          </ore:Proxy>
+          <edm:EuropeanaAggregation rdf:about="http://data.europeana.eu/aggregation/europeana/123/item-1">
+            <edm:country>France</edm:country>
+            <edm:language>fr</edm:language>
+            <edm:preview rdf:resource="https://media.example/preview/1-small.jpg"/>
+            <edm:landingPage rdf:resource="https://www.europeana.eu/item/123/item-1"/>
+            <edm:rights rdf:resource="https://creativecommons.org/licenses/by/4.0/"/>
+          </edm:EuropeanaAggregation>
+          <edm:WebResource rdf:about="https://media.example/video/1.mp4">
+            <edm:rights rdf:resource="https://rightsstatements.org/vocab/InC/1.0/"/>
+          </edm:WebResource>
+          <rdf:Description rdf:about="http://data.europeana.eu/organization/data">
+            <skos:prefLabel xml:lang="en">Example Data Provider</skos:prefLabel>
+          </rdf:Description>
+          <rdf:Description rdf:about="http://data.europeana.eu/organization/provider">
+            <skos:prefLabel xml:lang="en">Europeana Example Aggregator</skos:prefLabel>
+          </rdf:Description>
+        </rdf:RDF>
+      </metadata>
+    </record>
+    <record>
+      <header>
+        <identifier>https://data.europeana.eu/item/123/item-2</identifier>
+        <datestamp>2026-09-25T12:35:56Z</datestamp>
+        <setSpec>123</setSpec>
+      </header>
+      <metadata>
+        <rdf:RDF>
+          <edm:ProvidedCHO rdf:about="http://data.europeana.eu/item/123/item-2"/>
+          <ore:Proxy rdf:about="http://data.europeana.eu/proxy/provider/123/item-2">
+            <dc:title>Object without a declared object-rights URI</dc:title>
+            <dc:type>IMAGE</dc:type>
+          </ore:Proxy>
+          <edm:EuropeanaAggregation rdf:about="http://data.europeana.eu/aggregation/europeana/123/item-2">
+            <edm:landingPage rdf:resource="https://www.europeana.eu/item/123/item-2"/>
+          </edm:EuropeanaAggregation>
+        </rdf:RDF>
+      </metadata>
+    </record>
+    <resumptionToken completeListSize="42"
+                     cursor="0"
+                     expirationDate="2026-09-27T00:00:05Z">opaque-token-2</resumptionToken>
+  </ListRecords>
+</OAI-PMH>

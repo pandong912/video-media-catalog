@@ -97,6 +97,10 @@ class SourceSilverMapperIdentity(V2ContractModel):
 
 
 _DEFAULT_MAPPER_IDENTITIES = {
+    "europeana-oai-edm": SourceSilverMapperIdentity(
+        mapper_id="europeana-edm-source-mapper",
+        mapper_version="1.0.0",
+    ),
     "eidr-public-registry": SourceSilverMapperIdentity(
         mapper_id="eidr-source-mapper",
         mapper_version="2.0.0",

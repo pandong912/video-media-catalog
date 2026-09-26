@@ -553,31 +553,31 @@ def build_parent_constrained_work(
         "parent_source_id",
         "parent_referent_kind",
     ]
-    parent_membership_counts = raw_membership_candidates.groupBy(
-        *parent_source_columns
-    ).agg(
-        F.countDistinct("parent_membership_key").alias(
-            "parent_membership_candidate_count"
-        )
-    )
-    unique_parent_memberships = (
-        raw_membership_candidates.join(
-            parent_membership_counts.where(
-                F.col("parent_membership_candidate_count") == 1
-            ).select(*parent_source_columns),
-            parent_source_columns,
-            "inner",
-        )
-        .groupBy(*parent_source_columns)
+    # Aggregate once instead of self-joining the checkpointed membership frame.
+    # A self-join of a LogicalRDD through aliased projections can fail Spark
+    # analysis with "conflicting references" (observed on EMR 7.9 when the
+    # season branch reused the resolved primary memberships), so keep the
+    # candidate count and the unique binding in a single group-by.
+    unique_membership = F.col("parent_membership_candidate_count") == 1
+    membership_candidates = (
+        raw_membership_candidates.groupBy(*parent_source_columns)
         .agg(
-            F.min("parent_entity_key").alias("parent_entity_key"),
-            F.min("parent_membership_key").alias("parent_membership_key"),
+            F.countDistinct("parent_membership_key").alias(
+                "parent_membership_candidate_count"
+            ),
+            F.min("parent_entity_key").alias("_unique_parent_entity_key"),
+            F.min("parent_membership_key").alias("_unique_parent_membership_key"),
         )
-    )
-    membership_candidates = parent_membership_counts.join(
-        unique_parent_memberships,
-        parent_source_columns,
-        "left",
+        .select(
+            *parent_source_columns,
+            "parent_membership_candidate_count",
+            F.when(unique_membership, F.col("_unique_parent_entity_key")).alias(
+                "parent_entity_key"
+            ),
+            F.when(unique_membership, F.col("_unique_parent_membership_key")).alias(
+                "parent_membership_key"
+            ),
+        )
     )
     relationships = relationship_assertions.select(
         *source_columns,

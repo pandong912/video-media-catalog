@@ -106,6 +106,10 @@ def test_parent_membership_join_is_vectorized_and_ordered() -> None:
     parent_block = parent_block.split("\ndef ", 1)[0]
     assert ".rdd" not in parent_block
     assert "parent_memberships" in parent_block
+    # The resolved membership frame is a checkpointed LogicalRDD; never
+    # self-join it through aliased projections (Spark conflicting references).
+    assert "raw_membership_candidates.join(" not in parent_block
+    assert "unique_parent_memberships" not in parent_block
     assert "resolved_parent_membership_count" in parent_block
     assert 'Window.partitionBy("component_id")' in parent_block
     assert ".join(anchors" not in parent_block

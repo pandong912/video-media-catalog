@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import tempfile
+
 import pytest
 
 pytest.importorskip("pyspark")
 
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession
 
 from video_media_catalog.identity_spark import (
@@ -27,6 +30,8 @@ def spark():
 
 def _parent_work(
     spark: SparkSession,
+    *,
+    checkpoint_memberships: bool = False,
 ):
     children = spark.createDataFrame(
         [
@@ -163,6 +168,16 @@ def _parent_work(
             "membership_key STRING"
         ),
     )
+    if checkpoint_memberships:
+        # Production materializes resolved memberships through a reliable
+        # checkpoint, so the parent join has to work against a LogicalRDD.
+        spark.sparkContext.setCheckpointDir(tempfile.mkdtemp())
+        parent_memberships = (
+            parent_memberships.repartition(2)
+            .checkpoint(eager=True)
+            .persist(StorageLevel.DISK_ONLY)
+        )
+        parent_memberships.count()
     candidates = spark.createDataFrame(
         [],
         (
@@ -208,3 +223,22 @@ def test_parent_join_requires_one_compatible_membership(
 
     assert rows["tt-child-type"].resolution_mode == "CONFLICT_PARENT_TYPE"
     assert rows["tt-child-ordinal"].resolution_mode == "CONFLICT_PARENT_ORDINAL"
+
+
+@pytest.mark.spark
+def test_parent_join_accepts_checkpointed_memberships(
+    spark: SparkSession,
+) -> None:
+    rows = {
+        row.subject_source_id: row
+        for row in _parent_work(spark, checkpoint_memberships=True).collect()
+    }
+    unique = rows["tt-child-unique"]
+    assert unique.resolution_mode == "BOOTSTRAP"
+    assert unique.resolved_parent_membership_count == 1
+    assert unique.parent_entity_key == "sha256:" + ("2" * 64)
+    assert unique.parent_membership_key == "sha256:" + ("3" * 64)
+    ambiguous = rows["tt-child-ambiguous"]
+    assert ambiguous.resolution_mode == "CONFLICT_PARENT_AMBIGUOUS"
+    assert ambiguous.max_parent_membership_candidate_count == 2
+    assert ambiguous.parent_entity_key is None

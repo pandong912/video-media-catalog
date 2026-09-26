@@ -28,7 +28,11 @@ from video_media_catalog.community_sources import (
     internal_key_continuity_profile,
 )
 from video_media_catalog.community_spark import community_table_schema
-from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    DATA_TABLE_COLUMNS,
+    require_identity_generation_id,
+    validate_community_table_mapping,
+)
 from video_media_catalog.identity_resolution import (
     IdentityResolutionResult,
     SourceNodeResolutionInput,
@@ -1074,6 +1078,9 @@ def build_identity_resolution_dataframes(
     ingest_runs: Any | None = None,
     committed_source_run_ids: tuple[str, ...] | None = None,
     resolution_config: IdentityResolutionConfig | None = None,
+    identity_generation_id: str | None = None,
+    identity_mode: Literal["full", "incremental"] | None = None,
+    table_mapping: Mapping[str, str] | None = None,
 ) -> tuple[CommunityIngestRun, dict[str, Any]]:
     """Resolve source nodes through registry namespaces and quarantine ambiguity."""
 
@@ -1083,6 +1090,26 @@ def build_identity_resolution_dataframes(
     resolution_config = resolution_config or DEFAULT_IDENTITY_RESOLUTION_CONFIG
     config_digest = resolution_config.bind_runtime_config(runtime_config_digest)
     started_at = require_rfc3339(started_at, label="started_at")
+    generation_contract: dict[str, Any] = {}
+    if identity_generation_id is None:
+        if identity_mode is not None or table_mapping is not None:
+            raise ValueError(
+                "Identity generation, mode, and table mapping must be provided together"
+            )
+    else:
+        generation = require_identity_generation_id(identity_generation_id)
+        if identity_mode not in {"full", "incremental"} or table_mapping is None:
+            raise ValueError(
+                "Identity generation, mode, and table mapping must be provided together"
+            )
+        generation_contract = {
+            "identityGenerationId": generation,
+            "identityMode": identity_mode,
+            "tableMapping": validate_community_table_mapping(
+                table_mapping,
+                identity_generation_id=generation,
+            ),
+        }
     registry = registry or build_community_registry()
     materialization_id = deterministic_key(
         "external-id-index-materialization-v2",
@@ -2520,6 +2547,7 @@ def build_identity_resolution_dataframes(
                     by_alias=True,
                 ),
                 "conflictCountsByReason": conflict_counts_by_reason,
+                **generation_contract,
                 **(
                     {"pinnedInputs": dict(pinned_inputs)}
                     if pinned_inputs is not None

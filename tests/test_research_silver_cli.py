@@ -8,7 +8,11 @@ from video_media_catalog.community_ingest import (
     IngestRunKind,
     build_community_ingest_run,
 )
-from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    DATA_TABLE_COLUMNS,
+    SOURCE_TABLES,
+    build_community_table_mapping,
+)
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.research_silver_cli import (
     MAX_EXPLICIT_RUN_IDS,
@@ -18,6 +22,8 @@ from video_media_catalog.research_silver_cli import (
     _optional_control_object_ref,
     _parse_source_watermarks,
     _require_immutable_snapshot_output,
+    _selected_silver_frames,
+    _validate_run_generations,
     _validate_source_watermark_changes,
     build_parser,
 )
@@ -34,6 +40,10 @@ def _identity_arguments() -> list[str]:
         "100",
         "--source-run-id",
         "sha256:" + ("c" * 64),
+        "--identity-generation-id",
+        "catalog-2026-09",
+        "--identity-mode",
+        "full",
         "--image-digest",
         "sha256:" + ("d" * 64),
         "--config-digest",
@@ -56,6 +66,8 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     assert identity.command == "resolve-identity"
     assert identity.namespace == "video_media_catalog"
     assert identity.source_run_ids == ["sha256:" + ("c" * 64)]
+    assert identity.identity_generation_id == "catalog-2026-09"
+    assert identity.identity_mode == "full"
     assert identity.s3_credentials_provider == "default"
     assert identity.silver_snapshot_media_type.endswith("silver-snapshot-set.v2+json")
     assert identity.identity_max_label_iterations == 64
@@ -80,6 +92,7 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     )
     assert publication.command == "publish-snapshot"
     assert publication.namespace == "video_media_catalog"
+    assert publication.identity_generation_id is None
 
     epoch = build_parser().parse_args(
         [
@@ -101,6 +114,24 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     assert epoch.command == "publish-epoch"
     assert epoch.parent_epoch_uri is None
     assert epoch.delta_run_ids == ["sha256:" + ("f" * 64)]
+    assert epoch.identity_generation_id is None
+
+    generated_epoch = build_parser().parse_args(
+        [
+            "publish-epoch",
+            "--identity-generation-id",
+            "catalog-2026-09",
+            "--epoch-uri",
+            "file:///tmp/generated-epoch.json",
+            "--created-at",
+            "2026-09-20T00:02:00Z",
+            "--catalog-type",
+            "hadoop",
+            "--warehouse",
+            "file:///tmp/warehouse",
+        ]
+    )
+    assert generated_epoch.identity_generation_id == "catalog-2026-09"
 
 
 def test_control_object_requires_pinned_s3_version_and_etag() -> None:
@@ -250,3 +281,86 @@ def test_parent_watermark_change_requires_source_delta_run() -> None:
             )
         },
     )
+
+
+def _identity_run(generation: str):
+    mapping = build_community_table_mapping(generation)
+    return build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        source_product_id="identity-resolution-v2",
+        input_id="sha256:" + ("1" * 64),
+        policy_id="internal-key-continuity",
+        policy_digest="sha256:" + ("2" * 64),
+        image_digest="sha256:" + ("3" * 64),
+        config_digest="sha256:" + ("4" * 64),
+        started_at="2026-09-20T00:00:00Z",
+        expected_counts={table: 0 for table in DATA_TABLE_COLUMNS},
+        input_manifest={
+            "identityGenerationId": generation,
+            "identityMode": "incremental",
+            "tableMapping": mapping,
+        },
+    )
+
+
+def test_incremental_run_generation_matches_and_cross_generation_fails() -> None:
+    generation = "catalog-2026-09"
+    run = _identity_run(generation)
+    mapping = build_community_table_mapping(generation)
+    _validate_run_generations(
+        {run.run_id: run},
+        identity_generation_id=generation,
+        table_mapping=mapping,
+    )
+
+    with pytest.raises(ValueError, match="another Identity generation"):
+        _validate_run_generations(
+            {run.run_id: run},
+            identity_generation_id="catalog-2026-10",
+            table_mapping=build_community_table_mapping("catalog-2026-10"),
+        )
+
+
+def test_full_selection_does_not_read_historical_identity_tables() -> None:
+    class RecordingVisibleTables:
+        def __init__(self) -> None:
+            self.selected_tables = None
+
+        def visible_dataframes(self, **values):
+            self.selected_tables = values["selected_tables"]
+            return {}
+
+    tables = RecordingVisibleTables()
+    snapshot = SimpleNamespace(
+        data_snapshot_ids={table: None for table in DATA_TABLE_COLUMNS},
+        commit_snapshot_id=1,
+    )
+    _selected_silver_frames(
+        tables=tables,
+        snapshot=snapshot,
+        committed_runs=object(),
+        source_run_ids=("sha256:" + ("a" * 64),),
+        source_only=True,
+    )
+
+    assert set(tables.selected_tables) == set(SOURCE_TABLES)
+
+
+def test_generation_and_mode_participate_in_identity_run_id() -> None:
+    first = _identity_run("catalog-2026-09")
+    second = _identity_run("catalog-2026-10")
+    payload = first.model_dump(mode="python")
+    payload["input_manifest"] = {
+        **first.input_manifest,
+        "identityMode": "full",
+    }
+    full = build_community_ingest_run(
+        **{
+            key: value
+            for key, value in payload.items()
+            if key not in {"run_id", "schema_version"}
+        }
+    )
+
+    assert first.run_id != second.run_id
+    assert first.run_id != full.run_id

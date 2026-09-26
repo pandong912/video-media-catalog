@@ -84,6 +84,7 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     assert result["state"] == "SUCCESS"
     assert client.cancel_requests == []
     assert client.start_request is not None
+    assert client.start_request["retryPolicy"] == {"maxAttempts": 1}
     spark_submit = client.start_request["jobDriver"]["sparkSubmit"]
     assert spark_submit["entryPointArguments"] == [
         "--dump-uri",

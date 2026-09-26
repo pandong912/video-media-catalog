@@ -11,8 +11,8 @@ IDs are positive integers.
 
 `epochId` is the domain-separated deterministic key
 `community-silver-epoch-v3` over every field below except `epochId` itself.
-Changing a snapshot, reference, delta, watermark, count, digest, or timestamp
-therefore creates another epoch.
+Changing a snapshot, reference, generation, table mapping, delta, watermark,
+count, digest, or timestamp therefore creates another epoch.
 
 ## Fields
 
@@ -25,6 +25,10 @@ therefore creates another epoch.
 - `commitSnapshotId`: exact `community_ingest_commit` snapshot.
 - `dataSnapshotIds`: every Silver data table mapped to an exact snapshot ID or
   explicit `null` for a table that has never had rows.
+- `identityGenerationId` and `tableMapping`: optional as a pair. New
+  generation-aware epochs include the bounded generation ID and the complete
+  deterministic logical-to-physical mapping. Legacy fixed-name epochs omit
+  both and remain readable.
 - `sourceWatermarks`: source-product ID to bounded watermark.
 - `committedRunCount`: total distinct committed runs.
 - `committedRunDigest`: digest of the complete committed-run relation.
@@ -67,7 +71,12 @@ must remain distributed.
 
 Consumers verify the immutable epoch ObjectRef, read the exact commit snapshot,
 validate its count/digest, and use its distributed `run_id` DataFrame to join
-the exact data snapshots. Run metadata is read from `runSnapshotId`.
+the exact data snapshots from `tableMapping`. Run metadata is read from
+`runSnapshotId`. For a generation-aware epoch, the committed-run relation is
+all shared `SOURCE_ASSERTIONS` runs plus only `IDENTITY_RESOLUTION` and
+`IDENTITY_CURATION` runs whose immutable run manifest declares that exact
+generation and mapping. A consumer never discovers or substitutes a "latest"
+generation.
 
 Parent traversal is for audit validation, not for reconstructing the current
 run set. Legacy `CommunitySilverSnapshotSet` schema `2.0` remains readable for

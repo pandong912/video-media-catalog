@@ -88,10 +88,18 @@ unmatched components allocate permanent internal UUIDv7-backed entity keys.
 Ambiguity, oversized components, parent mismatch, and lifecycle uncertainty
 emit conflicts instead of guessed memberships.
 
+Source/assertion physical tables and run/commit control tables are fixed and
+shared. Identity logical tables resolve to generation-specific physical tables
+in the same Glue namespace. A full run reads no historical Identity tables and
+requires an empty target generation; an incremental run must pin and reuse the
+same generation and complete table mapping. This prevents global-key MERGE
+matches in an older migration table from suppressing rows in a new full build.
+
 The bounded `CommunitySilverSnapshotSet` remains schema `2.0`. Long-running
 histories use `CommunitySilverEpochManifest` schema `3.0`, carrying bounded
 deltas and distributed committed-run count/digest rather than a driver-sized
-history list.
+history list. Both contracts optionally carry generation plus a deterministic
+logical-to-physical mapping; omission preserves the legacy fixed-table reader.
 
 ## Gold
 
@@ -122,6 +130,10 @@ immutable base into a new concrete index and never mutates the old index.
 - AWS authentication uses the default credential chain; static keys are not
   CLI arguments.
 - Iceberg maintenance defaults to plan-only and honors protected snapshots.
+- Failed Identity attempts require dry-run-first, reverse-order snapshot
+  rollback with no-commit, unchanged-head, parent-journal, and protected-ref
+  guards. Partial runs are not directly retried, and EMR job attempts default
+  to one.
 - Source removal is dry-run-first and does not delete data unless a separate
   explicitly confirmed execution is invoked.
 - Unit and Spark tests use local fixtures; CI does not run real AWS or

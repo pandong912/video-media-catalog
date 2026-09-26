@@ -11,7 +11,12 @@ from urllib.parse import urlsplit
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from video_media_catalog.canonical import deterministic_key
-from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    DATA_TABLE_COLUMNS,
+    build_community_table_mapping,
+    require_identity_generation_id,
+    validate_community_table_mapping,
+)
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
@@ -47,6 +52,8 @@ class CommunitySilverSnapshotSet(V2ContractModel):
     run_snapshot_id: int
     commit_snapshot_id: int
     data_snapshot_ids: dict[str, int | None]
+    identity_generation_id: str | None = None
+    table_mapping: dict[str, str] | None = None
     created_at: str
 
     @field_validator("snapshot_set_id")
@@ -85,6 +92,13 @@ class CommunitySilverSnapshotSet(V2ContractModel):
             raise ValueError("Silver snapshot IDs must be positive when present")
         return dict(sorted(value.items()))
 
+    @field_validator("identity_generation_id")
+    @classmethod
+    def validate_identity_generation_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_identity_generation_id(value)
+
     @field_validator("created_at")
     @classmethod
     def validate_created_at(cls, value: str) -> str:
@@ -92,6 +106,15 @@ class CommunitySilverSnapshotSet(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_identity(self, info: ValidationInfo) -> Self:
+        if (self.identity_generation_id is None) != (self.table_mapping is None):
+            raise ValueError(
+                "identity generation and table mapping must both be present or absent"
+            )
+        if self.table_mapping is not None:
+            validate_community_table_mapping(
+                self.table_mapping,
+                identity_generation_id=self.identity_generation_id,
+            )
         if not (info.context or {}).get("skip_identity"):
             expected = deterministic_key(
                 "community-silver-snapshot-set-v2",
@@ -103,7 +126,7 @@ class CommunitySilverSnapshotSet(V2ContractModel):
 
 
 def _snapshot_identity(snapshot: CommunitySilverSnapshotSet) -> dict[str, Any]:
-    return {
+    identity = {
         "schemaVersion": snapshot.schema_version,
         "committedRunIds": snapshot.committed_run_ids,
         "runSnapshotId": snapshot.run_snapshot_id,
@@ -111,11 +134,21 @@ def _snapshot_identity(snapshot: CommunitySilverSnapshotSet) -> dict[str, Any]:
         "dataSnapshotIds": snapshot.data_snapshot_ids,
         "createdAt": snapshot.created_at,
     }
+    if snapshot.identity_generation_id is not None:
+        identity["identityGenerationId"] = snapshot.identity_generation_id
+        identity["tableMapping"] = snapshot.table_mapping
+    return identity
 
 
 def build_community_silver_snapshot_set(
     **values: Any,
 ) -> CommunitySilverSnapshotSet:
+    generation = values.get("identity_generation_id")
+    if generation is not None and values.get("table_mapping") is None:
+        values = {
+            **values,
+            "table_mapping": build_community_table_mapping(generation),
+        }
     provisional = CommunitySilverSnapshotSet.model_validate(
         {**values, "snapshot_set_id": _ZERO_DIGEST},
         context={"skip_identity": True},
@@ -186,6 +219,8 @@ class CommunitySilverEpochManifest(V2ContractModel):
     run_snapshot_id: int
     commit_snapshot_id: int
     data_snapshot_ids: dict[str, int | None]
+    identity_generation_id: str | None = None
+    table_mapping: dict[str, str] | None = None
     source_watermarks: dict[str, str] = Field(default_factory=dict)
     committed_run_count: int = Field(gt=0)
     committed_run_digest: str
@@ -241,6 +276,13 @@ class CommunitySilverEpochManifest(V2ContractModel):
             raise ValueError("Silver epoch snapshot IDs must be positive when present")
         return dict(sorted(value.items()))
 
+    @field_validator("identity_generation_id")
+    @classmethod
+    def validate_identity_generation_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_identity_generation_id(value)
+
     @field_validator("source_watermarks")
     @classmethod
     def normalize_source_watermarks(cls, value: dict[str, str]) -> dict[str, str]:
@@ -262,6 +304,15 @@ class CommunitySilverEpochManifest(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_epoch(self, info: ValidationInfo) -> Self:
+        if (self.identity_generation_id is None) != (self.table_mapping is None):
+            raise ValueError(
+                "identity generation and table mapping must both be present or absent"
+            )
+        if self.table_mapping is not None:
+            validate_community_table_mapping(
+                self.table_mapping,
+                identity_generation_id=self.identity_generation_id,
+            )
         if (self.parent_epoch is None) != (self.baseline_epoch is None):
             raise ValueError(
                 "parent and baseline epoch references must both be present or absent"
@@ -297,7 +348,7 @@ def _epoch_reference_identity(
 
 
 def _epoch_identity(epoch: CommunitySilverEpochManifest) -> dict[str, Any]:
-    return {
+    identity = {
         "schemaVersion": epoch.schema_version,
         "parentEpoch": _epoch_reference_identity(epoch.parent_epoch),
         "baselineEpoch": _epoch_reference_identity(epoch.baseline_epoch),
@@ -311,11 +362,21 @@ def _epoch_identity(epoch: CommunitySilverEpochManifest) -> dict[str, Any]:
         "committedRunDigestAlgorithm": epoch.committed_run_digest_algorithm,
         "createdAt": epoch.created_at,
     }
+    if epoch.identity_generation_id is not None:
+        identity["identityGenerationId"] = epoch.identity_generation_id
+        identity["tableMapping"] = epoch.table_mapping
+    return identity
 
 
 def build_community_silver_epoch_manifest(
     **values: Any,
 ) -> CommunitySilverEpochManifest:
+    generation = values.get("identity_generation_id")
+    if generation is not None and values.get("table_mapping") is None:
+        values = {
+            **values,
+            "table_mapping": build_community_table_mapping(generation),
+        }
     provisional = CommunitySilverEpochManifest.model_validate(
         {**values, "epoch_id": _ZERO_DIGEST},
         context={"skip_identity": True},
@@ -389,3 +450,16 @@ def community_silver_manifest_id(manifest: CommunitySilverManifest) -> str:
     if isinstance(manifest, CommunitySilverEpochManifest):
         return manifest.epoch_id
     return manifest.snapshot_set_id
+
+
+def community_silver_table_mapping(
+    manifest: CommunitySilverManifest,
+) -> dict[str, str]:
+    """Resolve new mapped manifests and legacy fixed-name manifests uniformly."""
+
+    if manifest.table_mapping is None:
+        return build_community_table_mapping()
+    return validate_community_table_mapping(
+        manifest.table_mapping,
+        identity_generation_id=manifest.identity_generation_id,
+    )

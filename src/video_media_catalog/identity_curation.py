@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, Literal, Self
 from urllib.parse import urlsplit
@@ -29,7 +30,11 @@ from video_media_catalog.community_snapshot import (
     SILVER_SNAPSHOT_MEDIA_TYPE,
 )
 from video_media_catalog.community_spark import community_table_schema
-from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    DATA_TABLE_COLUMNS,
+    require_identity_generation_id,
+    validate_community_table_mapping,
+)
 from video_media_catalog.identity import require_canonical_uuid7
 from video_media_catalog.identity_resolution import (
     source_node_entity_compatible,
@@ -1237,6 +1242,8 @@ def build_identity_curation_dataframes(
     visible_silver: dict[str, Any],
     manifest: IdentityCurationManifest,
     manifest_ref: IdentityCurationManifestRef,
+    identity_generation_id: str | None = None,
+    table_mapping: Mapping[str, str] | None = None,
 ) -> tuple[CommunityIngestRun, dict[str, Any]]:
     """Build one bounded curation run over exact pinned Silver snapshots."""
 
@@ -1259,6 +1266,26 @@ def build_identity_curation_dataframes(
     expected_counts = {table: 0 for table in DATA_TABLE_COLUMNS}
     for table, values in values_by_table.items():
         expected_counts[table] = len(values)
+
+    generation_contract: dict[str, Any] = {}
+    if identity_generation_id is None:
+        if table_mapping is not None:
+            raise ValueError(
+                "Identity generation and table mapping must be provided together"
+            )
+    else:
+        generation = require_identity_generation_id(identity_generation_id)
+        if table_mapping is None:
+            raise ValueError(
+                "Identity generation and table mapping must be provided together"
+            )
+        generation_contract = {
+            "identityGenerationId": generation,
+            "tableMapping": validate_community_table_mapping(
+                table_mapping,
+                identity_generation_id=generation,
+            ),
+        }
 
     run = build_community_ingest_run(
         run_kind=IngestRunKind.IDENTITY_CURATION,
@@ -1285,6 +1312,7 @@ def build_identity_curation_dataframes(
             "decisionKeys": manifest.decision_keys,
             "operatorSubject": manifest.operator_subject,
             "operatedAt": manifest.operated_at,
+            **generation_contract,
         },
     )
     row_builders = {

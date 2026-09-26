@@ -187,6 +187,8 @@ video-media-catalog-research-silver resolve-identity \
   --silver-snapshot-version <VersionId> \
   --silver-snapshot-etag <ETag> \
   --source-run-id sha256:<source-run> \
+  --identity-generation-id research-2026-09 \
+  --identity-mode full \
   --image-digest sha256:<hex> \
   --config-digest sha256:<hex> \
   --started-at 2026-09-20T01:05:00Z \
@@ -194,8 +196,27 @@ video-media-catalog-research-silver resolve-identity \
   --warehouse s3://bucket/catalog-warehouse
 ```
 
-Identity 不读取其他 catalog 或兼容快照。已有 source-run memberships 和
-external-ID index 是唯一历史 identity 输入。
+`full` 只读固定共享的 source/assertion 物理表，并要求
+`research-2026-09` 对应的全部 Identity 物理表为空；旧固定 Identity 表中即使
+已有相同 `entity_key` 也不会参与 MERGE。后续 `incremental` 必须传入同一
+generation 的 pinned snapshot/epoch，且其 Identity snapshot IDs 仍须是当前
+物理 head；只读写该 generation。generation 与 mode 进入 input manifest 和
+run ID；跨 generation 或 stale input 直接失败。
+
+发布供 incremental、curation 或 Gold 使用的 handoff 时显式固定 generation：
+
+```bash
+video-media-catalog-research-silver publish-epoch \
+  --identity-generation-id research-2026-09 \
+  --epoch-uri s3://bucket/research-silver/epoch.json \
+  --created-at 2026-09-20T01:20:00Z \
+  --warehouse s3://bucket/catalog-warehouse
+```
+
+Manifest 同时携带 generation 与完整逻辑表→物理表 mapping。Source/control
+物理表名固定共享；Identity 物理表使用安全、稳定、长度有界的 generation
+后缀。旧的不含 generation manifest 仍按固定表名读取，且不会解析所谓
+“latest generation”。
 
 现有 Iceberg 物理契约中的 `community_legacy_key_map` 与 ledger
 `imported_v1` 列只为避免重写或删除历史云数据而保留；当前 CLI 与 run kind
@@ -207,6 +228,35 @@ external-ID index 是唯一历史 identity 输入。
 video-media-catalog-identity-curation publish ...
 video-media-catalog-identity-curation apply ...
 ```
+
+失败且没有 commit marker 的 Identity run 不得原 run 直接重试。先生成机器可读
+回滚计划，复核 refs 后再执行；两次都必须使用同一 generation：
+
+```bash
+video-media-catalog-iceberg-maintenance rollback-failed-run \
+  --run-id sha256:<failed-run> \
+  --identity-generation-id research-2026-09 \
+  --planned-at 2026-09-20T01:25:00Z \
+  --warehouse s3://bucket/catalog-warehouse
+
+video-media-catalog-iceberg-maintenance rollback-failed-run \
+  --run-id sha256:<failed-run> \
+  --identity-generation-id research-2026-09 \
+  --planned-at 2026-09-20T01:25:00Z \
+  --references-reviewed --execute \
+  --warehouse s3://bucket/catalog-warehouse
+```
+
+修复 generation 隔离上线前产生的旧固定表 run 时，不传
+`--identity-generation-id`，而是显式传
+`--allow-legacy-parent-inference`。该兼容开关只允许依据 Iceberg 的线性 parent
+链恢复缺失的旧 snapshot journal，并会同时把未提交的
+`community_ingest_run` manifest 放在最后回滚；generation-aware run 禁止使用
+这个开关。
+
+回滚要求无 commit、current head 仍由该 run 拥有、parent journal 连续且没有
+受保护 snapshot/ref；按写入逆序恢复，不直接删除 S3。EMR Serverless 提交的
+默认 `retryPolicy.maxAttempts` 为 `1`，避免基础设施自动重跑 partial run。
 
 ## Gold 与 OpenSearch
 

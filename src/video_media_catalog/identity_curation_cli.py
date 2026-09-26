@@ -14,6 +14,7 @@ from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_snapshot import (
     CONTROL_MAX_BYTES,
     CommunitySilverSnapshotSet,
+    community_silver_table_mapping,
 )
 from video_media_catalog.identity_curation import (
     IDENTITY_CURATION_MANIFEST_MEDIA_TYPE,
@@ -31,6 +32,7 @@ from video_media_catalog.research_silver_cli import (
     _read_model,
     _spark_session,
     _validate_object_uri,
+    _validate_run_generations,
     _verify_data_counts,
 )
 from video_media_catalog.v2_contracts import (
@@ -193,13 +195,25 @@ def _run_apply(parsed: argparse.Namespace) -> dict[str, Any]:
     spark = _spark_session(parsed, config)
     frames: dict[str, Any] | None = None
     try:
-        tables = CommunityCatalogTables(spark, config)
-        _, commits = _load_run_state(
+        tables = CommunityCatalogTables(
+            spark,
+            config,
+            identity_generation_id=snapshot.identity_generation_id,
+            table_mapping=community_silver_table_mapping(snapshot),
+        )
+        if snapshot.identity_generation_id is not None:
+            tables.assert_identity_snapshot_heads(snapshot.data_snapshot_ids)
+        runs, commits = _load_run_state(
             spark,
             tables=tables,
             run_snapshot_id=snapshot.run_snapshot_id,
             commit_snapshot_id=snapshot.commit_snapshot_id,
             run_ids=snapshot.committed_run_ids,
+        )
+        _validate_run_generations(
+            runs,
+            identity_generation_id=snapshot.identity_generation_id,
+            table_mapping=tables.table_mapping,
         )
         _verify_data_counts(
             spark,
@@ -218,11 +232,22 @@ def _run_apply(parsed: argparse.Namespace) -> dict[str, Any]:
             visible_silver=visible,
             manifest=manifest,
             manifest_ref=manifest_ref,
+            identity_generation_id=snapshot.identity_generation_id,
+            table_mapping=(
+                tables.table_mapping
+                if snapshot.identity_generation_id is not None
+                else None
+            ),
         )
         commit = tables.stage_and_commit(
             run=run,
             dataframes=frames,
             committed_at=committed_at,
+            expected_identity_snapshot_ids=(
+                snapshot.data_snapshot_ids
+                if snapshot.identity_generation_id is not None
+                else None
+            ),
         )
         return {
             "requestId": manifest.manifest_id,

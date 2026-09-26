@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 from video_media_catalog.community_ingest import (
     CommunityIngestCommit,
     CommunityIngestRun,
+    IngestRunKind,
     build_community_ingest_commit,
 )
 from video_media_catalog.community_rows import (
@@ -21,11 +22,16 @@ from video_media_catalog.community_snapshot import (
 )
 from video_media_catalog.community_tables import (
     DATA_TABLE_COLUMNS,
+    IDENTITY_TABLES,
     NULLABLE_COLUMNS,
+    SOURCE_TABLES,
     TABLE_COLUMNS,
     TABLE_KEYS,
     TABLE_MERGE_KEYS,
     TABLE_PARTITION_COLUMNS,
+    build_community_table_mapping,
+    require_identity_generation_id,
+    validate_community_table_mapping,
 )
 from video_media_catalog.iceberg import (
     CatalogConfig,
@@ -37,7 +43,9 @@ from video_media_catalog.v2_contracts import (
     require_sha256,
 )
 
-_RUN_SNAPSHOT_PROPERTY = "video-media-catalog.run-id"
+RUN_SNAPSHOT_PROPERTY = "video-media-catalog.run-id"
+RUN_PARENT_SNAPSHOT_PROPERTY = "video-media-catalog.parent-snapshot-id"
+RUN_GENERATION_PROPERTY = "video-media-catalog.identity-generation-id"
 
 _TYPE_OVERRIDES = {
     ("community_entity_ledger", "imported_v1"): "BOOLEAN",
@@ -54,9 +62,29 @@ def _column_definition(table: str, column: str) -> str:
 class CommunityCatalogTables:
     """Own append-only v2 tables whose visibility is fenced by run commits."""
 
-    def __init__(self, spark: Any, config: CatalogConfig) -> None:
+    def __init__(
+        self,
+        spark: Any,
+        config: CatalogConfig,
+        *,
+        identity_generation_id: str | None = None,
+        table_mapping: Mapping[str, str] | None = None,
+    ) -> None:
         self.spark = spark
         self.config = config
+        self.identity_generation_id = (
+            None
+            if identity_generation_id is None
+            else require_identity_generation_id(identity_generation_id)
+        )
+        self.table_mapping = (
+            build_community_table_mapping(self.identity_generation_id)
+            if table_mapping is None
+            else validate_community_table_mapping(
+                table_mapping,
+                identity_generation_id=self.identity_generation_id,
+            )
+        )
 
     @property
     def namespace_identifier(self) -> str:
@@ -65,12 +93,15 @@ class CommunityCatalogTables:
     def table_identifier(self, table: str) -> str:
         if table not in TABLE_COLUMNS:
             raise KeyError(f"unknown community catalog table: {table}")
-        return f"{self.namespace_identifier}.`{table}`"
+        return f"{self.namespace_identifier}.`{self.table_mapping[table]}`"
 
     def table_name(self, table: str) -> str:
         if table not in TABLE_COLUMNS:
             raise KeyError(f"unknown community catalog table: {table}")
-        return f"{self.config.catalog_name}.{self.config.namespace}.{table}"
+        return (
+            f"{self.config.catalog_name}.{self.config.namespace}."
+            f"{self.table_mapping[table]}"
+        )
 
     def latest_snapshot_id(self, table: str) -> int | None:
         """Capture the current Iceberg snapshot for an existing v2 table."""
@@ -99,6 +130,47 @@ class CommunityCatalogTables:
                 )
                 """
             )
+
+    def empty_dataframe(self, table: str) -> Any:
+        """Return an empty frame with the mapped physical table schema."""
+
+        if table not in TABLE_COLUMNS:
+            raise KeyError(f"unknown community catalog table: {table}")
+        return self.spark.table(self.table_name(table)).limit(0)
+
+    def assert_identity_tables_empty(self) -> None:
+        """Fail closed unless every mapped Identity table is currently empty."""
+
+        for table in sorted(IDENTITY_TABLES):
+            rows = self.spark.sql(
+                f"SELECT 1 AS present FROM {self.table_identifier(table)} LIMIT 1"
+            ).collect()
+            if rows:
+                raise RuntimeError(
+                    "full Identity generation requires empty physical tables; "
+                    f"{table} maps to {self.table_mapping[table]!r} and is non-empty"
+                )
+
+    def assert_identity_snapshot_heads(
+        self,
+        data_snapshot_ids: Mapping[str, int | None],
+    ) -> None:
+        """Require pinned Identity snapshots to remain the active generation heads."""
+
+        if set(data_snapshot_ids) != set(DATA_TABLE_COLUMNS):
+            raise ValueError("all community data snapshot IDs are required")
+        for table in sorted(IDENTITY_TABLES):
+            pinned = data_snapshot_ids[table]
+            if pinned is not None and (
+                isinstance(pinned, bool) or not isinstance(pinned, int) or pinned <= 0
+            ):
+                raise ValueError("pinned Identity snapshot IDs must be positive")
+            current = self._latest_snapshot_id(table)
+            if current != pinned:
+                raise RuntimeError(
+                    "pinned Identity snapshot is stale for the active generation: "
+                    f"{table} pinned={pinned}, current={current}"
+                )
 
     def merge_insert_only(
         self,
@@ -164,6 +236,8 @@ class CommunityCatalogTables:
         dataframes: Mapping[str, Any],
         committed_at: str,
         dataframe_factory: Callable[[str], Any] | None = None,
+        identity_mode: Literal["full", "incremental"] | None = None,
+        expected_identity_snapshot_ids: Mapping[str, int | None] | None = None,
     ) -> CommunityIngestCommit:
         """Stage all rows and publish one immutable run commit last."""
 
@@ -173,19 +247,52 @@ class CommunityCatalogTables:
             raise ValueError(f"unknown community Silver dataframes: {unknown_tables}")
         if dataframe_factory is not None and not callable(dataframe_factory):
             raise TypeError("dataframe_factory must be callable")
+        self._validate_identity_run_mapping(run, identity_mode=identity_mode)
+        if self.identity_generation_id is not None:
+            requires_pinned_heads = (
+                identity_mode == "incremental"
+                or run.run_kind == IngestRunKind.IDENTITY_CURATION
+            )
+            if requires_pinned_heads and expected_identity_snapshot_ids is None:
+                raise ValueError(
+                    "incremental generation writes require pinned Identity heads"
+                )
+            if identity_mode == "full" and expected_identity_snapshot_ids is not None:
+                raise ValueError("full generation writes cannot pin Identity heads")
         self.create_tables()
         existing = self.read_commit(run.run_id)
         if existing is not None:
             return self._reuse_existing_commit(run, existing)
 
+        generation_write = self.identity_generation_id is not None
+        if generation_write:
+            self._assert_no_partial_run_state(run.run_id)
+        stored_run = self._read_run_manifest(run.run_id)
+        if stored_run is not None and stored_run != run:
+            raise RuntimeError("community ingest run manifest conflicts")
+        prepared = self._prepare_dataframes(
+            run,
+            dataframes=dataframes,
+            dataframe_factory=dataframe_factory,
+            allow_completed_reuse=not generation_write,
+        )
+        if expected_identity_snapshot_ids is not None:
+            self.assert_identity_snapshot_heads(expected_identity_snapshot_ids)
+        if identity_mode == "full":
+            self.assert_identity_tables_empty()
+        self._preflight_identity_keys(
+            run,
+            dataframes=prepared,
+            identity_mode=identity_mode,
+        )
         self._ensure_run_manifest(run)
 
         for table in DATA_TABLE_COLUMNS:
             self._stage_data_table(
                 table,
                 run,
-                dataframes=dataframes,
-                dataframe_factory=dataframe_factory,
+                dataframes=prepared,
+                dataframe_factory=None,
             )
 
         actual_counts = {
@@ -225,6 +332,133 @@ class CommunityCatalogTables:
             return self._reuse_existing_commit(run, published)
         return published
 
+    def _validate_identity_run_mapping(
+        self,
+        run: CommunityIngestRun,
+        *,
+        identity_mode: Literal["full", "incremental"] | None,
+    ) -> None:
+        identity_run = run.run_kind in {
+            IngestRunKind.IDENTITY_RESOLUTION,
+            IngestRunKind.IDENTITY_CURATION,
+        }
+        if identity_mode is not None and (
+            run.run_kind != IngestRunKind.IDENTITY_RESOLUTION
+        ):
+            raise ValueError("identity mode is valid only for Identity resolution runs")
+        if identity_mode is not None and self.identity_generation_id is None:
+            raise ValueError("Identity resolution requires an Identity generation")
+        declared_generation = run.input_manifest.get("identityGenerationId")
+        declared_mapping = run.input_manifest.get("tableMapping")
+        if self.identity_generation_id is not None and not identity_run:
+            raise ValueError("generation-mapped tables accept only Identity runs")
+        if (
+            self.identity_generation_id is not None
+            and run.run_kind == IngestRunKind.IDENTITY_RESOLUTION
+            and identity_mode is None
+        ):
+            raise ValueError("generation-mapped Identity resolution requires a mode")
+        if self.identity_generation_id is not None and any(
+            run.expected_counts[table] != 0 for table in SOURCE_TABLES
+        ):
+            raise ValueError(
+                "generation-mapped Identity runs cannot write Source tables"
+            )
+        if declared_generation != self.identity_generation_id:
+            raise ValueError("run manifest belongs to another Identity generation")
+        expected_mapping = (
+            None if self.identity_generation_id is None else self.table_mapping
+        )
+        if declared_mapping != expected_mapping:
+            raise ValueError("run manifest table mapping differs from the writer")
+        if identity_mode is None:
+            return
+        if run.input_manifest.get("identityMode") != identity_mode:
+            raise ValueError("run manifest Identity mode differs from the write mode")
+
+    def _assert_no_partial_run_state(self, run_id: str) -> None:
+        """Require cleanup before retrying any uncommitted data-table write."""
+
+        for table in DATA_TABLE_COLUMNS:
+            count = self._run_row_count(table, run_id)
+            if count:
+                raise RuntimeError(
+                    "uncommitted run has partial persisted rows; execute "
+                    f"rollback-failed-run before retrying ({table}: {count})"
+                )
+            if self._current_snapshot_run_id(table) == run_id:
+                raise RuntimeError(
+                    "uncommitted run owns the current Iceberg head; execute "
+                    f"rollback-failed-run before retrying ({table})"
+                )
+
+    def _prepare_dataframes(
+        self,
+        run: CommunityIngestRun,
+        *,
+        dataframes: Mapping[str, Any],
+        dataframe_factory: Callable[[str], Any] | None,
+        allow_completed_reuse: bool,
+    ) -> dict[str, Any]:
+        """Materialize and validate every supplied frame before the first MERGE."""
+
+        prepared: dict[str, Any] = {}
+        for table in DATA_TABLE_COLUMNS:
+            expected = run.expected_counts[table]
+            frame = dataframes.get(table)
+            if frame is None and expected > 0:
+                if allow_completed_reuse:
+                    current = self._run_row_count(table, run.run_id)
+                    if self._verify_completed_table(
+                        table,
+                        run.run_id,
+                        current_row_count=current,
+                        expected_row_count=expected,
+                    ):
+                        continue
+                if dataframe_factory is None:
+                    raise ValueError(f"{table} dataframe is required for missing rows")
+                frame = dataframe_factory(table)
+                if frame is None:
+                    raise ValueError(f"{table} dataframe factory returned no dataframe")
+            if frame is None:
+                continue
+            self._validate_run_frame(
+                table,
+                frame,
+                run_id=run.run_id,
+                expected_row_count=expected,
+            )
+            prepared[table] = frame
+        return prepared
+
+    def _preflight_identity_keys(
+        self,
+        run: CommunityIngestRun,
+        *,
+        dataframes: Mapping[str, Any],
+        identity_mode: Literal["full", "incremental"] | None,
+    ) -> None:
+        """Reject Identity logical-key collisions before any table is written."""
+
+        for table in sorted(IDENTITY_TABLES):
+            if run.expected_counts[table] == 0:
+                continue
+            frame = dataframes.get(table)
+            if frame is None:
+                raise ValueError(f"{table} dataframe is required for key preflight")
+            keys = TABLE_MERGE_KEYS[table]
+            if len(keys) != 1:
+                continue
+            key = keys[0]
+            incoming = frame.select(key).dropDuplicates([key])
+            existing = self.spark.table(self.table_name(table)).select(key)
+            if incoming.join(existing, key, "inner").limit(1).count():
+                mode = identity_mode or "curation"
+                raise RuntimeError(
+                    f"{table} has an existing/new key collision in {mode} mode"
+                )
+
     def _stage_data_table(
         self,
         table: str,
@@ -261,13 +495,6 @@ class CommunityCatalogTables:
         if frame is None:
             return
 
-        self._validate_run_frame(
-            table,
-            frame,
-            run_id=run.run_id,
-            expected_row_count=expected,
-        )
-
         # Counting/validating a large frame can take long enough for another
         # exact submitter to win. Re-read state immediately before MERGE so the
         # loser does not intentionally create a second run-tagged snapshot.
@@ -290,7 +517,7 @@ class CommunityCatalogTables:
             merged_count = self.merge_insert_only(
                 table,
                 frame,
-                snapshot_properties={_RUN_SNAPSHOT_PROPERTY: run.run_id},
+                snapshot_properties={RUN_SNAPSHOT_PROPERTY: run.run_id},
             )
             if merged_count != 0:
                 raise RuntimeError(f"{table} wrote rows for an empty run table")
@@ -299,11 +526,20 @@ class CommunityCatalogTables:
             self._run_snapshot_id(table, run.run_id, expected_row_count=0)
             return
 
+        parent_snapshot_id = self._latest_snapshot_id(table)
+        snapshot_properties = {
+            RUN_SNAPSHOT_PROPERTY: run.run_id,
+            RUN_PARENT_SNAPSHOT_PROPERTY: (
+                "none" if parent_snapshot_id is None else str(parent_snapshot_id)
+            ),
+        }
+        if self.identity_generation_id is not None:
+            snapshot_properties[RUN_GENERATION_PROPERTY] = self.identity_generation_id
         try:
             self.merge_insert_only(
                 table,
                 frame,
-                snapshot_properties={_RUN_SNAPSHOT_PROPERTY: run.run_id},
+                snapshot_properties=snapshot_properties,
             )
         except Exception:
             current = self._run_row_count(table, run.run_id)
@@ -384,18 +620,34 @@ class CommunityCatalogTables:
         run_id: str,
         expected_row_count: int,
     ) -> None:
+        columns = TABLE_COLUMNS[table]
+        missing = sorted(set(columns) - set(dataframe.columns))
+        extra = sorted(set(dataframe.columns) - set(columns))
+        if missing or extra:
+            raise ValueError(
+                f"{table} dataframe columns differ: missing={missing}, extra={extra}"
+            )
         staged_count = dataframe.count()
         if staged_count != expected_row_count:
             raise ValueError(
                 f"{table} staged count {staged_count} differs from "
                 f"expected {expected_row_count}"
             )
+        required = [
+            column for column in columns if column not in NULLABLE_COLUMNS[table]
+        ]
+        null_predicate = " OR ".join(f"`{column}` IS NULL" for column in required)
+        if dataframe.where(null_predicate).limit(1).count():
+            raise ValueError(f"{table} contains null in a required column")
         if (
             dataframe.where(f"`run_id` IS NULL OR `run_id` <> '{run_id}'")
             .limit(1)
             .count()
         ):
             raise ValueError(f"{table} contains rows for another run")
+        keys = list(TABLE_MERGE_KEYS[table])
+        if dataframe.select(*keys).dropDuplicates(keys).count() != staged_count:
+            raise ValueError(f"{table} contains duplicate logical keys")
 
     def _ensure_run_manifest(self, run: CommunityIngestRun) -> None:
         stored = self._read_run_manifest(run.run_id)
@@ -404,8 +656,21 @@ class CommunityCatalogTables:
                 raise RuntimeError("community ingest run manifest conflicts")
             return
         run_frame = self.spark.createDataFrame([ingest_run_row(run)])
+        parent_snapshot_id = self._latest_snapshot_id("community_ingest_run")
+        snapshot_properties = {
+            RUN_SNAPSHOT_PROPERTY: run.run_id,
+            RUN_PARENT_SNAPSHOT_PROPERTY: (
+                "none" if parent_snapshot_id is None else str(parent_snapshot_id)
+            ),
+        }
+        if self.identity_generation_id is not None:
+            snapshot_properties[RUN_GENERATION_PROPERTY] = self.identity_generation_id
         try:
-            self.merge_insert_only("community_ingest_run", run_frame)
+            self.merge_insert_only(
+                "community_ingest_run",
+                run_frame,
+                snapshot_properties=snapshot_properties,
+            )
         except Exception:
             stored = self._read_run_manifest(run.run_id)
             if stored is None:
@@ -445,6 +710,11 @@ class CommunityCatalogTables:
             raise RuntimeError("one community run has multiple commit markers")
         return CommunityIngestCommit.model_validate_json(rows[0]["commit_json"])
 
+    def read_run(self, run_id: str) -> CommunityIngestRun | None:
+        """Read one immutable run manifest for maintenance and audit."""
+
+        return self._read_run_manifest(run_id)
+
     def committed_runs_dataframe(self, commit_snapshot_id: int) -> Any:
         """Return committed run IDs from one exact Iceberg snapshot."""
 
@@ -456,6 +726,58 @@ class CommunityCatalogTables:
             .load(self.table_name("community_ingest_commit"))
             .select("run_id")
         )
+
+    def generation_committed_runs_dataframe(
+        self,
+        *,
+        run_snapshot_id: int,
+        commit_snapshot_id: int,
+    ) -> Any:
+        """Select shared Source runs and only this mapping's Identity runs."""
+
+        from pyspark.sql import functions as F
+
+        if isinstance(run_snapshot_id, bool) or run_snapshot_id <= 0:
+            raise ValueError("run_snapshot_id must be positive")
+        commits = self.committed_runs_dataframe(commit_snapshot_id)
+        runs = (
+            self.spark.read.format("iceberg")
+            .option("snapshot-id", str(run_snapshot_id))
+            .load(self.table_name("community_ingest_run"))
+            .select("run_id", "run_kind", "manifest_json")
+        )
+        generation = F.get_json_object(
+            "manifest_json",
+            "$.inputManifest.identityGenerationId",
+        )
+        generation_match = (
+            generation.isNull()
+            if self.identity_generation_id is None
+            else generation == F.lit(self.identity_generation_id)
+        )
+        mapping_match = F.lit(True)
+        if self.identity_generation_id is not None:
+            for logical_table, physical_table in self.table_mapping.items():
+                mapping_match = mapping_match & (
+                    F.get_json_object(
+                        "manifest_json",
+                        f"$.inputManifest.tableMapping.{logical_table}",
+                    )
+                    == F.lit(physical_table)
+                )
+        identity_kinds = (
+            IngestRunKind.IDENTITY_RESOLUTION.value,
+            IngestRunKind.IDENTITY_CURATION.value,
+        )
+        eligible = runs.where(
+            (F.col("run_kind") == IngestRunKind.SOURCE_ASSERTIONS.value)
+            | (
+                F.col("run_kind").isin(*identity_kinds)
+                & generation_match
+                & mapping_match
+            )
+        ).select("run_id")
+        return commits.join(eligible, "run_id", "inner")
 
     def committed_run_summary(self, committed_runs: Any) -> tuple[int, str]:
         """Summarize an unbounded run set without collecting IDs to the driver."""
@@ -568,6 +890,7 @@ class CommunityCatalogTables:
         commit_snapshot_id: int,
         committed_runs: Any | None = None,
         run_id_filters: Mapping[str, Sequence[str]] | None = None,
+        selected_tables: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         """Read exact snapshots and filter every row through committed runs.
 
@@ -582,6 +905,17 @@ class CommunityCatalogTables:
             raise ValueError("all community data snapshot IDs are required")
         if commit_snapshot_id <= 0:
             raise ValueError("commit_snapshot_id must be positive")
+        selected = (
+            tuple(DATA_TABLE_COLUMNS)
+            if selected_tables is None
+            else tuple(dict.fromkeys(selected_tables))
+        )
+        unknown_selected = sorted(set(selected) - set(DATA_TABLE_COLUMNS))
+        if unknown_selected:
+            raise ValueError(
+                "selected tables contain unknown community tables: "
+                + ", ".join(unknown_selected)
+            )
         raw_filters = dict(run_id_filters or {})
         unknown_filter_tables = sorted(set(raw_filters) - set(DATA_TABLE_COLUMNS))
         if unknown_filter_tables:
@@ -609,7 +943,8 @@ class CommunityCatalogTables:
         )
         commits = commits.dropDuplicates(["run_id"])
         visible = {}
-        for table, snapshot_id in data_snapshot_ids.items():
+        for table in selected:
+            snapshot_id = data_snapshot_ids[table]
             frame = (
                 self.spark.table(self.table_name(table)).limit(0)
                 if snapshot_id is None
@@ -686,7 +1021,7 @@ class CommunityCatalogTables:
             primary_key=TABLE_KEYS[table],
             identity_column="run_id",
             identity_value=run_id,
-            snapshot_property=_RUN_SNAPSHOT_PROPERTY,
+            snapshot_property=RUN_SNAPSHOT_PROPERTY,
             expected_row_count=expected_row_count,
         )
 
@@ -694,9 +1029,26 @@ class CommunityCatalogTables:
         rows = self.spark.sql(
             f"""
             SELECT snapshot_id
-            FROM {self.table_identifier(table)}.snapshots
-            ORDER BY committed_at DESC
+            FROM {self.table_identifier(table)}.history
+            ORDER BY made_current_at DESC
             LIMIT 1
             """
         ).collect()
         return None if not rows else int(rows[0]["snapshot_id"])
+
+    def _current_snapshot_run_id(self, table: str) -> str | None:
+        snapshot_id = self._latest_snapshot_id(table)
+        if snapshot_id is None:
+            return None
+        rows = self.spark.sql(
+            f"""
+            SELECT summary['{RUN_SNAPSHOT_PROPERTY}'] AS run_id
+            FROM {self.table_identifier(table)}.snapshots
+            WHERE snapshot_id = {snapshot_id}
+            LIMIT 1
+            """
+        ).collect()
+        if len(rows) != 1:
+            raise RuntimeError(f"could not resolve current snapshot owner for {table}")
+        value = rows[0]["run_id"]
+        return None if value is None else str(value)

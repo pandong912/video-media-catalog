@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+FAILED_RUN_ROLLBACK_PROPERTY = "video-media-catalog.rollback-run-id"
 
 
 class _SparkSqlCallable:
@@ -69,6 +70,17 @@ def find_owned_snapshot_id(
         SELECT snapshot_id, parent_id
         FROM {table_identifier}.snapshots
         WHERE summary['{snapshot_property}'] = '{identity_value}'
+          AND snapshot_id IN (
+              SELECT snapshot_id
+              FROM {table_identifier}.history
+              WHERE is_current_ancestor
+          )
+          AND sequence_number > COALESCE((
+              SELECT MAX(sequence_number)
+              FROM {table_identifier}.snapshots
+              WHERE summary['{FAILED_RUN_ROLLBACK_PROPERTY}']
+                  = '{identity_value}'
+          ), -1)
         """
     ).collect()
     identity_predicate = f"`{identity_column}` = '{identity_value}'"

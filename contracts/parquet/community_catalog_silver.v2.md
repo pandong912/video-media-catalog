@@ -15,6 +15,26 @@ The shared Spark mapper registry accepts committed record sets for
 source-owned and deterministic. Spark executors read only immutable record
 objects and never call source APIs or receive source credentials.
 
+## Logical and physical table groups
+
+Logical table names and row schemas remain unchanged. Physical ownership is:
+
+- `SOURCE`: `community_source_record` and the four assertion tables. These
+  physical names are fixed and shared by every generation.
+- `IDENTITY`: external-ID index, ledger, legacy-key map, evidence, conflict,
+  decision, membership, redirect, merge-event, and split-event tables. A
+  non-legacy run resolves each logical name to a generation-specific physical
+  table in the same Glue namespace.
+- `CONTROL`: `community_ingest_run` and `community_ingest_commit`. These names
+  are fixed and shared.
+
+An Identity generation ID is a bounded lowercase slug. Its physical suffix is
+derived from a bounded readable token plus a SHA-256 prefix, so names are safe,
+stable, collision-resistant, and below the Glue identifier limit. A complete
+logical-to-physical mapping is deterministic for that generation; source and
+control entries may never be remapped. Omitting a generation retains the
+legacy fixed-name behavior for source ingestion and old manifest readers.
+
 ## Run visibility
 
 Every data row carries a deterministic `run_id`. A row is visible to downstream
@@ -30,9 +50,14 @@ Publication order is:
 5. insert `community_ingest_commit` last.
 
 A failed run may leave staged rows but no commit marker. Those rows are
-invisible. Retrying identical immutable inputs reuses the same `run_id` and
-keys. A new code, mapping, policy, input, or configuration digest creates a new
-run.
+invisible. For generation-aware Identity writes, the same `run_id` must not be
+submitted again while any partial data-table state or run-owned current
+snapshot remains. Operators must first plan and execute
+`rollback-failed-run`, or choose a new immutable run identity. Only a run that
+already has a fully verified commit is an idempotent direct retry. The legacy
+no-generation path retains its existing exact-resume behavior for source
+ingestion. A new code, mapping, policy, input, generation, mode, or
+configuration digest creates a new run.
 
 The snapshot IDs in a commit are audit upper bounds, not a claim that the
 snapshot contains only one run. Concurrent rows remain isolated by `run_id`.
@@ -57,6 +82,9 @@ It contains:
 - at most 4,096 `deltaRunIds`, never the complete historical run list;
 - canonical source-product watermarks;
 - the total committed-run count and `sha256-bucketed-run-ids-v1` digest;
+- optional `identityGenerationId` plus the complete deterministic
+  `tableMapping`; both fields are present together for generation-aware
+  publications and absent together for legacy fixed-name publications;
 - creation time.
 
 A root baseline has no parent/baseline reference and may summarize any size
@@ -90,20 +118,28 @@ fields and may not resolve an unversioned latest key.
 `video-media-catalog-research-silver` and
 `video-media-catalog-identity-curation` provide four auditable Spark stages:
 
-1. `resolve-identity` verifies a pinned Silver snapshot, requires every
-   explicitly selected source run to be a committed `SOURCE_ASSERTIONS` run,
-   and delegates to the registry-driven identity implementation. Existing
-   source-run memberships and external-ID index rows are the only identity
-   history inputs. All identity tables, including empty redirect/merge/split
-   frames, share one commit-last run boundary.
+1. `resolve-identity` requires explicit `identityGenerationId` and
+   `identityMode`. It verifies a pinned Silver manifest and requires every
+   selected source run to be a committed `SOURCE_ASSERTIONS` run. `full` reads
+   only shared source tables, requires every target-generation Identity table
+   to be empty before any MERGE, and writes the new generation. `incremental`
+   requires the pinned manifest generation and mapping to exactly equal the
+   active generation and verifies its pinned Identity snapshots are still the
+   current physical heads, then reads and writes only that generation. Cross-
+   generation or stale Identity history fails closed. Existing same-generation
+   memberships and external-ID index rows are the only incremental history
+   inputs. All Identity tables, including empty redirect/merge/split frames,
+   share one commit-last run boundary.
 2. `identity-curation apply` verifies an immutable curation manifest and its
    pinned Silver snapshot, materializes `ACCEPT`, `REJECT`, `MERGE`, `SPLIT`,
    or `REDIRECT` outputs, and writes one `IDENTITY_CURATION` run through the
    same commit-last boundary.
-3. `publish-snapshot` publishes a bounded, explicitly selected run list.
+3. `publish-snapshot` publishes a bounded, explicitly selected run list and,
+   when supplied a generation, pins its complete table mapping.
 4. `publish-epoch` validates a parent epoch, bounded delta, source watermarks,
    all distributed commit/data counts, and publishes the exact v3 epoch
-   consumed by Identity and Gold.
+   consumed by Identity and Gold. Shared control snapshots are filtered to all
+   source runs plus only Identity/curation runs from the declared generation.
 
 All stages default to the existing `video_media_catalog` namespace and use the
 AWS default credential chain, including an EMR Serverless execution role. They
@@ -132,6 +168,22 @@ Current snapshots are always protected. Destructive execution requires an
 explicitly reviewed external epoch-reference inventory; if the selected
 retention window could reach a referenced snapshot, planning fails because the
 Spark expiry procedure cannot safely exclude an arbitrary external reference.
+
+`rollback-failed-run` is a separate dry-run-first operation for one uncommitted
+Identity run. Generation-aware runs require their explicit generation. Legacy
+fixed-table runs require the explicit `--allow-legacy-parent-inference`
+compatibility gate; only then may the linear Iceberg parent chain replace a
+missing historical parent journal. Planning rejects an existing commit, missing
+or non-contiguous run-owned snapshots, a head advanced by another run, an
+invalid parent-snapshot journal outside that legacy gate, and any run-owned
+snapshot protected by an Iceberg tag/branch or caller-declared reference.
+Execution requires reviewed references, rechecks commit/head/ref guards, rolls
+data tables back in reverse commit order, and removes the uncommitted
+`community_ingest_run` manifest last. A first-ever table snapshot is restored
+to the equivalent empty state with a rollback-tagged row-delete commit. New
+run-manifest snapshots record the same owner and parent journal as data-table
+snapshots. The resulting JSON plan and audit are machine-readable. Neither path
+deletes S3 objects directly.
 
 `video-media-catalog-community-spark` verifies every record shard ObjectRef,
 materializes versioned S3 bytes into checksum-addressed staging under an explicit

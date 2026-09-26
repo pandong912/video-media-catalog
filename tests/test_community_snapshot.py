@@ -14,7 +14,11 @@ from video_media_catalog.community_snapshot import (
     build_community_silver_snapshot_set,
     parse_community_silver_manifest,
 )
-from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    DATA_TABLE_COLUMNS,
+    SOURCE_TABLES,
+    build_community_table_mapping,
+)
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.object_store import BoundedObjectStore, ObjectStoreError
 
@@ -53,6 +57,38 @@ def test_silver_snapshot_set_requires_all_data_tables() -> None:
             data_snapshot_ids={},
             created_at="2026-09-19T00:00:00Z",
         )
+
+
+def test_generation_manifest_pins_physical_mapping_and_legacy_stays_fixed() -> None:
+    generation = "catalog-2026-09"
+    generated = build_community_silver_snapshot_set(
+        committed_run_ids=("sha256:" + ("a" * 64),),
+        run_snapshot_id=99,
+        commit_snapshot_id=100,
+        data_snapshot_ids={table: None for table in DATA_TABLE_COLUMNS},
+        identity_generation_id=generation,
+        created_at="2026-09-19T00:00:00Z",
+    )
+    mapping = build_community_table_mapping(generation)
+    assert generated.table_mapping == mapping
+    assert all(mapping[table] == table for table in SOURCE_TABLES)
+    assert mapping["community_entity_ledger"] != "community_entity_ledger"
+    assert parse_community_silver_manifest(generated.json_bytes()) == generated
+
+    legacy = build_community_silver_snapshot_set(
+        committed_run_ids=("sha256:" + ("a" * 64),),
+        run_snapshot_id=99,
+        commit_snapshot_id=100,
+        data_snapshot_ids={table: None for table in DATA_TABLE_COLUMNS},
+        created_at="2026-09-19T00:00:00Z",
+    )
+    assert legacy.identity_generation_id is None
+    assert legacy.table_mapping is None
+
+    payload = generated.model_dump(mode="python")
+    payload["table_mapping"]["community_entity_ledger"] = "community_entity_ledger"
+    with pytest.raises(ValueError, match="does not match"):
+        type(generated).model_validate(payload, context={"skip_identity": True})
 
 
 def _data_snapshots() -> dict[str, int | None]:

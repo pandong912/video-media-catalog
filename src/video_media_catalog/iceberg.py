@@ -10,6 +10,18 @@ _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 FAILED_RUN_ROLLBACK_PROPERTY = "video-media-catalog.rollback-run-id"
 
 
+@dataclass(frozen=True)
+class OwnedSnapshotMetadata:
+    """Identity-relevant Iceberg snapshot metadata in deterministic order."""
+
+    snapshot_id: int
+    parent_id: int | None
+    committed_at: Any
+    is_owned: bool
+    is_rollback: bool
+    is_current_ancestor: bool
+
+
 class _SparkSqlCallable:
     class Java:
         implements: ClassVar[list[str]] = ["java.util.concurrent.Callable"]
@@ -52,6 +64,61 @@ def execute_iceberg_sql(
     )
 
 
+def read_owned_snapshot_metadata(
+    spark: Any,
+    *,
+    table_identifier: str,
+    identity_value: str,
+    snapshot_property: str,
+) -> tuple[OwnedSnapshotMetadata, ...]:
+    """Read the metadata used to identify one run's active snapshots."""
+
+    rows = spark.sql(
+        f"""
+        SELECT
+            snapshot_id,
+            parent_id,
+            committed_at,
+            summary['{snapshot_property}'] AS snapshot_identity,
+            summary['{FAILED_RUN_ROLLBACK_PROPERTY}'] AS rollback_identity
+        FROM {table_identifier}.snapshots
+        WHERE summary['{snapshot_property}'] = '{identity_value}'
+           OR summary['{FAILED_RUN_ROLLBACK_PROPERTY}'] = '{identity_value}'
+        """
+    ).collect()
+    ancestor_rows = spark.sql(
+        f"""
+        SELECT snapshot_id
+        FROM {table_identifier}.history
+        WHERE is_current_ancestor
+        """
+    ).collect()
+    current_ancestor_ids = {int(row["snapshot_id"]) for row in ancestor_rows}
+    snapshots = (
+        OwnedSnapshotMetadata(
+            snapshot_id=int(row["snapshot_id"]),
+            parent_id=(None if row["parent_id"] is None else int(row["parent_id"])),
+            committed_at=row["committed_at"],
+            is_owned=(
+                row["snapshot_identity"] is not None
+                and str(row["snapshot_identity"]) == identity_value
+            ),
+            is_rollback=(
+                row["rollback_identity"] is not None
+                and str(row["rollback_identity"]) == identity_value
+            ),
+            is_current_ancestor=int(row["snapshot_id"]) in current_ancestor_ids,
+        )
+        for row in rows
+    )
+    return tuple(
+        sorted(
+            snapshots,
+            key=lambda snapshot: (snapshot.committed_at, snapshot.snapshot_id),
+        )
+    )
+
+
 def find_owned_snapshot_id(
     spark: Any,
     *,
@@ -65,28 +132,34 @@ def find_owned_snapshot_id(
 ) -> int | None:
     """Find one identity-tagged snapshot and verify its exact row additions."""
 
-    rows = spark.sql(
-        f"""
-        SELECT snapshot_id, parent_id
-        FROM {table_identifier}.snapshots
-        WHERE summary['{snapshot_property}'] = '{identity_value}'
-          AND snapshot_id IN (
-              SELECT snapshot_id
-              FROM {table_identifier}.history
-              WHERE is_current_ancestor
-          )
-          AND sequence_number > COALESCE((
-              SELECT MAX(sequence_number)
-              FROM {table_identifier}.snapshots
-              WHERE summary['{FAILED_RUN_ROLLBACK_PROPERTY}']
-                  = '{identity_value}'
-          ), -1)
-        """
-    ).collect()
+    metadata = read_owned_snapshot_metadata(
+        spark,
+        table_identifier=table_identifier,
+        identity_value=identity_value,
+        snapshot_property=snapshot_property,
+    )
+    rollback_boundary = next(
+        (
+            (snapshot.committed_at, snapshot.snapshot_id)
+            for snapshot in reversed(metadata)
+            if snapshot.is_rollback
+        ),
+        None,
+    )
+    rows = [
+        snapshot
+        for snapshot in metadata
+        if snapshot.is_owned
+        and snapshot.is_current_ancestor
+        and (
+            rollback_boundary is None
+            or (snapshot.committed_at, snapshot.snapshot_id) > rollback_boundary
+        )
+    ]
     identity_predicate = f"`{identity_column}` = '{identity_value}'"
     owned_snapshots = []
     for row in rows:
-        snapshot_id = int(row["snapshot_id"])
+        snapshot_id = row.snapshot_id
         candidate = (
             spark.read.format("iceberg")
             .option("snapshot-id", str(snapshot_id))
@@ -110,8 +183,8 @@ def find_owned_snapshot_id(
         )
 
     row, candidate, candidate_identity_count = owned_snapshots[0]
-    snapshot_id = int(row["snapshot_id"])
-    parent_id = row["parent_id"]
+    snapshot_id = row.snapshot_id
+    parent_id = row.parent_id
     if candidate_identity_count != expected_row_count:
         raise RuntimeError(
             f"{table_name} identity snapshot contains "

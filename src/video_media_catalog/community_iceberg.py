@@ -37,6 +37,7 @@ from video_media_catalog.iceberg import (
     CatalogConfig,
     execute_iceberg_sql,
     find_owned_snapshot_id,
+    read_owned_snapshot_metadata,
 )
 from video_media_catalog.v2_contracts import (
     require_rfc3339,
@@ -264,6 +265,7 @@ class CommunityCatalogTables:
         if existing is not None:
             return self._reuse_existing_commit(run, existing)
 
+        self._preflight_snapshot_metadata(run.run_id)
         generation_write = self.identity_generation_id is not None
         if generation_write:
             self._assert_no_partial_run_state(run.run_id)
@@ -375,6 +377,18 @@ class CommunityCatalogTables:
             return
         if run.input_manifest.get("identityMode") != identity_mode:
             raise ValueError("run manifest Identity mode differs from the write mode")
+
+    def _preflight_snapshot_metadata(self, run_id: str) -> None:
+        """Execute owned-snapshot metadata reads before materializing dataframes."""
+
+        run_id = require_sha256(run_id, label="run_id")
+        for table in DATA_TABLE_COLUMNS:
+            read_owned_snapshot_metadata(
+                self.spark,
+                table_identifier=self.table_identifier(table),
+                identity_value=run_id,
+                snapshot_property=RUN_SNAPSHOT_PROPERTY,
+            )
 
     def _assert_no_partial_run_state(self, run_id: str) -> None:
         """Require cleanup before retrying any uncommitted data-table write."""

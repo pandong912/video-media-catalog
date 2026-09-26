@@ -335,6 +335,14 @@ class StageFrame:
 
 
 class StageSpark:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def sql(self, statement: str):
+        self.statements.append(statement)
+        assert "sequence_number" not in statement
+        return FakeResult()
+
     def createDataFrame(self, rows):
         return rows
 
@@ -598,6 +606,41 @@ def test_zero_persisted_rows_validate_and_merge_frame() -> None:
         }
     ]
     assert len(tables.owned_snapshots["community_source_record"]) == 1
+
+
+def test_snapshot_metadata_preflight_fails_before_factory_or_run_manifest() -> None:
+    class IncompatibleMetadataSpark(StageSpark):
+        def sql(self, statement: str):
+            self.statements.append(statement)
+            if ".snapshots" in statement:
+                raise RuntimeError("UNRESOLVED_COLUMN.WITH_SUGGESTION: committed_at")
+            return FakeResult()
+
+    run = _run_with_counts(community_source_record=1)
+    tables = RecordingTables()
+    spark = IncompatibleMetadataSpark()
+    tables.spark = spark
+    requested: list[str] = []
+
+    def dataframe_factory(table: str) -> StageFrame:
+        requested.append(table)
+        return StageFrame(table, run.expected_counts[table], run.run_id)
+
+    with pytest.raises(RuntimeError, match="UNRESOLVED_COLUMN"):
+        tables.stage_and_commit(
+            run=run,
+            dataframes={},
+            dataframe_factory=dataframe_factory,
+            committed_at="2026-09-19T00:01:00Z",
+        )
+
+    assert requested == []
+    assert tables.manifest is None
+    assert tables.merge_events == []
+    assert len(spark.statements) == 1
+    assert ".snapshots" in spark.statements[0]
+    assert "committed_at" in spark.statements[0]
+    assert "sequence_number" not in spark.statements[0]
 
 
 def test_lazy_factory_loads_all_nonempty_tables_before_writes() -> None:

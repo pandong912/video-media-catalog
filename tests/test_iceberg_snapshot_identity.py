@@ -95,7 +95,7 @@ class FakeRead:
 
 @dataclass
 class FakeSnapshotResult:
-    rows: list[dict[str, int | None]]
+    rows: list[dict[str, object]]
 
     def collect(self):
         return self.rows
@@ -104,18 +104,46 @@ class FakeSnapshotResult:
 class SnapshotSpark:
     def __init__(
         self,
-        snapshot_rows: list[dict[str, int | None]],
+        snapshot_rows: list[dict[str, object]],
         snapshots: dict[int, list[dict[str, str]]],
+        *,
+        current_ancestor_ids: set[int] | None = None,
     ) -> None:
-        self.snapshot_rows = snapshot_rows
+        self.snapshot_rows = []
+        for index, snapshot_row in enumerate(snapshot_rows):
+            row = dict(snapshot_row)
+            row.setdefault("committed_at", f"2026-09-20T00:00:{index:02d}Z")
+            row.setdefault("snapshot_identity", RUN_ID)
+            row.setdefault("rollback_identity", None)
+            self.snapshot_rows.append(row)
+        self.current_ancestor_ids = (
+            {int(row["snapshot_id"]) for row in self.snapshot_rows}
+            if current_ancestor_ids is None
+            else current_ancestor_ids
+        )
         self.read = FakeRead(snapshots)
         self.statements: list[str] = []
 
     def sql(self, statement: str):
         self.statements.append(statement)
-        assert "summary['video-media-catalog.run-id']" in statement
-        assert RUN_ID in statement
-        return FakeSnapshotResult(self.snapshot_rows)
+        assert "sequence_number" not in statement
+        if ".snapshots" in statement:
+            assert "snapshot_id" in statement
+            assert "parent_id" in statement
+            assert "committed_at" in statement
+            assert "summary['video-media-catalog.run-id']" in statement
+            assert "summary['video-media-catalog.rollback-run-id']" in statement
+            assert RUN_ID in statement
+            return FakeSnapshotResult(self.snapshot_rows)
+        if ".history" in statement:
+            assert "WHERE is_current_ancestor" in statement
+            return FakeSnapshotResult(
+                [
+                    {"snapshot_id": snapshot_id}
+                    for snapshot_id in sorted(self.current_ancestor_ids)
+                ]
+            )
+        raise AssertionError(statement)
 
 
 def test_owned_snapshot_ignores_later_writer_and_verifies_added_rows() -> None:
@@ -145,8 +173,123 @@ def test_owned_snapshot_ignores_later_writer_and_verifies_added_rows() -> None:
         == 101
     )
     assert spark.read.loaded_snapshot_ids == [101, 100]
-    assert "WHERE is_current_ancestor" in spark.statements[0]
-    assert "video-media-catalog.rollback-run-id" in spark.statements[0]
+    assert "sequence_number" not in spark.statements[0]
+    assert "committed_at" in spark.statements[0]
+    assert "WHERE is_current_ancestor" in spark.statements[1]
+
+
+def test_owned_snapshot_uses_only_current_ancestry_after_pointer_rollback() -> None:
+    parent = [{"row_key": "old", "run_id": OTHER_RUN_ID}]
+    abandoned = [*parent, {"row_key": "abandoned", "run_id": RUN_ID}]
+    retry = [*parent, {"row_key": "retry", "run_id": RUN_ID}]
+    spark = SnapshotSpark(
+        [
+            {
+                "snapshot_id": 101,
+                "parent_id": 100,
+                "committed_at": "2026-09-20T00:01:00Z",
+            },
+            {
+                "snapshot_id": 102,
+                "parent_id": 100,
+                "committed_at": "2026-09-20T00:02:00Z",
+            },
+        ],
+        {100: parent, 101: abandoned, 102: retry},
+        current_ancestor_ids={100, 102},
+    )
+
+    assert (
+        find_owned_snapshot_id(
+            spark,
+            table_identifier="`media`.`community`.`records`",
+            table_name="media.community.records",
+            primary_key="row_key",
+            identity_column="run_id",
+            identity_value=RUN_ID,
+            snapshot_property="video-media-catalog.run-id",
+            expected_row_count=1,
+        )
+        == 102
+    )
+    assert spark.read.loaded_snapshot_ids == [102, 100]
+
+
+def test_owned_snapshot_ignores_same_run_before_rollback_marker_on_retry() -> None:
+    retry = [{"row_key": "retry", "run_id": RUN_ID}]
+    spark = SnapshotSpark(
+        [
+            {
+                "snapshot_id": 103,
+                "parent_id": 102,
+                "committed_at": "2026-09-20T00:01:00Z",
+            },
+            {
+                "snapshot_id": 101,
+                "parent_id": None,
+                "committed_at": "2026-09-20T00:01:00Z",
+            },
+            {
+                "snapshot_id": 102,
+                "parent_id": 101,
+                "committed_at": "2026-09-20T00:01:00Z",
+                "snapshot_identity": None,
+                "rollback_identity": RUN_ID,
+            },
+        ],
+        {101: [{"row_key": "failed", "run_id": RUN_ID}], 102: [], 103: retry},
+        current_ancestor_ids={101, 102, 103},
+    )
+
+    assert (
+        find_owned_snapshot_id(
+            spark,
+            table_identifier="`media`.`community`.`records`",
+            table_name="media.community.records",
+            primary_key="row_key",
+            identity_column="run_id",
+            identity_value=RUN_ID,
+            snapshot_property="video-media-catalog.run-id",
+            expected_row_count=1,
+        )
+        == 103
+    )
+    assert spark.read.loaded_snapshot_ids == [103, 102]
+
+
+def test_zero_row_probe_ignores_owned_snapshot_before_rollback_marker() -> None:
+    spark = SnapshotSpark(
+        [
+            {
+                "snapshot_id": 101,
+                "parent_id": None,
+                "committed_at": "2026-09-20T00:01:00Z",
+            },
+            {
+                "snapshot_id": 102,
+                "parent_id": 101,
+                "committed_at": "2026-09-20T00:02:00Z",
+                "snapshot_identity": None,
+                "rollback_identity": RUN_ID,
+            },
+        ],
+        {101: [{"row_key": "failed", "run_id": RUN_ID}], 102: []},
+    )
+
+    assert (
+        find_owned_snapshot_id(
+            spark,
+            table_identifier="`media`.`community`.`records`",
+            table_name="media.community.records",
+            primary_key="row_key",
+            identity_column="run_id",
+            identity_value=RUN_ID,
+            snapshot_property="video-media-catalog.run-id",
+            expected_row_count=0,
+        )
+        is None
+    )
+    assert spark.read.loaded_snapshot_ids == []
 
 
 @pytest.mark.parametrize(
@@ -163,7 +306,7 @@ def test_owned_snapshot_ignores_later_writer_and_verifies_added_rows() -> None:
     ],
 )
 def test_owned_snapshot_rejects_zero_or_multiple_marked_snapshots(
-    snapshot_rows: list[dict[str, int | None]],
+    snapshot_rows: list[dict[str, object]],
     expected: str,
 ) -> None:
     snapshots = {

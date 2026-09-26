@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--aws-region", required=True)
     parser.add_argument("--poll-seconds", type=int, default=15)
     parser.add_argument("--execution-timeout-minutes", type=int, default=720)
-    parser.add_argument("--max-attempts", type=int, default=2)
+    parser.add_argument("--max-attempts", type=int, default=1)
     parser.add_argument("--driver-cores", type=int, default=4)
     parser.add_argument("--driver-memory", default="16g")
     parser.add_argument("--driver-memory-overhead")

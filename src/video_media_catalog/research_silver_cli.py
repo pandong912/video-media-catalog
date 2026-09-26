@@ -30,10 +30,16 @@ from video_media_catalog.community_snapshot import (
     build_community_silver_epoch_manifest,
     build_community_silver_snapshot_set,
     community_silver_manifest_id,
+    community_silver_table_mapping,
     parse_community_silver_manifest,
 )
 from video_media_catalog.community_sources import build_community_registry
-from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    DATA_TABLE_COLUMNS,
+    IDENTITY_TABLES,
+    SOURCE_TABLES,
+    require_identity_generation_id,
+)
 from video_media_catalog.iceberg import CatalogConfig
 from video_media_catalog.identity_spark import (
     IdentityResolutionConfig,
@@ -55,15 +61,7 @@ MAX_URI_LENGTH = 2_048
 MAX_OPTION_LENGTH = 4_096
 MAX_SHUFFLE_PARTITIONS = 100_000
 MAX_EXPLICIT_RUN_IDS = MAX_EPOCH_DELTA_RUNS
-SOURCE_DATA_TABLES = frozenset(
-    {
-        "community_source_record",
-        "community_field_assertion",
-        "community_identifier_assertion",
-        "community_relationship_assertion",
-        "community_entity_type_assertion",
-    }
-)
+SOURCE_DATA_TABLES = SOURCE_TABLES
 
 
 def _add_control_object_args(
@@ -149,6 +147,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         required=True,
     )
+    identity.add_argument("--identity-generation-id", required=True)
+    identity.add_argument(
+        "--identity-mode",
+        required=True,
+        choices=("full", "incremental"),
+    )
     identity.add_argument("--image-digest", required=True)
     identity.add_argument("--config-digest", required=True)
     identity_defaults = IdentityResolutionConfig()
@@ -192,6 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     publication.add_argument("--snapshot-uri", required=True)
     publication.add_argument("--created-at", required=True)
+    publication.add_argument("--identity-generation-id")
     _add_catalog_args(
         publication,
         app_name="media-catalog-research-snapshot-publication",
@@ -223,6 +228,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_control_object_args(epoch, "parent_epoch", required=False)
     epoch.add_argument("--created-at", required=True)
+    epoch.add_argument("--identity-generation-id")
     _add_catalog_args(
         epoch,
         app_name="media-catalog-research-epoch-publication",
@@ -665,13 +671,62 @@ def _verify_data_counts(
                 )
 
 
+def _tables_for_silver_manifest(
+    spark: Any,
+    config: CatalogConfig,
+    manifest: CommunitySilverManifest,
+) -> CommunityCatalogTables:
+    return CommunityCatalogTables(
+        spark,
+        config,
+        identity_generation_id=manifest.identity_generation_id,
+        table_mapping=community_silver_table_mapping(manifest),
+    )
+
+
+def _optional_identity_generation_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return require_identity_generation_id(value)
+
+
+def _validate_run_generations(
+    runs: Mapping[str, CommunityIngestRun],
+    *,
+    identity_generation_id: str | None,
+    table_mapping: Mapping[str, str],
+) -> None:
+    """Reject Identity control rows from another physical generation."""
+
+    for run_id, run in runs.items():
+        if run.run_kind == IngestRunKind.SOURCE_ASSERTIONS:
+            continue
+        declared_generation = run.input_manifest.get("identityGenerationId")
+        declared_mapping = run.input_manifest.get("tableMapping")
+        expected_mapping = (
+            None if identity_generation_id is None else dict(table_mapping)
+        )
+        if (
+            declared_generation != identity_generation_id
+            or declared_mapping != expected_mapping
+        ):
+            raise ValueError(f"run {run_id} belongs to another Identity generation")
+
+
 def _manifest_committed_runs(
     spark: Any,
     *,
     tables: CommunityCatalogTables,
     manifest: CommunitySilverManifest,
 ) -> Any:
-    committed = tables.committed_runs_dataframe(manifest.commit_snapshot_id)
+    committed = (
+        tables.generation_committed_runs_dataframe(
+            run_snapshot_id=manifest.run_snapshot_id,
+            commit_snapshot_id=manifest.commit_snapshot_id,
+        )
+        if manifest.identity_generation_id is not None
+        else tables.committed_runs_dataframe(manifest.commit_snapshot_id)
+    )
     if isinstance(manifest, CommunitySilverEpochManifest):
         tables.validate_epoch_committed_runs(manifest, committed)
         return committed
@@ -692,12 +747,14 @@ def _selected_silver_frames(
     snapshot: CommunitySilverManifest,
     committed_runs: Any,
     source_run_ids: tuple[str, ...],
+    source_only: bool = False,
 ) -> dict[str, Any]:
     return tables.visible_dataframes(
         data_snapshot_ids=snapshot.data_snapshot_ids,
         commit_snapshot_id=snapshot.commit_snapshot_id,
         committed_runs=committed_runs,
         run_id_filters={table: source_run_ids for table in SOURCE_DATA_TABLES},
+        selected_tables=tuple(SOURCE_DATA_TABLES) if source_only else None,
     )
 
 
@@ -706,6 +763,10 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         parsed.source_run_ids,
         label="resolve-identity",
     )
+    identity_generation_id = require_identity_generation_id(
+        parsed.identity_generation_id
+    )
+    identity_mode = parsed.identity_mode
     started_at = require_rfc3339(parsed.started_at, label="started-at")
     committed_at = require_rfc3339(parsed.committed_at, label="committed-at")
     image_digest = require_sha256(
@@ -736,6 +797,11 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         local_only=urlsplit(silver_ref.uri).scheme == "file",
     )
     silver_snapshot = _read_silver_manifest(store, silver_ref)
+    if (
+        identity_mode == "incremental"
+        and silver_snapshot.identity_generation_id != identity_generation_id
+    ):
+        raise ValueError("incremental Identity input belongs to another generation")
     if isinstance(silver_snapshot, CommunitySilverSnapshotSet):
         if len(silver_snapshot.committed_run_ids) > MAX_EXPLICIT_RUN_IDS:
             raise ValueError("large Silver histories must use an epoch manifest")
@@ -752,10 +818,31 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
     spark = _spark_session(parsed, config)
     frames: dict[str, Any] | None = None
     try:
-        tables = CommunityCatalogTables(spark, config)
+        input_tables = _tables_for_silver_manifest(
+            spark,
+            config,
+            silver_snapshot,
+        )
+        output_tables = CommunityCatalogTables(
+            spark,
+            config,
+            identity_generation_id=identity_generation_id,
+        )
+        if (
+            identity_mode == "incremental"
+            and input_tables.table_mapping != output_tables.table_mapping
+        ):
+            raise ValueError(
+                "incremental Identity input table mapping differs from the "
+                "active generation"
+            )
+        if identity_mode == "incremental":
+            output_tables.assert_identity_snapshot_heads(
+                silver_snapshot.data_snapshot_ids
+            )
         committed_runs = _manifest_committed_runs(
             spark,
-            tables=tables,
+            tables=input_tables,
             manifest=silver_snapshot,
         )
         source_runs_frame = spark.createDataFrame(
@@ -779,7 +866,7 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         )
         runs, _ = _load_run_state(
             spark,
-            tables=tables,
+            tables=input_tables,
             run_snapshot_id=silver_snapshot.run_snapshot_id,
             commit_snapshot_id=silver_snapshot.commit_snapshot_id,
             run_ids=state_run_ids,
@@ -795,11 +882,17 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
                 + ", ".join(wrong_kind)
             )
         visible = _selected_silver_frames(
-            tables=tables,
+            tables=input_tables,
             snapshot=silver_snapshot,
             committed_runs=committed_runs,
             source_run_ids=source_run_ids,
+            source_only=identity_mode == "full",
         )
+        if identity_mode == "full":
+            output_tables.create_tables()
+            output_tables.assert_identity_tables_empty()
+            for table in IDENTITY_TABLES:
+                visible[table] = output_tables.empty_dataframe(table)
         silver_input = {
             "object": silver_ref.model_dump(
                 mode="json",
@@ -817,13 +910,16 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         pinned_inputs = {
             "silverSnapshot": silver_input,
             "sourceRunIds": source_run_ids,
+            "identityGenerationId": identity_generation_id,
+            "identityMode": identity_mode,
+            "tableMapping": output_tables.table_mapping,
         }
         registry = build_community_registry()
         input_id = deterministic_key(
             "community-identity-resolution-input-v2",
             pinned_inputs,
         )
-        ingest_runs = tables.visible_run_dataframe(
+        ingest_runs = input_tables.visible_run_dataframe(
             run_snapshot_id=silver_snapshot.run_snapshot_id,
             committed_runs=committed_runs,
         ).join(source_runs_frame, "run_id", "inner")
@@ -840,11 +936,20 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             ingest_runs=ingest_runs,
             committed_source_run_ids=source_run_ids,
             resolution_config=resolution_config,
+            identity_generation_id=identity_generation_id,
+            identity_mode=identity_mode,
+            table_mapping=output_tables.table_mapping,
         )
-        commit = tables.stage_and_commit(
+        commit = output_tables.stage_and_commit(
             run=run,
             dataframes=frames,
             committed_at=committed_at,
+            identity_mode=identity_mode,
+            expected_identity_snapshot_ids=(
+                silver_snapshot.data_snapshot_ids
+                if identity_mode == "incremental"
+                else None
+            ),
         )
         return {
             "context": "research",
@@ -854,6 +959,9 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "registryDigest": registry.digest,
             "configDigest": run.config_digest,
             "identityResolutionConfigDigest": resolution_config.digest,
+            "identityGenerationId": identity_generation_id,
+            "identityMode": identity_mode,
+            "tableMapping": output_tables.table_mapping,
             "sourceRunIds": source_run_ids,
             "tableCounts": commit.table_counts,
             "tableSnapshotIds": commit.table_snapshot_ids,
@@ -976,6 +1084,9 @@ def _validate_epoch_delta(
 def _run_epoch_publication(
     parsed: argparse.Namespace,
 ) -> dict[str, Any]:
+    identity_generation_id = _optional_identity_generation_id(
+        parsed.identity_generation_id
+    )
     delta_run_ids = (
         ()
         if not parsed.delta_run_ids
@@ -1014,6 +1125,8 @@ def _run_epoch_publication(
                 "parent epoch ObjectRef does not contain an epoch manifest"
             )
         parent = parent_manifest
+        if parent.identity_generation_id != identity_generation_id:
+            raise ValueError("parent epoch belongs to another Identity generation")
         if parse_rfc3339(created_at) < parse_rfc3339(parent.created_at):
             raise ValueError("epoch created-at must not precede its parent")
         missing_watermarks = sorted(
@@ -1028,7 +1141,16 @@ def _run_epoch_publication(
     config = _catalog_config(parsed)
     spark = _spark_session(parsed, config)
     try:
-        tables = CommunityCatalogTables(spark, config)
+        tables = CommunityCatalogTables(
+            spark,
+            config,
+            identity_generation_id=identity_generation_id,
+        )
+        if (
+            parent is not None
+            and community_silver_table_mapping(parent) != tables.table_mapping
+        ):
+            raise ValueError("parent epoch table mapping differs from this publication")
         commit_snapshot_id = tables.latest_snapshot_id("community_ingest_commit")
         if commit_snapshot_id is None:
             raise ValueError("community_ingest_commit has no committed snapshot")
@@ -1038,7 +1160,14 @@ def _run_epoch_publication(
         data_snapshot_ids = {
             table: tables.latest_snapshot_id(table) for table in DATA_TABLE_COLUMNS
         }
-        committed_runs = tables.committed_runs_dataframe(commit_snapshot_id)
+        committed_runs = (
+            tables.generation_committed_runs_dataframe(
+                run_snapshot_id=run_snapshot_id,
+                commit_snapshot_id=commit_snapshot_id,
+            )
+            if identity_generation_id is not None
+            else tables.committed_runs_dataframe(commit_snapshot_id)
+        )
         committed_run_count, committed_run_digest = tables.committed_run_summary(
             committed_runs
         )
@@ -1054,7 +1183,14 @@ def _run_epoch_publication(
         baseline_epoch_ref = None
         if parent is not None:
             assert parent_ref is not None
-            parent_runs = tables.committed_runs_dataframe(parent.commit_snapshot_id)
+            parent_runs = (
+                tables.generation_committed_runs_dataframe(
+                    run_snapshot_id=parent.run_snapshot_id,
+                    commit_snapshot_id=parent.commit_snapshot_id,
+                )
+                if identity_generation_id is not None
+                else tables.committed_runs_dataframe(parent.commit_snapshot_id)
+            )
             tables.validate_epoch_committed_runs(parent, parent_runs)
             parent_epoch_ref = CommunitySilverEpochReference(
                 epoch_id=parent.epoch_id,
@@ -1076,6 +1212,11 @@ def _run_epoch_publication(
                 run_snapshot_id=run_snapshot_id,
                 commit_snapshot_id=commit_snapshot_id,
                 run_ids=delta_run_ids,
+            )
+            _validate_run_generations(
+                delta_runs,
+                identity_generation_id=identity_generation_id,
+                table_mapping=tables.table_mapping,
             )
             _verify_data_counts(
                 spark,
@@ -1104,6 +1245,10 @@ def _run_epoch_publication(
             run_snapshot_id=run_snapshot_id,
             commit_snapshot_id=commit_snapshot_id,
             data_snapshot_ids=data_snapshot_ids,
+            identity_generation_id=identity_generation_id,
+            table_mapping=(
+                tables.table_mapping if identity_generation_id is not None else None
+            ),
             source_watermarks=source_watermarks,
             committed_run_count=committed_run_count,
             committed_run_digest=committed_run_digest,
@@ -1136,6 +1281,14 @@ def _run_epoch_publication(
             "runSnapshotId": epoch.run_snapshot_id,
             "commitSnapshotId": epoch.commit_snapshot_id,
             "dataSnapshotIds": epoch.data_snapshot_ids,
+            **(
+                {
+                    "identityGenerationId": epoch.identity_generation_id,
+                    "tableMapping": epoch.table_mapping,
+                }
+                if epoch.identity_generation_id is not None
+                else {}
+            ),
             "silverEpoch": reference.model_dump(
                 mode="json",
                 by_alias=True,
@@ -1150,6 +1303,9 @@ def _run_epoch_publication(
 def _run_snapshot_publication(
     parsed: argparse.Namespace,
 ) -> dict[str, Any]:
+    identity_generation_id = _optional_identity_generation_id(
+        parsed.identity_generation_id
+    )
     run_ids = _normalize_run_ids(
         parsed.run_ids,
         label="publish-snapshot",
@@ -1162,7 +1318,11 @@ def _run_snapshot_publication(
     config = _catalog_config(parsed)
     spark = _spark_session(parsed, config)
     try:
-        tables = CommunityCatalogTables(spark, config)
+        tables = CommunityCatalogTables(
+            spark,
+            config,
+            identity_generation_id=identity_generation_id,
+        )
         commit_snapshot_id = tables.latest_snapshot_id("community_ingest_commit")
         if commit_snapshot_id is None:
             raise ValueError("community_ingest_commit has no committed snapshot")
@@ -1172,12 +1332,17 @@ def _run_snapshot_publication(
         data_snapshot_ids = {
             table: tables.latest_snapshot_id(table) for table in DATA_TABLE_COLUMNS
         }
-        _, commits = _load_run_state(
+        runs, commits = _load_run_state(
             spark,
             tables=tables,
             run_snapshot_id=run_snapshot_id,
             commit_snapshot_id=commit_snapshot_id,
             run_ids=run_ids,
+        )
+        _validate_run_generations(
+            runs,
+            identity_generation_id=identity_generation_id,
+            table_mapping=tables.table_mapping,
         )
         _verify_data_counts(
             spark,
@@ -1191,6 +1356,10 @@ def _run_snapshot_publication(
             run_snapshot_id=run_snapshot_id,
             commit_snapshot_id=commit_snapshot_id,
             data_snapshot_ids=data_snapshot_ids,
+            identity_generation_id=identity_generation_id,
+            table_mapping=(
+                tables.table_mapping if identity_generation_id is not None else None
+            ),
             created_at=created_at,
         )
         store = _object_store(
@@ -1215,6 +1384,14 @@ def _run_snapshot_publication(
             "runSnapshotId": snapshot.run_snapshot_id,
             "commitSnapshotId": snapshot.commit_snapshot_id,
             "dataSnapshotIds": snapshot.data_snapshot_ids,
+            **(
+                {
+                    "identityGenerationId": snapshot.identity_generation_id,
+                    "tableMapping": snapshot.table_mapping,
+                }
+                if snapshot.identity_generation_id is not None
+                else {}
+            ),
             "silverSnapshot": reference.model_dump(
                 mode="json",
                 by_alias=True,

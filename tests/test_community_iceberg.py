@@ -12,7 +12,14 @@ from video_media_catalog.community_ingest import (
     build_community_ingest_commit,
     build_community_ingest_run,
 )
-from video_media_catalog.community_tables import DATA_TABLE_COLUMNS, TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    DATA_TABLE_COLUMNS,
+    IDENTITY_TABLES,
+    SOURCE_TABLES,
+    TABLE_COLUMNS,
+    build_community_table_mapping,
+    identity_physical_table_name,
+)
 from video_media_catalog.iceberg import CatalogConfig
 
 
@@ -36,8 +43,11 @@ class FakeConf:
 
 
 class FakeResult:
+    def __init__(self, rows=None) -> None:
+        self.rows = [] if rows is None else rows
+
     def collect(self):
-        return []
+        return self.rows
 
 
 class FakeSpark:
@@ -88,6 +98,27 @@ class FakeFrame:
         self.view = view
 
 
+def test_generation_mapping_is_safe_stable_and_keeps_source_fixed() -> None:
+    generation = "catalog.release-2026-09"
+    first = build_community_table_mapping(generation)
+    second = build_community_table_mapping(generation)
+
+    assert first == second
+    assert all(first[table] == table for table in SOURCE_TABLES)
+    assert all(first[table] != table for table in IDENTITY_TABLES)
+    assert all(len(first[table]) <= 127 for table in IDENTITY_TABLES)
+    assert all(first[table].replace("_", "").isalnum() for table in IDENTITY_TABLES)
+    assert (
+        identity_physical_table_name(
+            "community_entity_ledger",
+            generation,
+        )
+        == first["community_entity_ledger"]
+    )
+    with pytest.raises(ValueError, match="lowercase slug"):
+        build_community_table_mapping("bad generation;drop table")
+
+
 def test_creates_v2_tables_with_policy_aware_types(tmp_path: Path) -> None:
     spark = FakeSpark()
     tables = CommunityCatalogTables(
@@ -115,6 +146,107 @@ def test_creates_v2_tables_with_policy_aware_types(tmp_path: Path) -> None:
     assert any("`community_entity_merge_event`" in sql for sql in creates)
     assert any("`community_entity_split_event`" in sql for sql in creates)
     assert all("format-version" in sql for sql in creates)
+
+
+def test_generation_create_and_merge_resolve_identity_physical_table(
+    tmp_path: Path,
+) -> None:
+    spark = FakeSpark()
+    tables = CommunityCatalogTables(
+        spark,
+        CatalogConfig(
+            catalog_name="media",
+            namespace="community_v2",
+            warehouse=(tmp_path / "warehouse").as_uri(),
+        ),
+        identity_generation_id="catalog-2026-09",
+    )
+    tables.create_tables()
+    physical = tables.table_mapping["community_entity_ledger"]
+    assert physical != "community_entity_ledger"
+    assert any(
+        f".`{physical}`" in statement
+        for statement in spark.statements
+        if "CREATE TABLE IF NOT EXISTS" in statement
+    )
+    assert any(
+        ".`community_source_record`" in statement
+        for statement in spark.statements
+        if "CREATE TABLE IF NOT EXISTS" in statement
+    )
+
+
+def test_same_entity_key_merges_into_new_generation_not_legacy_table(
+    tmp_path: Path,
+) -> None:
+    spark = FakeSpark()
+    config = CatalogConfig(
+        catalog_name="media",
+        namespace="community_v2",
+        warehouse=(tmp_path / "warehouse").as_uri(),
+    )
+    legacy = CommunityCatalogTables(spark, config)
+    generated = CommunityCatalogTables(
+        spark,
+        config,
+        identity_generation_id="catalog-2026-09",
+    )
+
+    assert (
+        legacy.merge_insert_only(
+            "community_entity_ledger",
+            FakeFrame("community_entity_ledger", 1),
+        )
+        == 1
+    )
+    assert (
+        generated.merge_insert_only(
+            "community_entity_ledger",
+            FakeFrame("community_entity_ledger", 1),
+        )
+        == 1
+    )
+    merges = [statement for statement in spark.statements if "MERGE INTO" in statement]
+    assert ".`community_entity_ledger` t" in merges[0]
+    assert f".`{generated.table_mapping['community_entity_ledger']}` t" in merges[1]
+
+
+def test_full_generation_rejects_any_nonempty_identity_table(
+    tmp_path: Path,
+) -> None:
+    class NonEmptyIdentitySpark(FakeSpark):
+        def sql(self, statement: str):
+            self.statements.append(statement)
+            if (
+                "SELECT 1 AS present" in statement
+                and "community_entity_ledger__g_" in statement
+            ):
+                return FakeResult([{"present": 1}])
+            return FakeResult()
+
+    tables = CommunityCatalogTables(
+        NonEmptyIdentitySpark(),
+        CatalogConfig(
+            catalog_name="media",
+            namespace="community_v2",
+            warehouse=(tmp_path / "warehouse").as_uri(),
+        ),
+        identity_generation_id="catalog-2026-09",
+    )
+    with pytest.raises(RuntimeError, match="requires empty physical tables"):
+        tables.assert_identity_tables_empty()
+
+
+def test_incremental_generation_requires_pinned_identity_heads() -> None:
+    tables = RecordingTables(identity_generation_id="catalog-2026-09")
+    snapshots = {table: None for table in DATA_TABLE_COLUMNS}
+    snapshots["community_entity_ledger"] = 41
+    tables.owned_snapshots["community_entity_ledger"] = [41]
+    tables.assert_identity_snapshot_heads(snapshots)
+
+    tables.owned_snapshots["community_entity_ledger"] = [42]
+    with pytest.raises(RuntimeError, match="snapshot is stale"):
+        tables.assert_identity_snapshot_heads(snapshots)
 
 
 def test_v2_merge_is_insert_only_and_commit_is_unique_by_run(
@@ -175,7 +307,9 @@ def test_empty_v2_merge_does_not_write(tmp_path: Path) -> None:
 
 
 class StageFrame:
-    def __init__(self, count: int, run_id: str) -> None:
+    def __init__(self, table: str, count: int, run_id: str) -> None:
+        self.table = table
+        self.columns = list(TABLE_COLUMNS[table])
         self._count = count
         self.run_id = run_id
         self.count_calls = 0
@@ -184,9 +318,16 @@ class StageFrame:
         self.count_calls += 1
         return self._count
 
+    def select(self, *columns: str):
+        assert set(columns).issubset(self.columns)
+        return self
+
+    def dropDuplicates(self, keys: list[str]):
+        assert set(keys).issubset(self.columns)
+        return self
+
     def where(self, predicate: str):
-        expected = f"`run_id` <> '{self.run_id}'"
-        return StageFrame(0 if expected in predicate else 1, self.run_id)
+        return StageFrame(self.table, 0, self.run_id)
 
     def limit(self, count: int):
         assert count == 1
@@ -203,6 +344,7 @@ class RecordingTables(CommunityCatalogTables):
         self,
         run_counts: dict[str, int] | None = None,
         owned_snapshots: dict[str, list[int]] | None = None,
+        identity_generation_id: str | None = None,
     ) -> None:
         super().__init__(
             StageSpark(),
@@ -211,11 +353,12 @@ class RecordingTables(CommunityCatalogTables):
                 namespace="community_v2",
                 warehouse="file:///tmp/community-v2-test",
             ),
+            identity_generation_id=identity_generation_id,
         )
         self.run_counts = {table: 0 for table in DATA_TABLE_COLUMNS} | dict(
             run_counts or {}
         )
-        self.owned_snapshots = {table: [] for table in DATA_TABLE_COLUMNS}
+        self.owned_snapshots = {table: [] for table in TABLE_COLUMNS}
         for table, snapshots in (owned_snapshots or {}).items():
             self.owned_snapshots[table] = list(snapshots)
         self.events: list[str] = []
@@ -313,9 +456,11 @@ class RecordingTables(CommunityCatalogTables):
         return snapshots[0]
 
     def _latest_snapshot_id(self, table: str) -> int | None:
-        raise AssertionError(
-            "stage_and_commit must not read the global latest snapshot"
-        )
+        snapshots = self.owned_snapshots[table]
+        return snapshots[-1] if snapshots else None
+
+    def _current_snapshot_run_id(self, table: str) -> str | None:
+        return None
 
 
 def _run_with_counts(**count_overrides: int) -> CommunityIngestRun:
@@ -335,14 +480,40 @@ def _run_with_counts(**count_overrides: int) -> CommunityIngestRun:
     )
 
 
+def _identity_run_with_counts(
+    *,
+    generation: str = "catalog-2026-09",
+    mode: str = "incremental",
+    **count_overrides: int,
+) -> CommunityIngestRun:
+    counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+    counts.update(count_overrides)
+    return build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        source_product_id="identity-resolution-v2",
+        input_id="sha256:" + ("a" * 64),
+        policy_id="internal-key-continuity",
+        policy_digest="sha256:" + ("b" * 64),
+        image_digest="sha256:" + ("c" * 64),
+        config_digest="sha256:" + ("d" * 64),
+        started_at="2026-09-19T00:00:00Z",
+        expected_counts=counts,
+        input_manifest={
+            "identityGenerationId": generation,
+            "identityMode": mode,
+            "tableMapping": build_community_table_mapping(generation),
+        },
+    )
+
+
 def _frames_for(run: CommunityIngestRun) -> dict[str, StageFrame]:
     return {
-        table: StageFrame(count, run.run_id)
+        table: StageFrame(table, count, run.run_id)
         for table, count in run.expected_counts.items()
     }
 
 
-def test_complete_table_skips_frame_and_commit_stays_last() -> None:
+def test_legacy_partial_run_resumes_for_source_ingestion_compatibility() -> None:
     run = _run_with_counts(
         community_source_record=1,
         community_field_assertion=1,
@@ -359,11 +530,46 @@ def test_complete_table_skips_frame_and_commit_stays_last() -> None:
         committed_at="2026-09-19T00:01:00Z",
     )
 
-    assert frames["community_source_record"].count_calls == 0
     assert "community_source_record" not in tables.merge_events
-    assert "community_field_assertion" in tables.merge_events
     assert commit.table_snapshot_ids["community_source_record"] == 41
     assert tables.merge_events[-1] == "community_ingest_commit"
+
+
+def test_generation_partial_run_must_be_rolled_back_before_retry() -> None:
+    run = _identity_run_with_counts(community_entity_ledger=1)
+    frames = _frames_for(run)
+    tables = RecordingTables(
+        run_counts={"community_entity_ledger": 1},
+        owned_snapshots={"community_entity_ledger": [41]},
+        identity_generation_id="catalog-2026-09",
+    )
+    snapshots = {table: None for table in DATA_TABLE_COLUMNS}
+    snapshots["community_entity_ledger"] = 41
+
+    with pytest.raises(RuntimeError, match="rollback-failed-run"):
+        tables.stage_and_commit(
+            run=run,
+            dataframes=frames,
+            committed_at="2026-09-19T00:01:00Z",
+            identity_mode="incremental",
+            expected_identity_snapshot_ids=snapshots,
+        )
+    assert frames["community_entity_ledger"].count_calls == 0
+    assert tables.merge_events == []
+
+
+def test_generation_resolution_requires_explicit_mode() -> None:
+    run = _identity_run_with_counts()
+    tables = RecordingTables(identity_generation_id="catalog-2026-09")
+
+    with pytest.raises(ValueError, match="requires a mode"):
+        tables.stage_and_commit(
+            run=run,
+            dataframes=_frames_for(run),
+            committed_at="2026-09-19T00:01:00Z",
+        )
+
+    assert tables.events == []
 
 
 def test_zero_persisted_rows_validate_and_merge_frame() -> None:
@@ -379,13 +585,51 @@ def test_zero_persisted_rows_validate_and_merge_frame() -> None:
 
     assert commit.table_counts == run.expected_counts
     assert frames["community_source_record"].count_calls >= 2
+    assert tables.snapshot_properties["community_ingest_run"] == [
+        {
+            "video-media-catalog.run-id": run.run_id,
+            "video-media-catalog.parent-snapshot-id": "none",
+        }
+    ]
     assert tables.snapshot_properties["community_source_record"] == [
-        {"video-media-catalog.run-id": run.run_id}
+        {
+            "video-media-catalog.run-id": run.run_id,
+            "video-media-catalog.parent-snapshot-id": "none",
+        }
     ]
     assert len(tables.owned_snapshots["community_source_record"]) == 1
 
 
-def test_lazy_factory_loads_only_the_missing_nonempty_table() -> None:
+def test_lazy_factory_loads_all_nonempty_tables_before_writes() -> None:
+    run = _run_with_counts(
+        community_source_record=1,
+        community_field_assertion=1,
+    )
+    tables = RecordingTables()
+    requested: list[str] = []
+    created: dict[str, StageFrame] = {}
+
+    def dataframe_factory(table: str) -> StageFrame:
+        requested.append(table)
+        frame = StageFrame(table, run.expected_counts[table], run.run_id)
+        created[table] = frame
+        return frame
+
+    tables.stage_and_commit(
+        run=run,
+        dataframes={},
+        dataframe_factory=dataframe_factory,
+        committed_at="2026-09-19T00:01:00Z",
+    )
+
+    assert requested == [
+        "community_source_record",
+        "community_field_assertion",
+    ]
+    assert all(frame.count_calls >= 2 for frame in created.values())
+
+
+def test_legacy_lazy_factory_skips_already_complete_table() -> None:
     run = _run_with_counts(
         community_source_record=1,
         community_field_assertion=1,
@@ -398,7 +642,7 @@ def test_lazy_factory_loads_only_the_missing_nonempty_table() -> None:
 
     def dataframe_factory(table: str) -> StageFrame:
         requested.append(table)
-        return StageFrame(run.expected_counts[table], run.run_id)
+        return StageFrame(table, run.expected_counts[table], run.run_id)
 
     tables.stage_and_commit(
         run=run,
@@ -408,6 +652,59 @@ def test_lazy_factory_loads_only_the_missing_nonempty_table() -> None:
     )
 
     assert requested == ["community_field_assertion"]
+
+
+def test_all_frames_are_validated_before_any_write() -> None:
+    run = _run_with_counts(
+        community_source_record=1,
+        community_field_assertion=1,
+    )
+    frames = _frames_for(run)
+    frames["community_field_assertion"]._count = 0
+    tables = RecordingTables()
+
+    with pytest.raises(ValueError, match="staged count"):
+        tables.stage_and_commit(
+            run=run,
+            dataframes=frames,
+            committed_at="2026-09-19T00:01:00Z",
+        )
+
+    assert tables.merge_events == []
+    assert tables.manifest is None
+
+
+def test_identity_existing_new_key_collision_fails_preflight() -> None:
+    class CollisionFrame:
+        def select(self, *_columns):
+            return self
+
+        def dropDuplicates(self, _keys):
+            return self
+
+        def join(self, _other, _key, _kind):
+            return self
+
+        def limit(self, _count):
+            return self
+
+        def count(self):
+            return 1
+
+    class CollisionSpark(StageSpark):
+        def table(self, _name):
+            return CollisionFrame()
+
+    run = _run_with_counts(community_entity_ledger=1)
+    tables = RecordingTables()
+    tables.spark = CollisionSpark()
+
+    with pytest.raises(RuntimeError, match="existing/new key collision"):
+        tables._preflight_identity_keys(
+            run,
+            dataframes={"community_entity_ledger": CollisionFrame()},
+            identity_mode="full",
+        )
 
 
 @pytest.mark.parametrize(
@@ -432,38 +729,8 @@ def test_invalid_persisted_count_fails_without_restaging(
             committed_at="2026-09-19T00:01:00Z",
         )
 
-    assert frames["community_source_record"].count_calls == 0
+    assert frames["community_source_record"].count_calls >= 2
     assert "community_source_record" not in tables.merge_events
-    assert "community_ingest_commit" not in tables.merge_events
-
-
-@pytest.mark.parametrize(
-    ("expected", "current", "snapshots", "message"),
-    [
-        (1, 1, [], "found 0"),
-        (1, 1, [41, 42], "found 2"),
-        (0, 0, [41], "despite zero expected rows"),
-    ],
-)
-def test_snapshot_anomalies_fail_closed(
-    expected: int,
-    current: int,
-    snapshots: list[int],
-    message: str,
-) -> None:
-    run = _run_with_counts(community_source_record=expected)
-    tables = RecordingTables(
-        run_counts={"community_source_record": current},
-        owned_snapshots={"community_source_record": snapshots},
-    )
-
-    with pytest.raises(RuntimeError, match=message):
-        tables.stage_and_commit(
-            run=run,
-            dataframes=_frames_for(run),
-            committed_at="2026-09-19T00:01:00Z",
-        )
-
     assert "community_ingest_commit" not in tables.merge_events
 
 

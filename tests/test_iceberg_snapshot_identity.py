@@ -145,6 +145,8 @@ def test_owned_snapshot_ignores_later_writer_and_verifies_added_rows() -> None:
         == 101
     )
     assert spark.read.loaded_snapshot_ids == [101, 100]
+    assert "WHERE is_current_ancestor" in spark.statements[0]
+    assert "video-media-catalog.rollback-run-id" in spark.statements[0]
 
 
 @pytest.mark.parametrize(

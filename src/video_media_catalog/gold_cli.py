@@ -20,6 +20,7 @@ from video_media_catalog.community_snapshot import (
     CommunitySilverEpochManifest,
     CommunitySilverManifest,
     CommunitySilverSnapshotSet,
+    community_silver_table_mapping,
     parse_community_silver_manifest,
 )
 from video_media_catalog.community_sources import build_community_registry
@@ -285,6 +286,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ],
         "maxRedirectHops": parsed.max_redirect_hops,
     }
+    if snapshot.identity_generation_id is not None:
+        nonsecret_config.update(
+            {
+                "identityGenerationId": snapshot.identity_generation_id,
+                "silverTableMapping": community_silver_table_mapping(snapshot),
+            }
+        )
     config_digest = sha256_digest(canonical_json(nonsecret_config))
     resolver_digest = sha256_digest("community-gold-spark-v3")
 
@@ -305,9 +313,19 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     spark = builder.getOrCreate()
     build = None
     try:
-        silver_tables = CommunityCatalogTables(spark, silver_config)
-        all_committed_runs = silver_tables.committed_runs_dataframe(
-            snapshot.commit_snapshot_id
+        silver_tables = CommunityCatalogTables(
+            spark,
+            silver_config,
+            identity_generation_id=snapshot.identity_generation_id,
+            table_mapping=community_silver_table_mapping(snapshot),
+        )
+        all_committed_runs = (
+            silver_tables.generation_committed_runs_dataframe(
+                run_snapshot_id=snapshot.run_snapshot_id,
+                commit_snapshot_id=snapshot.commit_snapshot_id,
+            )
+            if snapshot.identity_generation_id is not None
+            else silver_tables.committed_runs_dataframe(snapshot.commit_snapshot_id)
         )
         epoch_input = isinstance(snapshot, CommunitySilverEpochManifest)
         if epoch_input:

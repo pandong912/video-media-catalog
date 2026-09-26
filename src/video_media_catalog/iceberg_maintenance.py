@@ -6,12 +6,17 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any, Literal, Self
+from typing import Any, Literal, Protocol, Self
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from video_media_catalog.canonical import deterministic_key
-from video_media_catalog.community_tables import TABLE_COLUMNS
+from video_media_catalog.community_tables import (
+    IDENTITY_TABLES,
+    TABLE_COLUMNS,
+    require_identity_generation_id,
+    validate_community_table_mapping,
+)
 from video_media_catalog.gold_tables import GOLD_TABLE_COLUMNS
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
@@ -25,6 +30,7 @@ MIN_RETAIN_LAST = 2
 DEFAULT_RETENTION_DAYS = 30
 DEFAULT_RETAIN_LAST = 5
 ALLOWED_MAINTENANCE_TABLES = frozenset(TABLE_COLUMNS) | frozenset(GOLD_TABLE_COLUMNS)
+FAILED_RUN_ROLLBACK_TABLES = IDENTITY_TABLES | frozenset({"community_ingest_run"})
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
@@ -450,3 +456,618 @@ def execute_iceberg_maintenance_plan(
             }
         )
     return tuple(results)
+
+
+class FailedRunSnapshotState(V2ContractModel):
+    snapshot_id: int = Field(gt=0)
+    sequence_number: int = Field(default=0, ge=0)
+    parent_snapshot_id: int | None = Field(default=None, gt=0)
+    journal_parent_snapshot_id: int | None = Field(default=None, gt=0)
+    parent_journal_recorded: bool = False
+    committed_at: str
+    owner_run_id: str | None = None
+    rollback_run_id: str | None = None
+    is_current: bool = False
+    is_current_ancestor: bool = False
+
+    @field_validator("committed_at")
+    @classmethod
+    def validate_committed_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @field_validator("owner_run_id", "rollback_run_id")
+    @classmethod
+    def validate_optional_run_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_sha256(value, label="rollback run_id")
+
+
+class FailedRunTableState(V2ContractModel):
+    logical_table: str
+    physical_table: str
+    snapshots: tuple[FailedRunSnapshotState, ...]
+    protected_refs: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("logical_table")
+    @classmethod
+    def validate_logical_table(cls, value: str) -> str:
+        if value not in FAILED_RUN_ROLLBACK_TABLES:
+            raise ValueError(f"table is not failed-run rollback eligible: {value}")
+        return value
+
+    @field_validator("physical_table")
+    @classmethod
+    def validate_physical_table(cls, value: str) -> str:
+        return _safe_identifier(value, label="physical_table")
+
+    @field_validator("protected_refs")
+    @classmethod
+    def validate_protected_refs(cls, value: dict[str, int]) -> dict[str, int]:
+        normalized: dict[str, int] = {}
+        for name, snapshot_id in value.items():
+            reference = name.strip()
+            if not reference or len(reference) > 255:
+                raise ValueError("protected Iceberg ref name must be bounded")
+            if isinstance(snapshot_id, bool) or snapshot_id <= 0:
+                raise ValueError("protected Iceberg ref snapshot must be positive")
+            normalized[reference] = snapshot_id
+        return dict(sorted(normalized.items()))
+
+    @model_validator(mode="after")
+    def validate_inventory(self) -> Self:
+        ids = [snapshot.snapshot_id for snapshot in self.snapshots]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"{self.logical_table} snapshot inventory has duplicates")
+        current = [snapshot for snapshot in self.snapshots if snapshot.is_current]
+        if self.snapshots and len(current) != 1:
+            raise ValueError(
+                f"{self.logical_table} snapshot inventory requires one current head"
+            )
+        if current and not current[0].is_current_ancestor:
+            raise ValueError(
+                f"{self.logical_table} current snapshot must be a current ancestor"
+            )
+        missing_refs = sorted(set(self.protected_refs.values()) - set(ids))
+        if missing_refs:
+            raise ValueError(
+                f"{self.logical_table} protected refs are absent from inventory"
+            )
+        return self
+
+
+class FailedRunRollbackAction(V2ContractModel):
+    logical_table: str
+    physical_table: str
+    expected_head_snapshot_id: int = Field(gt=0)
+    target_snapshot_id: int | None = Field(default=None, gt=0)
+    owned_snapshot_ids: tuple[int, ...]
+    latest_owned_at: str
+    protected_refs: dict[str, int] = Field(default_factory=dict)
+    already_rolled_back: bool = False
+    sql: str
+
+    @field_validator("logical_table")
+    @classmethod
+    def validate_logical_table(cls, value: str) -> str:
+        if value not in FAILED_RUN_ROLLBACK_TABLES:
+            raise ValueError(f"rollback action is not failed-run eligible: {value}")
+        return value
+
+    @field_validator("physical_table")
+    @classmethod
+    def validate_physical_table(cls, value: str) -> str:
+        return _safe_identifier(value, label="physical_table")
+
+    @field_validator("owned_snapshot_ids")
+    @classmethod
+    def validate_owned_snapshot_ids(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if not value or any(isinstance(item, bool) or item <= 0 for item in value):
+            raise ValueError("rollback action requires positive owned snapshots")
+        if len(value) != len(set(value)):
+            raise ValueError("rollback owned snapshots must be unique")
+        return value
+
+    @field_validator("latest_owned_at")
+    @classmethod
+    def validate_latest_owned_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @model_validator(mode="after")
+    def validate_action(self) -> Self:
+        if self.expected_head_snapshot_id != self.owned_snapshot_ids[-1]:
+            raise ValueError("rollback expected head must be the last owned snapshot")
+        if set(self.protected_refs.values()).intersection(self.owned_snapshot_ids):
+            raise ValueError("rollback cannot move an externally protected snapshot")
+        return self
+
+
+class FailedRunRollbackPlan(V2ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
+    plan_id: str
+    run_id: str
+    catalog_name: str
+    namespace: str
+    identity_generation_id: str | None = None
+    table_mapping: dict[str, str]
+    dry_run: bool = True
+    planned_at: str
+    no_commit_verified: bool = True
+    allow_legacy_parent_inference: bool = False
+    references_reviewed: bool = False
+    actions: tuple[FailedRunRollbackAction, ...]
+
+    @field_validator("plan_id", "run_id")
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("catalog_name", "namespace")
+    @classmethod
+    def validate_identifier(cls, value: str) -> str:
+        return _safe_identifier(value, label="rollback identifier")
+
+    @field_validator("identity_generation_id")
+    @classmethod
+    def validate_generation(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_identity_generation_id(value)
+
+    @field_validator("planned_at")
+    @classmethod
+    def validate_planned_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @model_validator(mode="after")
+    def validate_plan(self, info: ValidationInfo) -> Self:
+        validate_community_table_mapping(
+            self.table_mapping,
+            identity_generation_id=self.identity_generation_id,
+        )
+        if (
+            self.allow_legacy_parent_inference
+            and self.identity_generation_id is not None
+        ):
+            raise ValueError(
+                "parent inference is allowed only for legacy fixed-table runs"
+            )
+        if not self.no_commit_verified:
+            raise ValueError("failed-run rollback requires proof that no commit exists")
+        if not self.actions:
+            raise ValueError("failed-run rollback found no run-owned snapshots")
+        if not self.dry_run and not self.references_reviewed:
+            raise ValueError(
+                "executing failed-run rollback requires reviewed protected refs"
+            )
+        if not (info.context or {}).get("skip_identity"):
+            expected = deterministic_key(
+                "iceberg-failed-run-rollback-plan-v1",
+                _failed_run_plan_identity(self),
+            )
+            if self.plan_id != expected:
+                raise ValueError("failed-run rollback plan_id does not match contents")
+        return self
+
+
+class FailedRunRollbackExecutor(Protocol):
+    def commit_exists(self, run_id: str) -> bool: ...
+
+    def current_state(
+        self,
+        action: FailedRunRollbackAction,
+    ) -> tuple[int | None, str | None]: ...
+
+    def protected_refs(
+        self,
+        action: FailedRunRollbackAction,
+    ) -> Mapping[str, int]: ...
+
+    def rollback(
+        self,
+        action: FailedRunRollbackAction,
+        *,
+        run_id: str,
+    ) -> None: ...
+
+
+def rollback_to_snapshot_sql(
+    *,
+    catalog_name: str,
+    namespace: str,
+    physical_table: str,
+    snapshot_id: int,
+) -> str:
+    if isinstance(snapshot_id, bool) or snapshot_id <= 0:
+        raise ValueError("rollback target snapshot must be positive")
+    catalog = _safe_identifier(catalog_name, label="catalog_name")
+    current_namespace = _safe_identifier(namespace, label="namespace")
+    physical = _safe_identifier(physical_table, label="physical_table")
+    return (
+        f"CALL `{catalog}`.system.rollback_to_snapshot("
+        f"table => '{current_namespace}.{physical}', "
+        f"snapshot_id => {snapshot_id})"
+    )
+
+
+def reset_failed_run_rows_sql(
+    *,
+    catalog_name: str,
+    namespace: str,
+    physical_table: str,
+    run_id: str,
+) -> str:
+    catalog = _safe_identifier(catalog_name, label="catalog_name")
+    current_namespace = _safe_identifier(namespace, label="namespace")
+    physical = _safe_identifier(physical_table, label="physical_table")
+    failed_run = require_sha256(run_id, label="run_id")
+    return (
+        f"DELETE FROM `{catalog}`.`{current_namespace}`.`{physical}` "
+        f"WHERE run_id = '{failed_run}'"
+    )
+
+
+def _failed_run_plan_identity(plan: FailedRunRollbackPlan) -> dict[str, Any]:
+    return {
+        "schemaVersion": plan.schema_version,
+        "runId": plan.run_id,
+        "catalogName": plan.catalog_name,
+        "namespace": plan.namespace,
+        "identityGenerationId": plan.identity_generation_id,
+        "tableMapping": plan.table_mapping,
+        "dryRun": plan.dry_run,
+        "plannedAt": plan.planned_at,
+        "noCommitVerified": plan.no_commit_verified,
+        "allowLegacyParentInference": plan.allow_legacy_parent_inference,
+        "referencesReviewed": plan.references_reviewed,
+        "actions": [
+            action.model_dump(mode="json", by_alias=True, exclude_none=True)
+            for action in plan.actions
+        ],
+    }
+
+
+def _owned_snapshot_chain(
+    state: FailedRunTableState,
+    *,
+    run_id: str,
+    allow_legacy_parent_inference: bool,
+) -> tuple[tuple[FailedRunSnapshotState, ...], int | None, bool] | None:
+    current = next(
+        (snapshot for snapshot in state.snapshots if snapshot.is_current),
+        None,
+    )
+    current_id = None if current is None else current.snapshot_id
+    all_owned = {
+        snapshot.snapshot_id: snapshot
+        for snapshot in state.snapshots
+        if snapshot.owner_run_id == run_id
+    }
+    children_by_parent: dict[int, list[int]] = {}
+    for snapshot in all_owned.values():
+        if snapshot.parent_snapshot_id is not None:
+            children_by_parent.setdefault(
+                snapshot.parent_snapshot_id,
+                [],
+            ).append(snapshot.snapshot_id)
+
+    def component_from(
+        root: FailedRunSnapshotState,
+    ) -> dict[int, FailedRunSnapshotState]:
+        component_ids = {root.snapshot_id}
+        pending = [root.snapshot_id]
+        while pending:
+            parent_id = pending.pop()
+            for child_id in children_by_parent.get(parent_id, ()):
+                if child_id not in component_ids:
+                    component_ids.add(child_id)
+                    pending.append(child_id)
+        return {
+            snapshot_id: snapshot
+            for snapshot_id, snapshot in all_owned.items()
+            if snapshot_id in component_ids
+        }
+
+    rollback_markers = sorted(
+        (
+            snapshot
+            for snapshot in state.snapshots
+            if snapshot.rollback_run_id == run_id
+        ),
+        key=lambda snapshot: (
+            snapshot.sequence_number,
+            parse_rfc3339(snapshot.committed_at),
+            snapshot.snapshot_id,
+        ),
+    )
+    active_cutoff = -1 if not rollback_markers else rollback_markers[-1].sequence_number
+    active_owned = {
+        snapshot_id: snapshot
+        for snapshot_id, snapshot in all_owned.items()
+        if snapshot.is_current_ancestor and snapshot.sequence_number > active_cutoff
+    }
+    if active_owned:
+        owned = active_owned
+    elif roots_at_current := [
+        snapshot
+        for snapshot in all_owned.values()
+        if snapshot.parent_snapshot_id == current_id
+        and snapshot.sequence_number > active_cutoff
+    ]:
+        owned = component_from(
+            max(
+                roots_at_current,
+                key=lambda snapshot: (
+                    snapshot.sequence_number,
+                    parse_rfc3339(snapshot.committed_at),
+                    snapshot.snapshot_id,
+                ),
+            )
+        )
+    elif rollback_markers:
+        previous_cutoff = (
+            -1 if len(rollback_markers) == 1 else rollback_markers[-2].sequence_number
+        )
+        owned = {
+            snapshot_id: snapshot
+            for snapshot_id, snapshot in all_owned.items()
+            if previous_cutoff
+            < snapshot.sequence_number
+            < rollback_markers[-1].sequence_number
+        }
+    else:
+        current_ancestor_owned = {
+            snapshot_id: snapshot
+            for snapshot_id, snapshot in all_owned.items()
+            if snapshot.is_current_ancestor
+        }
+        if current_ancestor_owned:
+            owned = current_ancestor_owned
+        else:
+            roots_at_current = [
+                snapshot
+                for snapshot in all_owned.values()
+                if snapshot.parent_snapshot_id == current_id
+            ]
+            if not roots_at_current:
+                owned = all_owned
+            else:
+                root = max(
+                    roots_at_current,
+                    key=lambda snapshot: (
+                        snapshot.sequence_number,
+                        parse_rfc3339(snapshot.committed_at),
+                        snapshot.snapshot_id,
+                    ),
+                )
+                owned = component_from(root)
+    if not owned:
+        return None
+    for snapshot in owned.values():
+        if (
+            not snapshot.parent_journal_recorded
+            or snapshot.journal_parent_snapshot_id != snapshot.parent_snapshot_id
+        ) and not allow_legacy_parent_inference:
+            raise ValueError(
+                f"{state.logical_table} run-owned snapshot parent journal is invalid"
+            )
+    children = {
+        snapshot.parent_snapshot_id
+        for snapshot in owned.values()
+        if snapshot.parent_snapshot_id in owned
+    }
+    tips = sorted(set(owned) - children)
+    roots = sorted(
+        snapshot.snapshot_id
+        for snapshot in owned.values()
+        if snapshot.parent_snapshot_id not in owned
+    )
+    if len(tips) != 1 or len(roots) != 1:
+        raise ValueError(
+            f"{state.logical_table} run-owned snapshots are not one linear chain"
+        )
+    reverse_chain: list[FailedRunSnapshotState] = []
+    cursor_id: int | None = tips[0]
+    while cursor_id in owned:
+        snapshot = owned[cursor_id]
+        reverse_chain.append(snapshot)
+        cursor_id = snapshot.parent_snapshot_id
+    chain = tuple(reversed(reverse_chain))
+    if len(chain) != len(owned) or chain[0].snapshot_id != roots[0]:
+        raise ValueError(
+            f"{state.logical_table} run-owned snapshots are not contiguous"
+        )
+    target = chain[0].parent_snapshot_id
+    already_rolled_back = current_id == target or (
+        target is None and current is not None and current.rollback_run_id == run_id
+    )
+    if current_id != chain[-1].snapshot_id and not already_rolled_back:
+        raise ValueError(
+            f"{state.logical_table} current head changed after the failed run"
+        )
+    return chain, target, already_rolled_back
+
+
+def build_failed_run_rollback_plan(
+    *,
+    catalog_name: str,
+    namespace: str,
+    run_id: str,
+    identity_generation_id: str | None,
+    table_mapping: Mapping[str, str],
+    table_states: Sequence[FailedRunTableState],
+    commit_exists: bool,
+    planned_at: str,
+    dry_run: bool = True,
+    allow_legacy_parent_inference: bool = False,
+    references_reviewed: bool = False,
+) -> FailedRunRollbackPlan:
+    """Plan a reverse-order rollback after proving every safety guard."""
+
+    failed_run = require_sha256(run_id, label="run_id")
+    generation = (
+        None
+        if identity_generation_id is None
+        else require_identity_generation_id(identity_generation_id)
+    )
+    mapping = validate_community_table_mapping(
+        table_mapping,
+        identity_generation_id=generation,
+    )
+    if commit_exists:
+        raise ValueError("committed runs must never be rolled back")
+    if len({state.logical_table for state in table_states}) != len(table_states):
+        raise ValueError("failed-run rollback table states contain duplicates")
+
+    actions: list[FailedRunRollbackAction] = []
+    for state in table_states:
+        if state.physical_table != mapping[state.logical_table]:
+            raise ValueError(
+                f"{state.logical_table} physical table differs from generation mapping"
+            )
+        resolved = _owned_snapshot_chain(
+            state,
+            run_id=failed_run,
+            allow_legacy_parent_inference=allow_legacy_parent_inference,
+        )
+        if resolved is None:
+            continue
+        chain, target, already_rolled_back = resolved
+        owned_ids = tuple(snapshot.snapshot_id for snapshot in chain)
+        protected_owned = sorted(
+            set(state.protected_refs.values()).intersection(owned_ids)
+        )
+        if protected_owned:
+            raise ValueError(
+                f"{state.logical_table} run-owned snapshots are protected by refs: "
+                + ", ".join(str(item) for item in protected_owned)
+            )
+        sql = (
+            rollback_to_snapshot_sql(
+                catalog_name=catalog_name,
+                namespace=namespace,
+                physical_table=state.physical_table,
+                snapshot_id=target,
+            )
+            if target is not None
+            else reset_failed_run_rows_sql(
+                catalog_name=catalog_name,
+                namespace=namespace,
+                physical_table=state.physical_table,
+                run_id=failed_run,
+            )
+        )
+        actions.append(
+            FailedRunRollbackAction(
+                logical_table=state.logical_table,
+                physical_table=state.physical_table,
+                expected_head_snapshot_id=chain[-1].snapshot_id,
+                target_snapshot_id=target,
+                owned_snapshot_ids=owned_ids,
+                latest_owned_at=chain[-1].committed_at,
+                protected_refs=state.protected_refs,
+                already_rolled_back=already_rolled_back,
+                sql=sql,
+            )
+        )
+    actions.sort(
+        key=lambda action: (
+            parse_rfc3339(action.latest_owned_at),
+            action.expected_head_snapshot_id,
+            action.logical_table,
+        ),
+        reverse=True,
+    )
+    provisional = FailedRunRollbackPlan.model_validate(
+        {
+            "plan_id": _ZERO_DIGEST,
+            "run_id": failed_run,
+            "catalog_name": catalog_name,
+            "namespace": namespace,
+            "identity_generation_id": generation,
+            "table_mapping": mapping,
+            "dry_run": dry_run,
+            "planned_at": require_rfc3339(planned_at),
+            "no_commit_verified": True,
+            "allow_legacy_parent_inference": allow_legacy_parent_inference,
+            "references_reviewed": references_reviewed,
+            "actions": tuple(actions),
+        },
+        context={"skip_identity": True},
+    )
+    normalized = provisional.model_dump(mode="python")
+    normalized["plan_id"] = deterministic_key(
+        "iceberg-failed-run-rollback-plan-v1",
+        _failed_run_plan_identity(provisional),
+    )
+    return FailedRunRollbackPlan.model_validate(normalized)
+
+
+def execute_failed_run_rollback_plan(
+    plan: FailedRunRollbackPlan,
+    executor: FailedRunRollbackExecutor,
+) -> tuple[dict[str, Any], ...]:
+    """Recheck mutable guards and execute one audited reverse-order plan."""
+
+    if plan.dry_run:
+        raise ValueError("dry-run failed-run rollback plans cannot be executed")
+    if not plan.references_reviewed:
+        raise ValueError("failed-run rollback references were not reviewed")
+    if executor.commit_exists(plan.run_id):
+        raise RuntimeError("run acquired a commit marker after rollback planning")
+
+    audit: list[dict[str, Any]] = []
+    for action in plan.actions:
+        if executor.commit_exists(plan.run_id):
+            raise RuntimeError("run acquired a commit marker during rollback")
+        current_id, rollback_run_id = executor.current_state(action)
+        already_rolled_back = current_id == action.target_snapshot_id or (
+            action.target_snapshot_id is None and rollback_run_id == plan.run_id
+        )
+        current_refs = dict(sorted(executor.protected_refs(action).items()))
+        if current_refs != action.protected_refs:
+            raise RuntimeError(
+                f"{action.logical_table} protected refs changed after planning"
+            )
+        if set(current_refs.values()).intersection(action.owned_snapshot_ids):
+            raise RuntimeError(
+                f"{action.logical_table} acquired a protected run-owned snapshot"
+            )
+        if already_rolled_back:
+            audit.append(
+                {
+                    "logicalTable": action.logical_table,
+                    "physicalTable": action.physical_table,
+                    "status": "ALREADY_ROLLED_BACK",
+                    "targetSnapshotId": action.target_snapshot_id,
+                }
+            )
+            continue
+        if current_id != action.expected_head_snapshot_id:
+            raise RuntimeError(
+                f"{action.logical_table} current head changed after planning"
+            )
+        if executor.current_state(action) != (current_id, rollback_run_id):
+            raise RuntimeError(
+                f"{action.logical_table} current head changed during guard checks"
+            )
+        executor.rollback(action, run_id=plan.run_id)
+        resulting_id, resulting_rollback_run_id = executor.current_state(action)
+        reached_target = resulting_id == action.target_snapshot_id or (
+            action.target_snapshot_id is None
+            and resulting_rollback_run_id == plan.run_id
+        )
+        if not reached_target:
+            raise RuntimeError(
+                f"{action.logical_table} rollback target could not be verified"
+            )
+        audit.append(
+            {
+                "logicalTable": action.logical_table,
+                "physicalTable": action.physical_table,
+                "status": "ROLLED_BACK",
+                "fromSnapshotId": action.expected_head_snapshot_id,
+                "targetSnapshotId": action.target_snapshot_id,
+            }
+        )
+    return tuple(audit)

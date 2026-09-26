@@ -1,6 +1,12 @@
-"""Logical Silver v2 table names, columns, keys, and nullability."""
+"""Logical Silver v2 table names, physical mapping, keys, and nullability."""
 
 from __future__ import annotations
+
+import hashlib
+import re
+from collections.abc import Mapping
+
+from video_media_catalog.v2_contracts import require_slug
 
 RUN_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
     "community_ingest_run": (
@@ -241,6 +247,104 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
 }
 
 TABLE_COLUMNS = {**RUN_TABLE_COLUMNS, **DATA_TABLE_COLUMNS}
+
+CONTROL_TABLES = frozenset(RUN_TABLE_COLUMNS)
+SOURCE_TABLES = frozenset(
+    {
+        "community_source_record",
+        "community_field_assertion",
+        "community_identifier_assertion",
+        "community_relationship_assertion",
+        "community_entity_type_assertion",
+    }
+)
+IDENTITY_TABLES = frozenset(DATA_TABLE_COLUMNS) - SOURCE_TABLES
+
+if CONTROL_TABLES & SOURCE_TABLES or CONTROL_TABLES & IDENTITY_TABLES:
+    raise RuntimeError("community table groups must be disjoint")
+if frozenset(TABLE_COLUMNS) != CONTROL_TABLES | SOURCE_TABLES | IDENTITY_TABLES:
+    raise RuntimeError("community table groups must cover every logical table")
+
+MAX_IDENTITY_GENERATION_ID_LENGTH = 64
+_PHYSICAL_TABLE_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def require_identity_generation_id(value: str) -> str:
+    """Return one bounded generation token suitable for deterministic mapping."""
+
+    if not isinstance(value, str):
+        raise ValueError("identity_generation_id must be a stable lowercase slug")
+    return require_slug(
+        value,
+        label="identity_generation_id",
+        max_length=MAX_IDENTITY_GENERATION_ID_LENGTH,
+    )
+
+
+def identity_physical_table_name(table: str, generation_id: str) -> str:
+    """Resolve one logical Identity table to a short collision-safe Glue name."""
+
+    if table not in IDENTITY_TABLES:
+        raise KeyError(f"not an Identity table: {table}")
+    generation = require_identity_generation_id(generation_id)
+    readable = re.sub(r"[^a-z0-9]+", "_", generation).strip("_")[:32]
+    digest = hashlib.sha256(generation.encode("utf-8")).hexdigest()[:24]
+    physical = f"{table}__g_{readable}_{digest}"
+    if len(physical) > 127 or _PHYSICAL_TABLE_IDENTIFIER.fullmatch(physical) is None:
+        raise ValueError("resolved Identity physical table name is unsafe")
+    return physical
+
+
+def build_community_table_mapping(
+    identity_generation_id: str | None = None,
+) -> dict[str, str]:
+    """Build the complete logical-to-physical table mapping."""
+
+    generation = (
+        None
+        if identity_generation_id is None
+        else require_identity_generation_id(identity_generation_id)
+    )
+    return {
+        table: (
+            identity_physical_table_name(table, generation)
+            if generation is not None and table in IDENTITY_TABLES
+            else table
+        )
+        for table in TABLE_COLUMNS
+    }
+
+
+def validate_community_table_mapping(
+    mapping: Mapping[str, str],
+    *,
+    identity_generation_id: str | None,
+) -> dict[str, str]:
+    """Reject incomplete, injected, or cross-generation physical mappings."""
+
+    expected = build_community_table_mapping(identity_generation_id)
+    if set(mapping) != set(expected):
+        raise ValueError("table mapping must contain every community logical table")
+    normalized = dict(mapping)
+    if any(
+        not isinstance(physical, str)
+        or len(physical) > 127
+        or _PHYSICAL_TABLE_IDENTIFIER.fullmatch(physical) is None
+        for physical in normalized.values()
+    ):
+        raise ValueError("table mapping contains an unsafe physical table name")
+    if len(set(normalized.values())) != len(normalized):
+        raise ValueError("table mapping physical names must be unique")
+    mismatches = sorted(
+        table for table, physical in normalized.items() if physical != expected[table]
+    )
+    if mismatches:
+        raise ValueError(
+            "table mapping does not match the declared Identity generation: "
+            + ", ".join(mismatches)
+        )
+    return {table: normalized[table] for table in TABLE_COLUMNS}
+
 
 TABLE_KEYS: dict[str, str] = {
     "community_ingest_run": "run_id",

@@ -27,7 +27,11 @@ The manifest contains:
 
 The pinned Silver object uses
 `application/vnd.video-media-catalog.silver-snapshot-set.v2+json`. Consumers
-must verify both ObjectRefs before reading any Iceberg snapshot.
+must verify both ObjectRefs before reading any Iceberg snapshot. When the
+snapshot declares `identityGenerationId` and `tableMapping`, curation reads and
+writes exactly those Identity physical tables while continuing to use the
+shared source and control tables. Its pinned Identity snapshots must still be
+the current heads. A stale, mismatched, or non-deterministic mapping is invalid.
 
 ## Operations
 
@@ -80,7 +84,9 @@ Submitting the same manifest produces the same run and row keys. If its commit
 already exists, `CommunityCatalogTables` verifies the immutable run manifest
 and returns the existing commit without restaging. Reusing a logical row key
 under a different run cannot satisfy per-run counts and therefore cannot
-publish a commit.
+publish a commit. For a generation-aware snapshot, if the original attempt has
+no commit but owns any partial snapshot or rows, direct retry is forbidden;
+operators must complete the guarded `rollback-failed-run` workflow first.
 
 ## Submission boundary
 

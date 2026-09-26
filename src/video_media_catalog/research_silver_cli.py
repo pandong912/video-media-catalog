@@ -919,6 +919,9 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "community-identity-resolution-input-v2",
             pinned_inputs,
         )
+        # Exercise the exact Iceberg snapshot/history metadata reads before
+        # Identity resolution triggers checkpoints, shuffles, or counts.
+        output_tables.preflight_snapshot_metadata(input_id)
         ingest_runs = input_tables.visible_run_dataframe(
             run_snapshot_id=silver_snapshot.run_snapshot_id,
             committed_runs=committed_runs,

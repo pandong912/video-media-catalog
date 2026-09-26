@@ -46,3 +46,10 @@ def test_run_metadata_is_read_from_exact_snapshot() -> None:
     )
     assert '.option("snapshot-id", str(run_snapshot_id))' in source
     assert '.load(self.table_name("community_ingest_run"))' in source
+
+
+def test_identity_snapshot_metadata_preflight_precedes_resolution_actions() -> None:
+    source = inspect.getsource(research_silver_cli._run_identity)
+    preflight = source.index("output_tables.preflight_snapshot_metadata(input_id)")
+    resolution = source.index("build_identity_resolution_dataframes(")
+    assert preflight < resolution

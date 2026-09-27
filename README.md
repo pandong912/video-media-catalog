@@ -289,6 +289,20 @@ video-media-catalog-gold-index \
   --opensearch-endpoint https://search.example.com
 ```
 
+Gold external-ID blocking 修复上线时只需发布新的 Gold image，并用原
+`--silver-snapshot-uri` 及其相同 hash/size/VersionId/ETag 重跑一次 Gold。
+该修复读取 pinned Identity ledger/membership 并在 Gold 内重新投影 registry
+blocking slot；无需重跑 Silver 或 Identity，也不得更换 snapshot。提交
+EMR Serverless job 时保持 `retryPolicy.maxAttempts=1`；失败的 partial run
+先按既有无 commit/unchanged-head 保护流程处理，不对同一次 application
+启用基础设施自动重试。成功后再从新的 immutable Gold release commit
+执行 full OpenSearch rebuild。
+
+重跑验收要求 `duplicateExternalIdCount=0`。真实的跨实体同 blocking-key
+冲突不会生成 identifier 行，而会以
+`DUPLICATE_EXTERNAL_IDENTIFIER` 写入 `community_gold_conflict` 并计入
+conflict/withheld；namespace/type 无法绑定的 assertion 仅计入 withheld。
+
 索引任务使用 AWS 默认凭据链和 SigV4，不接受静态 access key 参数。Full rebuild
 是权威路径；可选 affected-entity build 也始终写入新的 concrete index。
 

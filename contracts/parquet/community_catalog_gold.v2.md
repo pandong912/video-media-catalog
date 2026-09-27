@@ -90,9 +90,35 @@ Primary key: `resolution_key`.
 - `namespace_id`, `value`, `issuer`, `referent_kind`
 - `assertion_ids_json`, `trace_json`
 
-Accepted identifier assignments are unique by namespace/value/referent kind
-within a release. A value assigned to multiple entities is retained in the
-candidate quality report as `duplicateExternalIdCount` and blocks publication.
+The physical columns are unchanged. After rights, current-source, and active
+membership gates, every assertion must bind to exactly one active registry
+namespace slot selected from the resolved ledger `entity_level` and
+`entity_kind`. The slot applies the registry pattern and case rule and replaces
+the Silver assertion's raw kind with the blocking referent kind. Assertions
+that have no unique namespace/type slot are withheld fail-closed.
+
+Accepted assignments are unique by
+`(namespace_id, normalized_value, blocking_referent_kind)` within a release.
+Case-insensitive values therefore collapse before resolution. `value` is a
+deterministic display canonicalization: IMDb `tt`/`nm`/`co` identifiers are
+lowercase, while the registry-normalized spelling is retained in
+`trace_json.normalizedValue`; other case-insensitive namespaces use their
+registry-normalized spelling. `issuer` comes from the registry and
+`referent_kind` is the blocking referent kind.
+
+If one blocking key names multiple resolved entities, every identifier row for
+that key is withheld. One `community_gold_conflict` row is emitted with reason
+`DUPLICATE_EXTERNAL_IDENTIFIER`, the namespace as predicate, the
+lexicographically first candidate as the required anchor `entity_key`, all
+sorted entity candidates, and complete assertion IDs and typed lineage.
+`duplicateExternalIdCount` is then computed over the identifier rows that
+would actually be published and remains a strict zero publication gate.
+
+This changes `resolution_key` inputs for identifiers built by the corrected
+resolver: canonical namespace, deterministic display value, registry issuer,
+and blocking referent kind replace raw Silver spellings/kinds. Re-Gold may
+therefore produce new identifier `resolution_key` values without changing the
+table schema or any internal entity key.
 
 ### `community_gold_relation`
 
@@ -116,7 +142,10 @@ Primary key: `conflict_key`.
 - `assertion_ids_json`, `candidate_values_json`, `trace_json`
 
 Conflicts are first-class queryable output, not ingest errors hidden from
-consumers.
+consumers. External-identifier conflicts use the registered namespace
+predicate and fixed reason described above; `trace_json` carries
+`namespaceId`, `normalizedValue`, `blockingReferentKind`, sorted
+`entityCandidates`, and full assertion lineage.
 
 ### `community_gold_release_plan`
 

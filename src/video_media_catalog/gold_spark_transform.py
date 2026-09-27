@@ -57,6 +57,12 @@ from video_media_catalog.gold_rows import (
 )
 from video_media_catalog.gold_spark import gold_table_schema
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
+from video_media_catalog.identifier_blocking import (
+    blocking_referent_kind_for_entity,
+    exact_id_namespace_rows,
+    identifier_display_value,
+    referent_kinds_compatible,
+)
 from video_media_catalog.rights import RightsTerminationFence
 from video_media_catalog.source_lifecycle import (
     current_upsert_envelope_keys,
@@ -740,6 +746,116 @@ def _resolve_field_group(item):
     return result
 
 
+def _project_identifier_assertions(
+    spark: Any,
+    identifiers: Any,
+    *,
+    registry: SourceRegistrySnapshot,
+):
+    """Bind each resolved assertion to one registry/entity exact-blocking slot."""
+
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import BooleanType, StringType
+
+    namespace_rows = exact_id_namespace_rows(registry)
+    namespace_slots = F.broadcast(
+        spark.createDataFrame(
+            [
+                (
+                    row["namespace_id"],
+                    row["scheme"],
+                    row["referent_kind"],
+                    row["issuer"],
+                    row["case_sensitive"],
+                    row["match_pattern"],
+                )
+                for row in namespace_rows
+            ],
+            (
+                "registry_namespace_id STRING, scheme STRING, "
+                "registry_referent_kind STRING, registry_issuer STRING, "
+                "case_sensitive BOOLEAN, match_pattern STRING"
+            ),
+        )
+    )
+    blocking_kind = F.udf(blocking_referent_kind_for_entity, StringType())
+    compatible_kind = F.udf(referent_kinds_compatible, BooleanType())
+    display_value = F.udf(
+        lambda namespace_id, normalized_value, case_sensitive: identifier_display_value(
+            namespace_id,
+            normalized_value,
+            case_sensitive=case_sensitive,
+        ),
+        StringType(),
+    )
+
+    candidates = (
+        identifiers.withColumn(
+            "_blocking_referent_kind",
+            blocking_kind("entity_level", "entity_kind"),
+        )
+        .alias("i")
+        .join(
+            namespace_slots.alias("n"),
+            (F.lower(F.trim(F.col("i.namespace_id"))) == F.col("n.scheme"))
+            & (F.col("i._blocking_referent_kind") == F.col("n.registry_referent_kind")),
+            "inner",
+        )
+        .where(
+            compatible_kind(
+                F.col("i.referent_kind"),
+                F.col("n.registry_referent_kind"),
+            )
+        )
+        .where(
+            F.col("n.match_pattern").isNull()
+            | F.expr("trim(i.value) RLIKE n.match_pattern")
+        )
+        .select(
+            "i.*",
+            F.col("n.registry_namespace_id").alias("blocking_namespace_id"),
+            F.when(
+                F.col("n.case_sensitive"),
+                F.trim(F.col("i.value")),
+            )
+            .otherwise(F.upper(F.trim(F.col("i.value"))))
+            .alias("normalized_value"),
+            F.col("n.registry_issuer").alias("blocking_issuer"),
+            F.col("n.registry_referent_kind").alias("blocking_referent_kind"),
+            F.col("n.case_sensitive").alias("_blocking_case_sensitive"),
+        )
+        .withColumn(
+            "display_value",
+            display_value(
+                "blocking_namespace_id",
+                "normalized_value",
+                "_blocking_case_sensitive",
+            ),
+        )
+        .drop("_blocking_referent_kind", "_blocking_case_sensitive")
+        .dropDuplicates()
+    )
+    projection_columns = [
+        "blocking_namespace_id",
+        "normalized_value",
+        "display_value",
+        "blocking_issuer",
+        "blocking_referent_kind",
+        "resolved_entity_key",
+    ]
+    unique_assertions = (
+        candidates.select("assertion_id", *projection_columns)
+        .dropDuplicates()
+        .groupBy("assertion_id")
+        .count()
+        .where(F.col("count") == 1)
+        .select("assertion_id")
+    )
+    return candidates.join(unique_assertions, "assertion_id", "inner").dropDuplicates(
+        ["assertion_id"]
+    )
+
+
 def _identifier_draft(
     item: Any,
     *,
@@ -750,15 +866,52 @@ def _identifier_draft(
     return IdentifierDraft(
         entity_key=item[0][0],
         namespace_id=item[0][1],
-        value=item[0][2],
-        issuer=item[0][3],
-        referent_kind=item[0][4],
+        normalized_value=item[0][2],
+        value=item[0][3],
+        issuer=item[0][4],
+        referent_kind=item[0][5],
         assertion_ids=tuple(sorted({assertion_id for assertion_id, _ in values})),
         trace={
             "policyId": policy_id,
             "policyVersion": policy_version,
+            "namespaceId": item[0][1],
+            "normalizedValue": item[0][2],
+            "blockingReferentKind": item[0][5],
         },
         lineage=_normalize_lineage(lineage_json for _, lineage_json in values),
+    )
+
+
+def _identifier_conflict_draft(
+    item: Any,
+    *,
+    policy_id: str,
+    policy_version: str,
+) -> ConflictDraft:
+    namespace_id, normalized_value, blocking_referent_kind = item[0]
+    values = list(item[1])
+    entity_candidates = sorted({entity_key for entity_key, _, _ in values})
+    assertion_ids = tuple(sorted({assertion_id for _, assertion_id, _ in values}))
+    return ConflictDraft(
+        entity_key=entity_candidates[0],
+        predicate=namespace_id,
+        qualifiers={
+            "normalizedValue": normalized_value,
+            "blockingReferentKind": blocking_referent_kind,
+        },
+        reason="DUPLICATE_EXTERNAL_IDENTIFIER",
+        assertion_ids=assertion_ids,
+        candidate_values=entity_candidates,
+        trace={
+            "policyId": policy_id,
+            "policyVersion": policy_version,
+            "rightsFirst": True,
+            "namespaceId": namespace_id,
+            "normalizedValue": normalized_value,
+            "blockingReferentKind": blocking_referent_kind,
+            "entityCandidates": entity_candidates,
+        },
+        lineage=_normalize_lineage(lineage_json for _, _, lineage_json in values),
     )
 
 
@@ -993,6 +1146,7 @@ def build_distributed_gold(
     intermediates = [current_source_envelope_keys, memberships]
     field_drafts = None
     identifier_drafts = None
+    identifier_conflict_drafts = None
     relation_drafts = None
     try:
         _validate_assertion_product_policies(
@@ -1077,10 +1231,24 @@ def build_distributed_gold(
             field_policy,
             PredicateKind.IDENTIFIER,
         )
+        resolved_identifier_count = resolved_identifiers.count()
+        projected_identifiers = _project_identifier_assertions(
+            spark,
+            resolved_identifiers,
+            registry=registry,
+        ).persist()
+        intermediates.append(projected_identifiers)
+        projected_identifier_count = projected_identifiers.count()
+        identifier_binding_withheld_count = (
+            resolved_identifier_count - projected_identifier_count
+        )
+        if identifier_binding_withheld_count < 0:
+            raise RuntimeError("identifier registry projection increased row count")
+
         ruled_identifiers = (
-            resolved_identifiers.withColumn(
+            projected_identifiers.withColumn(
                 "_rule",
-                identifier_rule_udf("namespace_id", F.lit("{}")),
+                identifier_rule_udf("blocking_namespace_id", F.lit("{}")),
             )
             .withColumn("resolution_operator", F.col("_rule.operator"))
             .drop("_rule")
@@ -1093,25 +1261,55 @@ def build_distributed_gold(
         resolvable_identifiers = ruled_identifiers.where(
             F.col("resolution_operator") != ResolutionOperator.NEVER_RESOLVE.value
         )
-        duplicate_external_id_count = (
-            resolvable_identifiers.groupBy(
-                "namespace_id",
-                "value",
-                "referent_kind",
+
+        blocking_key_columns = [
+            "blocking_namespace_id",
+            "normalized_value",
+            "blocking_referent_kind",
+        ]
+        identifier_conflict_keys = (
+            resolvable_identifiers.groupBy(*blocking_key_columns)
+            .agg(
+                F.sort_array(F.collect_set("resolved_entity_key")).alias(
+                    "entity_candidates"
+                )
             )
+            .where(F.size("entity_candidates") > 1)
+            .persist()
+        )
+        intermediates.append(identifier_conflict_keys)
+        conflicting_identifiers = resolvable_identifiers.join(
+            identifier_conflict_keys,
+            blocking_key_columns,
+            "inner",
+        ).persist()
+        intermediates.append(conflicting_identifiers)
+        publishable_identifiers = resolvable_identifiers.join(
+            identifier_conflict_keys.select(*blocking_key_columns),
+            blocking_key_columns,
+            "left_anti",
+        ).persist()
+        intermediates.append(publishable_identifiers)
+
+        identifier_conflict_assertion_count = (
+            conflicting_identifiers.select("assertion_id").distinct().count()
+        )
+        duplicate_external_id_count = (
+            publishable_identifiers.groupBy(*blocking_key_columns)
             .agg(F.countDistinct("resolved_entity_key").alias("entity_count"))
             .where(F.col("entity_count") > 1)
             .count()
         )
         identifier_drafts = (
-            resolvable_identifiers.rdd.map(
+            publishable_identifiers.rdd.map(
                 lambda row: (
                     (
                         row["resolved_entity_key"],
-                        row["namespace_id"],
-                        row["value"],
-                        row["issuer"],
-                        row["referent_kind"],
+                        row["blocking_namespace_id"],
+                        row["normalized_value"],
+                        row["display_value"],
+                        row["blocking_issuer"],
+                        row["blocking_referent_kind"],
                     ),
                     (row["assertion_id"], _lineage_json(row)),
                 )
@@ -1126,7 +1324,33 @@ def build_distributed_gold(
             )
             .persist(draft_storage)
         )
+        identifier_conflict_drafts = (
+            conflicting_identifiers.rdd.map(
+                lambda row: (
+                    (
+                        row["blocking_namespace_id"],
+                        row["normalized_value"],
+                        row["blocking_referent_kind"],
+                    ),
+                    (
+                        row["resolved_entity_key"],
+                        row["assertion_id"],
+                        _lineage_json(row),
+                    ),
+                )
+            )
+            .groupByKey()
+            .map(
+                lambda item: _identifier_conflict_draft(
+                    item,
+                    policy_id=field_policy.policy_id,
+                    policy_version=field_policy.policy_version,
+                )
+            )
+            .persist(draft_storage)
+        )
         identifier_count = identifier_drafts.count()
+        identifier_conflict_count = identifier_conflict_drafts.count()
 
         resolved_relation_subjects, rel_withheld, rel_subject_unresolved = (
             _eligible_assertions(
@@ -1215,6 +1439,11 @@ def build_distributed_gold(
         used_entity_keys = (
             field_drafts.map(lambda item: (item[1].entity_key,))
             .union(identifier_drafts.map(lambda item: (item.entity_key,)))
+            .union(
+                identifier_conflict_drafts.flatMap(
+                    lambda item: ((entity_key,) for entity_key in item.candidate_values)
+                )
+            )
             .union(
                 relation_drafts.filter(lambda item: item[0] == "relation").flatMap(
                     lambda item: (
@@ -1328,7 +1557,9 @@ def build_distributed_gold(
             .collect()
         )
 
-        conflict_count = field_conflict_count + relation_conflict_count
+        conflict_count = (
+            field_conflict_count + identifier_conflict_count + relation_conflict_count
+        )
         entity_count = entity_summary.count()
         table_counts = {
             "community_gold_entity": entity_count,
@@ -1434,6 +1665,25 @@ def build_distributed_gold(
                                     "policyVersion": field_policy.policy_version,
                                 },
                                 item[1].lineage,
+                            ),
+                        )
+                    )
+                )
+            )
+            .union(
+                identifier_conflict_drafts.map(
+                    lambda item: gold_conflict_row(
+                        build_gold_conflict(
+                            release_plan_id=plan.release_plan_id,
+                            entity_key=item.entity_key,
+                            predicate=item.predicate,
+                            qualifiers=item.qualifiers,
+                            reason=item.reason,
+                            assertion_ids=item.assertion_ids,
+                            candidate_values=item.candidate_values,
+                            trace=trace_with_assertion_lineage(
+                                item.trace,
+                                item.lineage,
                             ),
                         )
                     )
@@ -1575,6 +1825,8 @@ def build_distributed_gold(
                 + rel_withheld
                 + never_count
                 + identifier_never_count
+                + identifier_binding_withheld_count
+                + identifier_conflict_assertion_count
                 + relation_never_count
             ),
             unresolved_identity_count=(
@@ -1591,13 +1843,20 @@ def build_distributed_gold(
             duplicate_external_id_count=duplicate_external_id_count,
             release_freshness=release_freshness,
             build_mode=build_mode,
-            resolution_count=(field_count + relation_count + relation_conflict_count),
+            resolution_count=(
+                field_count
+                + relation_count
+                + relation_conflict_count
+                + identifier_conflict_count
+            ),
             created_at=planned_at,
         )
         return GoldSparkBuild(plan, quality, attribution, output_frames)
     finally:
         if relation_drafts is not None:
             relation_drafts.unpersist()
+        if identifier_conflict_drafts is not None:
+            identifier_conflict_drafts.unpersist()
         if identifier_drafts is not None:
             identifier_drafts.unpersist()
         if field_drafts is not None:

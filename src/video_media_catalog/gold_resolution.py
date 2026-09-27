@@ -29,9 +29,16 @@ from video_media_catalog.gold import (
     build_gold_relation,
     trace_with_assertion_lineage,
 )
+from video_media_catalog.identifier_blocking import (
+    IdentifierBlockingProjection,
+    exact_id_namespace_rows,
+    project_identifier_blocking,
+    projection_trace,
+)
 from video_media_catalog.identity_resolution import IdentityIndex
 from video_media_catalog.identity_v2 import EntityLevel
 from video_media_catalog.rights import RightsProfile, RightsTerminationFence
+from video_media_catalog.source_registry import SourceRegistrySnapshot
 from video_media_catalog.v2_contracts import parse_rfc3339
 
 
@@ -53,6 +60,7 @@ class FieldDraft:
 class IdentifierDraft:
     entity_key: str
     namespace_id: str
+    normalized_value: str
     value: str
     issuer: str
     referent_kind: str
@@ -338,7 +346,12 @@ def resolve_gold_draft(
     policy_context,
     field_policy: GoldResolutionPolicy,
     termination_fences: tuple[RightsTerminationFence, ...] = (),
+    registry: SourceRegistrySnapshot | None = None,
 ) -> GoldResolutionDraft:
+    if registry is None:
+        from video_media_catalog.community_sources import build_community_registry
+
+        registry = build_community_registry()
     profiles = {profile.policy_id: profile for profile in rights_profiles}
     if len(profiles) != len(rights_profiles):
         raise ValueError("rights registry contains duplicate policy IDs")
@@ -475,10 +488,11 @@ def resolve_gold_draft(
                     )
                 )
 
+    namespace_rows = exact_id_namespace_rows(registry)
     identifier_groups: dict[
-        tuple[str, str, str, str, str], list[IdentifierAssertion]
+        tuple[str, str, str],
+        list[tuple[str, IdentifierAssertion, IdentifierBlockingProjection]],
     ] = defaultdict(list)
-    assignment_entities: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     for assertion in identifier_assertions:
         if not _active_and_eligible(assertion, eligibility):
             continue
@@ -486,8 +500,20 @@ def resolve_gold_draft(
         if entity_key is None:
             unresolved += 1
             continue
+        entity = identity_index.entities[entity_key]
+        projection = project_identifier_blocking(
+            namespace_rows=namespace_rows,
+            namespace_id=assertion.namespace_id,
+            value=assertion.value,
+            assertion_referent_kind=assertion.referent_kind,
+            entity_level=entity.entity_level,
+            entity_kind=entity.entity_kind,
+        )
+        if projection is None:
+            eligibility.withheld += 1
+            continue
         rule = field_policy.rule_for(
-            assertion.namespace_id,
+            projection.namespace_id,
             PredicateKind.IDENTIFIER,
         )
         if rule.operator == ResolutionOperator.NEVER_RESOLVE:
@@ -495,55 +521,110 @@ def resolve_gold_draft(
             continue
         identifier_groups[
             (
-                entity_key,
-                assertion.namespace_id,
-                assertion.value,
-                assertion.issuer,
-                assertion.referent_kind,
+                projection.namespace_id,
+                projection.normalized_value,
+                projection.blocking_referent_kind,
             )
-        ].append(assertion)
-        assignment_entities[
-            (
-                assertion.namespace_id,
-                assertion.value,
-                assertion.referent_kind,
-            )
-        ].add(entity_key)
+        ].append((entity_key, assertion, projection))
         eligibility.record(assertion)
         used_entity_keys.add(entity_key)
-    collisions = {
+
+    identifier_list: list[IdentifierDraft] = []
+    for (
+        namespace_id,
+        normalized_value,
+        blocking_referent_kind,
+    ), candidates in sorted(identifier_groups.items()):
+        by_entity: dict[
+            str,
+            list[tuple[IdentifierAssertion, IdentifierBlockingProjection]],
+        ] = defaultdict(list)
+        for entity_key, assertion, projection in candidates:
+            by_entity[entity_key].append((assertion, projection))
+        entity_candidates = sorted(by_entity)
+        all_assertions = {
+            assertion.assertion_id: assertion
+            for assertions in by_entity.values()
+            for assertion, _ in assertions
+        }
+        projection = candidates[0][2]
+        trace = {
+            "operator": field_policy.rule_for(
+                namespace_id,
+                PredicateKind.IDENTIFIER,
+            ).operator.value,
+            "policyId": field_policy.policy_id,
+            "policyVersion": field_policy.policy_version,
+            "rightsFirst": True,
+            **projection_trace(projection),
+        }
+        if len(entity_candidates) > 1:
+            assertion_ids = tuple(sorted(all_assertions))
+            eligibility.withheld += len(assertion_ids)
+            conflicts.append(
+                ConflictDraft(
+                    entity_key=entity_candidates[0],
+                    predicate=namespace_id,
+                    qualifiers={
+                        "normalizedValue": normalized_value,
+                        "blockingReferentKind": blocking_referent_kind,
+                    },
+                    reason="DUPLICATE_EXTERNAL_IDENTIFIER",
+                    assertion_ids=assertion_ids,
+                    candidate_values=entity_candidates,
+                    trace={
+                        **trace,
+                        "entityCandidates": entity_candidates,
+                    },
+                )
+            )
+            continue
+
+        entity_key = entity_candidates[0]
+        assertions = by_entity[entity_key]
+        identifier_list.append(
+            IdentifierDraft(
+                entity_key=entity_key,
+                namespace_id=namespace_id,
+                normalized_value=normalized_value,
+                value=projection.display_value,
+                issuer=projection.issuer,
+                referent_kind=blocking_referent_kind,
+                assertion_ids=tuple(
+                    sorted({assertion.assertion_id for assertion, _ in assertions})
+                ),
+                trace=trace,
+            )
+        )
+
+    identifiers = tuple(
+        sorted(
+            identifier_list,
+            key=lambda item: (
+                item.entity_key,
+                item.namespace_id,
+                item.normalized_value,
+                item.referent_kind,
+            ),
+        )
+    )
+    published_assignment_entities: dict[
+        tuple[str, str, str],
+        set[str],
+    ] = defaultdict(set)
+    for identifier in identifiers:
+        published_assignment_entities[
+            (
+                identifier.namespace_id,
+                identifier.normalized_value,
+                identifier.referent_kind,
+            )
+        ].add(identifier.entity_key)
+    published_collisions = {
         key: entities
-        for key, entities in assignment_entities.items()
+        for key, entities in published_assignment_entities.items()
         if len(entities) > 1
     }
-    identifiers = tuple(
-        IdentifierDraft(
-            entity_key=entity_key,
-            namespace_id=namespace_id,
-            value=value,
-            issuer=issuer,
-            referent_kind=referent_kind,
-            assertion_ids=tuple(
-                sorted(assertion.assertion_id for assertion in assertions)
-            ),
-            trace={
-                "operator": field_policy.rule_for(
-                    namespace_id,
-                    PredicateKind.IDENTIFIER,
-                ).operator.value,
-                "policyId": field_policy.policy_id,
-                "policyVersion": field_policy.policy_version,
-                "rightsFirst": True,
-            },
-        )
-        for (
-            entity_key,
-            namespace_id,
-            value,
-            issuer,
-            referent_kind,
-        ), assertions in sorted(identifier_groups.items())
-    )
 
     relation_groups: dict[
         tuple[str, str, str],
@@ -726,6 +807,6 @@ def resolve_gold_draft(
         unresolved_identity_count=unresolved,
         orphan_episode_count=orphan_episode_count,
         orphan_season_count=orphan_season_count,
-        duplicate_external_id_count=len(collisions),
+        duplicate_external_id_count=len(published_collisions),
         attribution_counts=dict(sorted(eligibility.policy_counts.items())),
     )

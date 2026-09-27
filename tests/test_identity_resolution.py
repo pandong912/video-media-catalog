@@ -3,6 +3,10 @@ from __future__ import annotations
 import pytest
 
 from video_media_catalog.assertions import SourceNodeRef
+from video_media_catalog.identifier_blocking import (
+    blocking_referent_kind_for_entity,
+    identity_entity_type_map,
+)
 from video_media_catalog.identity_resolution import (
     ExactBlockingKey,
     SourceNodeResolutionInput,
@@ -99,6 +103,27 @@ def test_referent_kind_compatibility_normalizes_within_domain_only() -> None:
     assert referent_kinds_compatible("EDITORIAL_WORK", "SERIES")
     assert referent_kinds_compatible("PERSON", "AGENT")
     assert not referent_kinds_compatible("EDITORIAL_WORK", "AGENT")
+    projections = identity_entity_type_map()
+    assert projections["MOVIE"] == (
+        EntityLevel.EDITORIAL_WORK,
+        "MOVIE",
+        "EDITORIAL_WORK",
+    )
+    assert projections["TV_EPISODE"] == (
+        EntityLevel.EPISODE,
+        "TV_EPISODE",
+        "EPISODE",
+    )
+    assert projections["ORGANIZATION"] == (
+        EntityLevel.AGENT,
+        "ORGANIZATION",
+        "ORGANIZATION",
+    )
+    assert (
+        blocking_referent_kind_for_entity(EntityLevel.EPISODE, "TV_EPISODE")
+        == "EPISODE"
+    )
+    assert blocking_referent_kind_for_entity(EntityLevel.SERIES, "TV_EPISODE") is None
 
 
 def test_exact_blocking_components_merge_transitive_shared_keys() -> None:

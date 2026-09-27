@@ -11,9 +11,19 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
+from video_media_catalog.assertions import (
+    AssertionProvenance,
+    SourceNodeRef,
+    build_identifier_assertion,
+    build_relationship_assertion,
+)
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.community_ingest import CommunityIngestRun
-from video_media_catalog.community_rows import ingest_run_row
+from video_media_catalog.community_rows import (
+    identifier_assertion_row,
+    ingest_run_row,
+    relationship_assertion_row,
+)
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.community_spark import (
     community_table_schema,
@@ -37,8 +47,13 @@ from video_media_catalog.gold import (
 )
 from video_media_catalog.gold_quality import GoldQualityStatus
 from video_media_catalog.gold_spark_transform import (
+    _project_identifier_assertions,
     _resolved_memberships,
     build_distributed_gold,
+)
+from video_media_catalog.identifier_blocking import (
+    exact_id_namespace_rows,
+    project_identifier_blocking,
 )
 from video_media_catalog.identity_spark import (
     build_identity_resolution_dataframes,
@@ -103,6 +118,85 @@ def _object(path: Path, *, media_type: str, object_format: str) -> ObjectRef:
         size_bytes=len(payload),
         created_at="2026-09-19T00:00:00Z",
     )
+
+
+@pytest.mark.spark
+def test_spark_identifier_projection_matches_in_memory_blocking(
+    spark: SparkSession,
+) -> None:
+    raw = (
+        ("1", "imdb-title", "tt0042816", "EDITORIAL_WORK", "EDITORIAL_WORK", "MOVIE"),
+        ("2", "imdb-title", "TT0042816", "EDITORIAL_WORK", "EPISODE", "TV_EPISODE"),
+        ("3", "imdb-name", "nm0000001", "PERSON", "AGENT", "PERSON"),
+        ("4", "imdb-name", "nm0000002", "PERSON", "AGENT", "ORGANIZATION"),
+        ("5", "imdb-name", "nm0000003", "PERSON", "SERIES", "TV_SERIES"),
+        ("6", "imdb", "TT0042816", "EDITORIAL_WORK", "EDITORIAL_WORK", "MOVIE"),
+    )
+    rows = [
+        {
+            "assertion_id": "sha256:" + (source_id * 64),
+            "namespace_id": namespace_id,
+            "value": value,
+            "referent_kind": referent_kind,
+            "entity_level": entity_level,
+            "entity_kind": entity_kind,
+            "resolved_entity_key": "sha256:" + f"{int(source_id):064x}",
+        }
+        for (
+            source_id,
+            namespace_id,
+            value,
+            referent_kind,
+            entity_level,
+            entity_kind,
+        ) in raw
+    ]
+    registry = build_community_registry()
+    projected = _project_identifier_assertions(
+        spark,
+        spark.createDataFrame(rows),
+        registry=registry,
+    )
+    actual = {
+        (
+            row.assertion_id,
+            row.blocking_namespace_id,
+            row.normalized_value,
+            row.display_value,
+            row.blocking_issuer,
+            row.blocking_referent_kind,
+        )
+        for row in projected.collect()
+    }
+    namespace_rows = exact_id_namespace_rows(registry)
+    expected = set()
+    for row, spec in zip(rows, raw, strict=True):
+        projection = project_identifier_blocking(
+            namespace_rows=namespace_rows,
+            namespace_id=spec[1],
+            value=spec[2],
+            assertion_referent_kind=spec[3],
+            entity_level=spec[4],
+            entity_kind=spec[5],
+        )
+        if projection is not None:
+            expected.add(
+                (
+                    row["assertion_id"],
+                    projection.namespace_id,
+                    projection.normalized_value,
+                    projection.display_value,
+                    projection.issuer,
+                    projection.blocking_referent_kind,
+                )
+            )
+
+    assert actual == expected
+    assert len(actual) == 4
+    assert {(item[2], item[3]) for item in actual if item[1] == "imdb-title"} == {
+        ("TT0042816", "tt0042816")
+    }
+    assert {item[5] for item in actual} == {"EDITORIAL_WORK", "EPISODE", "AGENT"}
 
 
 def _source_capture(
@@ -201,11 +295,83 @@ def _source_capture(
     )
 
 
+def _assertion_provenance_for_source(
+    rows: dict[str, list[dict[str, object]]],
+    source_id: str,
+    source_path: str,
+) -> AssertionProvenance:
+    base = next(
+        row
+        for row in rows["community_identifier_assertion"]
+        if row["subject_source_id"] == source_id
+    )
+    return AssertionProvenance.model_validate_json(
+        str(base["provenance_json"])
+    ).model_copy(update={"source_path": source_path})
+
+
+def _append_identifier_assertion(
+    run: CommunityIngestRun,
+    rows: dict[str, list[dict[str, object]]],
+    *,
+    source_id: str,
+    value: str,
+    source_path: str,
+):
+    assertion = build_identifier_assertion(
+        subject=SourceNodeRef(
+            namespace_id="tvmaze-show",
+            source_id=source_id,
+            referent_kind="SERIES",
+        ),
+        namespace_id="imdb-title",
+        value=value,
+        issuer="IMDb",
+        referent_kind="EDITORIAL_WORK",
+        provenance=_assertion_provenance_for_source(rows, source_id, source_path),
+    )
+    rows["community_identifier_assertion"].append(
+        identifier_assertion_row(run.run_id, assertion)
+    )
+    return assertion
+
+
+def _append_parent_relation(
+    run: CommunityIngestRun,
+    rows: dict[str, list[dict[str, object]]],
+    *,
+    source_id: str,
+    parent_source_id: str,
+) -> None:
+    assertion = build_relationship_assertion(
+        subject=SourceNodeRef(
+            namespace_id="tvmaze-show",
+            source_id=source_id,
+            referent_kind="SERIES",
+        ),
+        predicate="part_of_series",
+        object=SourceNodeRef(
+            namespace_id="tvmaze-show",
+            source_id=parent_source_id,
+            referent_kind="SERIES",
+        ),
+        provenance=_assertion_provenance_for_source(
+            rows,
+            source_id,
+            "/parent",
+        ),
+    )
+    rows["community_relationship_assertion"].append(
+        relationship_assertion_row(run.run_id, assertion)
+    )
+
+
 def _visible_silver(
     spark: SparkSession,
     captures,
     *,
     source_ids: tuple[str, ...],
+    entity_classifications: dict[str, tuple[str, str]] | None = None,
 ):
     rows = {table: [] for table in DATA_TABLE_COLUMNS}
     source_runs = []
@@ -218,13 +384,17 @@ def _visible_silver(
     for source_id in source_ids:
         suffix = int(source_id)
         entity_key = "sha256:" + f"{suffix:064x}"
+        entity_level, entity_kind = (entity_classifications or {}).get(
+            source_id,
+            ("SERIES", "TV_SERIES"),
+        )
         rows["community_entity_ledger"].append(
             {
                 "entity_key": entity_key,
                 "run_id": identity_run_id,
                 "allocation_id": "01a081e8-6420-7000-8000-000000000202",
-                "entity_level": "SERIES",
-                "entity_kind": "TV_SERIES",
+                "entity_level": entity_level,
+                "entity_kind": entity_kind,
                 "status": "ACTIVE",
                 "created_at": "2026-09-18T00:00:00Z",
                 "first_release_id": None,
@@ -259,13 +429,14 @@ def _gold(
     visible,
     committed_run_ids: tuple[str, ...],
     as_of: str,
+    field_policy=None,
 ):
     return build_distributed_gold(
         spark,
         visible_silver=visible,
         registry=build_community_registry(),
         policy_context=research_context(as_of=as_of),
-        field_policy=research_policy(),
+        field_policy=field_policy or research_policy(),
         committed_run_ids=committed_run_ids,
         silver_snapshot_ids={"community_field_assertion": 20},
         identity_snapshot_ids={"community_entity_membership": 21},
@@ -411,6 +582,103 @@ def test_distributed_silver_identity_and_gold_pipeline(
                 frame.unpersist()
         for frame in silver_frames.values():
             frame.unpersist()
+
+
+@pytest.mark.spark
+def test_gold_withholds_duplicate_blocking_key_and_audits_full_lineage(
+    spark: SparkSession,
+) -> None:
+    run, rows = _source_capture(
+        acquired_at="2026-09-20T00:00:00Z",
+        records=(
+            ("1", RecordOperation.UPSERT, "Season one"),
+            ("2", RecordOperation.UPSERT, "Season two"),
+            ("3", RecordOperation.UPSERT, "Parent series"),
+        ),
+    )
+    assertions = (
+        _append_identifier_assertion(
+            run,
+            rows,
+            source_id="1",
+            value="tt0042816",
+            source_path="/externalIds/0",
+        ),
+        _append_identifier_assertion(
+            run,
+            rows,
+            source_id="1",
+            value="TT0042816",
+            source_path="/externalIds/1",
+        ),
+        _append_identifier_assertion(
+            run,
+            rows,
+            source_id="2",
+            value="TT0042816",
+            source_path="/externalIds/0",
+        ),
+    )
+    _append_parent_relation(run, rows, source_id="1", parent_source_id="3")
+    _append_parent_relation(run, rows, source_id="2", parent_source_id="3")
+    visible, committed = _visible_silver(
+        spark,
+        ((run, rows),),
+        source_ids=("1", "2", "3"),
+        entity_classifications={
+            "1": ("SEASON", "TV_SEASON"),
+            "2": ("SEASON", "TV_SEASON"),
+        },
+    )
+    policy = research_policy().model_copy(update={"max_conflict_ratio": 1.0})
+
+    build = _gold(
+        spark,
+        visible=visible,
+        committed_run_ids=committed,
+        as_of="2026-09-20T01:00:00Z",
+        field_policy=policy,
+    )
+    try:
+        assert (
+            build.dataframes["community_gold_identifier"]
+            .where("namespace_id = 'imdb-title'")
+            .count()
+            == 0
+        )
+        conflict_rows = (
+            build.dataframes["community_gold_conflict"]
+            .where("reason = 'DUPLICATE_EXTERNAL_IDENTIFIER'")
+            .collect()
+        )
+        assert len(conflict_rows) == 1
+        conflict = conflict_rows[0]
+        candidates = json.loads(conflict.candidate_values_json)
+        assertion_ids = json.loads(conflict.assertion_ids_json)
+        trace = json.loads(conflict.trace_json)
+        assert candidates == sorted(
+            (
+                "sha256:" + f"{1:064x}",
+                "sha256:" + f"{2:064x}",
+            )
+        )
+        assert conflict.entity_key == candidates[0]
+        assert conflict.predicate == "imdb-title"
+        assert assertion_ids == sorted(item.assertion_id for item in assertions)
+        assert trace["namespaceId"] == "imdb-title"
+        assert trace["normalizedValue"] == "TT0042816"
+        assert trace["blockingReferentKind"] == "SEASON"
+        assert trace["entityCandidates"] == candidates
+        assert [item["assertionId"] for item in trace["assertions"]] == assertion_ids
+        assert build.quality_report.duplicate_external_id_count == 0
+        assert build.quality_report.conflict_count >= 1
+        assert build.quality_report.withheld_assertion_count >= len(assertions)
+        assert build.quality_report.attribution_counts == (
+            build.quality_report.eligible_policy_counts
+        )
+        assert build.quality_report.status == GoldQualityStatus.PASS
+    finally:
+        build.unpersist()
 
 
 @pytest.mark.spark

@@ -8,6 +8,13 @@ from typing import Self
 
 from video_media_catalog.assertions import SourceNodeRef
 from video_media_catalog.canonical import deterministic_key
+from video_media_catalog.identifier_blocking import canonical_referent_kind
+from video_media_catalog.identifier_blocking import (
+    referent_kind_for_entity_type as _referent_kind_for_entity_type,
+)
+from video_media_catalog.identifier_blocking import (
+    referent_kinds_compatible as _referent_kinds_compatible,
+)
 from video_media_catalog.identity_v2 import (
     EntityLedgerEntry,
     EntityLevel,
@@ -40,77 +47,16 @@ def source_node_key(node: SourceNodeRef) -> tuple[str, str, str]:
     return node.namespace_id, node.source_id, node.referent_kind
 
 
-_REFERENT_KIND_BY_ENTITY_TYPE = {
-    "WORK": "EDITORIAL_WORK",
-    "MOVIE": "EDITORIAL_WORK",
-    "EDITORIAL_WORK": "EDITORIAL_WORK",
-    "SERIES": "SERIES",
-    "TV_SERIES": "SERIES",
-    "SEASON": "SEASON",
-    "TV_SEASON": "SEASON",
-    "EPISODE": "EPISODE",
-    "TV_EPISODE": "EPISODE",
-    "EDIT": "EDIT",
-    "MANIFESTATION": "MANIFESTATION",
-    "PERSON": "AGENT",
-    "AGENT": "AGENT",
-    "ORGANIZATION": "ORGANIZATION",
-}
-
-_REFERENT_KIND_ALIASES = {
-    "MOVIE": "EDITORIAL_WORK",
-    "EDITORIAL_WORK": "EDITORIAL_WORK",
-    "TV_SERIES": "SERIES",
-    "SERIES": "SERIES",
-    "TV_SEASON": "SEASON",
-    "SEASON": "SEASON",
-    "TV_EPISODE": "EPISODE",
-    "EPISODE": "EPISODE",
-    "PERSON": "AGENT",
-    "AGENT": "AGENT",
-    **_REFERENT_KIND_BY_ENTITY_TYPE,
-}
-
-_EDITORIAL_BLOCKING_KINDS = frozenset(
-    {
-        "EDITORIAL_WORK",
-        "MOVIE",
-        "SERIES",
-        "SEASON",
-        "EPISODE",
-        "EDIT",
-        "MANIFESTATION",
-    }
-)
-_AGENT_BLOCKING_KINDS = frozenset({"PERSON", "AGENT", "ORGANIZATION"})
-
-
-def canonical_referent_kind(value: str) -> str:
-    """Normalize source-specific kinds to exact-ID blocking domains."""
-
-    normalized = value.strip().upper()
-    return _REFERENT_KIND_ALIASES.get(normalized, normalized)
-
-
 def referent_kind_for_entity_type(entity_type: str) -> str:
-    """Derive registry blocking referent kind from a resolved entity type."""
+    """Compatibility export for the shared exact-blocking projection."""
 
-    return canonical_referent_kind(entity_type)
+    return _referent_kind_for_entity_type(entity_type)
 
 
 def referent_kinds_compatible(identifier_kind: str, blocking_kind: str) -> bool:
-    """Allow safe normalization within one blocking domain, never across domains."""
+    """Compatibility export for the shared exact-blocking projection."""
 
-    identifier = canonical_referent_kind(identifier_kind)
-    blocking = canonical_referent_kind(blocking_kind)
-    if identifier == blocking:
-        return True
-    editorial = (
-        identifier in _EDITORIAL_BLOCKING_KINDS
-        and blocking in _EDITORIAL_BLOCKING_KINDS
-    )
-    agent = identifier in _AGENT_BLOCKING_KINDS and blocking in _AGENT_BLOCKING_KINDS
-    return editorial or agent
+    return _referent_kinds_compatible(identifier_kind, blocking_kind)
 
 
 def source_node_entity_compatible(

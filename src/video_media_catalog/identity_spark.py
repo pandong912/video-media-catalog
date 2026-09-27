@@ -33,14 +33,18 @@ from video_media_catalog.community_tables import (
     require_identity_generation_id,
     validate_community_table_mapping,
 )
+from video_media_catalog.identifier_blocking import (
+    canonical_referent_kind,
+    exact_id_namespace_rows,
+    identity_entity_type_map,
+    referent_kinds_compatible,
+)
 from video_media_catalog.identity_resolution import (
     IdentityResolutionResult,
     SourceNodeResolutionInput,
     build_identity_conflict,
     build_lifecycle_revoke_evidence,
     build_oversized_blocking_component_conflict,
-    canonical_referent_kind,
-    referent_kinds_compatible,
     resolve_or_allocate_source_node,
     resolve_parent_constrained_source_node,
     resolve_shared_blocking_member,
@@ -59,10 +63,7 @@ from video_media_catalog.source_lifecycle import (
     persist_latest_source_record_states,
     select_effective_membership_versions,
 )
-from video_media_catalog.source_registry import (
-    RegistryStatus,
-    SourceRegistrySnapshot,
-)
+from video_media_catalog.source_registry import SourceRegistrySnapshot
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,
@@ -70,32 +71,7 @@ from video_media_catalog.v2_contracts import (
     require_sha256,
 )
 
-_LEVEL_MAP = {
-    "WORK": (EntityLevel.EDITORIAL_WORK, "EDITORIAL_WORK", "EDITORIAL_WORK"),
-    "MOVIE": (EntityLevel.EDITORIAL_WORK, "MOVIE", "EDITORIAL_WORK"),
-    "EDITORIAL_WORK": (
-        EntityLevel.EDITORIAL_WORK,
-        "EDITORIAL_WORK",
-        "EDITORIAL_WORK",
-    ),
-    "SERIES": (EntityLevel.SERIES, "TV_SERIES", "SERIES"),
-    "TV_SERIES": (EntityLevel.SERIES, "TV_SERIES", "SERIES"),
-    "SEASON": (EntityLevel.SEASON, "TV_SEASON", "SEASON"),
-    "TV_SEASON": (EntityLevel.SEASON, "TV_SEASON", "SEASON"),
-    "EPISODE": (EntityLevel.EPISODE, "TV_EPISODE", "EPISODE"),
-    "TV_EPISODE": (EntityLevel.EPISODE, "TV_EPISODE", "EPISODE"),
-    "EDIT": (EntityLevel.EDIT, "EDIT", "EDIT"),
-    "MANIFESTATION": (
-        EntityLevel.MANIFESTATION,
-        "MANIFESTATION",
-        "MANIFESTATION",
-    ),
-    "PERSON": (EntityLevel.AGENT, "PERSON", "AGENT"),
-    "AGENT": (EntityLevel.AGENT, "AGENT", "AGENT"),
-    "ORGANIZATION": (EntityLevel.AGENT, "ORGANIZATION", "ORGANIZATION"),
-}
-
-_REFERENT_KIND_ALIASES = {kind: values[2] for kind, values in _LEVEL_MAP.items()}
+_LEVEL_MAP = identity_entity_type_map()
 
 
 def _source_node_id(namespace_id: str, source_id: str, referent_kind: str) -> str:
@@ -1011,47 +987,6 @@ def build_parent_constrained_work(
     return not_ready.select(*output_columns).unionByName(
         ready_stats.select(*output_columns)
     )
-
-
-def exact_id_namespace_rows(
-    registry: SourceRegistrySnapshot,
-) -> tuple[dict[str, object], ...]:
-    """Project active registry namespaces into Spark join metadata."""
-
-    active_systems = {
-        system.source_system_id
-        for system in registry.source_systems
-        if system.status == RegistryStatus.ACTIVE
-    }
-    active_products = {
-        product.source_product_id
-        for product in registry.source_products
-        if product.status == RegistryStatus.ACTIVE
-        and product.source_system_id in active_systems
-    }
-    rows: dict[tuple[str, str, str], dict[str, object]] = {}
-    for namespace in registry.source_namespaces:
-        if namespace.source_product_id not in active_products:
-            continue
-        pattern = namespace.identifier_pattern
-        if pattern is not None:
-            pattern = (
-                f"^(?:{pattern})$"
-                if namespace.case_sensitive
-                else f"(?i)^(?:{pattern})$"
-            )
-        for scheme in namespace.matching_schemes:
-            for referent_kind in namespace.referent_kinds:
-                canonical_kind = canonical_referent_kind(referent_kind)
-                key = (namespace.namespace_id, scheme, canonical_kind)
-                rows[key] = {
-                    "namespace_id": namespace.namespace_id,
-                    "scheme": scheme,
-                    "referent_kind": canonical_kind,
-                    "case_sensitive": namespace.case_sensitive,
-                    "match_pattern": pattern,
-                }
-    return tuple(rows[key] for key in sorted(rows))
 
 
 def _empty_known_index(spark: Any) -> Any:

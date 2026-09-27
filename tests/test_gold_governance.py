@@ -222,6 +222,7 @@ def test_quality_report_blocks_governance_failures_in_backfill_mode() -> None:
     assert report.build_mode == GoldBuildMode.CANDIDATE_BACKFILL
     assert report.config_digest == plan.config_digest
     assert any(item.startswith("ORPHAN_EPISODE_COUNT") for item in report.violations)
+    assert "DUPLICATE_EXTERNAL_ID_COUNT:1" in report.violations
     assert "ATTRIBUTION_COUNTS_MISMATCH" in report.violations
 
 

@@ -57,6 +57,26 @@ def _resolved(node: SourceNodeRef):
     )
 
 
+def _resolved_typed(
+    node: SourceNodeRef,
+    *,
+    entity_level: EntityLevel,
+    entity_kind: str,
+):
+    return resolve_or_allocate_source_node(
+        source_node=node,
+        entity_level=entity_level,
+        entity_kind=entity_kind,
+        exact_candidate_entity_keys=(),
+        assertion_keys=("sha256:" + (node.source_id * 64),),
+        observed_at=TIMESTAMP,
+        policy_id="tvmaze-api-cc-by-sa",
+        policy_digest=tvmaze_rights_profile().digest,
+        decision_policy_version="1",
+        decided_by="test-resolver",
+    )
+
+
 def _provenance(node: SourceNodeRef, path: str) -> AssertionProvenance:
     policy = tvmaze_rights_profile()
     return AssertionProvenance(
@@ -181,6 +201,237 @@ def test_gold_resolution_selects_sets_and_preserves_conflicts() -> None:
     rows = draft.materialize(plan, index)
     assert len(rows["community_gold_entity"]) == 2
     assert len(rows["community_gold_conflict"]) == 1
+
+
+def test_identifiers_use_resolved_blocking_slots_and_display_canonicalization() -> None:
+    movie_node = SourceNodeRef(
+        namespace_id="tvmaze-show",
+        source_id="1",
+        referent_kind="EDITORIAL_WORK",
+    )
+    episode_node = SourceNodeRef(
+        namespace_id="tvmaze-show",
+        source_id="2",
+        referent_kind="EDITORIAL_WORK",
+    )
+    movie = _resolved_typed(
+        movie_node,
+        entity_level=EntityLevel.EDITORIAL_WORK,
+        entity_kind="MOVIE",
+    )
+    episode = _resolved_typed(
+        episode_node,
+        entity_level=EntityLevel.EPISODE,
+        entity_kind="TV_EPISODE",
+    )
+    index = build_identity_index(
+        entities=(*movie.entities, *episode.entities),
+        memberships=(*movie.memberships, *episode.memberships),
+        redirects=(),
+        as_of=TIMESTAMP,
+    )
+    assertions = (
+        build_identifier_assertion(
+            subject=movie_node,
+            namespace_id="imdb-title",
+            value="tt0042816",
+            issuer="IMDb",
+            referent_kind="EDITORIAL_WORK",
+            provenance=_provenance(movie_node, "/ids/0"),
+        ),
+        build_identifier_assertion(
+            subject=movie_node,
+            namespace_id="imdb",
+            value="TT0042816",
+            issuer="untrusted spelling",
+            referent_kind="EDITORIAL_WORK",
+            provenance=_provenance(movie_node, "/ids/1"),
+        ),
+        build_identifier_assertion(
+            subject=episode_node,
+            namespace_id="imdb-title",
+            value="TT0042816",
+            issuer="IMDb",
+            referent_kind="EDITORIAL_WORK",
+            provenance=_provenance(episode_node, "/ids/0"),
+        ),
+    )
+
+    draft = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(),
+        identifier_assertions=assertions,
+        relationship_assertions=(),
+        rights_profiles=(tvmaze_rights_profile(),),
+        policy_context=_context(),
+        field_policy=research_policy(),
+    )
+
+    assert not draft.conflicts
+    assert draft.duplicate_external_id_count == 0
+    assert len(draft.identifiers) == 2
+    by_kind = {item.referent_kind: item for item in draft.identifiers}
+    assert set(by_kind) == {"EDITORIAL_WORK", "EPISODE"}
+    assert {item.normalized_value for item in draft.identifiers} == {"TT0042816"}
+    assert {item.value for item in draft.identifiers} == {"tt0042816"}
+    assert {item.issuer for item in draft.identifiers} == {"IMDb"}
+    assert len(by_kind["EDITORIAL_WORK"].assertion_ids) == 2
+
+
+def test_imdb_name_withholds_incompatible_resolved_entity_slots() -> None:
+    specs = (
+        ("1", "PERSON", EntityLevel.AGENT, "PERSON"),
+        ("2", "PERSON", EntityLevel.AGENT, "ORGANIZATION"),
+        ("3", "PERSON", EntityLevel.SERIES, "TV_SERIES"),
+    )
+    nodes = tuple(
+        SourceNodeRef(
+            namespace_id="tvmaze-show",
+            source_id=source_id,
+            referent_kind=source_kind,
+        )
+        for source_id, source_kind, _, _ in specs
+    )
+    resolutions = tuple(
+        _resolved_typed(node, entity_level=level, entity_kind=kind)
+        for node, (_, _, level, kind) in zip(nodes, specs, strict=True)
+    )
+    index = build_identity_index(
+        entities=tuple(entity for result in resolutions for entity in result.entities),
+        memberships=tuple(
+            membership for result in resolutions for membership in result.memberships
+        ),
+        redirects=(),
+        as_of=TIMESTAMP,
+    )
+    assertions = tuple(
+        build_identifier_assertion(
+            subject=node,
+            namespace_id="imdb-name",
+            value=f"nm000000{index}",
+            issuer="IMDb",
+            referent_kind="PERSON",
+            provenance=_provenance(node, "/id"),
+        )
+        for index, node in enumerate(nodes, start=1)
+    )
+
+    draft = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(),
+        identifier_assertions=assertions,
+        relationship_assertions=(),
+        rights_profiles=(tvmaze_rights_profile(),),
+        policy_context=_context(),
+        field_policy=research_policy(),
+    )
+
+    assert len(draft.identifiers) == 1
+    assert draft.identifiers[0].referent_kind == "AGENT"
+    assert draft.withheld_assertion_count == 2
+    assert not draft.conflicts
+    assert draft.duplicate_external_id_count == 0
+
+
+@pytest.mark.parametrize(
+    ("namespace_id", "issuer", "values", "normalized_value"),
+    (
+        (
+            "imdb-title",
+            "IMDb",
+            ("tt0042816", "TT0042816"),
+            "TT0042816",
+        ),
+        (
+            "eidr-content",
+            "EIDR Association",
+            (
+                "10.5240/aaaa-bbbb-cccc-dddd-eeee-f",
+                "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-F",
+            ),
+            "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-F",
+        ),
+    ),
+)
+def test_identifier_collision_withholds_all_rows_and_emits_audit_conflict(
+    namespace_id: str,
+    issuer: str,
+    values: tuple[str, str],
+    normalized_value: str,
+) -> None:
+    nodes = tuple(
+        SourceNodeRef(
+            namespace_id="tvmaze-show",
+            source_id=source_id,
+            referent_kind="EDITORIAL_WORK",
+        )
+        for source_id in ("1", "2")
+    )
+    resolutions = tuple(
+        _resolved_typed(
+            node,
+            entity_level=EntityLevel.SEASON,
+            entity_kind="TV_SEASON",
+        )
+        for node in nodes
+    )
+    index = build_identity_index(
+        entities=tuple(entity for result in resolutions for entity in result.entities),
+        memberships=tuple(
+            membership for result in resolutions for membership in result.memberships
+        ),
+        redirects=(),
+        as_of=TIMESTAMP,
+    )
+    assertions = tuple(
+        build_identifier_assertion(
+            subject=node,
+            namespace_id=namespace_id,
+            value=value,
+            issuer=issuer,
+            referent_kind="EDITORIAL_WORK",
+            provenance=_provenance(node, "/id"),
+        )
+        for node, value in zip(nodes, values, strict=True)
+    )
+
+    first = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(),
+        identifier_assertions=assertions,
+        relationship_assertions=(),
+        rights_profiles=(tvmaze_rights_profile(),),
+        policy_context=_context(),
+        field_policy=research_policy(),
+    )
+    replay = resolve_gold_draft(
+        identity_index=index,
+        field_assertions=(),
+        identifier_assertions=tuple(reversed(assertions)),
+        relationship_assertions=(),
+        rights_profiles=(tvmaze_rights_profile(),),
+        policy_context=_context(),
+        field_policy=research_policy(),
+    )
+
+    assert first == replay
+    assert not first.identifiers
+    assert first.duplicate_external_id_count == 0
+    assert first.withheld_assertion_count == 2
+    assert len(first.conflicts) == 1
+    conflict = first.conflicts[0]
+    assert conflict.reason == "DUPLICATE_EXTERNAL_IDENTIFIER"
+    assert conflict.predicate == namespace_id
+    assert conflict.qualifiers == {
+        "normalizedValue": normalized_value,
+        "blockingReferentKind": "SEASON",
+    }
+    assert conflict.candidate_values == sorted(
+        result.entities[0].entity_key for result in resolutions
+    )
+    assert conflict.assertion_ids == tuple(
+        sorted(assertion.assertion_id for assertion in assertions)
+    )
 
 
 def test_gold_resolution_fails_closed_on_policy_digest_mismatch() -> None:

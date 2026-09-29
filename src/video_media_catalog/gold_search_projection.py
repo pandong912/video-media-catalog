@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any
@@ -39,6 +40,14 @@ _ATTRIBUTE_PREDICATES = {
     "average_runtime_minutes": "averageRuntimeMinutes",
     "genre": "genres",
 }
+_FILM_TV_CONTENT_TYPES = {"MOVIE", "TV_SERIES", "TV_SEASON", "TV_EPISODE"}
+_MATCH_INT_PREDICATES = {
+    "release_year": (1870, 9999),
+    "season_number": (1, 2**31 - 1),
+    "episode_number": (1, 2**31 - 1),
+    "runtime_minutes": (1, 10_000),
+}
+_PREMIERED_YEAR = re.compile(r"^(\d{4})(?:-\d{2}-\d{2})?$")
 
 
 def _external_identifier_url(
@@ -94,6 +103,54 @@ def _lineage(value: dict[str, Any]) -> tuple[GoldAssertionLineage, ...]:
     return assertion_lineage_from_trace(trace)
 
 
+def _match_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _unique_int(values: set[int]) -> int | None:
+    if len(values) != 1:
+        return None
+    return next(iter(values))
+
+
+def _premiered_year(value: Any) -> int | None:
+    if not isinstance(value, str):
+        return None
+    match = _PREMIERED_YEAR.fullmatch(value)
+    if match is None:
+        return None
+    year = int(match.group(1))
+    if year < 1870 or year > 9999:
+        return None
+    return year
+
+
+def _release_year(explicit: set[int], premiered: set[int]) -> int | None:
+    if len(explicit) > 1:
+        return None
+    selected = _unique_int(explicit)
+    inferred = _unique_int(premiered)
+    if selected is not None and inferred is not None and selected != inferred:
+        return None
+    return selected if selected is not None else inferred
+
+
+def _duration_us(minutes: set[int]) -> int | None:
+    selected = _unique_int(minutes)
+    if selected is None:
+        return None
+    return selected * 60_000_000
+
+
+def _content_type(value: Any) -> str | None:
+    kind = str(value or "").strip().upper()
+    if kind in _FILM_TV_CONTENT_TYPES:
+        return kind
+    return None
+
+
 def project_gold_entity(row: Any) -> dict[str, Any]:
     value = _dict(row)
     titles = []
@@ -104,6 +161,10 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
     winning: list[dict[str, Any]] = []
     winning_ids: set[str] = set()
     citation_overflow = 0
+    match_ints: dict[str, set[int]] = {
+        name: set() for name in _MATCH_INT_PREDICATES
+    }
+    premiered_years: set[int] = set()
 
     def register_lineage(items: tuple[GoldAssertionLineage, ...]) -> None:
         for item in items:
@@ -167,6 +228,18 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         attribute = _ATTRIBUTE_PREDICATES.get(predicate)
         if attribute is not None and parsed is not None:
             attributes[attribute].add(str(parsed))
+        bounds = _MATCH_INT_PREDICATES.get(predicate)
+        number = _match_int(parsed)
+        if (
+            bounds is not None
+            and number is not None
+            and bounds[0] <= number <= bounds[1]
+        ):
+            match_ints[predicate].add(number)
+        if predicate == "premiered":
+            year = _premiered_year(parsed)
+            if year is not None:
+                premiered_years.add(year)
     titles = sorted(
         {
             (item["value"], item["language"], item["titleRole"]): item
@@ -377,6 +450,11 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         "contextId": RESEARCH_CONTEXT_ID,
         "displayName": display,
         "displayLanguage": display_language,
+        "contentType": _content_type(value.get("entity_kind")),
+        "releaseYear": _release_year(match_ints["release_year"], premiered_years),
+        "seasonNumber": _unique_int(match_ints["season_number"]),
+        "episodeNumber": _unique_int(match_ints["episode_number"]),
+        "durationUs": _duration_us(match_ints["runtime_minutes"]),
         "titles": titles,
         "attributes": normalized_attributes,
         "externalIdentifiers": identifier_documents,
@@ -427,6 +505,11 @@ def projection_schema():
             StructField("contextId", string, False),
             StructField("displayName", string, False),
             StructField("displayLanguage", string, False),
+            StructField("contentType", string, True),
+            StructField("releaseYear", IntegerType(), True),
+            StructField("seasonNumber", IntegerType(), True),
+            StructField("episodeNumber", IntegerType(), True),
+            StructField("durationUs", LongType(), True),
             StructField(
                 "titles",
                 ArrayType(

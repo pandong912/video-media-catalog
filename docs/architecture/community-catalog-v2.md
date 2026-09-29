@@ -117,7 +117,7 @@ The batch indexer builds only the research family:
 
 - prefix `media-catalog-research`;
 - read alias `media-catalog-research-read`;
-- strict mapping with projectionVersion `6`;
+- strict mapping with projectionVersion `7`;
 - deterministic build identity bound to one Gold release commit;
 - partition receipts, count reconciliation, and atomic alias update.
 

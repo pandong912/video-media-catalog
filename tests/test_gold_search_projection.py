@@ -187,6 +187,11 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     }
     document = project_gold_entity(row)
     assert document["displayName"] == "中文标题"
+    assert document["contentType"] == "TV_SERIES"
+    assert document["releaseYear"] is None
+    assert document["seasonNumber"] is None
+    assert document["episodeNumber"] is None
+    assert document["durationUs"] == 45 * 60_000_000
     assert document["displayLanguage"] == "zh-hans"
     assert len(document["titles"]) == MAX_TITLES
     assert document["overflow"]["titles"] == 3
@@ -222,3 +227,68 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
         '"Ended"',
         '"Running"',
     ]
+
+
+def test_match_profile_uses_one_selected_value_and_drops_conflicts() -> None:
+    row = {
+        "entity_key": "sha256:" + ("c" * 64),
+        "entity_level": "EPISODE",
+        "entity_kind": "TV_EPISODE",
+        "status": "ACTIVE",
+        "release_plan_id": "sha256:" + ("d" * 64),
+        "source_node_count": 1,
+        "fields": [
+            {
+                "predicate": "title",
+                "value_json": '"Avatar"',
+                "qualifiers_json": '{"language":"en","titleRole":"PRIMARY"}',
+                "resolution_status": "SELECTED",
+                **_lineage_fields(1, source_path="/name"),
+            },
+            {
+                "predicate": "release_year",
+                "value_json": "2009",
+                "qualifiers_json": "{}",
+                "resolution_status": "SELECTED",
+                **_lineage_fields(2, source_path="/year"),
+            },
+            {
+                "predicate": "premiered",
+                "value_json": '"2009-12-18"',
+                "qualifiers_json": "{}",
+                "resolution_status": "SELECTED",
+                **_lineage_fields(3, source_path="/premiered"),
+            },
+            {
+                "predicate": "season_number",
+                "value_json": "1",
+                "qualifiers_json": "{}",
+                "resolution_status": "SELECTED",
+                **_lineage_fields(4, source_path="/season"),
+            },
+            {
+                "predicate": "episode_number",
+                "value_json": "2",
+                "qualifiers_json": "{}",
+                "resolution_status": "SELECTED",
+                **_lineage_fields(5, source_path="/episode"),
+            },
+            {
+                "predicate": "release_year",
+                "value_json": "2010",
+                "qualifiers_json": "{}",
+                "resolution_status": "SET",
+                **_lineage_fields(6, source_path="/year-conflict"),
+                "selected_assertion_id": None,
+            },
+        ],
+        "identifiers": [],
+        "relation_summary": [],
+        "conflict_count": 0,
+        "conflicts": [],
+    }
+    document = project_gold_entity(row)
+    assert document["contentType"] == "TV_EPISODE"
+    assert document["releaseYear"] is None
+    assert document["seasonNumber"] == 1
+    assert document["episodeNumber"] == 2

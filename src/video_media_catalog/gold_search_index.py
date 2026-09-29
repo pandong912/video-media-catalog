@@ -50,7 +50,7 @@ from video_media_catalog.v2_contracts import (
 
 RESEARCH_READ_ALIAS = "media-catalog-research-read"
 RESEARCH_INDEX_PREFIX = "media-catalog-research"
-PROJECTION_VERSION = "6"
+PROJECTION_VERSION = "7"
 DEFAULT_GOLD_BULK_PARTITIONS = 32
 DEFAULT_GOLD_BULK_WORKERS = 2
 MAX_GOLD_BULK_PARTITIONS = 4096
@@ -82,6 +82,11 @@ _MAPPINGS: dict[str, Any] = {
             "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
         },
         "displayLanguage": {"type": "keyword"},
+        "contentType": {"type": "keyword"},
+        "releaseYear": {"type": "integer"},
+        "seasonNumber": {"type": "integer"},
+        "episodeNumber": {"type": "integer"},
+        "durationUs": {"type": "long"},
         "titles": {
             "type": "nested",
             "dynamic": "strict",
@@ -241,7 +246,7 @@ def _safe_name(value: str, *, label: str) -> str:
 
 
 class GoldIndexConfigIdentity(V2ContractModel):
-    projection_version: Literal["6"] = PROJECTION_VERSION
+    projection_version: Literal["7"] = PROJECTION_VERSION
     mapping_digest: str = MAPPING_DIGEST
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     read_alias: str

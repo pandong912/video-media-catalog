@@ -161,9 +161,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
     winning: list[dict[str, Any]] = []
     winning_ids: set[str] = set()
     citation_overflow = 0
-    match_ints: dict[str, set[int]] = {
-        name: set() for name in _MATCH_INT_PREDICATES
-    }
+    match_ints: dict[str, set[int]] = {name: set() for name in _MATCH_INT_PREDICATES}
     premiered_years: set[int] = set()
 
     def register_lineage(items: tuple[GoldAssertionLineage, ...]) -> None:

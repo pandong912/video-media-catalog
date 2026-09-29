@@ -25,7 +25,7 @@ capture -> Silver -> Identity -> Gold -> OpenSearch build
    versioned OpenSearch index，并在完整计数核对后原子切换
    `media-catalog-research-read`。
 
-Gold OpenSearch mapping 固定使用 projectionVersion `6`。删除旧流水线不会把
+Gold OpenSearch mapping 固定使用 projectionVersion `7`。删除旧流水线不会把
 Silver / Gold / epoch 的内部契约版本回退或改名。
 
 ## Capture entrypoints

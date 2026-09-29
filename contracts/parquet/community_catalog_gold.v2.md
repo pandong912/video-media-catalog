@@ -252,7 +252,7 @@ The active research index family is:
 - versioned indexes: `media-catalog-research-<build-id>`;
 - read alias: `media-catalog-research-read`;
 - document ID: internal `entityKey`;
-- mapping: strict, projectionVersion `6`, and digest bound;
+- mapping: strict, projectionVersion `7`, and digest bound;
 - source: one immutable Gold release commit and its exact table snapshots.
 
 The default and authoritative publication path is a full rebuild into a new

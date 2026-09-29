@@ -22,7 +22,7 @@ PARAMETER_MEDIA_TYPE = (
     "application/vnd.video-governance.catalog-gold-match-parameters.v1+json"
 )
 ALGORITHM_DIGEST = (
-    "sha256:f95a54f39fd21fc552df883c85411c607af6c7e3b0af0c3b92a933b1f6132123"
+    "sha256:2fb45e40ade44a3b97c4ead8880695fdb2a5cc24d224b0d11b62ea4b93f1507c"
 )
 _CONCRETE_INDEX = re.compile(rf"^{RESEARCH_INDEX_PREFIX}-[0-9a-f]{{24}}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")

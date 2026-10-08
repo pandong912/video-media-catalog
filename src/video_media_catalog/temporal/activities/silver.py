@@ -136,6 +136,33 @@ def _verify_summary(summary: dict[str, Any], *, batch_id: str) -> None:
         raise NonRetryableSilverError(
             "Source Silver tableSnapshotIds must be a non-empty map"
         )
+    for table, count in counts.items():
+        try:
+            parsed_count = int(count)
+        except (TypeError, ValueError) as exc:
+            raise NonRetryableSilverError(
+                f"Source Silver table count for {table} is invalid"
+            ) from exc
+        if parsed_count < 0:
+            raise NonRetryableSilverError(
+                f"Source Silver table count for {table} is negative"
+            )
+        snapshot_id = snapshots.get(table)
+        if parsed_count > 0 and snapshot_id is None:
+            raise NonRetryableSilverError(
+                f"Source Silver table {table} has rows but no snapshot"
+            )
+        if snapshot_id is not None:
+            try:
+                parsed_snapshot_id = int(snapshot_id)
+            except (TypeError, ValueError) as exc:
+                raise NonRetryableSilverError(
+                    f"Source Silver snapshot ID for {table} is invalid"
+                ) from exc
+            if parsed_snapshot_id <= 0:
+                raise NonRetryableSilverError(
+                    f"Source Silver snapshot ID for {table} is not positive"
+                )
     # batch_id is retained for correlation in logs/heartbeats.
     _ = batch_id
 
@@ -203,7 +230,8 @@ def submit_source_silver(
             job_run_id=job_run_id,
             table_counts={str(k): int(v) for k, v in summary["tableCounts"].items()},
             table_snapshot_ids={
-                str(k): int(v) for k, v in summary["tableSnapshotIds"].items()
+                str(k): None if v is None else int(v)
+                for k, v in summary["tableSnapshotIds"].items()
             },
         )
     except Exception as exc:

@@ -77,7 +77,7 @@ class SilverResult:
     commit_key: str
     job_run_id: str
     table_counts: dict[str, int] = field(default_factory=dict)
-    table_snapshot_ids: dict[str, int] = field(default_factory=dict)
+    table_snapshot_ids: dict[str, int | None] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

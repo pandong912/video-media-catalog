@@ -46,19 +46,15 @@ env:
     (+https://github.com/pandong912/video-media-catalog)
 
 jobs:
-  capture:
+  plan:
     if: github.repository == 'pandong912/video-media-catalog'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    outputs:
+      mode: ${{ steps.parameters.outputs.mode }}
+      export_date: ${{ steps.parameters.outputs.export_date }}
+      acquired_at: ${{ steps.parameters.outputs.acquired_at }}
+      change_windows: ${{ steps.parameters.outputs.change_windows }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: media-catalog-tmdb-capture
-      - id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
       - id: parameters
         name: Resolve bounded capture parameters
         env:
@@ -70,6 +66,7 @@ jobs:
           REQUESTED_WINDOW_END: ${{ inputs.window_end }}
         run: |
           python3 - <<'PY'
+          import json
           import os
           from datetime import UTC, date, datetime, timedelta
 
@@ -112,6 +109,13 @@ jobs:
                       "TMDB changes window must contain 1 through 14 days"
                   )
 
+          change_windows = []
+          capture_date = window_start
+          while capture_date is not None and capture_date <= window_end:
+              value = capture_date.isoformat()
+              change_windows.append({"start": value, "end": value})
+              capture_date += timedelta(days=1)
+
           acquired_at = (
               datetime.now(UTC)
               .replace(microsecond=0)
@@ -122,14 +126,137 @@ jobs:
           with open(output, "a", encoding="utf-8") as handle:
               handle.write(f"mode={mode}\n")
               handle.write(f"export_date={export_date.isoformat()}\n")
-              handle.write(
-                  f"window_start={window_start.isoformat() if window_start else ''}\n"
-              )
-              handle.write(
-                  f"window_end={window_end.isoformat() if window_end else ''}\n"
-              )
               handle.write(f"acquired_at={acquired_at}\n")
+              handle.write(
+                  "change_windows="
+                  + json.dumps(change_windows, separators=(",", ":"))
+                  + "\n"
+              )
           PY
+
+  inventory:
+    needs: plan
+    if: >-
+      ${{
+        needs.plan.outputs.mode == 'bootstrap' ||
+        needs.plan.outputs.mode == 'inventory-only'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v5
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: media-catalog-tmdb-inventory
+          role-duration-seconds: 21600
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - id: image
+        name: Resolve immutable runtime image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          digest="$(
+            aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=sha-${GITHUB_SHA}" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text 2>/dev/null || true
+          )"
+          if [[ "$digest" != sha256:* ]]; then
+            echo "::error::No verified runtime image exists for ${GITHUB_SHA}"
+            exit 1
+          fi
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          echo "reference=${REGISTRY}/${ECR_REPOSITORY}@${digest}" >>"$GITHUB_OUTPUT"
+      - name: Capture immutable TMDB ID inventory
+        env:
+          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          EXPORT_DATE: ${{ needs.plan.outputs.export_date }}
+          ACQUIRED_AT: ${{ needs.plan.outputs.acquired_at }}
+        run: |
+          docker run --rm \
+            --env AWS_ACCESS_KEY_ID \
+            --env AWS_SECRET_ACCESS_KEY \
+            --env AWS_SESSION_TOKEN \
+            --env AWS_REGION \
+            --env AWS_DEFAULT_REGION \
+            "$IMAGE_REFERENCE" \
+            video-media-catalog-tmdb-capture \
+            --mode inventory-only \
+            --destination-prefix "$DESTINATION_PREFIX" \
+            --image-digest "$IMAGE_DIGEST" \
+            --acquired-at "$ACQUIRED_AT" \
+            --user-agent "$TMDB_USER_AGENT" \
+            --aws-region "$AWS_REGION" \
+            --export-date "$EXPORT_DATE" \
+            | tee tmdb-capture-summary.json
+          jq -e '
+            .schemaVersion == "1.0"
+            and .mode == "inventory-only"
+            and .captureCount == 1
+            and (.changes | length) == 0
+            and .inventory.batchId != null
+            and .inventory.batchManifest.uri != null
+            and .inventory.recordSetManifest.uri != null
+          ' tmdb-capture-summary.json >/dev/null
+      - name: Record inventory summary
+        run: |
+          {
+            echo "### TMDB research inventory"
+            echo
+            echo "- Export date: \`${{ needs.plan.outputs.export_date }}\`"
+            echo "- Acquired at: \`${{ needs.plan.outputs.acquired_at }}\`"
+            echo "- Immutable batches: \`1\`"
+            echo "- Destination: \`$DESTINATION_PREFIX/tmdb/\`"
+            echo "- OpenSearch publication: disabled"
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmdb-capture-summary-inventory
+          path: tmdb-capture-summary.json
+          retention-days: 30
+          if-no-files-found: error
+
+  changes:
+    needs:
+      - plan
+      - inventory
+    if: >-
+      ${{
+        always() &&
+        needs.plan.result == 'success' &&
+        (
+          (
+            needs.plan.outputs.mode == 'bootstrap' &&
+            needs.inventory.result == 'success'
+          ) ||
+          (
+            needs.plan.outputs.mode == 'daily' &&
+            needs.inventory.result == 'skipped'
+          )
+        )
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        window: ${{ fromJSON(needs.plan.outputs.change_windows) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: media-catalog-tmdb-${{ matrix.window.start }}
+          role-duration-seconds: 21600
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
       - id: image
         name: Resolve immutable runtime image
         env:
@@ -149,7 +276,6 @@ jobs:
           echo "digest=$digest" >>"$GITHUB_OUTPUT"
           echo "reference=${REGISTRY}/${ECR_REPOSITORY}@${digest}" >>"$GITHUB_OUTPUT"
       - name: Validate TMDB API Read Access Token
-        if: steps.parameters.outputs.mode != 'inventory-only'
         env:
           MEDIA_CATALOG_TMDB_API_READ_TOKEN: >-
             ${{ secrets.MEDIA_CATALOG_TMDB_API_READ_TOKEN }}
@@ -185,39 +311,16 @@ jobs:
               raise SystemExit("TMDB rejected the configured API Read Access Token")
           print("TMDB credential validation succeeded")
           PY
-      - name: Capture immutable TMDB source batches
+      - name: Capture immutable TMDB daily changes
         env:
           IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-          CAPTURE_MODE: ${{ steps.parameters.outputs.mode }}
-          EXPORT_DATE: ${{ steps.parameters.outputs.export_date }}
-          WINDOW_START: ${{ steps.parameters.outputs.window_start }}
-          WINDOW_END: ${{ steps.parameters.outputs.window_end }}
-          ACQUIRED_AT: ${{ steps.parameters.outputs.acquired_at }}
+          WINDOW_START: ${{ matrix.window.start }}
+          WINDOW_END: ${{ matrix.window.end }}
+          ACQUIRED_AT: ${{ needs.plan.outputs.acquired_at }}
           MEDIA_CATALOG_TMDB_API_READ_TOKEN: >-
-            ${{
-              steps.parameters.outputs.mode != 'inventory-only'
-              && secrets.MEDIA_CATALOG_TMDB_API_READ_TOKEN
-              || ''
-            }}
+            ${{ secrets.MEDIA_CATALOG_TMDB_API_READ_TOKEN }}
         run: |
-          args=(
-            --mode "$CAPTURE_MODE"
-            --destination-prefix "$DESTINATION_PREFIX"
-            --image-digest "$IMAGE_DIGEST"
-            --acquired-at "$ACQUIRED_AT"
-            --user-agent "$TMDB_USER_AGENT"
-            --aws-region "$AWS_REGION"
-          )
-          if [[ "$CAPTURE_MODE" == bootstrap || "$CAPTURE_MODE" == inventory-only ]]; then
-            args+=(--export-date "$EXPORT_DATE")
-          fi
-          if [[ "$CAPTURE_MODE" == bootstrap || "$CAPTURE_MODE" == daily ]]; then
-            args+=(
-              --window-start "$WINDOW_START"
-              --window-end "$WINDOW_END"
-            )
-          fi
           docker run --rm \
             --env AWS_ACCESS_KEY_ID \
             --env AWS_SECRET_ACCESS_KEY \
@@ -226,39 +329,41 @@ jobs:
             --env AWS_DEFAULT_REGION \
             --env MEDIA_CATALOG_TMDB_API_READ_TOKEN \
             "$IMAGE_REFERENCE" \
-            video-media-catalog-tmdb-capture "${args[@]}" \
+            video-media-catalog-tmdb-capture \
+            --mode daily \
+            --destination-prefix "$DESTINATION_PREFIX" \
+            --image-digest "$IMAGE_DIGEST" \
+            --acquired-at "$ACQUIRED_AT" \
+            --user-agent "$TMDB_USER_AGENT" \
+            --aws-region "$AWS_REGION" \
+            --window-start "$WINDOW_START" \
+            --window-end "$WINDOW_END" \
             | tee tmdb-capture-summary.json
           jq -e '
             .schemaVersion == "1.0"
+            and .mode == "daily"
             and .captureCount >= 1
+            and .inventory == null
             and (.changes | all(
               .batchId != null
               and .batchManifest.uri != null
               and .recordSetManifest.uri != null
             ))
-            and (
-              .inventory == null
-              or (
-                .inventory.batchId != null
-                and .inventory.batchManifest.uri != null
-                and .inventory.recordSetManifest.uri != null
-              )
-            )
           ' tmdb-capture-summary.json >/dev/null
-      - name: Record capture summary
+      - name: Record changes summary
         run: |
           {
-            echo "### TMDB research capture"
+            echo "### TMDB research changes"
             echo
-            echo "- Mode: \`$(jq -r '.mode' tmdb-capture-summary.json)\`"
-            echo "- Acquired at: \`$(jq -r '.acquiredAt' tmdb-capture-summary.json)\`"
+            echo "- Window: \`${{ matrix.window.start }}\`"
+            echo "- Acquired at: \`${{ needs.plan.outputs.acquired_at }}\`"
             echo "- Immutable batches: \`$(jq -r '.captureCount' tmdb-capture-summary.json)\`"
             echo "- Destination: \`$DESTINATION_PREFIX/tmdb/\`"
             echo "- OpenSearch publication: disabled"
           } >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: tmdb-capture-summary
+          name: tmdb-capture-summary-changes-${{ matrix.window.start }}
           path: tmdb-capture-summary.json
           retention-days: 30
           if-no-files-found: error

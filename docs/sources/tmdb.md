@@ -35,6 +35,8 @@ GitHub Actions 工作流 `.github/workflows/tmdb-capture.yml`：
 - 每日 09:17 UTC 采集前一个 UTC 自然日的 changes/detail；
 - 每月 2 日 10:47 UTC 刷新前一个 UTC 自然日的完整 ID inventory；
 - 手动运行默认使用 `bootstrap`，日期留空时以昨天为结束日并回填最近 14 日；
+- `bootstrap` 在 inventory 成功后按自然日创建 changes jobs，最多并行两个；每个
+  job 使用独立的最长 6 小时 OIDC 会话，单日失败不会取消其余日期；
 - 同一时间只允许一个采集运行，不会取消已经开始的提交；
 - 运行固定为 default branch commit 对应的不可变、已扫描 ECR image digest。
 
@@ -74,6 +76,7 @@ capture summary artifact。
 
 工作流先调用官方 authentication endpoint 验证 Token，再开始下载。任一步骤
 失败都不会伪造成功 manifest；已完成的独立 batch 保持不可变，可安全重试。
+工作流分别保留 inventory 与各自然日的无源数据 summary artifacts。
 
 ## 发布边界
 

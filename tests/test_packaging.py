@@ -82,5 +82,9 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert "MEDIA_CATALOG_TMDB_API_READ_TOKEN" in tmdb_workflow
     assert "landing/research/capture" in tmdb_workflow
     assert "video-media-catalog-tmdb-capture" in tmdb_workflow
+    assert "role-duration-seconds: 21600" in tmdb_workflow
+    assert "max-parallel: 2" in tmdb_workflow
+    assert "--mode inventory-only" in tmdb_workflow
+    assert "--mode daily" in tmdb_workflow
     assert "OpenSearch publication: disabled" in tmdb_workflow
     assert "kubectl" not in tmdb_workflow

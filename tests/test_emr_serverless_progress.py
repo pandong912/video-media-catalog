@@ -66,7 +66,7 @@ class _Client:
 
 
 def test_progress_callback_and_cancel_path() -> None:
-    client = _Client(["SUBMITTED", "RUNNING", "SUCCESS"])
+    client = _Client(["SUBMITTED", "SUBMITTED", "RUNNING", "SUCCESS"])
     events: list[str] = []
 
     result = run(
@@ -78,6 +78,7 @@ def test_progress_callback_and_cancel_path() -> None:
     assert result["state"] == "SUCCESS"
     assert events[0] == "submitted"
     assert "state" in events
+    assert "poll" in events
 
 
 def test_should_cancel_triggers_cancel() -> None:

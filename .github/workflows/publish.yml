@@ -120,6 +120,12 @@ jobs:
           tags: ${{ steps.tags.outputs.values }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Refresh AWS credentials after long image build
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: media-catalog-publish-${{ strategy.job-index }}
       - id: image
         name: Resolve image and scannable platform digests
         env:

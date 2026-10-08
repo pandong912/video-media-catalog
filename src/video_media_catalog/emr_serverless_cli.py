@@ -264,6 +264,19 @@ def run(
                     }
                 )
                 previous_state = state
+            elif progress_callback is not None:
+                # A job can remain SCHEDULED while EMR acquires capacity for
+                # longer than the Temporal heartbeat timeout. Keep the
+                # activity alive even when the EMR state has not changed.
+                progress_callback(
+                    {
+                        "applicationId": application_id,
+                        "event": "poll",
+                        "jobRunId": job_run_id,
+                        "state": state,
+                        "stateDetails": job_run.get("stateDetails"),
+                    }
+                )
             if state in _TERMINAL_STATES:
                 terminal = True
                 if state in _SUCCESS_STATES:

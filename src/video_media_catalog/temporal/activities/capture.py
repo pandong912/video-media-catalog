@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import threading
+from contextvars import copy_context
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -43,6 +45,35 @@ def _now_rfc3339() -> str:
 def _heartbeat(details: dict[str, Any]) -> None:
     if activity.in_activity():
         activity.heartbeat(details)
+
+
+class _HeartbeatPulse:
+    """Keep long blocking captures alive between sync-call boundaries."""
+
+    def __init__(self, details: dict[str, Any], interval_seconds: float = 20) -> None:
+        self._details = details
+        self._interval = interval_seconds
+        self._stop = threading.Event()
+        context = copy_context()
+        self._thread = threading.Thread(
+            target=lambda: context.run(self._run),
+            name="tmdb-heartbeat",
+            daemon=True,
+        )
+
+    def _run(self) -> None:
+        tick = 0
+        while not self._stop.wait(self._interval):
+            tick += 1
+            _heartbeat({**self._details, "tick": tick})
+
+    def __enter__(self) -> _HeartbeatPulse:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=1)
 
 
 class _HeartbeatingSyncRunner:
@@ -173,70 +204,87 @@ def capture_tmdb_day(
     acquired = acquired_at or _now_rfc3339()
     runner = _HeartbeatingSyncRunner()
     try:
-        if unit.kind == "inventory":
-            if not unit.export_date:
-                raise NonRetryableCaptureError("inventory capture requires export_date")
-            _heartbeat({"phase": "inventory", "exportDate": unit.export_date})
-            payload = runner(
-                _inventory_namespace(
-                    env,
-                    acquired_at=acquired,
-                    export_date=unit.export_date,
-                )
-            )
-            return [
-                _to_capture_result(
-                    kind="inventory",
-                    payload=payload,
-                    export_date=unit.export_date,
-                )
-            ]
-
-        if unit.kind != "changes" or not unit.window_start or not unit.window_end:
-            raise NonRetryableCaptureError("changes day requires window bounds")
-
-        parsed = argparse.Namespace(
-            mode="daily",
-            export_date=None,
-            window_start=unit.window_start,
-            window_end=unit.window_end,
-            watermark=None,
-            max_change_shards=DEFAULT_MAX_CHANGE_SHARDS,
-            destination_prefix=env.destination_prefix,
-            image_digest=env.image_digest,
-            acquired_at=acquired,
-            user_agent=env.user_agent,
-            record_shard_bytes=DEFAULT_RECORD_SHARD_BYTES,
-            aws_region=env.aws_region,
-            s3_endpoint=env.s3_endpoint,
-            s3_path_style_access=env.s3_path_style_access,
-            daily_timeout_seconds=120.0,
-            daily_max_attempts=5,
-            max_export_bytes=DEFAULT_MAX_EXPORT_BYTES,
-            changes_timeout_seconds=30.0,
-            minimum_interval_seconds=0.05,
-            changes_max_attempts=5,
-            max_api_bytes=DEFAULT_MAX_API_BYTES,
-            max_change_pages=DEFAULT_MAX_CHANGE_PAGES,
-            max_changed_ids=DEFAULT_MAX_CHANGED_IDS,
-        )
-        results = _run_all_change_shards(
-            parsed,
-            acquired_at=acquired,
-            window_start=date.fromisoformat(unit.window_start),
-            window_end=date.fromisoformat(unit.window_end),
-            runner=runner,
-        )
-        if not results:
-            raise NonRetryableCaptureError("TMDB changes capture produced no shards")
-        return [
-            _to_capture_result(
-                kind="changes",
-                payload=item,
-                window_start=unit.window_start,
-                window_end=unit.window_end,
-            )
-            for item in results
-        ]
+        with _HeartbeatPulse(
+            {
+                "phase": "capture-running",
+                "kind": unit.kind,
+                "exportDate": unit.export_date,
+                "windowStart": unit.window_start,
+            }
+        ):
+            return _capture_tmdb_day_body(unit, env, acquired, runner)
     except Exception as exc:
         raise classify_capture_exception(exc) from exc
+
+
+def _capture_tmdb_day_body(
+    unit: CaptureUnit,
+    env: PipelineEnv,
+    acquired: str,
+    runner: _HeartbeatingSyncRunner,
+) -> list[CaptureResult]:
+    if unit.kind == "inventory":
+        if not unit.export_date:
+            raise NonRetryableCaptureError("inventory capture requires export_date")
+        _heartbeat({"phase": "inventory", "exportDate": unit.export_date})
+        payload = runner(
+            _inventory_namespace(
+                env,
+                acquired_at=acquired,
+                export_date=unit.export_date,
+            )
+        )
+        return [
+            _to_capture_result(
+                kind="inventory",
+                payload=payload,
+                export_date=unit.export_date,
+            )
+        ]
+
+    if unit.kind != "changes" or not unit.window_start or not unit.window_end:
+        raise NonRetryableCaptureError("changes day requires window bounds")
+
+    parsed = argparse.Namespace(
+        mode="daily",
+        export_date=None,
+        window_start=unit.window_start,
+        window_end=unit.window_end,
+        watermark=None,
+        max_change_shards=DEFAULT_MAX_CHANGE_SHARDS,
+        destination_prefix=env.destination_prefix,
+        image_digest=env.image_digest,
+        acquired_at=acquired,
+        user_agent=env.user_agent,
+        record_shard_bytes=DEFAULT_RECORD_SHARD_BYTES,
+        aws_region=env.aws_region,
+        s3_endpoint=env.s3_endpoint,
+        s3_path_style_access=env.s3_path_style_access,
+        daily_timeout_seconds=120.0,
+        daily_max_attempts=5,
+        max_export_bytes=DEFAULT_MAX_EXPORT_BYTES,
+        changes_timeout_seconds=30.0,
+        minimum_interval_seconds=0.05,
+        changes_max_attempts=5,
+        max_api_bytes=DEFAULT_MAX_API_BYTES,
+        max_change_pages=DEFAULT_MAX_CHANGE_PAGES,
+        max_changed_ids=DEFAULT_MAX_CHANGED_IDS,
+    )
+    results = _run_all_change_shards(
+        parsed,
+        acquired_at=acquired,
+        window_start=date.fromisoformat(unit.window_start),
+        window_end=date.fromisoformat(unit.window_end),
+        runner=runner,
+    )
+    if not results:
+        raise NonRetryableCaptureError("TMDB changes capture produced no shards")
+    return [
+        _to_capture_result(
+            kind="changes",
+            payload=item,
+            window_start=unit.window_start,
+            window_end=unit.window_end,
+        )
+        for item in results
+    ]

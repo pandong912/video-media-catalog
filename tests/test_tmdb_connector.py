@@ -14,6 +14,7 @@ from video_media_catalog.storage import local_path
 from video_media_catalog.tmdb import map_tmdb_record, tmdb_rights_profile
 from video_media_catalog.tmdb_sync import (
     TMDBApiResponse,
+    TMDBChangeWindowsRequired,
     TMDBHttpClient,
     capture_tmdb_changes,
     capture_tmdb_daily_exports,
@@ -243,7 +244,10 @@ def test_tmdb_changes_require_and_honor_explicit_bounded_window(tmp_path) -> Non
         "store": BoundedObjectStore(client=object()),
         "max_changed_ids": 1,
     }
-    with pytest.raises(RuntimeError, match="2 explicit bounded windows"):
+    with pytest.raises(
+        TMDBChangeWindowsRequired,
+        match="2 explicit bounded windows",
+    ) as failure:
         capture_tmdb_changes(**arguments)
 
     plans = plan_tmdb_change_windows(
@@ -252,6 +256,7 @@ def test_tmdb_changes_require_and_honor_explicit_bounded_window(tmp_path) -> Non
         window_end=date(2026, 9, 20),
         max_changed_ids=1,
     )
+    assert failure.value.cursors == tuple(plan.cursor for plan in plans)
     result = capture_tmdb_changes(
         **arguments,
         window_cursor=plans[0].cursor,

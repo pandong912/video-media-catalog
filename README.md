@@ -93,6 +93,9 @@ manifest 校验。
 
 ### TMDB
 
+TMDB Daily ID Exports 不需要凭据；`changes` 与 detail API 使用账号签发的
+API Read Access Token：
+
 ```bash
 video-media-catalog-tmdb-sync daily-export \
   --export-date 2026-09-20 \
@@ -109,6 +112,20 @@ video-media-catalog-tmdb-sync changes \
 ```
 
 Token 仅从环境变量读取，不进入 URL、manifest、日志或 digest。
+
+`video-media-catalog-tmdb-capture` 为私有研究采集提供三个自动化模式：
+
+- `bootstrap`：一次完整 ID inventory，加最近 1–14 日 changes/detail；
+- `daily`：只采集一个显式 bounded changes/detail 窗口；
+- `inventory-only`：只刷新完整 ID inventory。
+
+`.github/workflows/tmdb-capture.yml` 每日运行 `daily`，每月运行一次
+`inventory-only`，也支持手动 `bootstrap`。工作流只接受仓库 Secret
+`MEDIA_CATALOG_TMDB_API_READ_TOKEN`，使用 main 对应的已验证不可变 ECR image，
+并且只写
+`s3://ai-video-platform-dev-media-catalog-209479308066/landing/research/capture/tmdb/`。
+它不会运行 Silver、Identity、Gold、OpenSearch rebuild 或 alias 切换。
+完整运行边界见 `docs/sources/tmdb.md`。
 
 ### EIDR exact lookup
 

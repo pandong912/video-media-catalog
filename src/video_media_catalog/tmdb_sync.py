@@ -63,6 +63,21 @@ DEFAULT_MAX_API_BYTES = 32 * 1024 * 1024
 DEFAULT_MAX_CHANGE_PAGES = 10_000
 DEFAULT_MAX_CHANGED_IDS = 20_000
 
+
+class TMDBChangeWindowsRequired(RuntimeError):
+    """Signals that a bounded change capture needs explicit shard cursors."""
+
+    def __init__(self, cursors: tuple[str, ...]) -> None:
+        if len(cursors) < 2:
+            raise ValueError("multiple TMDB change-window cursors are required")
+        self.cursors = cursors
+        super().__init__(
+            "TMDB changed-ID inventory requires "
+            f"{len(cursors)} explicit bounded windows; "
+            f"rerun with one window_cursor: {', '.join(cursors)}"
+        )
+
+
 _EXPORT_PREFIX = {
     "movie": "movie_ids",
     "tv": "tv_series_ids",
@@ -604,11 +619,8 @@ def capture_tmdb_changes(
         selected_plan = select_capture_window(plans, cursor=window_cursor)
     except ValueError as exc:
         if window_cursor is None and len(plans) > 1:
-            cursors = ", ".join(plan.cursor for plan in plans)
-            raise RuntimeError(
-                "TMDB changed-ID inventory requires "
-                f"{len(plans)} explicit bounded windows; "
-                f"rerun with one window_cursor: {cursors}"
+            raise TMDBChangeWindowsRequired(
+                tuple(plan.cursor for plan in plans)
             ) from exc
         raise
     selected_changed = ordered_changed[

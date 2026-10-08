@@ -9,6 +9,7 @@ on:
         default: false
         type: boolean
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:

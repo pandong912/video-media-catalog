@@ -9,6 +9,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     dockerfile = (root / "Dockerfile").read_text()
     emr_dockerfile = (root / "Dockerfile.emr").read_text()
     publish_workflow = (root / ".github/workflows/publish.yml").read_text()
+    tmdb_workflow = (root / ".github/workflows/tmdb-capture.yml").read_text()
     ci_workflow = (root / ".github/workflows/ci.yml").read_text()
     api_dockerfile = "Dockerfile." + "api"
     api_entrypoint = "video-media-catalog-" + "api"
@@ -51,6 +52,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
         "video-media-catalog-eidr-backfill",
         "video-media-catalog-europeana-oai",
         "video-media-catalog-imdb-sync",
+        "video-media-catalog-tmdb-capture",
         "video-media-catalog-tmdb-sync",
         "video-media-catalog-tvmaze-sync",
     )
@@ -75,3 +77,10 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert api_dockerfile not in ci_workflow
     assert "dockerfile: Dockerfile.emr" in publish_workflow
     assert "findingSeverityCounts.CRITICAL" in publish_workflow
+    assert "branches: [main]" in publish_workflow
+
+    assert "MEDIA_CATALOG_TMDB_API_READ_TOKEN" in tmdb_workflow
+    assert "landing/research/capture" in tmdb_workflow
+    assert "video-media-catalog-tmdb-capture" in tmdb_workflow
+    assert "OpenSearch publication: disabled" in tmdb_workflow
+    assert "kubectl" not in tmdb_workflow

@@ -216,6 +216,52 @@ def test_tmdb_token_is_header_only_and_never_enters_url() -> None:
     assert opener.request.get_header("Authorization") == "Bearer secret-read-token"
 
 
+class ShrinkingPagesTMDB:
+    def __init__(self) -> None:
+        self.pages: list[tuple[str, int]] = []
+        self._details = FakeTMDB()
+
+    def fetch(self, path, query):
+        if path.endswith("/changes"):
+            kind = path.split("/")[2]
+            page = int(query["page"])
+            self.pages.append((kind, page))
+            if kind != "movie":
+                body = {"page": page, "total_pages": 0, "results": []}
+            elif page == 1:
+                body = {"page": 1, "total_pages": 2, "results": [{"id": 10}]}
+            elif page == 2:
+                body = {"page": 2, "total_pages": 1, "results": []}
+            else:
+                raise AssertionError((kind, page))
+            return TMDBApiResponse(status=200, body=json.dumps(body).encode())
+        return self._details.fetch(path, query)
+
+
+def test_tmdb_changes_stop_when_live_index_shrinks_past_an_empty_page(
+    tmp_path,
+) -> None:
+    fetcher = ShrinkingPagesTMDB()
+    result = capture_tmdb_changes(
+        window_start=date(2026, 10, 7),
+        window_end=date(2026, 10, 7),
+        destination_prefix=tmp_path.as_uri(),
+        acquired_at="2026-10-08T09:08:13Z",
+        image_digest="sha256:" + ("a" * 64),
+        config_digest="sha256:" + ("b" * 64),
+        fetcher=fetcher,
+        store=BoundedObjectStore(client=object()),
+    )
+
+    assert result.batch_manifest.record_count == 1
+    assert fetcher.pages == [
+        ("movie", 1),
+        ("movie", 2),
+        ("tv", 1),
+        ("person", 1),
+    ]
+
+
 def test_empty_tmdb_change_window_commits_without_fake_records(tmp_path) -> None:
     result = capture_tmdb_changes(
         window_start=date(2026, 9, 20),

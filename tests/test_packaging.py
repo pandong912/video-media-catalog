@@ -54,9 +54,12 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
         "video-media-catalog-imdb-sync",
         "video-media-catalog-tmdb-capture",
         "video-media-catalog-tmdb-sync",
+        "video-media-catalog-tmdb-temporal-worker",
+        "video-media-catalog-tmdb-temporal-admin",
         "video-media-catalog-tvmaze-sync",
     )
     assert all(name in pyproject for name in retained)
+    assert "temporalio==1.9.0" in pyproject
 
     removed = (
         api_entrypoint,
@@ -79,8 +82,9 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert "findingSeverityCounts.CRITICAL" in publish_workflow
     assert "branches: [main]" in publish_workflow
 
-    assert "MEDIA_CATALOG_TMDB_API_READ_TOKEN" in tmdb_workflow
-    assert "landing/research/capture" in tmdb_workflow
-    assert "video-media-catalog-tmdb-capture" in tmdb_workflow
+    assert "GitHub Actions production capture is retired" in tmdb_workflow
+    assert "vw-media-catalog-tmdb-v1" in tmdb_workflow
     assert "OpenSearch publication: disabled" in tmdb_workflow
     assert "kubectl" not in tmdb_workflow
+    assert "aws-actions/configure-aws-credentials" not in tmdb_workflow
+    assert "docker run" not in tmdb_workflow

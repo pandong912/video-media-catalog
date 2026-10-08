@@ -16,13 +16,14 @@
 
 Daily ID Exports 无需认证，提供 movie、TV 和 person 的完整有效 ID inventory
 以及少量筛选字段。changes/detail 需要 TMDB 账号签发的 API Read Access Token。
-Token 必须保存为 GitHub Actions Secret
-`MEDIA_CATALOG_TMDB_API_READ_TOKEN`，不得写入命令行参数、URL、代码、日志、
-artifact 或 manifest。
+Token 必须手工写入 AWS Secrets Manager
+`ai-video-platform/dev/media-catalog/tmdb` 的 JSON 属性 `apiReadToken`，由
+External Secrets 同步到 Temporal Worker Secret。不得写入命令行参数、URL、代码、
+日志、artifact、Git 或 OpenTofu state。
 
 ## 自动化模式
 
-入口 `video-media-catalog-tmdb-capture` 组合现有两个受限 connector：
+本地/手动入口 `video-media-catalog-tmdb-capture` 仍可组合两个受限 connector：
 
 - `bootstrap` 先提交指定日期的完整 Daily ID Export，再提交最多 14 个自然日的
   changes/detail。每个自然日独立采集，避免跨日分页超过 TMDB API 上限；若单日
@@ -30,13 +31,19 @@ artifact 或 manifest。
 - `daily` 只提交显式 changes/detail 窗口。
 - `inventory-only` 只提交完整 Daily ID Export。
 
-GitHub Actions 工作流 `.github/workflows/tmdb-capture.yml`：
+生产编排由 Temporal Python Worker 承担（GitOps 部署）：
 
-- 每日 09:17 UTC 采集前一个 UTC 自然日的 changes/detail；
-- 每月 2 日 10:47 UTC 刷新前一个 UTC 自然日的完整 ID inventory；
-- 手动运行默认使用 `bootstrap`，日期留空时以昨天为结束日并回填最近 14 日；
-- 同一时间只允许一个采集运行，不会取消已经开始的提交；
-- 运行固定为 default branch commit 对应的不可变、已扫描 ECR image digest。
+- K8s namespace：`media-catalog-research`
+- Temporal namespace：`vw-media-catalog-research`
+- Workflow task queue：`vw-media-catalog-tmdb-v1`
+- Source Silver activity queue：`vw-media-catalog-tmdb-silver-v1`（单并发）
+- 每日 09:17 UTC schedule 采集前一个 UTC 自然日的 changes/detail，并顺序提交
+  Source Silver
+- 每月 2 日 10:47 UTC schedule 刷新 inventory + Source Silver
+- 首次 bootstrap 固定 inventory `2026-10-07` 与
+  `2026-09-24..2026-10-07` 逐日 changes，由幂等管理 Job 启动一次
+- GitHub Actions `.github/workflows/tmdb-capture.yml` 仅保留退役说明，不再执行
+  生产采集
 
 ## 私有对象布局
 
@@ -59,26 +66,26 @@ tmdb/batches/<batch-id>/records/...
 
 raw 对象和 record shards 先写入，batch manifest 与 record-set manifest
 commit-last 发布。每个 ObjectRef 固定 SHA-256、大小、VersionId 和 ETag；
-同路径不同内容会失败，不覆盖已有对象。工作流只上传不含源数据和 Token 的
-capture summary artifact。
+同路径不同内容会失败，不覆盖已有对象。每个不可变 capture 后由 Temporal
+Activity 提交 EMR Serverless Source Silver，并把 pipeline summary 写到
+`landing/research/pipeline-summaries/tmdb/`。
 
 ## 首次运行
 
-首次手动 `bootstrap` 前必须同时满足：
+首次 bootstrap 前必须同时满足：
 
-1. GitHub 仓库 Secret `MEDIA_CATALOG_TMDB_API_READ_TOKEN` 已配置；
-2. `AWS_MEDIA_CATALOG_CI_ROLE_ARN` 对上述 `tmdb/` 前缀的最小 S3/KMS 权限已经
-   通过 `ai-platform-infra` 的 OpenTofu apply 生效；
-3. default branch commit 的 `sha-<commit>` runtime image 已发布并通过
-   Critical vulnerability gate。
+1. Secrets Manager 容器 `ai-video-platform/dev/media-catalog/tmdb` 已由
+   OpenTofu 创建，且已手工写入 `apiReadToken`；
+2. media-catalog-tmdb IRSA、EMR digest 与 GitOps Worker/schedules 已部署；
+3. default branch commit 的普通/EMR 不可变镜像已发布并通过 Critical gate。
 
-工作流先调用官方 authentication endpoint 验证 Token，再开始下载。任一步骤
-失败都不会伪造成功 manifest；已完成的独立 batch 保持不可变，可安全重试。
+Worker Activity 先调用官方 authentication endpoint 验证 Token，再开始下载。
+任一步骤失败都不会伪造成功 manifest；已完成的独立 batch 保持不可变，可安全
+重试。
 
 ## 发布边界
 
-此工作流只采集私有 source batches，不运行 Silver、Identity、Gold 或
-OpenSearch。它不会创建候选索引，也不会修改
+此流水线只采集私有 source batches 并提交 Source Silver，不运行 Identity、
+Gold 或 OpenSearch。它不会创建候选索引，也不会修改
 `media-catalog-research-read` alias、Video World publication 或任何全局
-cutover gate。后续融合必须显式绑定这里生成的 immutable ObjectRef，并单独完成
-质量、来源归因和 alias 审批。
+cutover gate。

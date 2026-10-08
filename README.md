@@ -119,13 +119,13 @@ Token 仅从环境变量读取，不进入 URL、manifest、日志或 digest。
 - `daily`：只采集一个显式 bounded changes/detail 窗口；
 - `inventory-only`：只刷新完整 ID inventory。
 
-`.github/workflows/tmdb-capture.yml` 每日运行 `daily`，每月运行一次
-`inventory-only`，也支持手动 `bootstrap`。工作流只接受仓库 Secret
-`MEDIA_CATALOG_TMDB_API_READ_TOKEN`，使用 main 对应的已验证不可变 ECR image，
-并且只写
+生产采集由 Temporal Worker（GitOps：`media-catalog-research`）编排每日
+changes、每月 inventory 与一次性 bootstrap；每个不可变 capture 后顺序提交
+EMR Source Silver。Token 经 Secrets Manager + External Secrets 注入 Worker。
+`.github/workflows/tmdb-capture.yml` 已退役生产路径。写入
 `s3://ai-video-platform-dev-media-catalog-209479308066/landing/research/capture/tmdb/`。
-它不会运行 Silver、Identity、Gold、OpenSearch rebuild 或 alias 切换。
-完整运行边界见 `docs/sources/tmdb.md`。
+不运行 Identity、Gold、OpenSearch rebuild 或 alias 切换。完整运行边界见
+`docs/sources/tmdb.md`。
 
 ### EIDR exact lookup
 

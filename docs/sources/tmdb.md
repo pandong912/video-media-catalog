@@ -25,8 +25,8 @@ artifact 或 manifest。
 入口 `video-media-catalog-tmdb-capture` 组合现有两个受限 connector：
 
 - `bootstrap` 先提交指定日期的完整 Daily ID Export，再提交最多 14 个自然日的
-  changes/detail。若变更 ID 超过单批上限，入口会按确定性 cursor 依次提交全部
-  bounded shards。
+  changes/detail。每个自然日独立采集，避免跨日分页超过 TMDB API 上限；若单日
+  变更 ID 超过单批上限，入口会按确定性 cursor 依次提交全部 bounded shards。
 - `daily` 只提交显式 changes/detail 窗口。
 - `inventory-only` 只提交完整 Daily ID Export。
 

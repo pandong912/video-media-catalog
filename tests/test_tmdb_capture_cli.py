@@ -36,6 +36,8 @@ def _parsed(*extra: str) -> argparse.Namespace:
 
 
 def test_bootstrap_runs_inventory_and_every_bounded_change_shard() -> None:
+    parsed = _parsed()
+    parsed.window_start = parsed.window_end
     calls = []
 
     def runner(parsed):
@@ -52,7 +54,7 @@ def test_bootstrap_runs_inventory_and_every_bounded_change_shard() -> None:
             "windowShardCount": len(CURSORS),
         }
 
-    result = run(_parsed(), runner=runner)
+    result = run(parsed, runner=runner)
 
     assert result["captureCount"] == 3
     assert result["inventory"] == {"batchId": "inventory"}
@@ -74,6 +76,7 @@ def test_daily_mode_skips_inventory_and_commits_single_window() -> None:
     parsed = _parsed()
     parsed.mode = "daily"
     parsed.export_date = None
+    parsed.window_start = parsed.window_end
 
     def runner(arguments):
         assert arguments.mode == "changes"
@@ -89,6 +92,34 @@ def test_daily_mode_skips_inventory_and_commits_single_window() -> None:
     assert result["inventory"] is None
     assert result["captureCount"] == 1
     assert result["changes"][0]["batchId"] == "daily"
+
+
+def test_multi_day_window_is_captured_as_complete_daily_windows() -> None:
+    parsed = _parsed()
+    parsed.mode = "daily"
+    parsed.export_date = None
+    parsed.window_start = "2026-10-05"
+    calls = []
+
+    def runner(arguments):
+        calls.append(arguments)
+        return {"batchId": arguments.window_start}
+
+    result = run(parsed, runner=runner)
+
+    assert result["windowStart"] == "2026-10-05"
+    assert result["windowEnd"] == "2026-10-07"
+    assert result["captureCount"] == 3
+    assert [item["batchId"] for item in result["changes"]] == [
+        "2026-10-05",
+        "2026-10-06",
+        "2026-10-07",
+    ]
+    assert [(item.window_start, item.window_end) for item in calls] == [
+        ("2026-10-05", "2026-10-05"),
+        ("2026-10-06", "2026-10-06"),
+        ("2026-10-07", "2026-10-07"),
+    ]
 
 
 def test_inventory_only_does_not_require_a_change_window() -> None:
@@ -111,6 +142,7 @@ def test_inventory_only_does_not_require_a_change_window() -> None:
 
 def test_capture_rejects_excessive_change_shards() -> None:
     parsed = _parsed("--max-change-shards", "1")
+    parsed.window_start = parsed.window_end
 
     def runner(arguments):
         if arguments.mode == "daily-export":

@@ -235,13 +235,18 @@ def run(
             raise ValueError(
                 "TMDB change window must be between 1 and 14 inclusive days"
             )
-        changes = _run_all_change_shards(
-            parsed,
-            acquired_at=acquired_at,
-            window_start=window_start,
-            window_end=window_end,
-            runner=runner,
-        )
+        capture_date = window_start
+        while capture_date <= window_end:
+            changes.extend(
+                _run_all_change_shards(
+                    parsed,
+                    acquired_at=acquired_at,
+                    window_start=capture_date,
+                    window_end=capture_date,
+                    runner=runner,
+                )
+            )
+            capture_date += timedelta(days=1)
 
     return {
         "schemaVersion": "1.0",

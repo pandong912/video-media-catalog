@@ -1,264 +1,30 @@
 name: Capture TMDB research data
 
+# Production TMDB capture moved to the Temporal worker deployed by GitOps
+# (namespace media-catalog-research, Temporal namespace vw-media-catalog-research).
+# This workflow no longer assumes AWS OIDC or runs docker capture.
+
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: Capture mode
-        required: true
-        default: bootstrap
-        type: choice
-        options:
-          - bootstrap
-          - daily
-          - inventory-only
-      export_date:
-        description: Optional TMDB export date (YYYY-MM-DD)
-        required: false
-        type: string
-      window_start:
-        description: Optional changes window start (YYYY-MM-DD)
-        required: false
-        type: string
-      window_end:
-        description: Optional changes window end (YYYY-MM-DD)
-        required: false
-        type: string
-  schedule:
-    - cron: "17 9 * * *"
-    - cron: "47 10 2 * *"
 
 permissions:
   contents: read
-  id-token: write
-
-concurrency:
-  group: tmdb-research-capture
-  cancel-in-progress: false
-
-env:
-  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  ECR_REPOSITORY: video-media-catalog
-  DESTINATION_PREFIX: >-
-    s3://ai-video-platform-dev-media-catalog-209479308066/landing/research/capture
-  TMDB_USER_AGENT: >-
-    video-media-catalog/0.1
-    (+https://github.com/pandong912/video-media-catalog)
 
 jobs:
-  capture:
+  retired:
     if: github.repository == 'pandong912/video-media-catalog'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v5
-      - uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: media-catalog-tmdb-capture
-      - id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      - id: parameters
-        name: Resolve bounded capture parameters
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
-          REQUESTED_MODE: ${{ inputs.mode }}
-          REQUESTED_EXPORT_DATE: ${{ inputs.export_date }}
-          REQUESTED_WINDOW_START: ${{ inputs.window_start }}
-          REQUESTED_WINDOW_END: ${{ inputs.window_end }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from datetime import UTC, date, datetime, timedelta
-
-          event_name = os.environ["EVENT_NAME"]
-          schedule = os.environ.get("EVENT_SCHEDULE", "")
-          if event_name == "schedule":
-              mode = (
-                  "inventory-only"
-                  if schedule == "47 10 2 * *"
-                  else "daily"
-              )
-          else:
-              mode = os.environ.get("REQUESTED_MODE") or "bootstrap"
-
-          yesterday = datetime.now(UTC).date() - timedelta(days=1)
-          export_text = os.environ.get("REQUESTED_EXPORT_DATE", "").strip()
-          start_text = os.environ.get("REQUESTED_WINDOW_START", "").strip()
-          end_text = os.environ.get("REQUESTED_WINDOW_END", "").strip()
-          if bool(start_text) != bool(end_text):
-              raise SystemExit("window_start and window_end must be set together")
-
-          export_date = date.fromisoformat(export_text) if export_text else yesterday
-          window_start = None
-          window_end = None
-          if mode in {"bootstrap", "daily"}:
-              if start_text:
-                  window_start = date.fromisoformat(start_text)
-                  window_end = date.fromisoformat(end_text)
-              elif mode == "bootstrap":
-                  window_end = export_date
-                  window_start = window_end - timedelta(days=13)
-              else:
-                  window_start = yesterday
-                  window_end = yesterday
-              if (
-                  window_end < window_start
-                  or window_end - window_start > timedelta(days=13)
-              ):
-                  raise SystemExit(
-                      "TMDB changes window must contain 1 through 14 days"
-                  )
-
-          acquired_at = (
-              datetime.now(UTC)
-              .replace(microsecond=0)
-              .isoformat()
-              .replace("+00:00", "Z")
-          )
-          output = os.environ["GITHUB_OUTPUT"]
-          with open(output, "a", encoding="utf-8") as handle:
-              handle.write(f"mode={mode}\n")
-              handle.write(f"export_date={export_date.isoformat()}\n")
-              handle.write(
-                  f"window_start={window_start.isoformat() if window_start else ''}\n"
-              )
-              handle.write(
-                  f"window_end={window_end.isoformat() if window_end else ''}\n"
-              )
-              handle.write(f"acquired_at={acquired_at}\n")
-          PY
-      - id: image
-        name: Resolve immutable runtime image
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: |
-          digest="$(
-            aws ecr describe-images \
-              --repository-name "$ECR_REPOSITORY" \
-              --image-ids "imageTag=sha-${GITHUB_SHA}" \
-              --query 'imageDetails[0].imageDigest' \
-              --output text 2>/dev/null || true
-          )"
-          if [[ "$digest" != sha256:* ]]; then
-            echo "::error::No verified runtime image exists for ${GITHUB_SHA}"
-            exit 1
-          fi
-          echo "digest=$digest" >>"$GITHUB_OUTPUT"
-          echo "reference=${REGISTRY}/${ECR_REPOSITORY}@${digest}" >>"$GITHUB_OUTPUT"
-      - name: Validate TMDB API Read Access Token
-        if: steps.parameters.outputs.mode != 'inventory-only'
-        env:
-          MEDIA_CATALOG_TMDB_API_READ_TOKEN: >-
-            ${{ secrets.MEDIA_CATALOG_TMDB_API_READ_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from urllib.request import (
-              HTTPRedirectHandler,
-              Request,
-              build_opener,
-          )
-
-          token = os.environ.get("MEDIA_CATALOG_TMDB_API_READ_TOKEN", "").strip()
-          if not token:
-              raise SystemExit("MEDIA_CATALOG_TMDB_API_READ_TOKEN is not configured")
-
-          class NoRedirect(HTTPRedirectHandler):
-              def redirect_request(self, request, fp, code, message, headers, url):
-                  return None
-
-          request = Request(
-              "https://api.themoviedb.org/3/authentication",
-              headers={
-                  "Accept": "application/json",
-                  "Authorization": f"Bearer {token}",
-                  "User-Agent": os.environ["TMDB_USER_AGENT"],
-              },
-          )
-          with build_opener(NoRedirect).open(request, timeout=30) as response:
-              payload = json.load(response)
-          if payload.get("success") is not True:
-              raise SystemExit("TMDB rejected the configured API Read Access Token")
-          print("TMDB credential validation succeeded")
-          PY
-      - name: Capture immutable TMDB source batches
-        env:
-          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
-          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-          CAPTURE_MODE: ${{ steps.parameters.outputs.mode }}
-          EXPORT_DATE: ${{ steps.parameters.outputs.export_date }}
-          WINDOW_START: ${{ steps.parameters.outputs.window_start }}
-          WINDOW_END: ${{ steps.parameters.outputs.window_end }}
-          ACQUIRED_AT: ${{ steps.parameters.outputs.acquired_at }}
-          MEDIA_CATALOG_TMDB_API_READ_TOKEN: >-
-            ${{
-              steps.parameters.outputs.mode != 'inventory-only'
-              && secrets.MEDIA_CATALOG_TMDB_API_READ_TOKEN
-              || ''
-            }}
-        run: |
-          args=(
-            --mode "$CAPTURE_MODE"
-            --destination-prefix "$DESTINATION_PREFIX"
-            --image-digest "$IMAGE_DIGEST"
-            --acquired-at "$ACQUIRED_AT"
-            --user-agent "$TMDB_USER_AGENT"
-            --aws-region "$AWS_REGION"
-          )
-          if [[ "$CAPTURE_MODE" == bootstrap || "$CAPTURE_MODE" == inventory-only ]]; then
-            args+=(--export-date "$EXPORT_DATE")
-          fi
-          if [[ "$CAPTURE_MODE" == bootstrap || "$CAPTURE_MODE" == daily ]]; then
-            args+=(
-              --window-start "$WINDOW_START"
-              --window-end "$WINDOW_END"
-            )
-          fi
-          docker run --rm \
-            --env AWS_ACCESS_KEY_ID \
-            --env AWS_SECRET_ACCESS_KEY \
-            --env AWS_SESSION_TOKEN \
-            --env AWS_REGION \
-            --env AWS_DEFAULT_REGION \
-            --env MEDIA_CATALOG_TMDB_API_READ_TOKEN \
-            "$IMAGE_REFERENCE" \
-            video-media-catalog-tmdb-capture "${args[@]}" \
-            | tee tmdb-capture-summary.json
-          jq -e '
-            .schemaVersion == "1.0"
-            and .captureCount >= 1
-            and (.changes | all(
-              .batchId != null
-              and .batchManifest.uri != null
-              and .recordSetManifest.uri != null
-            ))
-            and (
-              .inventory == null
-              or (
-                .inventory.batchId != null
-                and .inventory.batchManifest.uri != null
-                and .inventory.recordSetManifest.uri != null
-              )
-            )
-          ' tmdb-capture-summary.json >/dev/null
-      - name: Record capture summary
+      - name: Explain Temporal migration
         run: |
           {
             echo "### TMDB research capture"
             echo
-            echo "- Mode: \`$(jq -r '.mode' tmdb-capture-summary.json)\`"
-            echo "- Acquired at: \`$(jq -r '.acquiredAt' tmdb-capture-summary.json)\`"
-            echo "- Immutable batches: \`$(jq -r '.captureCount' tmdb-capture-summary.json)\`"
-            echo "- Destination: \`$DESTINATION_PREFIX/tmdb/\`"
+            echo "GitHub Actions production capture is retired."
+            echo "Use the Temporal schedules / bootstrap Job in"
+            echo "\`media-catalog-research\` (task queue \`vw-media-catalog-tmdb-v1\`)."
+            echo
             echo "- OpenSearch publication: disabled"
+            echo "- Identity / Gold: disabled"
           } >>"$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tmdb-capture-summary
-          path: tmdb-capture-summary.json
-          retention-days: 30
-          if-no-files-found: error
+          echo "TMDB capture is orchestrated by Temporal; this workflow is a no-op."

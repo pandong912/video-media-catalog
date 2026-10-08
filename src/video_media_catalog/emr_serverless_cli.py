@@ -191,12 +191,19 @@ def run(
     *,
     client: Any | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     _validate(parsed)
     if client is None:
         import boto3
 
         client = boto3.client("emr-serverless", region_name=parsed.aws_region)
+
+    def _progress(event: dict[str, Any]) -> None:
+        _emit(event)
+        if progress_callback is not None:
+            progress_callback(event)
 
     application_id = _application_id(client, parsed.application_name)
     request: dict[str, Any] = {
@@ -225,7 +232,7 @@ def run(
     try:
         started = client.start_job_run(**request)
         job_run_id = str(started["jobRunId"])
-        _emit(
+        _progress(
             {
                 "applicationId": application_id,
                 "event": "submitted",
@@ -236,6 +243,10 @@ def run(
 
         previous_state: str | None = None
         while True:
+            if should_cancel is not None and should_cancel():
+                raise RuntimeError(
+                    f"EMR Serverless job {job_run_id} cancelled by caller"
+                )
             response = client.get_job_run(
                 applicationId=application_id,
                 jobRunId=job_run_id,
@@ -243,7 +254,7 @@ def run(
             job_run = response["jobRun"]
             state = str(job_run["state"])
             if state != previous_state:
-                _emit(
+                _progress(
                     {
                         "applicationId": application_id,
                         "event": "state",

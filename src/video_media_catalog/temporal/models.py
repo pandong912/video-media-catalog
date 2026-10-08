@@ -8,6 +8,8 @@ from typing import Any, Literal
 CaptureKind = Literal["inventory", "changes"]
 PipelineMode = Literal["bootstrap", "daily", "inventory-only"]
 
+_SHA256_CHECKSUM_ALGORITHMS = frozenset({"sha256", "CHECKSUM_ALGORITHM_SHA256"})
+
 
 @dataclass(frozen=True)
 class ObjectRefPayload:
@@ -35,7 +37,7 @@ class ObjectRefPayload:
         )
 
     def checksum_digest(self) -> str:
-        if self.checksum_algorithm != "sha256":
+        if self.checksum_algorithm not in _SHA256_CHECKSUM_ALGORITHMS:
             raise ValueError("TMDB manifests must use sha256 checksums")
         value = self.checksum_value
         return value if value.startswith("sha256:") else f"sha256:{value}"

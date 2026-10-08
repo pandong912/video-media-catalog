@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 
+import pytest
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -33,6 +34,28 @@ def _ref(uri: str) -> ObjectRefPayload:
         etag='"etag"',
         object_version="v1",
     )
+
+
+def test_manifest_checksum_algorithm_normalizes_to_sha256() -> None:
+    canonical = _ref("s3://bucket/batch.json").checksum_digest()
+    manifest = ObjectRefPayload(
+        uri="s3://bucket/batch.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type="application/json",
+        checksum_algorithm="CHECKSUM_ALGORITHM_SHA256",
+        checksum_value="a" * 64,
+        size_bytes=12,
+    )
+    assert manifest.checksum_digest() == canonical == "sha256:" + ("a" * 64)
+    with pytest.raises(ValueError, match="sha256 checksums"):
+        ObjectRefPayload(
+            uri="s3://bucket/batch.json",
+            format="OBJECT_FORMAT_JSON",
+            media_type="application/json",
+            checksum_algorithm="md5",
+            checksum_value="a" * 64,
+            size_bytes=12,
+        ).checksum_digest()
 
 
 def _env() -> PipelineEnv:

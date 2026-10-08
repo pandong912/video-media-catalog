@@ -29,8 +29,10 @@ def _now_rfc3339() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _client_token(batch_id: str) -> str:
-    digest = hashlib.sha256(f"tmdb-source-silver:{batch_id}".encode()).hexdigest()
+def _client_token(batch_id: str, workflow_run_id: str) -> str:
+    digest = hashlib.sha256(
+        f"tmdb-source-silver:{batch_id}:{workflow_run_id}".encode()
+    ).hexdigest()
     token = f"tmdb-ss-{digest[:54]}"
     if not _CLIENT_TOKEN.fullmatch(token):
         raise NonRetryableSilverError("failed to build EMR client token")
@@ -64,6 +66,7 @@ def _emr_namespace(
     env: PipelineEnv,
     capture: CaptureResult,
     committed_at: str,
+    workflow_run_id: str,
 ) -> argparse.Namespace:
     entry_args = [
         *_object_args("batch-manifest", capture.batch_manifest),
@@ -91,7 +94,7 @@ def _emr_namespace(
         application_name=env.emr_application_name,
         execution_role_arn=env.emr_execution_role_arn,
         job_name=_job_name(capture.batch_id),
-        client_token=_client_token(capture.batch_id),
+        client_token=_client_token(capture.batch_id, workflow_run_id),
         entry_point=env.emr_entry_point,
         log_uri=env.emr_log_uri,
         aws_region=env.aws_region,
@@ -144,7 +147,15 @@ def submit_source_silver(
     committed_at: str | None = None,
 ) -> SilverResult:
     committed = committed_at or _now_rfc3339()
-    parsed = _emr_namespace(env=env, capture=capture, committed_at=committed)
+    workflow_run_id = (
+        activity.info().workflow_run_id if activity.in_activity() else "standalone"
+    )
+    parsed = _emr_namespace(
+        env=env,
+        capture=capture,
+        committed_at=committed,
+        workflow_run_id=workflow_run_id,
+    )
 
     def on_progress(event: dict[str, Any]) -> None:
         if activity.in_activity():

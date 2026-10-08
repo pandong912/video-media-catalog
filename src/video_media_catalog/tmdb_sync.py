@@ -603,8 +603,17 @@ def capture_tmdb_changes(
                 if page != 1 or ids:
                     raise RuntimeError("TMDB empty change response is inconsistent")
                 break
-            if total_pages < page or total_pages > max_change_pages:
+            if total_pages > max_change_pages:
                 raise RuntimeError("TMDB change response has an invalid page count")
+            if total_pages < page:
+                # The live change index can shrink between requests. An empty
+                # page past the new total is the end of the window.
+                if ids:
+                    raise RuntimeError(
+                        "TMDB change response has an invalid page count: "
+                        f"page {page} exceeds total_pages {total_pages}"
+                    )
+                break
             changed[kind].update(ids)
             page += 1
 

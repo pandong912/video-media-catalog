@@ -14,6 +14,8 @@ from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleCalendarSpec,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleRange,
     ScheduleSpec,
     ScheduleState,
@@ -131,32 +133,13 @@ async def _connect(parsed: argparse.Namespace) -> Client:
 
 
 def _daily_input(env: PipelineEnv) -> PipelineInput:
-    # Schedule action fills dates at start time via a thin wrapper workflow id;
-    # for calendar schedules we pass mode=daily and let the admin Job compute
-    # yesterday bounds when creating the action payload each upsert.
-    from datetime import UTC, datetime, timedelta
-
-    yesterday = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
-    return PipelineInput(
-        mode="daily",
-        env=env,
-        window_start=yesterday,
-        window_end=yesterday,
-    )
+    # Dates resolve inside the workflow from workflow.now() so recurring
+    # schedules always capture the previous UTC day at fire time.
+    return PipelineInput(mode="daily", env=env)
 
 
 def _inventory_input(env: PipelineEnv) -> PipelineInput:
-    from datetime import UTC, datetime, timedelta
-
-    # Monthly inventory uses the first-of-month schedule; export date is yesterday
-    # relative to schedule fire time when ensure-runtime runs, then schedule
-    # action keeps that static until next upsert. Prefer "previous day" semantics.
-    export_date = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
-    return PipelineInput(
-        mode="inventory-only",
-        env=env,
-        export_date=export_date,
-    )
+    return PipelineInput(mode="inventory-only", env=env)
 
 
 async def _upsert_schedule(
@@ -168,12 +151,19 @@ async def _upsert_schedule(
     task_queue: str,
     note: str,
 ) -> None:
-    workflow_id = workflow_id_for(
-        mode=input_data.mode,
-        export_date=input_data.export_date,
-        window_start=input_data.window_start,
-        window_end=input_data.window_end,
-    )
+    # Recurring schedules use a stable workflow-id prefix; Temporal appends
+    # scheduled time when overlap policy starts a new run.
+    if input_data.mode == "daily":
+        workflow_id = "tmdb-daily-scheduled"
+    elif input_data.mode == "inventory-only":
+        workflow_id = "tmdb-inventory-scheduled"
+    else:
+        workflow_id = workflow_id_for(
+            mode=input_data.mode,
+            export_date=input_data.export_date,
+            window_start=input_data.window_start,
+            window_end=input_data.window_end,
+        )
     action = ScheduleActionStartWorkflow(
         TmdbCaptureSilverWorkflow.run,
         input_data,
@@ -184,6 +174,7 @@ async def _upsert_schedule(
     schedule = Schedule(
         action=action,
         spec=spec,
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
         state=ScheduleState(note=note, paused=False),
     )
     handle = client.get_schedule_handle(schedule_id)

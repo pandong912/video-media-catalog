@@ -49,11 +49,22 @@ _TOKEN_RETRY = RetryPolicy(
 class TmdbCaptureSilverWorkflow:
     @workflow.run
     async def run(self, input_data: PipelineInput) -> PipelineResult:
+        now = workflow.now().replace(microsecond=0)
+        yesterday = (now.date() - timedelta(days=1)).isoformat()
+        export_date = input_data.export_date
+        window_start = input_data.window_start
+        window_end = input_data.window_end
+        if input_data.mode == "daily" and (not window_start or not window_end):
+            window_start = yesterday
+            window_end = yesterday
+        if input_data.mode == "inventory-only" and not export_date:
+            export_date = yesterday
+
         units = input_data.units or plan_capture_units(
             mode=input_data.mode,
-            export_date=input_data.export_date,
-            window_start=input_data.window_start,
-            window_end=input_data.window_end,
+            export_date=export_date,
+            window_start=window_start,
+            window_end=window_end,
         )
         if not units:
             raise ValueError("TMDB pipeline requires at least one capture unit")
@@ -68,9 +79,7 @@ class TmdbCaptureSilverWorkflow:
                 retry_policy=_TOKEN_RETRY,
             )
 
-        acquired_at = input_data.acquired_at or workflow.now().replace(
-            microsecond=0
-        ).isoformat().replace("+00:00", "Z")
+        acquired_at = input_data.acquired_at or now.isoformat().replace("+00:00", "Z")
 
         captures: list[CaptureResult] = []
         concurrency = max(1, input_data.env.capture_concurrency)
@@ -102,9 +111,6 @@ class TmdbCaptureSilverWorkflow:
             )
             silvers.append(silver)
 
-        export_date = input_data.export_date
-        window_start = input_data.window_start
-        window_end = input_data.window_end
         if export_date is None:
             for item in captures:
                 if item.export_date:

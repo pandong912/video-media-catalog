@@ -109,8 +109,8 @@ def _emr_namespace(
         executor_memory="24g",
         executor_memory_overhead=None,
         executor_disk="200G",
-        executor_instances=4,
-        shuffle_partitions=96,
+        executor_instances=env.emr_executor_instances,
+        shuffle_partitions=env.emr_shuffle_partitions,
         entry_point_arguments=entry_args,
     )
 

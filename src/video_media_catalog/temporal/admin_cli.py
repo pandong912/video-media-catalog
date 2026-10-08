@@ -60,6 +60,8 @@ def _env_from_mapping(values: dict[str, Any]) -> PipelineEnv:
         catalog_name=str(values.get("catalogName", "media")),
         glue_namespace=str(values.get("glueNamespace", "video_media_catalog")),
         capture_concurrency=int(values.get("captureConcurrency", 2)),
+        emr_executor_instances=int(values.get("emrExecutorInstances", 12)),
+        emr_shuffle_partitions=int(values.get("emrShufflePartitions", 288)),
         s3_endpoint=values.get("s3Endpoint"),
         s3_path_style_access=bool(values.get("s3PathStyleAccess", False)),
     )

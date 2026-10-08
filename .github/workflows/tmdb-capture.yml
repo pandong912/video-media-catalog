@@ -157,11 +157,20 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-          from urllib.request import Request, urlopen
+          from urllib.request import (
+              HTTPRedirectHandler,
+              Request,
+              build_opener,
+          )
 
           token = os.environ.get("MEDIA_CATALOG_TMDB_API_READ_TOKEN", "").strip()
           if not token:
               raise SystemExit("MEDIA_CATALOG_TMDB_API_READ_TOKEN is not configured")
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, message, headers, url):
+                  return None
+
           request = Request(
               "https://api.themoviedb.org/3/authentication",
               headers={
@@ -170,7 +179,7 @@ jobs:
                   "User-Agent": os.environ["TMDB_USER_AGENT"],
               },
           )
-          with urlopen(request, timeout=30) as response:
+          with build_opener(NoRedirect).open(request, timeout=30) as response:
               payload = json.load(response)
           if payload.get("success") is not True:
               raise SystemExit("TMDB rejected the configured API Read Access Token")
@@ -186,7 +195,11 @@ jobs:
           WINDOW_END: ${{ steps.parameters.outputs.window_end }}
           ACQUIRED_AT: ${{ steps.parameters.outputs.acquired_at }}
           MEDIA_CATALOG_TMDB_API_READ_TOKEN: >-
-            ${{ secrets.MEDIA_CATALOG_TMDB_API_READ_TOKEN }}
+            ${{
+              steps.parameters.outputs.mode != 'inventory-only'
+              && secrets.MEDIA_CATALOG_TMDB_API_READ_TOKEN
+              || ''
+            }}
         run: |
           args=(
             --mode "$CAPTURE_MODE"

@@ -98,6 +98,8 @@ class PipelineEnv:
     catalog_name: str = "media"
     glue_namespace: str = "video_media_catalog"
     capture_concurrency: int = 2
+    emr_executor_instances: int = 12
+    emr_shuffle_partitions: int = 288
     s3_endpoint: str | None = None
     s3_path_style_access: bool = False
 

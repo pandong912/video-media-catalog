@@ -62,14 +62,16 @@ class GoldenBuildWorkflow:
             heartbeat_timeout=timedelta(minutes=5),
             retry_policy=_EMR_RETRY,
         )
-        identity = await workflow.execute_activity(
-            resolve_golden_identity,
-            args=[input_data, preflight, snapshot, planned_at, planned_at],
-            task_queue=GOLDEN_EMR_TASK_QUEUE,
-            start_to_close_timeout=timedelta(hours=12),
-            heartbeat_timeout=timedelta(minutes=5),
-            retry_policy=_EMR_RETRY,
-        )
+        identity = preflight.reused_identity
+        if identity is None:
+            identity = await workflow.execute_activity(
+                resolve_golden_identity,
+                args=[input_data, preflight, snapshot, planned_at, planned_at],
+                task_queue=GOLDEN_EMR_TASK_QUEUE,
+                start_to_close_timeout=timedelta(hours=12),
+                heartbeat_timeout=timedelta(minutes=5),
+                retry_policy=_EMR_RETRY,
+            )
         epoch = await workflow.execute_activity(
             publish_golden_epoch,
             args=[input_data, preflight, identity, planned_at],

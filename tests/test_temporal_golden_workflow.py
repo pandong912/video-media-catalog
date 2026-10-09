@@ -22,10 +22,14 @@ from video_media_catalog.temporal.workflows.golden_build import GoldenBuildWorkf
 
 
 def test_golden_workflow_runs_commit_stages_sequentially() -> None:
-    asyncio.run(_golden_workflow_case())
+    asyncio.run(_golden_workflow_case(reuse_identity=False))
 
 
-async def _golden_workflow_case() -> None:
+def test_golden_workflow_reuses_pinned_identity() -> None:
+    asyncio.run(_golden_workflow_case(reuse_identity=True))
+
+
+async def _golden_workflow_case(*, reuse_identity: bool) -> None:
     calls: list[str] = []
     input_data = _input()
 
@@ -35,6 +39,7 @@ async def _golden_workflow_case() -> None:
         planned_at: str,
     ) -> GoldenPreflightResult:
         calls.append("prepare")
+        tmdb_run_ids = tuple(sorted(build_input.tmdb_source_run_ids))
         return GoldenPreflightResult(
             build_spec=_ref("s3://bucket/build-spec.json"),
             planned_at=planned_at,
@@ -47,7 +52,7 @@ async def _golden_workflow_case() -> None:
                     )
                 )
             ),
-            tmdb_source_run_ids=tuple(sorted(build_input.tmdb_source_run_ids)),
+            tmdb_source_run_ids=tmdb_run_ids,
             imdb_age_hours=1.1,
             tvmaze_age_hours=1.2,
             imdb_slo_hours=2,
@@ -56,6 +61,18 @@ async def _golden_workflow_case() -> None:
             identity_config_digest=_run(30),
             identity_resolution_config_digest=_run(38),
             identity_bound_config_digest=_run(39),
+            reused_identity=(
+                GoldenIdentityResult(
+                    run_id=_run(32),
+                    commit_key=_run(33),
+                    source_run_ids=tmdb_run_ids,
+                    table_counts={"community_entity_ledger": 1},
+                    table_snapshot_ids={"community_entity_ledger": 3},
+                    job_run_id="reused-identity-job",
+                )
+                if reuse_identity
+                else None
+            ),
         )
 
     @activity.defn(name="PublishGoldenSnapshot")
@@ -155,14 +172,16 @@ async def _golden_workflow_case() -> None:
             execution_timeout=timedelta(minutes=5),
         )
 
-    assert calls == [
+    expected_calls = [
         "prepare",
         "snapshot",
-        "identity",
         "epoch",
         "release",
         "summary",
     ]
+    if not reuse_identity:
+        expected_calls.insert(2, "identity")
+    assert calls == expected_calls
     assert result.summary_uri == "s3://bucket/summaries/build.json"
     assert result.publication_status == {
         "opensearch": "disabled",

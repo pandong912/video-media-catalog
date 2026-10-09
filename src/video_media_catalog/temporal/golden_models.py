@@ -49,6 +49,7 @@ class GoldenBuildInput:
     source_watermarks: dict[str, str]
     freshness_override: FreshnessOverrideInput
     env: GoldenBuildEnv
+    identity_reuse: ObjectRefPayload | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ class GoldenPreflightResult:
     identity_config_digest: str
     identity_resolution_config_digest: str
     identity_bound_config_digest: str
+    reused_identity: GoldenIdentityResult | None = None
 
 
 @dataclass(frozen=True)

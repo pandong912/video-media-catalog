@@ -51,6 +51,7 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
 
 def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
     override = values["freshnessOverride"]
+    identity_reuse = values.get("identityReuse")
     return GoldenBuildInput(
         build_id=str(values["buildId"]),
         identity_generation_id=str(values["identityGenerationId"]),
@@ -73,6 +74,11 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
             max_slo_hours=int(override.get("maxSloHours", 720)),
         ),
         env=_env_from_mapping(values["env"]),
+        identity_reuse=(
+            None
+            if identity_reuse is None
+            else ObjectRefPayload.from_mapping(identity_reuse)
+        ),
     )
 
 

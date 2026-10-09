@@ -28,6 +28,7 @@ from video_media_catalog.connector import (
 from video_media_catalog.identity_spark import (
     MAX_EXACT_BLOCKING_NODE_CANDIDATE_KEYS,
     IdentityResolutionConfig,
+    _inactive_mapping_candidate_entity_keys,
     assign_exact_blocking_component_ids,
     build_identity_resolution_dataframes,
 )
@@ -99,6 +100,21 @@ def test_identity_resolution_config_is_versioned_and_digest_bound() -> None:
     )
     with pytest.raises(ValueError, match="must be integers"):
         IdentityResolutionConfig(max_exact_blocking_component_size=True)
+
+
+def test_inactive_mapping_conflict_uses_one_digest_candidate() -> None:
+    candidate_entity_keys = _inactive_mapping_candidate_entity_keys(
+        source_system_id="tmdb",
+        source_product_id="tmdb-research",
+        source_namespace_id="tmdb-movie",
+        source_record_id="42",
+        envelope_key="sha256:" + ("1" * 64),
+        operation="DELETE",
+    )
+
+    assert len(candidate_entity_keys) == 1
+    assert candidate_entity_keys[0].startswith("sha256:")
+    assert len(candidate_entity_keys[0]) == len("sha256:") + 64
 
 
 @pytest.mark.spark

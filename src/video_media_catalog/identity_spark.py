@@ -94,6 +94,30 @@ MAX_EXACT_BLOCKING_COMPONENT_CANDIDATE_KEYS = 256
 SOURCE_LIFECYCLE_BYPASS_REPARTITIONS = 128
 
 
+def _inactive_mapping_candidate_entity_keys(
+    *,
+    source_system_id: str,
+    source_product_id: str,
+    source_namespace_id: str,
+    source_record_id: str,
+    envelope_key: str,
+    operation: str,
+) -> tuple[str, ...]:
+    return (
+        deterministic_key(
+            "inactive-source-node-mapping-v2",
+            {
+                "sourceSystemId": source_system_id,
+                "sourceProductId": source_product_id,
+                "sourceNamespaceId": source_namespace_id,
+                "sourceRecordId": source_record_id,
+                "envelopeKey": envelope_key,
+                "operation": operation,
+            },
+        ),
+    )
+
+
 class IdentityResolutionConfig(V2ContractModel):
     """Versioned, bounded controls for distributed identity resolution."""
 
@@ -1831,18 +1855,13 @@ def build_identity_resolution_dataframes(
             if row["revocation_disposition"] == "AMBIGUOUS"
             else "INACTIVE_SOURCE_NODE_UNMAPPED"
         )
-        candidate_entity_keys = tuple(
-            deterministic_key(
-                "inactive-source-node-mapping-v2",
-                {
-                    "sourceSystemId": row["source_system_id"],
-                    "sourceProductId": row["source_product_id"],
-                    "sourceNamespaceId": row["source_namespace_id"],
-                    "sourceRecordId": row["source_record_id"],
-                    "envelopeKey": row["envelope_key"],
-                    "operation": row["operation"],
-                },
-            ),
+        candidate_entity_keys = _inactive_mapping_candidate_entity_keys(
+            source_system_id=row["source_system_id"],
+            source_product_id=row["source_product_id"],
+            source_namespace_id=row["source_namespace_id"],
+            source_record_id=row["source_record_id"],
+            envelope_key=row["envelope_key"],
+            operation=row["operation"],
         )
         assertion_keys = tuple(row["assertion_ids"] or [])
         if not assertion_keys:

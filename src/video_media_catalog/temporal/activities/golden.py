@@ -679,7 +679,7 @@ def _emr_namespace(
         driver_memory_overhead=None,
         driver_disk="50G",
         executor_cores=8,
-        executor_memory="56g",
+        executor_memory="48g",
         executor_memory_overhead=None,
         executor_disk="400G",
         executor_instances=(

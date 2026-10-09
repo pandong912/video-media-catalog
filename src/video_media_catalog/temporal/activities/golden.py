@@ -403,9 +403,7 @@ def _validated_reused_identity(
     payload: dict[str, Any],
 ) -> GoldenIdentityResult:
     if payload.get("schemaVersion") != "1.0":
-        raise NonRetryableGoldenBuildError(
-            "Identity reuse receipt must use schema v1"
-        )
+        raise NonRetryableGoldenBuildError("Identity reuse receipt must use schema v1")
     source_build_id = str(payload.get("sourceBuildId") or "")
     if (
         not _BUILD_ID.fullmatch(source_build_id)
@@ -432,8 +430,7 @@ def _validated_reused_identity(
     if (
         summary.get("context") != "research"
         or summary.get("stage") != "identity-resolution"
-        or summary.get("identityGenerationId")
-        != input_data.identity_generation_id
+        or summary.get("identityGenerationId") != input_data.identity_generation_id
         or summary.get("identityMode") != "incremental"
         or tuple(sorted(summary.get("sourceRunIds") or ()))
         != preflight.tmdb_source_run_ids
@@ -459,8 +456,7 @@ def _validated_reused_identity(
         or job.get("state") != "SUCCESS"
         or job.get("name") != f"gold-identity-{source_build_id}"[:64]
         or job.get("executionRole") != input_data.env.emr_execution_role_arn
-        or spark_submit.get("entryPoint")
-        != input_data.env.research_silver_entry_point
+        or spark_submit.get("entryPoint") != input_data.env.research_silver_entry_point
         or not arguments
         or arguments[0] != "resolve-identity"
         or tuple(sorted(_argument_values(arguments, "--source-run-id")))
@@ -564,11 +560,7 @@ def prepare_golden_build(
             ),
             "identityBoundConfigDigest": preflight.identity_bound_config_digest,
             **(
-                {
-                    "identityReuse": _object_ref_payload(
-                        input_data.identity_reuse
-                    )
-                }
+                {"identityReuse": _object_ref_payload(input_data.identity_reuse)}
                 if input_data.identity_reuse is not None
                 else {}
             ),

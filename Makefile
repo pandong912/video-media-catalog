@@ -16,8 +16,12 @@ test-gold-index:
 		tests/test_gold_search_index.py \
 		tests/test_gold_search_projection.py
 
+# The hosted runner's 1 GiB Spark driver can exhaust its heap while rendering
+# long AQE plans late in the shared Spark suite.
 test-spark:
-	env -u SPARK_HOME uv run --frozen --all-extras pytest \
+	env -u SPARK_HOME \
+		PYSPARK_SUBMIT_ARGS="--driver-memory 2g --conf spark.sql.maxPlanStringLength=65536 pyspark-shell" \
+		uv run --frozen --all-extras pytest \
 		-m "spark and not integration"
 
 verify: lint test test-spark

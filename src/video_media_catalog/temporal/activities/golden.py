@@ -679,9 +679,9 @@ def _emr_namespace(
         driver_memory_overhead=None,
         driver_disk="50G",
         executor_cores=4,
-        executor_memory="24g",
+        executor_memory="36g",
         executor_memory_overhead=None,
-        executor_disk="200G",
+        executor_disk="400G",
         executor_instances=(
             env.control_executor_instances
             if control_profile

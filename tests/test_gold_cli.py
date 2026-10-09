@@ -40,6 +40,7 @@ def test_gold_cli_builds_local_snapshot_reference() -> None:
     assert parsed.app_name == "media-catalog-research-gold"
     assert parsed.s3_credentials_provider == "web-identity"
     assert parsed.build_mode == "release"
+    assert not parsed.return_failed_quality_summary
     assert parsed.tmdb_freshness_slo_hours == 36
     assert parsed.tvmaze_freshness_slo_hours == 36
     assert parsed.imdb_freshness_slo_hours == 10 * 24

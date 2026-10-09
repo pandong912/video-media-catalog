@@ -29,7 +29,10 @@ from video_media_catalog.gold import (
     research_context,
     research_policy,
 )
-from video_media_catalog.gold_freshness import research_release_freshness_policy
+from video_media_catalog.gold_freshness import (
+    FreshnessOverrideEvidence,
+    research_release_freshness_policy,
+)
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
@@ -101,10 +104,30 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("release", "candidate-backfill"),
         default="release",
     )
+    parser.add_argument(
+        "--return-failed-quality-summary",
+        action="store_true",
+        help=(
+            "Return immutable failed quality evidence without committing; "
+            "intended for an external fail-closed orchestrator"
+        ),
+    )
     parser.add_argument("--tmdb-freshness-slo-hours", type=int, default=36)
     parser.add_argument("--tvmaze-freshness-slo-hours", type=int, default=36)
     parser.add_argument("--imdb-freshness-slo-hours", type=int, default=10 * 24)
     parser.add_argument("--wikidata-freshness-slo-hours", type=int, default=45 * 24)
+    parser.add_argument("--freshness-override-reason", default="")
+    parser.add_argument(
+        "--freshness-override-source-product-id",
+        action="append",
+        default=[],
+        choices=(
+            "imdb-non-commercial-datasets",
+            "tmdb-research",
+            "tvmaze-public-api",
+            "wikidata-json-dump",
+        ),
+    )
     parser.add_argument(
         "--termination-fence-json",
         type=Path,
@@ -256,6 +279,19 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         imdb_slo_hours=parsed.imdb_freshness_slo_hours,
         wikidata_slo_hours=parsed.wikidata_freshness_slo_hours,
     )
+    freshness_override = None
+    if parsed.freshness_override_reason or parsed.freshness_override_source_product_id:
+        if (
+            not parsed.freshness_override_reason
+            or not parsed.freshness_override_source_product_id
+        ):
+            raise ValueError(
+                "freshness override reason and source IDs must be supplied together"
+            )
+        freshness_override = FreshnessOverrideEvidence(
+            reason=parsed.freshness_override_reason,
+            source_product_ids=tuple(parsed.freshness_override_source_product_id),
+        )
     build_mode = (
         GoldBuildMode.CANDIDATE_BACKFILL
         if parsed.build_mode == "candidate-backfill"
@@ -286,6 +322,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ],
         "maxRedirectHops": parsed.max_redirect_hops,
     }
+    if freshness_override is not None:
+        nonsecret_config["releaseFreshnessOverride"] = freshness_override.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
     if snapshot.identity_generation_id is not None:
         nonsecret_config.update(
             {
@@ -399,6 +441,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             planned_at=parsed.planned_at,
             max_redirect_hops=parsed.max_redirect_hops,
             freshness_policy=freshness_policy,
+            freshness_override=freshness_override,
             build_mode=build_mode,
             termination_fences=termination_fences,
         )
@@ -415,7 +458,10 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             max_bytes=CONTROL_MAX_BYTES,
         ).object_ref
         if build.quality_report.status != GoldQualityStatus.PASS:
-            if build_mode == GoldBuildMode.CANDIDATE_BACKFILL:
+            if (
+                build_mode == GoldBuildMode.CANDIDATE_BACKFILL
+                or parsed.return_failed_quality_summary
+            ):
                 return {
                     "releasePlanId": build.plan.release_plan_id,
                     "buildMode": build_mode.value,

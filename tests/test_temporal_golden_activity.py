@@ -53,6 +53,57 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     )
 
 
+def test_golden_emr_stage_resumes_job_from_matching_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    observed: dict[str, Any] = {}
+
+    def fake_submit(_parsed: Any, **kwargs: Any) -> dict[str, Any]:
+        observed.update(kwargs)
+        return {
+            "applicationId": "00fakerefapp",
+            "jobRunId": "00existingjob",
+            "state": "SUCCESS",
+        }
+
+    monkeypatch.setattr(golden_mod, "run_emr_submit", fake_submit)
+    monkeypatch.setattr(golden_mod, "_s3_client", lambda _region: object())
+    monkeypatch.setattr(
+        golden_mod,
+        "read_driver_json_summary",
+        lambda **_kwargs: {"snapshot": "complete"},
+    )
+    monkeypatch.setattr(
+        golden_mod.activity,
+        "info",
+        lambda: SimpleNamespace(
+            heartbeat_details=(
+                {
+                    "phase": "golden-snapshot",
+                    "buildId": input_data.build_id,
+                    "jobRunId": "00existingjob",
+                },
+            )
+        ),
+    )
+    monkeypatch.setattr(golden_mod.activity, "heartbeat", lambda _details: None)
+
+    summary, job_run_id = golden_mod._run_emr_stage(
+        input_data=input_data,
+        stage="snapshot",
+        entry_point=input_data.env.research_silver_entry_point,
+        entry_args=["publish-snapshot"],
+        required_keys=("snapshot",),
+        workflow_run_id="temporal-run-1",
+        control_profile=True,
+    )
+
+    assert observed["resume_job_run_id"] == "00existingjob"
+    assert summary == {"snapshot": "complete"}
+    assert job_run_id == "00existingjob"
+
+
 def test_epoch_requires_exact_pinned_runs_plus_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

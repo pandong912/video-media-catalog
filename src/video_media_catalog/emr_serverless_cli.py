@@ -193,6 +193,7 @@ def run(
     sleep: Callable[[float], None] = time.sleep,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    resume_job_run_id: str | None = None,
 ) -> dict[str, Any]:
     _validate(parsed)
     if client is None:
@@ -230,16 +231,26 @@ def run(
     job_run_id: str | None = None
     terminal = False
     try:
-        started = client.start_job_run(**request)
-        job_run_id = str(started["jobRunId"])
-        _progress(
-            {
-                "applicationId": application_id,
-                "event": "submitted",
-                "jobRunArn": started.get("arn"),
-                "jobRunId": job_run_id,
-            }
-        )
+        if resume_job_run_id is None:
+            started = client.start_job_run(**request)
+            job_run_id = str(started["jobRunId"])
+            _progress(
+                {
+                    "applicationId": application_id,
+                    "event": "submitted",
+                    "jobRunArn": started.get("arn"),
+                    "jobRunId": job_run_id,
+                }
+            )
+        else:
+            job_run_id = resume_job_run_id
+            _progress(
+                {
+                    "applicationId": application_id,
+                    "event": "resumed",
+                    "jobRunId": job_run_id,
+                }
+            )
 
         previous_state: str | None = None
         while True:

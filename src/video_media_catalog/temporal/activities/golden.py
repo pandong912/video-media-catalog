@@ -572,10 +572,25 @@ def _run_emr_stage(
             }
         )
 
+    heartbeat_details = getattr(activity.info(), "heartbeat_details", ())
+    if isinstance(heartbeat_details, dict):
+        heartbeat_details = (heartbeat_details,)
+    resume_job_run_id: str | None = None
+    for details in reversed(tuple(heartbeat_details)):
+        if (
+            isinstance(details, dict)
+            and details.get("phase") == f"golden-{stage}"
+            and details.get("buildId") == input_data.build_id
+            and details.get("jobRunId")
+        ):
+            resume_job_run_id = str(details["jobRunId"])
+            break
+
     job_run = run_emr_submit(
         parsed,
         progress_callback=on_progress,
         should_cancel=activity.is_cancelled,
+        resume_job_run_id=resume_job_run_id,
     )
     application_id = str(job_run["applicationId"])
     job_run_id = str(job_run["jobRunId"])

@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import asdict
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -19,6 +19,7 @@ from video_media_catalog.community_snapshot import (
     SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
 )
+from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.emr_driver_logs import read_driver_json_summary
 from video_media_catalog.emr_serverless_cli import run as run_emr_submit
 from video_media_catalog.gold_freshness import research_release_freshness_policy
@@ -48,6 +49,9 @@ from video_media_catalog.temporal.models import ObjectRefPayload
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _BUILD_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,63}$")
 _CONTROL_MAX_BYTES = 16 * 1024 * 1024
+_IDENTITY_REUSE_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.golden-identity-reuse.v1+json"
+)
 _EXPECTED_SOURCE_PRODUCTS = {
     "imdb-non-commercial-datasets",
     "tmdb-research",
@@ -78,6 +82,12 @@ def _s3_client(region: str) -> Any:
     import boto3
 
     return boto3.client("s3", region_name=region)
+
+
+def _emr_client(region: str) -> Any:
+    import boto3
+
+    return boto3.client("emr-serverless", region_name=region)
 
 
 def _read_ref_bytes(
@@ -365,6 +375,123 @@ def _validate_preflight_documents(
     )
 
 
+def _argument_values(arguments: list[str], flag: str) -> tuple[str, ...]:
+    values: list[str] = []
+    for index, value in enumerate(arguments):
+        if value != flag:
+            continue
+        if index + 1 >= len(arguments) or arguments[index + 1].startswith("--"):
+            raise NonRetryableGoldenBuildError(
+                f"reused Identity job has an invalid {flag} argument"
+            )
+        values.append(arguments[index + 1])
+    return tuple(values)
+
+
+def _single_argument(arguments: list[str], flag: str) -> str:
+    values = _argument_values(arguments, flag)
+    if len(values) != 1:
+        raise NonRetryableGoldenBuildError(
+            f"reused Identity job must contain exactly one {flag} argument"
+        )
+    return values[0]
+
+
+def _validated_reused_identity(
+    input_data: GoldenBuildInput,
+    preflight: GoldenPreflightResult,
+    payload: dict[str, Any],
+) -> GoldenIdentityResult:
+    if payload.get("schemaVersion") != "1.0":
+        raise NonRetryableGoldenBuildError("Identity reuse receipt must use schema v1")
+    source_build_id = str(payload.get("sourceBuildId") or "")
+    if (
+        not _BUILD_ID.fullmatch(source_build_id)
+        or source_build_id == input_data.build_id
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse receipt must name a prior Golden Build"
+        )
+    application_id = str(payload.get("applicationId") or "")
+    job_run_id = str(payload.get("jobRunId") or "")
+    image_digest = _require_sha256(
+        str(payload.get("imageDigest") or ""),
+        label="reused Identity image digest",
+    )
+    summary = payload.get("identitySummary")
+    if not application_id or not job_run_id or not isinstance(summary, dict):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse receipt lacks job or summary evidence"
+        )
+
+    source_runtime, source_resolution, source_bound = _identity_config_digests(
+        source_build_id
+    )
+    if (
+        summary.get("context") != "research"
+        or summary.get("stage") != "identity-resolution"
+        or summary.get("identityGenerationId") != input_data.identity_generation_id
+        or summary.get("identityMode") != "incremental"
+        or tuple(sorted(summary.get("sourceRunIds") or ()))
+        != preflight.tmdb_source_run_ids
+        or summary.get("configDigest") != source_bound
+        or summary.get("identityResolutionConfigDigest") != source_resolution
+        or source_resolution != preflight.identity_resolution_config_digest
+        or summary.get("registryDigest") != build_community_registry().digest
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity summary differs from pinned incremental inputs"
+        )
+    _validate_table_commit(summary, label="reused Identity")
+
+    job = _emr_client(input_data.env.aws_region).get_job_run(
+        applicationId=application_id,
+        jobRunId=job_run_id,
+    )["jobRun"]
+    spark_submit = (job.get("jobDriver") or {}).get("sparkSubmit") or {}
+    arguments = [str(value) for value in spark_submit.get("entryPointArguments") or ()]
+    if (
+        job.get("applicationId") != application_id
+        or job.get("jobRunId") != job_run_id
+        or job.get("state") != "SUCCESS"
+        or job.get("name") != f"gold-identity-{source_build_id}"[:64]
+        or job.get("executionRole") != input_data.env.emr_execution_role_arn
+        or spark_submit.get("entryPoint") != input_data.env.research_silver_entry_point
+        or not arguments
+        or arguments[0] != "resolve-identity"
+        or tuple(sorted(_argument_values(arguments, "--source-run-id")))
+        != preflight.tmdb_source_run_ids
+        or _single_argument(arguments, "--identity-generation-id")
+        != input_data.identity_generation_id
+        or _single_argument(arguments, "--identity-mode") != "incremental"
+        or _single_argument(arguments, "--image-digest") != image_digest
+        or _single_argument(arguments, "--config-digest") != source_runtime
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity EMR job differs from receipt provenance"
+        )
+
+    return GoldenIdentityResult(
+        run_id=_require_sha256(
+            str(summary.get("runId") or ""),
+            label="reused Identity runId",
+        ),
+        commit_key=_require_sha256(
+            str(summary.get("commitKey") or ""),
+            label="reused Identity commitKey",
+        ),
+        source_run_ids=tuple(sorted(summary["sourceRunIds"])),
+        table_counts={
+            str(key): int(value) for key, value in summary["tableCounts"].items()
+        },
+        table_snapshot_ids={
+            str(key): None if value is None else int(value)
+            for key, value in summary["tableSnapshotIds"].items()
+        },
+        job_run_id=job_run_id,
+    )
+
+
 @activity.defn(name="PrepareGoldenBuild")
 def prepare_golden_build(
     input_data: GoldenBuildInput,
@@ -388,6 +515,31 @@ def prepare_golden_build(
             tmdb_summary=tmdb_summary,
             planned_at=planned_at,
         )
+        if input_data.identity_reuse is not None:
+            reference = input_data.identity_reuse
+            if (
+                reference.format != "OBJECT_FORMAT_JSON"
+                or reference.media_type != _IDENTITY_REUSE_MEDIA_TYPE
+                or reference.size_bytes <= 0
+                or not reference.etag
+                or not reference.object_version
+            ):
+                raise NonRetryableGoldenBuildError(
+                    "Identity reuse receipt ObjectRef is incomplete"
+                )
+            reuse_payload = _read_ref_json(
+                client,
+                reference,
+                label="Identity reuse receipt",
+            )
+            preflight = replace(
+                preflight,
+                reused_identity=_validated_reused_identity(
+                    input_data,
+                    preflight,
+                    reuse_payload,
+                ),
+            )
         payload = {
             "schemaVersion": "1.0",
             "buildId": input_data.build_id,
@@ -407,6 +559,11 @@ def prepare_golden_build(
                 preflight.identity_resolution_config_digest
             ),
             "identityBoundConfigDigest": preflight.identity_bound_config_digest,
+            **(
+                {"identityReuse": _object_ref_payload(input_data.identity_reuse)}
+                if input_data.identity_reuse is not None
+                else {}
+            ),
             "freshnessPolicyDigest": preflight.freshness_policy_digest,
             "freshnessOverride": {
                 "reason": input_data.freshness_override.reason,
@@ -441,12 +598,7 @@ def prepare_golden_build(
         activity.heartbeat(
             {"phase": "preflight-complete", "buildId": input_data.build_id}
         )
-        return GoldenPreflightResult(
-            **{
-                **asdict(preflight),
-                "build_spec": build_spec,
-            }
-        )
+        return replace(preflight, build_spec=build_spec)
     except Exception as exc:
         raise classify_golden_build_exception(exc) from exc
 

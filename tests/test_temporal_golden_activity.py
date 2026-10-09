@@ -104,6 +104,104 @@ def test_golden_emr_stage_resumes_job_from_matching_heartbeat(
     assert job_run_id == "00existingjob"
 
 
+def test_golden_preflight_reuses_verified_identity_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    source_build_id = "tmdb-multisource-20261009-r3"
+    source_runtime, source_resolution, source_bound = (
+        golden_mod._identity_config_digests(source_build_id)
+    )
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=tuple(
+            sorted(
+                (
+                    *input_data.baseline_source_run_ids,
+                    input_data.baseline_identity_run_id,
+                    *input_data.tmdb_source_run_ids,
+                )
+            )
+        ),
+        tmdb_source_run_ids=tuple(sorted(input_data.tmdb_source_run_ids)),
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(90),
+        identity_config_digest=_run(91),
+        identity_resolution_config_digest=source_resolution,
+        identity_bound_config_digest=_run(92),
+    )
+    image_digest = _run(93)
+    arguments = ["resolve-identity"]
+    for run_id in preflight.tmdb_source_run_ids:
+        arguments.extend(["--source-run-id", run_id])
+    arguments.extend(
+        [
+            "--identity-generation-id",
+            input_data.identity_generation_id,
+            "--identity-mode",
+            "incremental",
+            "--image-digest",
+            image_digest,
+            "--config-digest",
+            source_runtime,
+        ]
+    )
+    job_run_id = "00verifiedidentity"
+    fake_emr = SimpleNamespace(
+        get_job_run=lambda **_kwargs: {
+            "jobRun": {
+                "applicationId": "00verifiedapplication",
+                "jobRunId": job_run_id,
+                "name": f"gold-identity-{source_build_id}",
+                "state": "SUCCESS",
+                "executionRole": input_data.env.emr_execution_role_arn,
+                "jobDriver": {
+                    "sparkSubmit": {
+                        "entryPoint": input_data.env.research_silver_entry_point,
+                        "entryPointArguments": arguments,
+                    }
+                },
+            }
+        }
+    )
+    monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    payload = {
+        "schemaVersion": "1.0",
+        "sourceBuildId": source_build_id,
+        "applicationId": "00verifiedapplication",
+        "jobRunId": job_run_id,
+        "imageDigest": image_digest,
+        "identitySummary": {
+            "context": "research",
+            "stage": "identity-resolution",
+            "runId": _run(94),
+            "commitKey": _run(95),
+            "configDigest": source_bound,
+            "identityResolutionConfigDigest": source_resolution,
+            "registryDigest": golden_mod.build_community_registry().digest,
+            "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": "incremental",
+            "sourceRunIds": list(preflight.tmdb_source_run_ids),
+            "tableCounts": {"community_entity_ledger": 1},
+            "tableSnapshotIds": {"community_entity_ledger": 7},
+        },
+    }
+
+    result = golden_mod._validated_reused_identity(
+        input_data,
+        preflight,
+        payload,
+    )
+
+    assert result.run_id == _run(94)
+    assert result.job_run_id == job_run_id
+    assert result.source_run_ids == preflight.tmdb_source_run_ids
+
+
 def test_epoch_requires_exact_pinned_runs_plus_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

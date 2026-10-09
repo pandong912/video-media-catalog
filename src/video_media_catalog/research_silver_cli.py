@@ -728,6 +728,12 @@ def _manifest_committed_runs(
         else tables.committed_runs_dataframe(manifest.commit_snapshot_id)
     )
     if isinstance(manifest, CommunitySilverEpochManifest):
+        if manifest.parent_epoch is None and manifest.delta_run_ids:
+            committed = tables.select_committed_runs(
+                committed,
+                manifest.delta_run_ids,
+                label="parentless Silver epoch",
+            )
         tables.validate_epoch_committed_runs(manifest, committed)
         return committed
     if len(manifest.committed_run_ids) > MAX_EXPLICIT_RUN_IDS:
@@ -1163,22 +1169,13 @@ def _run_epoch_publication(
         data_snapshot_ids = {
             table: tables.latest_snapshot_id(table) for table in DATA_TABLE_COLUMNS
         }
-        committed_runs = (
+        available_committed_runs = (
             tables.generation_committed_runs_dataframe(
                 run_snapshot_id=run_snapshot_id,
                 commit_snapshot_id=commit_snapshot_id,
             )
             if identity_generation_id is not None
             else tables.committed_runs_dataframe(commit_snapshot_id)
-        )
-        committed_run_count, committed_run_digest = tables.committed_run_summary(
-            committed_runs
-        )
-        if committed_run_count == 0:
-            raise ValueError("Silver epoch requires at least one committed run")
-        tables.visible_run_dataframe(
-            run_snapshot_id=run_snapshot_id,
-            committed_runs=committed_runs,
         )
 
         parent_runs = None
@@ -1200,11 +1197,27 @@ def _run_epoch_publication(
                 object_ref=parent_ref,
             )
             baseline_epoch_ref = parent.baseline_epoch or parent_epoch_ref
+        committed_runs = available_committed_runs
+        if parent is None and delta_run_ids:
+            committed_runs = tables.select_committed_runs(
+                available_committed_runs,
+                delta_run_ids,
+                label="parentless Silver epoch",
+            )
         _validate_epoch_delta(
             spark,
             current_runs=committed_runs,
             parent_runs=parent_runs,
             delta_run_ids=delta_run_ids,
+        )
+        committed_run_count, committed_run_digest = tables.committed_run_summary(
+            committed_runs
+        )
+        if committed_run_count == 0:
+            raise ValueError("Silver epoch requires at least one committed run")
+        tables.visible_run_dataframe(
+            run_snapshot_id=run_snapshot_id,
+            committed_runs=committed_runs,
         )
 
         delta_runs: dict[str, CommunityIngestRun] = {}

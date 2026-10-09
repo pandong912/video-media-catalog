@@ -81,6 +81,44 @@ def test_committed_run_summary_rejects_duplicate_commit_rows(
 
 
 @pytest.mark.spark
+def test_parentless_epoch_selects_pinned_runs_from_concurrent_snapshot(
+    spark: SparkSession,
+    tmp_path,
+) -> None:
+    pinned = (
+        "sha256:aa" + ("0" * 62),
+        "sha256:bb" + ("1" * 62),
+    )
+    concurrent = "sha256:cc" + ("2" * 62)
+    available = spark.createDataFrame(
+        [(run_id,) for run_id in (*pinned, concurrent)],
+        "run_id STRING",
+    )
+    tables = CommunityCatalogTables(
+        spark,
+        CatalogConfig(
+            catalog_name="media",
+            namespace="video_media_catalog",
+            warehouse=(tmp_path / "warehouse").as_uri(),
+        ),
+    )
+
+    selected = tables.select_committed_runs(
+        available,
+        pinned,
+        label="parentless Silver epoch",
+    )
+
+    assert {row["run_id"] for row in selected.collect()} == set(pinned)
+    with pytest.raises(ValueError, match="uncommitted"):
+        tables.select_committed_runs(
+            available,
+            (*pinned, "sha256:dd" + ("3" * 62)),
+            label="parentless Silver epoch",
+        )
+
+
+@pytest.mark.spark
 def test_epoch_delta_is_validated_with_distributed_anti_joins(
     spark: SparkSession,
 ) -> None:

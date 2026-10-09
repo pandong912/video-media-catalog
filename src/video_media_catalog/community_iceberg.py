@@ -793,6 +793,35 @@ class CommunityCatalogTables:
         ).select("run_id")
         return commits.join(eligible, "run_id", "inner")
 
+    def select_committed_runs(
+        self,
+        committed_runs: Any,
+        run_ids: Sequence[str],
+        *,
+        label: str,
+    ) -> Any:
+        """Fence one bounded logical run set through a physical commit snapshot."""
+
+        from pyspark.sql import functions as F
+
+        if "run_id" not in committed_runs.columns:
+            raise ValueError("committed runs dataframe requires run_id")
+        normalized = tuple(
+            sorted(
+                {require_sha256(run_id, label=f"{label} run_id") for run_id in run_ids}
+            )
+        )
+        if not normalized:
+            raise ValueError(f"{label} requires at least one run ID")
+        selected = self.spark.createDataFrame(
+            [(run_id,) for run_id in normalized],
+            "run_id STRING",
+        )
+        available = committed_runs.select("run_id").dropDuplicates(["run_id"])
+        if selected.join(available, "run_id", "left_anti").limit(1).count():
+            raise ValueError(f"{label} references an uncommitted run")
+        return committed_runs.join(F.broadcast(selected), "run_id", "left_semi")
+
     def committed_run_summary(self, committed_runs: Any) -> tuple[int, str]:
         """Summarize an unbounded run set without collecting IDs to the driver."""
 

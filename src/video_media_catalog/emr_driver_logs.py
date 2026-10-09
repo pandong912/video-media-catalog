@@ -55,30 +55,46 @@ def _decode_body(body: bytes, *, key: str) -> str:
     return body.decode("utf-8")
 
 
-def parse_source_silver_summary(stdout_text: str) -> dict[str, Any]:
-    """Return the last JSON object that looks like a Source Silver summary."""
+def parse_driver_json_summary(
+    stdout_text: str,
+    *,
+    required_keys: tuple[str, ...],
+    label: str,
+) -> dict[str, Any]:
+    """Return the last driver JSON object containing every required key."""
     candidates: list[dict[str, Any]] = []
     for line in stdout_text.splitlines():
         text = line.strip()
-        if not text.startswith("{") or "runId" not in text:
+        if not text.startswith("{"):
             continue
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
             continue
-        if isinstance(payload, dict) and "runId" in payload and "commitKey" in payload:
+        if isinstance(payload, dict) and all(key in payload for key in required_keys):
             candidates.append(payload)
     if not candidates:
-        raise ValueError("EMR driver stdout did not contain a Source Silver summary")
+        raise ValueError(f"EMR driver stdout did not contain a {label} summary")
     return candidates[-1]
 
 
-def read_source_silver_summary(
+def parse_source_silver_summary(stdout_text: str) -> dict[str, Any]:
+    """Return the last JSON object that looks like a Source Silver summary."""
+    return parse_driver_json_summary(
+        stdout_text,
+        required_keys=("runId", "commitKey"),
+        label="Source Silver",
+    )
+
+
+def read_driver_json_summary(
     *,
     s3_client: Any,
     log_uri: str,
     application_id: str,
     job_run_id: str,
+    required_keys: tuple[str, ...],
+    label: str,
     max_bytes: int = 8 * 1024 * 1024,
 ) -> dict[str, Any]:
     prefix_uri = driver_stdout_prefix(
@@ -102,4 +118,27 @@ def read_source_silver_summary(
     body = obj["Body"].read(max_bytes + 1)
     if len(body) > max_bytes:
         raise ValueError(f"EMR driver stdout exceeds {max_bytes} bytes")
-    return parse_source_silver_summary(_decode_body(body, key=key))
+    return parse_driver_json_summary(
+        _decode_body(body, key=key),
+        required_keys=required_keys,
+        label=label,
+    )
+
+
+def read_source_silver_summary(
+    *,
+    s3_client: Any,
+    log_uri: str,
+    application_id: str,
+    job_run_id: str,
+    max_bytes: int = 8 * 1024 * 1024,
+) -> dict[str, Any]:
+    return read_driver_json_summary(
+        s3_client=s3_client,
+        log_uri=log_uri,
+        application_id=application_id,
+        job_run_id=job_run_id,
+        required_keys=("runId", "commitKey"),
+        label="Source Silver",
+        max_bytes=max_bytes,
+    )

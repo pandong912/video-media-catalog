@@ -32,6 +32,7 @@ from video_media_catalog.gold import (
     trace_with_assertion_lineage,
 )
 from video_media_catalog.gold_freshness import (
+    FreshnessOverrideEvidence,
     ReleaseFreshnessPolicy,
     build_release_freshness_matrix,
     disabled_release_freshness_policy,
@@ -1027,6 +1028,7 @@ def build_distributed_gold(
     planned_at: str,
     max_redirect_hops: int = 16,
     freshness_policy: ReleaseFreshnessPolicy | None = None,
+    freshness_override: FreshnessOverrideEvidence | None = None,
     build_mode: GoldBuildMode = GoldBuildMode.RELEASE,
     termination_fences: tuple[RightsTerminationFence, ...] = (),
 ) -> GoldSparkBuild:
@@ -1812,6 +1814,7 @@ def build_distributed_gold(
             ingest_runs=selected_ingest_runs,
             policy=effective_freshness_policy,
             as_of=policy_context.as_of,
+            override_evidence=freshness_override,
         )
         quality = build_gold_quality_report_from_metrics(
             plan=plan,

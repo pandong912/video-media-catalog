@@ -17,6 +17,7 @@ from video_media_catalog.gold import (
     research_policy,
 )
 from video_media_catalog.gold_freshness import (
+    FreshnessOverrideEvidence,
     ReleaseFreshnessPolicy,
     SourceFreshnessRequirement,
     build_release_freshness_matrix,
@@ -178,6 +179,40 @@ def test_bounded_freshness_scope_only_blocks_selected_sources() -> None:
     assert requirements["imdb-non-commercial-datasets"].required
     assert not requirements["tmdb-research"].required
     assert requirements["tmdb-research"].feed_freshness_required
+
+
+def test_freshness_override_evidence_is_embedded_without_changing_defaults() -> None:
+    policy = ReleaseFreshnessPolicy(
+        requirements=(
+            SourceFreshnessRequirement(
+                source_product_id="imdb-non-commercial-datasets",
+                required=True,
+                slo_hours=500,
+            ),
+        )
+    )
+    run = _source_run(
+        source_product_id="imdb-non-commercial-datasets",
+        acquired_at="2026-09-20T22:03:01Z",
+        semantics=ChangeSemantics.FULL_SNAPSHOT,
+        completeness=Completeness.COMPLETE,
+    )
+    evidence = FreshnessOverrideEvidence(
+        reason="One-time use of the verified baseline.",
+        source_product_ids=("imdb-non-commercial-datasets",),
+    )
+
+    matrix = build_release_freshness_matrix(
+        ingest_runs=(run,),
+        policy=policy,
+        as_of="2026-10-09T00:00:00Z",
+        override_evidence=evidence,
+    )
+
+    assert matrix.override_evidence == evidence
+    assert matrix.model_dump(by_alias=True)["overrideEvidence"]["reason"] == (
+        "One-time use of the verified baseline."
+    )
 
 
 def test_quality_report_blocks_governance_failures_in_backfill_mode() -> None:

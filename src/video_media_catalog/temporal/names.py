@@ -3,8 +3,11 @@
 TEMPORAL_NAMESPACE = "vw-media-catalog-research"
 WORKFLOW_TASK_QUEUE = "vw-media-catalog-tmdb-v1"
 SILVER_TASK_QUEUE = "vw-media-catalog-tmdb-silver-v1"
+GOLDEN_WORKFLOW_TASK_QUEUE = "vw-media-catalog-golden-v1"
+GOLDEN_EMR_TASK_QUEUE = "vw-media-catalog-golden-emr-v1"
 
 WORKFLOW_TYPE_TMDB_PIPELINE = "TmdbCaptureSilverWorkflow"
+WORKFLOW_TYPE_GOLDEN_BUILD = "GoldenBuildWorkflow"
 
 SCHEDULE_DAILY_CHANGES = "tmdb-daily-changes-v1"
 SCHEDULE_MONTHLY_INVENTORY = "tmdb-monthly-inventory-v1"

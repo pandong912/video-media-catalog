@@ -64,6 +64,14 @@ from video_media_catalog.source_lifecycle import (
     persist_latest_source_record_states,
 )
 from video_media_catalog.source_silver import build_source_silver_rows
+from video_media_catalog.tmdb import (
+    TMDB_CHANGES_CONNECTOR_ID,
+    TMDB_MOVIE_NAMESPACE_ID,
+    TMDB_POLICY_ID,
+    TMDB_SOURCE_PRODUCT_ID,
+    TMDB_SOURCE_SYSTEM_ID,
+    tmdb_rights_profile,
+)
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
     TVMAZE_DELTA_CONNECTOR_ID,
@@ -292,6 +300,80 @@ def _source_capture(
         batch=batch,
         record_set=record_set,
         envelopes=envelopes,
+    )
+
+
+def _tmdb_source_capture(*, acquired_at: str):
+    policy = tmdb_rights_profile()
+    raw_object = ObjectRef(
+        uri="file:///tmp/tmdb-gold-detail.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type="application/json",
+        checksum=Checksum(value=hashlib.sha256(b"tmdb-gold").hexdigest()),
+        size_bytes=9,
+        created_at=acquired_at,
+    )
+    batch = build_connector_batch_manifest(
+        source_system_id=TMDB_SOURCE_SYSTEM_ID,
+        source_product_id=TMDB_SOURCE_PRODUCT_ID,
+        connector_id=TMDB_CHANGES_CONNECTOR_ID,
+        connector_version="1.0.0",
+        image_digest="sha256:" + ("1" * 64),
+        config_digest="sha256:" + ("2" * 64),
+        policy_id=TMDB_POLICY_ID,
+        policy_digest=policy.digest,
+        transport_kind=TransportKind.API,
+        serialization=Serialization.JSON,
+        change_semantics=ChangeSemantics.DELTA,
+        completeness=Completeness.COMPLETE,
+        delete_coverage=DeleteCoverage.EXPLICIT,
+        coverage_scope={"endpoint": "/3/movie/101"},
+        raw_objects=(raw_object,),
+        acquired_at=acquired_at,
+        record_count=1,
+        error_count=0,
+    )
+    envelope = build_connector_record_envelope(
+        payload={
+            "entityKind": "movie",
+            "detail": {
+                "id": 101,
+                "title": "Cross-source movie",
+                "imdb_id": "tt0000101",
+                "external_ids": {"wikidata_id": "Q101"},
+            },
+        },
+        batch_id=batch.batch_id,
+        source_system_id=TMDB_SOURCE_SYSTEM_ID,
+        source_product_id=TMDB_SOURCE_PRODUCT_ID,
+        source_namespace_id=TMDB_MOVIE_NAMESPACE_ID,
+        source_record_id="101",
+        source_revision=acquired_at,
+        operation=RecordOperation.UPSERT,
+        observed_at=acquired_at,
+        ingested_at=acquired_at,
+        payload_schema="tmdb-changes-detail-v1",
+        raw_object=raw_object,
+        source_location="/3/movie/101",
+        policy_id=TMDB_POLICY_ID,
+        policy_digest=policy.digest,
+    )
+    record_set = build_connector_record_set_manifest(
+        batch_id=batch.batch_id,
+        source_product_id=TMDB_SOURCE_PRODUCT_ID,
+        policy_id=TMDB_POLICY_ID,
+        policy_digest=policy.digest,
+        record_objects=(raw_object,),
+        record_count=1,
+        first_envelope_key=envelope.envelope_key,
+        last_envelope_key=envelope.envelope_key,
+        created_at=acquired_at,
+    )
+    return build_source_silver_rows(
+        registry=build_community_registry(),
+        batch=batch,
+        record_set=record_set,
+        envelopes=(envelope,),
     )
 
 
@@ -582,6 +664,68 @@ def test_distributed_silver_identity_and_gold_pipeline(
                 frame.unpersist()
         for frame in silver_frames.values():
             frame.unpersist()
+
+
+@pytest.mark.spark
+def test_gold_keeps_tmdb_imdb_wikidata_identifiers_on_stable_entity(
+    spark: SparkSession,
+) -> None:
+    source_run, rows = _tmdb_source_capture(acquired_at="2026-10-08T00:00:00Z")
+    identity_run_id = "sha256:" + ("3" * 64)
+    stable_entity = "sha256:" + ("4" * 64)
+    rows["community_entity_ledger"].append(
+        {
+            "entity_key": stable_entity,
+            "run_id": identity_run_id,
+            "allocation_id": "01a081e8-6420-7000-8000-000000000101",
+            "entity_level": "EDITORIAL_WORK",
+            "entity_kind": "MOVIE",
+            "status": "ACTIVE",
+            "created_at": "2026-09-20T00:00:00Z",
+            "first_release_id": None,
+            "imported_v1": False,
+        }
+    )
+    rows["community_entity_membership"].append(
+        {
+            "membership_key": "sha256:" + ("5" * 64),
+            "run_id": identity_run_id,
+            "source_namespace_id": TMDB_MOVIE_NAMESPACE_ID,
+            "source_id": "101",
+            "source_referent_kind": "MOVIE",
+            "entity_key": stable_entity,
+            "decision_id": "sha256:" + ("6" * 64),
+            "valid_from": "2026-10-08T00:00:00Z",
+            "valid_to": None,
+        }
+    )
+    visible = create_community_dataframes(spark, rows)
+    visible["community_ingest_run"] = spark.createDataFrame(
+        [ingest_run_row(source_run)],
+        schema=community_table_schema("community_ingest_run"),
+    )
+
+    build = _gold(
+        spark,
+        visible=visible,
+        committed_run_ids=(source_run.run_id, identity_run_id),
+        as_of="2026-10-09T00:00:00Z",
+    )
+    try:
+        identifiers = {
+            (row["namespace_id"], row["value"], row["entity_key"])
+            for row in build.dataframes["community_gold_identifier"].collect()
+        }
+        assert ("imdb-title", "tt0000101", stable_entity) in identifiers
+        assert ("wikidata-item", "Q101", stable_entity) in identifiers
+        assert ("tmdb-movie", "101", stable_entity) in identifiers
+        assert any(
+            entry.source_product_id == TMDB_SOURCE_PRODUCT_ID and entry.claim_count >= 4
+            for entry in build.attribution_manifest.entries
+        )
+        assert build.quality_report.duplicate_external_id_count == 0
+    finally:
+        build.unpersist()
 
 
 @pytest.mark.spark

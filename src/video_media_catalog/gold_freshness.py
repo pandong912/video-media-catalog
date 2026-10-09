@@ -213,10 +213,44 @@ class SourceFreshnessResult(V2ContractModel):
         return tuple(sorted(set(value)))
 
 
+class FreshnessOverrideEvidence(V2ContractModel):
+    reason: str
+    source_product_ids: tuple[str, ...]
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 512:
+            raise ValueError("freshness override reason must contain 1-512 characters")
+        return normalized
+
+    @field_validator("source_product_ids")
+    @classmethod
+    def normalize_source_product_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(
+            sorted(
+                {
+                    require_slug(
+                        item,
+                        label="freshness override source_product_id",
+                    )
+                    for item in value
+                }
+            )
+        )
+        if not normalized or len(normalized) != len(value):
+            raise ValueError(
+                "freshness override source IDs must be non-empty and unique"
+            )
+        return normalized
+
+
 class ReleaseFreshnessMatrix(V2ContractModel):
     policy_digest: str
     as_of: str
     sources: tuple[SourceFreshnessResult, ...]
+    override_evidence: FreshnessOverrideEvidence | None = None
     blocking_violations: tuple[str, ...] = ()
 
     @field_validator("policy_digest")
@@ -263,6 +297,12 @@ class ReleaseFreshnessMatrix(V2ContractModel):
             raise ValueError(
                 "freshness blocking violations do not match source results"
             )
+        if self.override_evidence is not None:
+            source_ids = {source.source_product_id for source in self.sources}
+            if not set(self.override_evidence.source_product_ids).issubset(source_ids):
+                raise ValueError(
+                    "freshness override references a source absent from the matrix"
+                )
         return self
 
     @property
@@ -342,6 +382,7 @@ def build_release_freshness_matrix(
     ingest_runs: Iterable[CommunityIngestRun],
     policy: ReleaseFreshnessPolicy,
     as_of: str,
+    override_evidence: FreshnessOverrideEvidence | None = None,
 ) -> ReleaseFreshnessMatrix:
     current = require_rfc3339(as_of)
     observations: dict[str, dict[str, list[SourceCoverageWatermark]]] = {}
@@ -440,5 +481,6 @@ def build_release_freshness_matrix(
         policy_digest=policy.digest,
         as_of=current,
         sources=tuple(results),
+        override_evidence=override_evidence,
         blocking_violations=blockers,
     )

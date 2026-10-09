@@ -39,6 +39,7 @@ class _Client:
     def __init__(self, states: list[str]) -> None:
         self.states = states
         self.start_request: dict[str, Any] | None = None
+        self.get_requests: list[dict[str, str]] = []
         self.cancel_requests: list[dict[str, str]] = []
 
     def list_applications(self, **_request: Any) -> dict[str, Any]:
@@ -63,11 +64,12 @@ class _Client:
             "jobRunId": "00fakejob",
         }
 
-    def get_job_run(self, **_request: Any) -> dict[str, Any]:
+    def get_job_run(self, **request: str) -> dict[str, Any]:
+        self.get_requests.append(request)
         return {
             "jobRun": {
                 "applicationId": "00fakerefapp",
-                "jobRunId": "00fakejob",
+                "jobRunId": request["jobRunId"],
                 "state": self.states.pop(0),
             }
         }
@@ -95,6 +97,32 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     assert "spark.emr-serverless.executor.disk.type=SHUFFLE_OPTIMIZED" in parameters
     assert "spark.speculation=false" in parameters
     assert "spark.dynamicAllocation.enabled=false" in parameters
+
+
+def test_resume_waits_for_existing_job_without_resubmitting() -> None:
+    client = _Client(["RUNNING", "SUCCESS"])
+    events: list[dict[str, Any]] = []
+
+    result = run(
+        _parsed(),
+        client=client,
+        sleep=lambda _seconds: None,
+        progress_callback=events.append,
+        resume_job_run_id="00existingjob",
+    )
+
+    assert result["state"] == "SUCCESS"
+    assert client.start_request is None
+    assert client.cancel_requests == []
+    assert client.get_requests == [
+        {"applicationId": "00fakerefapp", "jobRunId": "00existingjob"},
+        {"applicationId": "00fakerefapp", "jobRunId": "00existingjob"},
+    ]
+    assert events[0] == {
+        "applicationId": "00fakerefapp",
+        "event": "resumed",
+        "jobRunId": "00existingjob",
+    }
 
 
 def test_submit_surfaces_failed_job_without_cancelling_terminal_run() -> None:

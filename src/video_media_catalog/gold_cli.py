@@ -371,11 +371,17 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         )
         epoch_input = isinstance(snapshot, CommunitySilverEpochManifest)
         if epoch_input:
+            committed_runs = all_committed_runs
+            if snapshot.parent_epoch is None and snapshot.delta_run_ids:
+                committed_runs = silver_tables.select_committed_runs(
+                    all_committed_runs,
+                    snapshot.delta_run_ids,
+                    label="parentless Silver epoch",
+                )
             silver_tables.validate_epoch_committed_runs(
                 snapshot,
-                all_committed_runs,
+                committed_runs,
             )
-            committed_runs = all_committed_runs
             committed_run_ids: tuple[str, ...] = ()
         else:
             assert isinstance(snapshot, CommunitySilverSnapshotSet)

@@ -45,8 +45,8 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     assert parsed.max_attempts == 1
     assert parsed.executor_instances == 12
     assert parsed.shuffle_partitions == 288
-    assert parsed.executor_cores == 4
-    assert parsed.executor_memory == "36g"
+    assert parsed.executor_cores == 8
+    assert parsed.executor_memory == "56g"
     assert parsed.executor_disk == "400G"
     assert parsed.driver_memory == "16g"
     assert parsed.driver_disk == "50G"

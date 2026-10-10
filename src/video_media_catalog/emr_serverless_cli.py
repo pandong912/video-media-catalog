@@ -164,14 +164,13 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.storage.decommission.shuffleBlocks.enabled": "true",
         "spark.storage.replication.proactive": "true",
         "spark.scheduler.listenerbus.eventqueue.capacity": "200000",
-        # r9 Gold spent hours in Stage 627 FetchFailed loops because executors
-        # stopped heartbeating for ~10 min during heavy groupByKey shuffle/GC
-        # (HeartbeatReceiver timeout == spark.network.timeout). Raise the
-        # window so a long GC pause does not kill the shuffle map output.
-        "spark.rpc.askTimeout": "1800s",
-        "spark.network.timeout": "1800s",
+        # Field/relation resolution can still host multi-tens-of-minutes reduce
+        # tasks on skewed keys; keep HeartbeatReceiver above those stalls
+        # (timeout == spark.network.timeout).
+        "spark.rpc.askTimeout": "3600s",
+        "spark.network.timeout": "3600s",
         "spark.executor.heartbeatInterval": "30s",
-        "spark.shuffle.io.connectionTimeout": "1800s",
+        "spark.shuffle.io.connectionTimeout": "3600s",
         "spark.executor.extraJavaOptions": (
             "-XX:+UseG1GC -XX:InitiatingHeapOccupancyPercent=35 "
             "-XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=1000"

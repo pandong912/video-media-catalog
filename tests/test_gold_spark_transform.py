@@ -47,7 +47,9 @@ from video_media_catalog.gold import (
 )
 from video_media_catalog.gold_quality import GoldQualityStatus
 from video_media_catalog.gold_spark_transform import (
+    _materialize_resolution_values,
     _project_identifier_assertions,
+    _resolve_fields_rdd,
     _resolved_memberships,
     build_distributed_gold,
 )
@@ -126,6 +128,84 @@ def _object(path: Path, *, media_type: str, object_format: str) -> ObjectRef:
         size_bytes=len(payload),
         created_at="2026-09-19T00:00:00Z",
     )
+
+
+@pytest.mark.spark
+def test_resolution_shuffle_uses_reliable_checkpoint(
+    spark: SparkSession,
+) -> None:
+    values = spark.sparkContext.parallelize(
+        [("alpha", 1), ("alpha", 2), ("beta", 3)],
+        2,
+    ).reduceByKey(lambda left, right: left + right)
+
+    materialized = _materialize_resolution_values(
+        values,
+        label="test resolution",
+    )
+    try:
+        assert materialized.isCheckpointed()
+        assert materialized.getCheckpointFile()
+        assert dict(materialized.collect()) == {"alpha": 3, "beta": 3}
+    finally:
+        materialized.unpersist()
+
+
+@pytest.mark.spark
+def test_field_resolution_streams_single_values_after_checkpoint(
+    spark: SparkSession,
+) -> None:
+    priority = canonical_json(["src-a", "src-b"])
+
+    def row(
+        label: str,
+        *,
+        value: str,
+        source_product_id: str,
+    ) -> dict[str, object]:
+        assertion_id = "sha256:" + hashlib.sha256(label.encode()).hexdigest()
+        return {
+            "resolved_entity_key": "entity-a",
+            "predicate": "title",
+            "scope_json": "{}",
+            "resolution_operator": "SINGLE",
+            "source_priority_json": priority,
+            "value_type": "STRING",
+            "value_json": canonical_json(value),
+            "assertion_id": assertion_id,
+            "source_product_id": source_product_id,
+            "provenance_json": canonical_json(
+                {"sourcePath": "$.title", "citationKeys": []}
+            ),
+            "citation_keys_json": "[]",
+            "source_name": source_product_id,
+            "source_record_id": f"record-{label}",
+            "observed_at": "2026-10-01T00:00:00Z",
+            "rights_policy_id": "policy",
+            "rights_zone": "research_private",
+            "rights_license_id": "license",
+            "rights_license_uri": None,
+            "rights_attribution_text": "attr",
+            "source_documentation_url": "https://example.test",
+            "rights_share_alike": False,
+        }
+
+    drafts = _resolve_fields_rdd(
+        spark.sparkContext.parallelize(
+            [
+                row("alpha-primary", value="Alpha", source_product_id="src-a"),
+                row("alpha-secondary", value="Alpha", source_product_id="src-b"),
+                row("beta-secondary", value="Beta", source_product_id="src-b"),
+            ],
+            2,
+        )
+    ).collect()
+
+    assert len(drafts) == 1
+    kind, draft = drafts[0]
+    assert kind == "field"
+    assert draft.value == "Alpha"
+    assert len(draft.assertion_ids) == 3
 
 
 @pytest.mark.spark

@@ -66,6 +66,8 @@ def _input() -> GoldenBuildInput:
             research_silver_entry_point="local:///opt/research_silver_cli.py",
             gold_entry_point="local:///opt/gold_cli.py",
             image_digest="sha256:" + ("f" * 64),
+            gold_emr_application_name="gold-app",
+            gold_emr_log_uri="s3://bucket/gold-logs/",
         ),
     )
 

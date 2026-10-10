@@ -27,6 +27,14 @@ class GoldenBuildEnv:
     control_shuffle_partitions: int = 96
     build_executor_instances: int = 8
     build_shuffle_partitions: int = 432
+    gold_emr_application_name: str = ""
+    gold_emr_log_uri: str = ""
+    gold_executor_instances: int = 20
+    gold_executor_cores: int = 4
+    gold_executor_memory: str = "24g"
+    gold_executor_memory_overhead: str = "8g"
+    gold_executor_disk: str = "170G"
+    gold_shuffle_partitions: int = 1152
 
 
 @dataclass(frozen=True)

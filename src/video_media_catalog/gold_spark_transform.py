@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import groupby
 from typing import Any
 
 from video_media_catalog.attribution import (
@@ -109,6 +111,40 @@ def _seq_append(values: list[Any], value: Any) -> list[Any]:
 def _seq_extend(left: list[Any], right: list[Any]) -> list[Any]:
     left.extend(right)
     return left
+
+
+def _shuffle_partitions(values: Any) -> int:
+    partitions = int(
+        values.context.getConf().get(
+            "spark.sql.shuffle.partitions",
+            str(values.getNumPartitions()),
+        )
+    )
+    if partitions < 1:
+        raise ValueError("spark.sql.shuffle.partitions must be positive")
+    return partitions
+
+
+def _materialize_resolution_values(values: Any, *, label: str) -> Any:
+    """Reliably checkpoint a completed resolution shuffle before fan-out."""
+
+    from pyspark import StorageLevel
+
+    if not values.context.getCheckpointDir():
+        raise RuntimeError(f"{label} requires a configured Spark checkpoint directory")
+    materialized = values.persist(StorageLevel.DISK_ONLY_2)
+    try:
+        materialized.checkpoint()
+        materialized.count()
+        if not materialized.isCheckpointed():
+            raise RuntimeError("Spark did not commit the requested checkpoint")
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            materialized.unpersist()
+        raise RuntimeError(
+            f"{label} durable checkpoint failed; refusing downstream resolution"
+        ) from exc
+    return materialized
 
 
 def _materialize_drafts(drafts: Any, storage: Any) -> Any:
@@ -808,19 +844,31 @@ def _resolve_set_field_value(item: Any) -> list[tuple[str, Any]]:
 
 def _resolve_single_field_values(item: Any) -> list[tuple[str, Any]]:
     key, value_groups = item
-    by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+    by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
     for value_type, value_json, assertions in value_groups:
-        by_value[(value_type, value_json)] = list(assertions)
+        by_value[(value_type, value_json)].extend(assertions)
     return _resolve_field_from_grouped_values(key, by_value)
 
 
-def _resolve_fields_rdd(rows: Any) -> Any:
-    """Resolve fields via per-value combineByKey, then SINGLE merge.
+def _resolve_single_fields_partition(items: Any):
+    """Resolve one sorted SINGLE key at a time to bound Python heap usage."""
 
-    Collapsing duplicate (key, value) assertions before the SINGLE shuffle keeps
-    hot entity/predicate groups from materializing one giant groupByKey iterator.
+    for key, grouped_items in groupby(items, key=lambda item: item[0]):
+        by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
+        for _, (value_type, value_json, assertions) in grouped_items:
+            by_value[(value_type, value_json)].extend(assertions)
+        yield from _resolve_field_from_grouped_values(key, by_value)
+
+
+def _resolve_fields_rdd(rows: Any) -> Any:
+    """Resolve fields via a checkpointed per-value shuffle and streaming merge.
+
+    Collapsing duplicate (key, value) assertions first limits shuffle records.
+    Sorting the second shuffle lets each Python task retain only one SINGLE key
+    instead of a partition-wide map of unbounded lists.
     """
 
+    shuffle_partitions = _shuffle_partitions(rows)
     per_value = rows.map(
         lambda row: (
             (
@@ -838,7 +886,16 @@ def _resolve_fields_rdd(rows: Any) -> Any:
                 row["source_product_id"],
             ),
         )
-    ).combineByKey(_seq_create, _seq_append, _seq_extend)
+    ).combineByKey(
+        _seq_create,
+        _seq_append,
+        _seq_extend,
+        numPartitions=shuffle_partitions,
+    )
+    per_value = _materialize_resolution_values(
+        per_value,
+        label="Gold field per-value resolution",
+    )
 
     set_drafts = per_value.flatMap(_resolve_set_field_value)
     single_drafts = (
@@ -849,8 +906,8 @@ def _resolve_fields_rdd(rows: Any) -> Any:
                 (item[0][5], item[0][6], item[1]),
             )
         )
-        .combineByKey(_seq_create, _seq_append, _seq_extend)
-        .flatMap(_resolve_single_field_values)
+        .repartitionAndSortWithinPartitions(shuffle_partitions)
+        .mapPartitions(_resolve_single_fields_partition)
     )
     return set_drafts.union(single_drafts)
 
@@ -1151,13 +1208,24 @@ def _resolve_set_relation_object(item: Any) -> list[tuple[str, Any]]:
 
 def _resolve_single_relation_objects(item: Any) -> list[tuple[str, Any]]:
     key, object_groups = item
-    by_object = {
-        object_key: list(assertions) for object_key, assertions in object_groups
-    }
+    by_object: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    for object_key, assertions in object_groups:
+        by_object[object_key].extend(assertions)
     return _resolve_relation_from_grouped_objects(key, by_object)
 
 
+def _resolve_single_relations_partition(items: Any):
+    """Resolve one sorted SINGLE relation key at a time."""
+
+    for key, grouped_items in groupby(items, key=lambda item: item[0]):
+        by_object: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+        for _, (object_key, assertions) in grouped_items:
+            by_object[object_key].extend(assertions)
+        yield from _resolve_relation_from_grouped_objects(key, by_object)
+
+
 def _resolve_relations_rdd(rows: Any) -> Any:
+    shuffle_partitions = _shuffle_partitions(rows)
     per_object = rows.map(
         lambda row: (
             (
@@ -1174,7 +1242,16 @@ def _resolve_relations_rdd(rows: Any) -> Any:
                 row["source_product_id"],
             ),
         )
-    ).combineByKey(_seq_create, _seq_append, _seq_extend)
+    ).combineByKey(
+        _seq_create,
+        _seq_append,
+        _seq_extend,
+        numPartitions=shuffle_partitions,
+    )
+    per_object = _materialize_resolution_values(
+        per_object,
+        label="Gold relation per-object resolution",
+    )
 
     set_drafts = per_object.flatMap(_resolve_set_relation_object)
     single_drafts = (
@@ -1185,8 +1262,8 @@ def _resolve_relations_rdd(rows: Any) -> Any:
                 (item[0][5], item[1]),
             )
         )
-        .combineByKey(_seq_create, _seq_append, _seq_extend)
-        .flatMap(_resolve_single_relation_objects)
+        .repartitionAndSortWithinPartitions(shuffle_partitions)
+        .mapPartitions(_resolve_single_relations_partition)
     )
     return set_drafts.union(single_drafts)
 

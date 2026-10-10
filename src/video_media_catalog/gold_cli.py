@@ -197,6 +197,23 @@ def _read_termination_fence(path: Path) -> RightsTerminationFence:
     return RightsTerminationFence.model_validate_json(payload)
 
 
+def _ensure_gold_checkpoint_dir(spark: Any, warehouse: str) -> None:
+    """Configure reliable RDD checkpoints on durable catalog storage."""
+
+    context = spark.sparkContext
+    if context.getCheckpointDir():
+        return
+    context.setCheckpointDir(
+        join_uri(
+            warehouse,
+            "research",
+            "control",
+            "spark-checkpoints",
+            "gold",
+        )
+    )
+
+
 def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if not 0 <= parsed.max_conflict_ratio <= 1:
         raise ValueError("max-conflict-ratio must be between 0 and 1")
@@ -336,7 +353,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             }
         )
     config_digest = sha256_digest(canonical_json(nonsecret_config))
-    resolver_digest = sha256_digest("community-gold-spark-v3")
+    resolver_digest = sha256_digest("community-gold-spark-v4")
 
     from pyspark.sql import SparkSession
     from pyspark.sql import functions as F
@@ -353,6 +370,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if parsed.spark_packages:
         builder = builder.config("spark.jars.packages", parsed.spark_packages)
     spark = builder.getOrCreate()
+    _ensure_gold_checkpoint_dir(spark, parsed.warehouse)
     build = None
     try:
         silver_tables = CommunityCatalogTables(

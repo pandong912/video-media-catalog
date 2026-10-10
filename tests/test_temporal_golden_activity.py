@@ -43,13 +43,14 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     )
 
     assert parsed.max_attempts == 1
-    assert parsed.executor_instances == 12
-    assert parsed.shuffle_partitions == 288
+    assert parsed.executor_instances == 8
+    assert parsed.shuffle_partitions == 432
     assert parsed.executor_cores == 8
     assert parsed.executor_memory == "48g"
     assert parsed.executor_disk == "400G"
     assert parsed.driver_memory == "16g"
     assert parsed.driver_disk == "50G"
+    assert parsed.execution_timeout_minutes == 900
     assert parsed.client_token == golden_mod._stage_token(
         build_id=input_data.build_id,
         stage="identity",

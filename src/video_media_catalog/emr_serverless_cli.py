@@ -149,10 +149,13 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         # default one-hour exclusion timeout.
         "spark.excludeOnFailure.killExcludedExecutors": "true",
         "spark.excludeOnFailure.timeout": "24h",
-        "spark.task.maxFailures": "6",
-        "spark.stage.maxConsecutiveAttempts": "8",
-        "spark.shuffle.io.maxRetries": "8",
-        "spark.shuffle.io.retryWait": "10s",
+        "spark.task.maxFailures": "8",
+        # Gold field groupByKey can lose shuffle map outputs when an executor
+        # GC/stalls past the heartbeat window; allow more stage retries while
+        # network timeout absorbs the stall.
+        "spark.stage.maxConsecutiveAttempts": "20",
+        "spark.shuffle.io.maxRetries": "16",
+        "spark.shuffle.io.retryWait": "15s",
         # Preserve cached RDD and shuffle blocks during graceful executor
         # retirement. Abrupt executor loss is covered by replicated Gold RDDs.
         "spark.decommission.enabled": "true",
@@ -161,9 +164,18 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.storage.decommission.shuffleBlocks.enabled": "true",
         "spark.storage.replication.proactive": "true",
         "spark.scheduler.listenerbus.eventqueue.capacity": "200000",
-        "spark.rpc.askTimeout": "600s",
-        "spark.network.timeout": "600s",
-        "spark.executor.heartbeatInterval": "60s",
+        # r9 Gold spent hours in Stage 627 FetchFailed loops because executors
+        # stopped heartbeating for ~10 min during heavy groupByKey shuffle/GC
+        # (HeartbeatReceiver timeout == spark.network.timeout). Raise the
+        # window so a long GC pause does not kill the shuffle map output.
+        "spark.rpc.askTimeout": "1800s",
+        "spark.network.timeout": "1800s",
+        "spark.executor.heartbeatInterval": "30s",
+        "spark.shuffle.io.connectionTimeout": "1800s",
+        "spark.executor.extraJavaOptions": (
+            "-XX:+UseG1GC -XX:InitiatingHeapOccupancyPercent=35 "
+            "-XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=1000"
+        ),
         "spark.emr-serverless.driver.disk": parsed.driver_disk,
         "spark.emr-serverless.executor.disk": parsed.executor_disk,
         "spark.emr-serverless.driver.disk.type": "SHUFFLE_OPTIMIZED",

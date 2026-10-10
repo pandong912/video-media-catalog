@@ -67,6 +67,9 @@ _GOLD_DRIVER_MEMORY = "16g"
 _GOLD_DRIVER_MEMORY_OVERHEAD = "4g"
 _GOLD_DRIVER_DISK = "50G"
 _GOLD_REPLACEMENT_EXECUTORS = 1
+_DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS = 36
+_DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO = 0.05
+_MAX_GOLD_FRESHNESS_SLO_HOURS = 45 * 24
 
 
 def _digest(body: bytes) -> str:
@@ -264,6 +267,33 @@ def _validate_preflight_documents(
 ) -> GoldenPreflightResult:
     if not _BUILD_ID.fullmatch(input_data.build_id):
         raise NonRetryableGoldenBuildError("build_id must be a lower-case slug")
+    env = input_data.env
+    if not (1 <= env.gold_tmdb_freshness_slo_hours <= _MAX_GOLD_FRESHNESS_SLO_HOURS):
+        raise NonRetryableGoldenBuildError(
+            "Gold TMDB freshness SLO must be between 1 and 1080 hours"
+        )
+    if not 0 <= env.gold_max_unresolved_identity_ratio <= 1:
+        raise NonRetryableGoldenBuildError(
+            "Gold unresolved identity ratio threshold must be between 0 and 1"
+        )
+    quality_override_enabled = (
+        env.gold_tmdb_freshness_slo_hours != _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS
+        or env.gold_max_unresolved_identity_ratio
+        != _DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO
+    )
+    quality_override_reason = env.gold_quality_override_reason.strip()
+    if quality_override_enabled and not quality_override_reason:
+        raise NonRetryableGoldenBuildError(
+            "temporary Gold quality override requires an audit reason"
+        )
+    if not quality_override_enabled and quality_override_reason:
+        raise NonRetryableGoldenBuildError(
+            "temporary Gold quality override reason requires non-default thresholds"
+        )
+    if len(quality_override_reason) > 512:
+        raise NonRetryableGoldenBuildError(
+            "temporary Gold quality override reason exceeds 512 characters"
+        )
     baseline_sources = tuple(
         sorted(
             {
@@ -356,7 +386,7 @@ def _validate_preflight_documents(
         input_data.build_id
     )
     freshness_policy_digest = research_release_freshness_policy(
-        tmdb_slo_hours=36,
+        tmdb_slo_hours=input_data.env.gold_tmdb_freshness_slo_hours,
         tvmaze_slo_hours=tvmaze_slo,
         imdb_slo_hours=imdb_slo,
         wikidata_slo_hours=45 * 24,
@@ -574,6 +604,24 @@ def prepare_golden_build(
                 else {}
             ),
             "freshnessPolicyDigest": preflight.freshness_policy_digest,
+            "goldQualityThresholds": {
+                "tmdbFreshnessSloHours": (input_data.env.gold_tmdb_freshness_slo_hours),
+                "maxUnresolvedIdentityRatio": (
+                    input_data.env.gold_max_unresolved_identity_ratio
+                ),
+                "temporaryOverride": bool(
+                    input_data.env.gold_quality_override_reason.strip()
+                ),
+                **(
+                    {
+                        "temporaryOverrideReason": (
+                            input_data.env.gold_quality_override_reason.strip()
+                        )
+                    }
+                    if input_data.env.gold_quality_override_reason.strip()
+                    else {}
+                ),
+            },
             "freshnessOverride": {
                 "reason": input_data.freshness_override.reason,
                 "boundedMaxSloHours": (input_data.freshness_override.max_slo_hours),
@@ -1175,6 +1223,21 @@ def _validate_release_documents(
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks one or more required sources"
         )
+    tmdb = sources["tmdb-research"]
+    if (
+        int(tmdb.get("sloHours") or 0) != input_data.env.gold_tmdb_freshness_slo_hours
+        or tmdb.get("status") != "PASS"
+        or float(tmdb.get("effectiveAgeHours") or 0)
+        >= input_data.env.gold_tmdb_freshness_slo_hours
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Gold quality report lacks the pinned TMDB freshness threshold"
+        )
+    unresolved_ratio = float(quality.get("unresolvedIdentityRatio", -1))
+    if not (0 <= unresolved_ratio <= input_data.env.gold_max_unresolved_identity_ratio):
+        raise NonRetryableGoldenBuildError(
+            "Gold quality report exceeds the pinned unresolved identity threshold"
+        )
     override = freshness.get("overrideEvidence") or {}
     if override.get("reason") != input_data.freshness_override.reason.strip() or tuple(
         sorted(override.get("sourceProductIds") or ())
@@ -1271,8 +1334,10 @@ def submit_golden_release(
             "--return-failed-quality-summary",
             "--image-digest",
             env.image_digest,
+            "--max-unresolved-identity-ratio",
+            str(env.gold_max_unresolved_identity_ratio),
             "--tmdb-freshness-slo-hours",
-            "36",
+            str(env.gold_tmdb_freshness_slo_hours),
             "--tvmaze-freshness-slo-hours",
             str(preflight.tvmaze_slo_hours),
             "--imdb-freshness-slo-hours",

@@ -58,6 +58,11 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
         ),
         gold_executor_disk=str(values.get("goldExecutorDisk", "170G")),
         gold_shuffle_partitions=int(values.get("goldShufflePartitions", 1152)),
+        gold_tmdb_freshness_slo_hours=int(values.get("goldTmdbFreshnessSloHours", 36)),
+        gold_max_unresolved_identity_ratio=float(
+            values.get("goldMaxUnresolvedIdentityRatio", 0.05)
+        ),
+        gold_quality_override_reason=str(values.get("goldQualityOverrideReason", "")),
     )
 
 

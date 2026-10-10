@@ -55,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--executor-instances", type=int, default=4)
     parser.add_argument("--shuffle-partitions", type=int, default=96)
     parser.add_argument(
+        "--enable-speculation",
+        action="store_true",
+        help="relaunch bounded stragglers after most tasks in a stage complete",
+    )
+    parser.add_argument(
         "entry_point_arguments",
         nargs=argparse.REMAINDER,
         help="arguments after -- are forwarded to the packaged PySpark entry point",
@@ -121,6 +126,7 @@ def _application_id(client: Any, name: str) -> str:
 
 def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
     python = "/opt/video-media-catalog/.venv/bin/python"
+    speculation_enabled = bool(getattr(parsed, "enable_speculation", False))
     properties = {
         "spark.driver.cores": str(parsed.driver_cores),
         "spark.driver.memory": parsed.driver_memory,
@@ -136,7 +142,7 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.sql.adaptive.skewJoin.skewedPartitionFactor": "3",
         "spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes": "64m",
         "spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m",
-        "spark.speculation": "false",
+        "spark.speculation": str(speculation_enabled).lower(),
         # Transient S3/Iceberg read failures can leave an executor's AWS SDK
         # connection pool shut down; pin retries away from that executor.
         "spark.excludeOnFailure.enabled": "true",
@@ -183,6 +189,19 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.emr-serverless.driverEnv.PYSPARK_PYTHON": python,
         "spark.executorEnv.PYSPARK_PYTHON": python,
     }
+    if speculation_enabled:
+        # A full local disk can leave already-assigned tasks alive even after
+        # Spark excludes the executor for the stage. Relaunch only after 90%
+        # completion and five minutes so normal skew is not duplicated.
+        properties.update(
+            {
+                "spark.speculation.interval": "10s",
+                "spark.speculation.multiplier": "4",
+                "spark.speculation.quantile": "0.9",
+                "spark.speculation.minTaskRuntime": "300s",
+                "spark.speculation.efficiency.enabled": "false",
+            }
+        )
     if parsed.driver_memory_overhead:
         properties["spark.driver.memoryOverhead"] = parsed.driver_memory_overhead
     if parsed.executor_memory_overhead:

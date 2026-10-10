@@ -796,6 +796,7 @@ def _emr_namespace(
                 else env.build_shuffle_partitions
             )
         ),
+        enable_speculation=gold_release,
         entry_point_arguments=entry_args,
     )
 

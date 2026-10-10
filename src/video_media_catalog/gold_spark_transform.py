@@ -87,6 +87,12 @@ class GoldSparkBuild:
             frame.unpersist()
 
 
+@dataclass(frozen=True)
+class _ResolutionRDDs:
+    drafts: Any
+    checkpointed_values: Any
+
+
 def _draft_kind_counts(drafts: Any) -> dict[str, int]:
     # Count kinds with a narrow (kind -> 1) shuffle instead of treeAggregate over
     # full draft payloads. The expensive work is computing `drafts`; this only
@@ -132,7 +138,9 @@ def _materialize_resolution_values(values: Any, *, label: str) -> Any:
 
     if not values.context.getCheckpointDir():
         raise RuntimeError(f"{label} requires a configured Spark checkpoint directory")
-    materialized = values.persist(StorageLevel.DISK_ONLY_2)
+    # The reliable checkpoint is on durable object storage, so a second local
+    # replica only doubles executor-disk pressure without improving recovery.
+    materialized = values.persist(StorageLevel.DISK_ONLY)
     try:
         materialized.checkpoint()
         materialized.count()
@@ -140,7 +148,7 @@ def _materialize_resolution_values(values: Any, *, label: str) -> Any:
             raise RuntimeError("Spark did not commit the requested checkpoint")
     except Exception as exc:
         with contextlib.suppress(Exception):
-            materialized.unpersist()
+            materialized.unpersist(blocking=True)
         raise RuntimeError(
             f"{label} durable checkpoint failed; refusing downstream resolution"
         ) from exc
@@ -150,16 +158,43 @@ def _materialize_resolution_values(values: Any, *, label: str) -> Any:
 def _materialize_drafts(drafts: Any, storage: Any) -> Any:
     """Persist drafts before fan-out so metrics/downstream do not recompute them.
 
-    Uses DISK_ONLY_2 replicas from the caller. When a Spark checkpoint directory
-    is configured, also checkpoint to truncate lineage after the first success.
+    When a Spark checkpoint directory is configured, checkpoint to durable
+    storage so one local disk replica can be recovered without replaying the
+    resolution shuffles.
     """
     materialized = drafts.persist(storage)
     checkpoint_dir = materialized.context.getCheckpointDir()
-    if checkpoint_dir:
-        materialized.checkpoint()
-    # Force materialization before any fan-out of actions.
-    materialized.count()
+    try:
+        if checkpoint_dir:
+            materialized.checkpoint()
+        # Force materialization before any fan-out of actions.
+        materialized.count()
+        if checkpoint_dir and not materialized.isCheckpointed():
+            raise RuntimeError("Spark did not commit the requested draft checkpoint")
+    except Exception:
+        with contextlib.suppress(Exception):
+            materialized.unpersist(blocking=True)
+        raise
     return materialized
+
+
+def _materialize_resolution_drafts(
+    resolution: _ResolutionRDDs,
+    storage: Any,
+) -> Any:
+    """Materialize drafts, then deterministically release the source shuffle."""
+
+    try:
+        return _materialize_drafts(resolution.drafts, storage)
+    finally:
+        resolution.checkpointed_values.unpersist(blocking=True)
+
+
+def _unpersist_blocking(*values: Any) -> None:
+    """Release executor storage before starting the next large shuffle."""
+
+    for value in values:
+        value.unpersist(blocking=True)
 
 
 def _resolved_memberships(
@@ -860,7 +895,7 @@ def _resolve_single_fields_partition(items: Any):
         yield from _resolve_field_from_grouped_values(key, by_value)
 
 
-def _resolve_fields_rdd(rows: Any) -> Any:
+def _resolve_fields_rdd(rows: Any) -> _ResolutionRDDs:
     """Resolve fields via a checkpointed per-value shuffle and streaming merge.
 
     Collapsing duplicate (key, value) assertions first limits shuffle records.
@@ -909,7 +944,10 @@ def _resolve_fields_rdd(rows: Any) -> Any:
         .repartitionAndSortWithinPartitions(shuffle_partitions)
         .mapPartitions(_resolve_single_fields_partition)
     )
-    return set_drafts.union(single_drafts)
+    return _ResolutionRDDs(
+        drafts=set_drafts.union(single_drafts),
+        checkpointed_values=per_value,
+    )
 
 
 def _project_identifier_assertions(
@@ -1224,7 +1262,7 @@ def _resolve_single_relations_partition(items: Any):
         yield from _resolve_relation_from_grouped_objects(key, by_object)
 
 
-def _resolve_relations_rdd(rows: Any) -> Any:
+def _resolve_relations_rdd(rows: Any) -> _ResolutionRDDs:
     shuffle_partitions = _shuffle_partitions(rows)
     per_object = rows.map(
         lambda row: (
@@ -1265,7 +1303,10 @@ def _resolve_relations_rdd(rows: Any) -> Any:
         .repartitionAndSortWithinPartitions(shuffle_partitions)
         .mapPartitions(_resolve_single_relations_partition)
     )
-    return set_drafts.union(single_drafts)
+    return _ResolutionRDDs(
+        drafts=set_drafts.union(single_drafts),
+        checkpointed_values=per_object,
+    )
 
 
 def build_distributed_gold(
@@ -1326,10 +1367,10 @@ def build_distributed_gold(
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
 
-    # These drafts feed several downstream actions. Materialize two disk
-    # replicas before composing Stage 939 so one executor loss cannot force the
-    # three expensive resolution shuffles to replay from Iceberg.
-    draft_storage = StorageLevel.DISK_ONLY_2
+    # Drafts are also reliably checkpointed to object storage. Keep one local
+    # replica for speed; a second copy can exhaust an executor before the final
+    # attribution shuffle without adding recovery guarantees.
+    draft_storage = StorageLevel.DISK_ONLY
     bounded_run_ids = committed_runs is None
     if committed_runs is None:
         if not committed_run_ids:
@@ -1462,13 +1503,14 @@ def build_distributed_gold(
         resolvable_fields = ruled_fields.where(
             F.col("resolution_operator") != ResolutionOperator.NEVER_RESOLVE.value
         )
-        field_drafts = _materialize_drafts(
+        field_drafts = _materialize_resolution_drafts(
             _resolve_fields_rdd(resolvable_fields.rdd),
             draft_storage,
         )
         field_metrics = _draft_kind_counts(field_drafts)
         field_count = int(field_metrics.get("field", 0))
         field_conflict_count = int(field_metrics.get("conflict", 0))
+        _unpersist_blocking(resolved_fields)
 
         identifier_rule_udf = _field_rule_udf(
             field_policy,
@@ -1501,6 +1543,7 @@ def build_distributed_gold(
         identifier_never_count = ruled_identifiers.where(
             F.col("resolution_operator") == ResolutionOperator.NEVER_RESOLVE.value
         ).count()
+        _unpersist_blocking(resolved_identifiers, projected_identifiers)
         resolvable_identifiers = ruled_identifiers.where(
             F.col("resolution_operator") != ResolutionOperator.NEVER_RESOLVE.value
         )
@@ -1594,6 +1637,11 @@ def build_distributed_gold(
         )
         identifier_count = identifier_drafts.count()
         identifier_conflict_count = identifier_conflict_drafts.count()
+        _unpersist_blocking(
+            identifier_conflict_keys,
+            conflicting_identifiers,
+            publishable_identifiers,
+        )
 
         resolved_relation_subjects, rel_withheld, rel_subject_unresolved = (
             _eligible_assertions(
@@ -1653,13 +1701,15 @@ def build_distributed_gold(
         rel_object_unresolved = (
             resolvable_relation_subjects.count() - resolved_relations.count()
         )
-        relation_drafts = _materialize_drafts(
+        _unpersist_blocking(resolved_relation_subjects, ruled_relation_subjects)
+        relation_drafts = _materialize_resolution_drafts(
             _resolve_relations_rdd(resolved_relations.rdd),
             draft_storage,
         )
         relation_metrics = _draft_kind_counts(relation_drafts)
         relation_count = int(relation_metrics.get("relation", 0))
         relation_conflict_count = int(relation_metrics.get("conflict", 0))
+        _unpersist_blocking(current_source_envelope_keys)
 
         used_entity_keys = (
             field_drafts.map(lambda item: (item[1].entity_key,))
@@ -1756,6 +1806,19 @@ def build_distributed_gold(
             .count()
         )
 
+        conflict_count = (
+            field_conflict_count + identifier_conflict_count + relation_conflict_count
+        )
+        entity_count = entity_summary.count()
+        table_counts = {
+            "community_gold_entity": entity_count,
+            "community_gold_field": field_count,
+            "community_gold_identifier": identifier_count,
+            "community_gold_relation": relation_count,
+            "community_gold_conflict": conflict_count,
+        }
+        _unpersist_blocking(memberships)
+
         policy_usage = (
             resolvable_fields.select(
                 "source_product_id",
@@ -1781,18 +1844,8 @@ def build_distributed_gold(
             .count()
             .collect()
         )
+        _unpersist_blocking(ruled_fields, ruled_identifiers, resolved_relations)
 
-        conflict_count = (
-            field_conflict_count + identifier_conflict_count + relation_conflict_count
-        )
-        entity_count = entity_summary.count()
-        table_counts = {
-            "community_gold_entity": entity_count,
-            "community_gold_field": field_count,
-            "community_gold_identifier": identifier_count,
-            "community_gold_relation": relation_count,
-            "community_gold_conflict": conflict_count,
-        }
         plan = build_gold_release_plan(
             policy_context=policy_context,
             committed_run_ids=committed_run_ids,

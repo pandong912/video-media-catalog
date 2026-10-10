@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("pyspark")
 
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession
 
 from video_media_catalog.assertions import (
@@ -47,6 +48,7 @@ from video_media_catalog.gold import (
 )
 from video_media_catalog.gold_quality import GoldQualityStatus
 from video_media_catalog.gold_spark_transform import (
+    _materialize_resolution_drafts,
     _materialize_resolution_values,
     _project_identifier_assertions,
     _resolve_fields_rdd,
@@ -190,7 +192,7 @@ def test_field_resolution_streams_single_values_after_checkpoint(
             "rights_share_alike": False,
         }
 
-    drafts = _resolve_fields_rdd(
+    resolution = _resolve_fields_rdd(
         spark.sparkContext.parallelize(
             [
                 row("alpha-primary", value="Alpha", source_product_id="src-a"),
@@ -199,7 +201,16 @@ def test_field_resolution_streams_single_values_after_checkpoint(
             ],
             2,
         )
-    ).collect()
+    )
+    materialized = _materialize_resolution_drafts(
+        resolution,
+        StorageLevel.DISK_ONLY,
+    )
+    try:
+        assert not resolution.checkpointed_values.getStorageLevel().useDisk
+        drafts = materialized.collect()
+    finally:
+        materialized.unpersist(blocking=True)
 
     assert len(drafts) == 1
     kind, draft = drafts[0]

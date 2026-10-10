@@ -35,6 +35,9 @@ class GoldenBuildEnv:
     gold_executor_memory_overhead: str = "8g"
     gold_executor_disk: str = "170G"
     gold_shuffle_partitions: int = 1152
+    gold_tmdb_freshness_slo_hours: int = 36
+    gold_max_unresolved_identity_ratio: float = 0.05
+    gold_quality_override_reason: str = ""
 
 
 @dataclass(frozen=True)

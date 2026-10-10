@@ -10,6 +10,7 @@ from test_temporal_golden_models import _input, _ref, _run
 from video_media_catalog.community_snapshot import SILVER_EPOCH_MEDIA_TYPE
 from video_media_catalog.temporal.activities import golden as golden_mod
 from video_media_catalog.temporal.golden_models import (
+    GoldenEpochResult,
     GoldenIdentityResult,
     GoldenPreflightResult,
 )
@@ -112,6 +113,89 @@ def test_golden_release_rejects_capacity_without_replacement_headroom() -> None:
             workflow_run_id="temporal-run-1",
             control_profile=False,
         )
+
+
+def test_golden_release_passes_pinned_temporary_quality_thresholds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _input()
+    input_data = replace(
+        base,
+        env=replace(
+            base.env,
+            gold_tmdb_freshness_slo_hours=72,
+            gold_max_unresolved_identity_ratio=0.12,
+            gold_quality_override_reason="One-time r15 publication authorization.",
+        ),
+    )
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=(),
+        tmdb_source_run_ids=input_data.tmdb_source_run_ids,
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(80),
+        identity_config_digest=_run(81),
+        identity_resolution_config_digest=_run(82),
+        identity_bound_config_digest=_run(83),
+    )
+    epoch = GoldenEpochResult(
+        epoch_id=_run(84),
+        epoch=replace(
+            _ref("s3://bucket/epoch.json"),
+            media_type=SILVER_EPOCH_MEDIA_TYPE,
+        ),
+        committed_run_count=20,
+        committed_run_digest=_run(85),
+        data_snapshot_ids={"community_ingest_run": 1},
+        job_run_id="epoch-job",
+    )
+    observed_args: list[str] = []
+
+    def fake_stage(**kwargs: Any) -> tuple[dict[str, Any], str]:
+        observed_args.extend(kwargs["entry_args"])
+        raise golden_mod.NonRetryableGoldenBuildError("stop after capturing args")
+
+    monkeypatch.setattr(golden_mod, "_run_emr_stage", fake_stage)
+    monkeypatch.setattr(
+        golden_mod.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_run_id="temporal-run-1"),
+    )
+    monkeypatch.setattr(
+        golden_mod,
+        "classify_golden_build_exception",
+        lambda exc: exc,
+    )
+
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="stop after capturing args",
+    ):
+        golden_mod.submit_golden_release(
+            input_data,
+            preflight,
+            epoch,
+            "2026-10-09T00:00:00Z",
+        )
+
+    assert (
+        golden_mod._single_argument(
+            observed_args,
+            "--tmdb-freshness-slo-hours",
+        )
+        == "72"
+    )
+    assert (
+        golden_mod._single_argument(
+            observed_args,
+            "--max-unresolved-identity-ratio",
+        )
+        == "0.12"
+    )
 
 
 def test_golden_emr_stage_resumes_job_from_matching_heartbeat(

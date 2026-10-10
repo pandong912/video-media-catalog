@@ -4,6 +4,7 @@ from dataclasses import asdict, replace
 
 import pytest
 
+from video_media_catalog.gold_freshness import research_release_freshness_policy
 from video_media_catalog.temporal.activities.golden import (
     _validate_preflight_documents,
 )
@@ -114,6 +115,60 @@ def test_preflight_pins_nineteen_runs_and_minimum_freshness_slos() -> None:
     assert result.tvmaze_age_hours <= result.tvmaze_slo_hours
 
 
+def test_preflight_applies_audited_temporary_quality_thresholds() -> None:
+    base = _input()
+    input_data = replace(
+        base,
+        env=replace(
+            base.env,
+            gold_tmdb_freshness_slo_hours=72,
+            gold_max_unresolved_identity_ratio=0.12,
+            gold_quality_override_reason="One-time r15 publication authorization.",
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert (
+        result.freshness_policy_digest
+        == research_release_freshness_policy(
+            tmdb_slo_hours=72,
+            tvmaze_slo_hours=result.tvmaze_slo_hours,
+            imdb_slo_hours=result.imdb_slo_hours,
+            wikidata_slo_hours=45 * 24,
+        ).digest
+    )
+
+
+def test_preflight_requires_audit_reason_for_non_default_quality_thresholds() -> None:
+    base = _input()
+    input_data = replace(
+        base,
+        env=replace(
+            base.env,
+            gold_max_unresolved_identity_ratio=0.12,
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="requires an audit reason",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
 def test_preflight_rejects_a_different_tmdb_run_set() -> None:
     input_data = _input()
     baseline, tmdb = _documents(input_data)
@@ -163,3 +218,6 @@ def test_golden_input_is_temporal_serializable() -> None:
     payload = asdict(_input())
     assert payload["identity_generation_id"] == "pure-source-2026-09-r1"
     assert len(payload["tmdb_source_run_ids"]) == 15
+    assert payload["env"]["gold_tmdb_freshness_slo_hours"] == 36
+    assert payload["env"]["gold_max_unresolved_identity_ratio"] == 0.05
+    assert payload["env"]["gold_quality_override_reason"] == ""

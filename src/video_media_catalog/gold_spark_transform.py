@@ -766,7 +766,13 @@ def _resolve_field_group(item):
         raw_values,
     ) = item
     by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
-    for value_type, value_json, assertion_id, lineage_json, source_product_id in raw_values:
+    for (
+        value_type,
+        value_json,
+        assertion_id,
+        lineage_json,
+        source_product_id,
+    ) in raw_values:
         by_value[(value_type, value_json)].append(
             (assertion_id, lineage_json, source_product_id)
         )

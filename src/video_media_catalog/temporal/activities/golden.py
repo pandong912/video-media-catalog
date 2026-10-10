@@ -58,6 +58,15 @@ _EXPECTED_SOURCE_PRODUCTS = {
     "tvmaze-public-api",
     "wikidata-json-dump",
 }
+_GIB_RESOURCE = re.compile(r"^([1-9][0-9]*)[gG]$")
+_GOLD_EMR_MAX_VCPU = 128
+_GOLD_EMR_MAX_MEMORY_GIB = 768
+_GOLD_EMR_MAX_DISK_GIB = 4000
+_GOLD_DRIVER_CORES = 4
+_GOLD_DRIVER_MEMORY = "16g"
+_GOLD_DRIVER_MEMORY_OVERHEAD = "4g"
+_GOLD_DRIVER_DISK = "50G"
+_GOLD_REPLACEMENT_EXECUTORS = 1
 
 
 def _digest(body: bytes) -> str:
@@ -649,6 +658,78 @@ def _stage_token(
     return f"gold-{stage[:8]}-{digest[:44]}"
 
 
+def _resource_gib(value: str, *, label: str) -> int:
+    match = _GIB_RESOURCE.fullmatch(value.strip())
+    if match is None:
+        raise NonRetryableGoldenBuildError(
+            f"{label} must be a positive whole GiB value such as 24g or 170G"
+        )
+    return int(match.group(1))
+
+
+def _validate_gold_emr_capacity(input_data: GoldenBuildInput) -> None:
+    """Keep the Gold request below its dedicated app, including replacement room."""
+
+    env = input_data.env
+    if (
+        env.gold_emr_application_name
+        and env.gold_emr_application_name == env.emr_application_name
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Gold release must use a dedicated EMR Serverless application"
+        )
+    if env.gold_executor_instances < 1 or env.gold_executor_cores < 1:
+        raise NonRetryableGoldenBuildError(
+            "Gold executor instances and cores must be positive"
+        )
+    if env.gold_shuffle_partitions < 1:
+        raise NonRetryableGoldenBuildError("Gold shuffle partitions must be positive")
+
+    executor_slots = env.gold_executor_instances + _GOLD_REPLACEMENT_EXECUTORS
+    requested_vcpu = _GOLD_DRIVER_CORES + executor_slots * env.gold_executor_cores
+    requested_memory = (
+        _resource_gib(_GOLD_DRIVER_MEMORY, label="Gold driver memory")
+        + _resource_gib(
+            _GOLD_DRIVER_MEMORY_OVERHEAD,
+            label="Gold driver memory overhead",
+        )
+        + executor_slots
+        * (
+            _resource_gib(
+                env.gold_executor_memory,
+                label="Gold executor memory",
+            )
+            + _resource_gib(
+                env.gold_executor_memory_overhead,
+                label="Gold executor memory overhead",
+            )
+        )
+    )
+    requested_disk = _resource_gib(
+        _GOLD_DRIVER_DISK,
+        label="Gold driver disk",
+    ) + executor_slots * _resource_gib(
+        env.gold_executor_disk,
+        label="Gold executor disk",
+    )
+    requested = {
+        "vCPU": (requested_vcpu, _GOLD_EMR_MAX_VCPU),
+        "GiB memory": (requested_memory, _GOLD_EMR_MAX_MEMORY_GIB),
+        "GiB disk": (requested_disk, _GOLD_EMR_MAX_DISK_GIB),
+    }
+    exceeded = [
+        f"{label} {actual}>{limit}"
+        for label, (actual, limit) in requested.items()
+        if actual > limit
+    ]
+    if exceeded:
+        raise NonRetryableGoldenBuildError(
+            "Gold EMR request exceeds the dedicated application capacity "
+            f"including {_GOLD_REPLACEMENT_EXECUTORS} replacement executor: "
+            + ", ".join(exceeded)
+        )
+
+
 def _emr_namespace(
     *,
     input_data: GoldenBuildInput,
@@ -659,8 +740,15 @@ def _emr_namespace(
     control_profile: bool,
 ) -> argparse.Namespace:
     env = input_data.env
+    gold_release = stage == "release"
+    if gold_release:
+        _validate_gold_emr_capacity(input_data)
     return argparse.Namespace(
-        application_name=env.emr_application_name,
+        application_name=(
+            (env.gold_emr_application_name or env.emr_application_name)
+            if gold_release
+            else env.emr_application_name
+        ),
         execution_role_arn=env.emr_execution_role_arn,
         job_name=f"gold-{stage}-{input_data.build_id}"[:64],
         client_token=_stage_token(
@@ -669,30 +757,44 @@ def _emr_namespace(
             workflow_run_id=workflow_run_id,
         ),
         entry_point=entry_point,
-        log_uri=env.emr_log_uri,
+        log_uri=(
+            (env.gold_emr_log_uri or env.emr_log_uri)
+            if gold_release
+            else env.emr_log_uri
+        ),
         aws_region=env.aws_region,
         poll_seconds=15,
         # Gold field-resolution shuffle can exceed 12h when FetchFailed retries
         # dominate; keep headroom above the single clean pass (~4-8h).
         execution_timeout_minutes=900,
         max_attempts=1,
-        driver_cores=4,
-        driver_memory="16g",
-        driver_memory_overhead=None,
-        driver_disk="50G",
-        executor_cores=8,
-        executor_memory="48g",
-        executor_memory_overhead=None,
-        executor_disk="400G",
+        driver_cores=_GOLD_DRIVER_CORES,
+        driver_memory=_GOLD_DRIVER_MEMORY,
+        driver_memory_overhead=(_GOLD_DRIVER_MEMORY_OVERHEAD if gold_release else None),
+        driver_disk=_GOLD_DRIVER_DISK,
+        executor_cores=(env.gold_executor_cores if gold_release else 8),
+        executor_memory=(env.gold_executor_memory if gold_release else "48g"),
+        executor_memory_overhead=(
+            env.gold_executor_memory_overhead if gold_release else None
+        ),
+        executor_disk=(env.gold_executor_disk if gold_release else "400G"),
         executor_instances=(
-            env.control_executor_instances
-            if control_profile
-            else env.build_executor_instances
+            env.gold_executor_instances
+            if gold_release
+            else (
+                env.control_executor_instances
+                if control_profile
+                else env.build_executor_instances
+            )
         ),
         shuffle_partitions=(
-            env.control_shuffle_partitions
-            if control_profile
-            else env.build_shuffle_partitions
+            env.gold_shuffle_partitions
+            if gold_release
+            else (
+                env.control_shuffle_partitions
+                if control_profile
+                else env.build_shuffle_partitions
+            )
         ),
         entry_point_arguments=entry_args,
     )
@@ -757,7 +859,7 @@ def _run_emr_stage(
     )
     summary = read_driver_json_summary(
         s3_client=_s3_client(input_data.env.aws_region),
-        log_uri=input_data.env.emr_log_uri,
+        log_uri=parsed.log_uri,
         application_id=application_id,
         job_run_id=job_run_id,
         required_keys=required_keys,

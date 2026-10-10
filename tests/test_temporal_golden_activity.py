@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -56,6 +57,51 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
         stage="identity",
         workflow_run_id="temporal-run-1",
     )
+
+
+def test_golden_release_uses_dedicated_capacity_with_replacement_headroom() -> None:
+    input_data = _input()
+
+    parsed = golden_mod._emr_namespace(
+        input_data=input_data,
+        stage="release",
+        entry_point=input_data.env.gold_entry_point,
+        entry_args=["--silver-snapshot-uri", "s3://bucket/snapshot.json"],
+        workflow_run_id="temporal-run-1",
+        control_profile=False,
+    )
+
+    assert parsed.application_name == "gold-app"
+    assert parsed.log_uri == "s3://bucket/gold-logs/"
+    assert parsed.executor_instances == 20
+    assert parsed.executor_cores == 4
+    assert parsed.executor_memory == "24g"
+    assert parsed.executor_memory_overhead == "8g"
+    assert parsed.executor_disk == "170G"
+    assert parsed.shuffle_partitions == 1152
+    assert parsed.driver_memory_overhead == "4g"
+
+
+def test_golden_release_rejects_capacity_without_replacement_headroom() -> None:
+    input_data = _input()
+    oversized_env = replace(
+        input_data.env,
+        gold_executor_instances=23,
+        gold_executor_disk="170G",
+    )
+
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="including 1 replacement executor",
+    ):
+        golden_mod._emr_namespace(
+            input_data=replace(input_data, env=oversized_env),
+            stage="release",
+            entry_point=input_data.env.gold_entry_point,
+            entry_args=["--silver-snapshot-uri", "s3://bucket/snapshot.json"],
+            workflow_run_id="temporal-run-1",
+            control_profile=False,
+        )
 
 
 def test_golden_emr_stage_resumes_job_from_matching_heartbeat(

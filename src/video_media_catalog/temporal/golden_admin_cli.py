@@ -44,8 +44,20 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
         glue_namespace=str(values.get("glueNamespace", "video_media_catalog")),
         control_executor_instances=int(values.get("controlExecutorInstances", 4)),
         control_shuffle_partitions=int(values.get("controlShufflePartitions", 96)),
-        build_executor_instances=int(values.get("buildExecutorInstances", 12)),
-        build_shuffle_partitions=int(values.get("buildShufflePartitions", 288)),
+        build_executor_instances=int(values.get("buildExecutorInstances", 8)),
+        build_shuffle_partitions=int(values.get("buildShufflePartitions", 432)),
+        gold_emr_application_name=str(
+            values.get("goldEmrApplicationName", values["emrApplicationName"])
+        ),
+        gold_emr_log_uri=str(values.get("goldEmrLogUri", values["emrLogUri"])),
+        gold_executor_instances=int(values.get("goldExecutorInstances", 20)),
+        gold_executor_cores=int(values.get("goldExecutorCores", 4)),
+        gold_executor_memory=str(values.get("goldExecutorMemory", "24g")),
+        gold_executor_memory_overhead=str(
+            values.get("goldExecutorMemoryOverhead", "8g")
+        ),
+        gold_executor_disk=str(values.get("goldExecutorDisk", "170G")),
+        gold_shuffle_partitions=int(values.get("goldShufflePartitions", 1152)),
     )
 
 

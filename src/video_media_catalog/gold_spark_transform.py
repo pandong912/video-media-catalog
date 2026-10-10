@@ -86,20 +86,44 @@ class GoldSparkBuild:
 
 
 def _draft_kind_counts(drafts: Any) -> dict[str, int]:
-    def accumulate(counts: dict[str, int], item: tuple[str, Any]) -> dict[str, int]:
-        kind = item[0]
-        counts[kind] = counts.get(kind, 0) + 1
-        return counts
+    # Count kinds with a narrow (kind -> 1) shuffle instead of treeAggregate over
+    # full draft payloads. The expensive work is computing `drafts`; this only
+    # tallies already-materialized rows.
+    return {
+        str(kind): int(count)
+        for kind, count in drafts.map(lambda item: (item[0], 1))
+        .reduceByKey(lambda left, right: left + right)
+        .collect()
+    }
 
-    def merge(
-        left: dict[str, int],
-        right: dict[str, int],
-    ) -> dict[str, int]:
-        for kind, count in right.items():
-            left[kind] = left.get(kind, 0) + count
-        return left
 
-    return drafts.treeAggregate({}, accumulate, merge, depth=3)
+def _seq_create(value: Any) -> list[Any]:
+    return [value]
+
+
+def _seq_append(values: list[Any], value: Any) -> list[Any]:
+    values.append(value)
+    return values
+
+
+def _seq_extend(left: list[Any], right: list[Any]) -> list[Any]:
+    left.extend(right)
+    return left
+
+
+def _materialize_drafts(drafts: Any, storage: Any) -> Any:
+    """Persist drafts before fan-out so metrics/downstream do not recompute them.
+
+    Uses DISK_ONLY_2 replicas from the caller. When a Spark checkpoint directory
+    is configured, also checkpoint to truncate lineage after the first success.
+    """
+    materialized = drafts.persist(storage)
+    checkpoint_dir = materialized.context.getCheckpointDir()
+    if checkpoint_dir:
+        materialized.checkpoint()
+    # Force materialization before any fan-out of actions.
+    materialized.count()
+    return materialized
 
 
 def _resolved_memberships(
@@ -604,23 +628,11 @@ def _field_rule_udf(
     )
 
 
-def _resolve_field_group(item):
-    (
-        (
-            entity_key,
-            predicate,
-            scope_json,
-            operator,
-            source_priority_json,
-        ),
-        raw_values,
-    ) = item
-    by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
-    values = list(raw_values)
-    for value_type, value_json, assertion_id, lineage_json, source_product_id in values:
-        by_value[(value_type, value_json)].append(
-            (assertion_id, lineage_json, source_product_id)
-        )
+def _resolve_field_from_grouped_values(
+    key: tuple[str, str, str, str, str],
+    by_value: dict[tuple[str, str], list[tuple[str, str, str]]],
+) -> list[tuple[str, Any]]:
+    entity_key, predicate, scope_json, operator, source_priority_json = key
     ordered = sorted(by_value)
     all_ids = tuple(
         sorted(
@@ -646,7 +658,8 @@ def _resolve_field_group(item):
         selected_rank = min(
             (
                 ranks.get(source_product_id, len(source_priority))
-                for *_, source_product_id in values
+                for assertions in by_value.values()
+                for _, _, source_product_id in assertions
             ),
             default=len(source_priority),
         )
@@ -745,6 +758,101 @@ def _resolve_field_group(item):
             )
         )
     return result
+
+
+def _resolve_field_group(item):
+    (
+        key,
+        raw_values,
+    ) = item
+    by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
+    for (
+        value_type,
+        value_json,
+        assertion_id,
+        lineage_json,
+        source_product_id,
+    ) in raw_values:
+        by_value[(value_type, value_json)].append(
+            (assertion_id, lineage_json, source_product_id)
+        )
+    return _resolve_field_from_grouped_values(key, by_value)
+
+
+def _resolve_set_field_value(item: Any) -> list[tuple[str, Any]]:
+    (
+        (
+            entity_key,
+            predicate,
+            scope_json,
+            operator,
+            source_priority_json,
+            value_type,
+            value_json,
+        ),
+        assertions,
+    ) = item
+    if operator == ResolutionOperator.SINGLE.value:
+        return []
+    return _resolve_field_from_grouped_values(
+        (
+            entity_key,
+            predicate,
+            scope_json,
+            operator,
+            source_priority_json,
+        ),
+        {(value_type, value_json): list(assertions)},
+    )
+
+
+def _resolve_single_field_values(item: Any) -> list[tuple[str, Any]]:
+    key, value_groups = item
+    by_value: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+    for value_type, value_json, assertions in value_groups:
+        by_value[(value_type, value_json)] = list(assertions)
+    return _resolve_field_from_grouped_values(key, by_value)
+
+
+def _resolve_fields_rdd(rows: Any) -> Any:
+    """Resolve fields via per-value combineByKey, then SINGLE merge.
+
+    Collapsing duplicate (key, value) assertions before the SINGLE shuffle keeps
+    hot entity/predicate groups from materializing one giant groupByKey iterator.
+    """
+
+    per_value = rows.map(
+        lambda row: (
+            (
+                row["resolved_entity_key"],
+                row["predicate"],
+                row["scope_json"],
+                row["resolution_operator"],
+                row["source_priority_json"],
+                row["value_type"],
+                row["value_json"],
+            ),
+            (
+                row["assertion_id"],
+                _lineage_json(row),
+                row["source_product_id"],
+            ),
+        )
+    ).combineByKey(_seq_create, _seq_append, _seq_extend)
+
+    set_drafts = per_value.flatMap(_resolve_set_field_value)
+    single_drafts = (
+        per_value.filter(lambda item: item[0][3] == ResolutionOperator.SINGLE.value)
+        .map(
+            lambda item: (
+                item[0][:5],
+                (item[0][5], item[0][6], item[1]),
+            )
+        )
+        .combineByKey(_seq_create, _seq_append, _seq_extend)
+        .flatMap(_resolve_single_field_values)
+    )
+    return set_drafts.union(single_drafts)
 
 
 def _project_identifier_assertions(
@@ -916,23 +1024,26 @@ def _identifier_conflict_draft(
     )
 
 
-def _resolve_relation_group(item: Any):
-    (
-        (
-            subject,
-            predicate,
-            scope_json,
-            operator,
-            source_priority_json,
-        ),
-        raw_values,
-    ) = item
-    values = list(raw_values)
+def _resolve_relation_from_grouped_objects(
+    key: tuple[str, str, str, str, str],
+    by_object: dict[str, list[tuple[str, str, str]]],
+) -> list[tuple[str, Any]]:
+    subject, predicate, scope_json, operator, source_priority_json = key
     scope = json.loads(scope_json)
     source_priority = tuple(json.loads(source_priority_json))
     ranks = {source: rank for rank, source in enumerate(source_priority)}
-    all_ids = tuple(sorted({value[1] for value in values}))
-    all_lineage = _normalize_lineage(value[2] for value in values)
+    all_ids = tuple(
+        sorted(
+            assertion_id
+            for supporting in by_object.values()
+            for assertion_id, _, _ in supporting
+        )
+    )
+    all_lineage = _normalize_lineage(
+        lineage_json
+        for supporting in by_object.values()
+        for _, lineage_json, _ in supporting
+    )
     trace = {
         "operator": operator,
         "rightsFirst": True,
@@ -942,16 +1053,21 @@ def _resolve_relation_group(item: Any):
         selected_rank = min(
             (
                 ranks.get(source_product_id, len(source_priority))
-                for _, _, _, source_product_id in values
+                for supporting in by_object.values()
+                for _, _, source_product_id in supporting
             ),
             default=len(source_priority),
         )
-        preferred = [
-            value
-            for value in values
-            if ranks.get(value[3], len(source_priority)) == selected_rank
-        ]
-        object_keys = sorted({value[0] for value in preferred})
+        object_keys = sorted(
+            {
+                object_key
+                for object_key, supporting in by_object.items()
+                if any(
+                    ranks.get(source_product_id, len(source_priority)) == selected_rank
+                    for _, _, source_product_id in supporting
+                )
+            }
+        )
         trace["selectedSourceRank"] = selected_rank
         if len(object_keys) == 1:
             return [
@@ -984,9 +1100,6 @@ def _resolve_relation_group(item: Any):
             )
         ]
 
-    by_object: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
-    for object_key, assertion_id, lineage_json, source_product_id in values:
-        by_object[object_key].append((assertion_id, lineage_json, source_product_id))
     return [
         (
             "relation",
@@ -1006,6 +1119,76 @@ def _resolve_relation_group(item: Any):
         )
         for object_key, supporting in sorted(by_object.items())
     ]
+
+
+def _resolve_relation_group(item: Any):
+    key, raw_values = item
+    by_object: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    for object_key, assertion_id, lineage_json, source_product_id in raw_values:
+        by_object[object_key].append((assertion_id, lineage_json, source_product_id))
+    return _resolve_relation_from_grouped_objects(key, by_object)
+
+
+def _resolve_set_relation_object(item: Any) -> list[tuple[str, Any]]:
+    (
+        (
+            subject,
+            predicate,
+            scope_json,
+            operator,
+            source_priority_json,
+            object_key,
+        ),
+        assertions,
+    ) = item
+    if operator == ResolutionOperator.SINGLE.value:
+        return []
+    return _resolve_relation_from_grouped_objects(
+        (subject, predicate, scope_json, operator, source_priority_json),
+        {object_key: list(assertions)},
+    )
+
+
+def _resolve_single_relation_objects(item: Any) -> list[tuple[str, Any]]:
+    key, object_groups = item
+    by_object = {
+        object_key: list(assertions) for object_key, assertions in object_groups
+    }
+    return _resolve_relation_from_grouped_objects(key, by_object)
+
+
+def _resolve_relations_rdd(rows: Any) -> Any:
+    per_object = rows.map(
+        lambda row: (
+            (
+                row["resolved_entity_key"],
+                row["predicate"],
+                row["scope_json"],
+                row["resolution_operator"],
+                row["source_priority_json"],
+                row["object_resolved_entity_key"],
+            ),
+            (
+                row["assertion_id"],
+                _lineage_json(row),
+                row["source_product_id"],
+            ),
+        )
+    ).combineByKey(_seq_create, _seq_append, _seq_extend)
+
+    set_drafts = per_object.flatMap(_resolve_set_relation_object)
+    single_drafts = (
+        per_object.filter(lambda item: item[0][3] == ResolutionOperator.SINGLE.value)
+        .map(
+            lambda item: (
+                item[0][:5],
+                (item[0][5], item[1]),
+            )
+        )
+        .combineByKey(_seq_create, _seq_append, _seq_extend)
+        .flatMap(_resolve_single_relation_objects)
+    )
+    return set_drafts.union(single_drafts)
 
 
 def build_distributed_gold(
@@ -1202,28 +1385,9 @@ def build_distributed_gold(
         resolvable_fields = ruled_fields.where(
             F.col("resolution_operator") != ResolutionOperator.NEVER_RESOLVE.value
         )
-        field_drafts = (
-            resolvable_fields.rdd.map(
-                lambda row: (
-                    (
-                        row["resolved_entity_key"],
-                        row["predicate"],
-                        row["scope_json"],
-                        row["resolution_operator"],
-                        row["source_priority_json"],
-                    ),
-                    (
-                        row["value_type"],
-                        row["value_json"],
-                        row["assertion_id"],
-                        _lineage_json(row),
-                        row["source_product_id"],
-                    ),
-                )
-            )
-            .groupByKey()
-            .flatMap(_resolve_field_group)
-            .persist(draft_storage)
+        field_drafts = _materialize_drafts(
+            _resolve_fields_rdd(resolvable_fields.rdd),
+            draft_storage,
         )
         field_metrics = _draft_kind_counts(field_drafts)
         field_count = int(field_metrics.get("field", 0))
@@ -1302,7 +1466,7 @@ def build_distributed_gold(
             .where(F.col("entity_count") > 1)
             .count()
         )
-        identifier_drafts = (
+        identifier_drafts = _materialize_drafts(
             publishable_identifiers.rdd.map(
                 lambda row: (
                     (
@@ -1316,17 +1480,17 @@ def build_distributed_gold(
                     (row["assertion_id"], _lineage_json(row)),
                 )
             )
-            .groupByKey()
+            .combineByKey(_seq_create, _seq_append, _seq_extend)
             .map(
                 lambda item: _identifier_draft(
                     item,
                     policy_id=field_policy.policy_id,
                     policy_version=field_policy.policy_version,
                 )
-            )
-            .persist(draft_storage)
+            ),
+            draft_storage,
         )
-        identifier_conflict_drafts = (
+        identifier_conflict_drafts = _materialize_drafts(
             conflicting_identifiers.rdd.map(
                 lambda row: (
                     (
@@ -1341,15 +1505,15 @@ def build_distributed_gold(
                     ),
                 )
             )
-            .groupByKey()
+            .combineByKey(_seq_create, _seq_append, _seq_extend)
             .map(
                 lambda item: _identifier_conflict_draft(
                     item,
                     policy_id=field_policy.policy_id,
                     policy_version=field_policy.policy_version,
                 )
-            )
-            .persist(draft_storage)
+            ),
+            draft_storage,
         )
         identifier_count = identifier_drafts.count()
         identifier_conflict_count = identifier_conflict_drafts.count()
@@ -1412,27 +1576,9 @@ def build_distributed_gold(
         rel_object_unresolved = (
             resolvable_relation_subjects.count() - resolved_relations.count()
         )
-        relation_drafts = (
-            resolved_relations.rdd.map(
-                lambda row: (
-                    (
-                        row["resolved_entity_key"],
-                        row["predicate"],
-                        row["scope_json"],
-                        row["resolution_operator"],
-                        row["source_priority_json"],
-                    ),
-                    (
-                        row["object_resolved_entity_key"],
-                        row["assertion_id"],
-                        _lineage_json(row),
-                        row["source_product_id"],
-                    ),
-                )
-            )
-            .groupByKey()
-            .flatMap(_resolve_relation_group)
-            .persist(draft_storage)
+        relation_drafts = _materialize_drafts(
+            _resolve_relations_rdd(resolved_relations.rdd),
+            draft_storage,
         )
         relation_metrics = _draft_kind_counts(relation_drafts)
         relation_count = int(relation_metrics.get("relation", 0))

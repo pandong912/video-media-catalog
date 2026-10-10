@@ -842,9 +842,7 @@ def _resolve_fields_rdd(rows: Any) -> Any:
 
     set_drafts = per_value.flatMap(_resolve_set_field_value)
     single_drafts = (
-        per_value.filter(
-            lambda item: item[0][3] == ResolutionOperator.SINGLE.value
-        )
+        per_value.filter(lambda item: item[0][3] == ResolutionOperator.SINGLE.value)
         .map(
             lambda item: (
                 item[0][:5],
@@ -1180,9 +1178,7 @@ def _resolve_relations_rdd(rows: Any) -> Any:
 
     set_drafts = per_object.flatMap(_resolve_set_relation_object)
     single_drafts = (
-        per_object.filter(
-            lambda item: item[0][3] == ResolutionOperator.SINGLE.value
-        )
+        per_object.filter(lambda item: item[0][3] == ResolutionOperator.SINGLE.value)
         .map(
             lambda item: (
                 item[0][:5],

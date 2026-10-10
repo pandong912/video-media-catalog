@@ -25,8 +25,8 @@ class GoldenBuildEnv:
     glue_namespace: str = "video_media_catalog"
     control_executor_instances: int = 4
     control_shuffle_partitions: int = 96
-    build_executor_instances: int = 12
-    build_shuffle_partitions: int = 288
+    build_executor_instances: int = 8
+    build_shuffle_partitions: int = 432
 
 
 @dataclass(frozen=True)

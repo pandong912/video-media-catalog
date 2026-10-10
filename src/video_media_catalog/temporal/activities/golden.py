@@ -672,7 +672,9 @@ def _emr_namespace(
         log_uri=env.emr_log_uri,
         aws_region=env.aws_region,
         poll_seconds=15,
-        execution_timeout_minutes=720,
+        # Gold field-resolution shuffle can exceed 12h when FetchFailed retries
+        # dominate; keep headroom above the single clean pass (~4-8h).
+        execution_timeout_minutes=900,
         max_attempts=1,
         driver_cores=4,
         driver_memory="16g",

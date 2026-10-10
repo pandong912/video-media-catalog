@@ -99,6 +99,26 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     assert "spark.dynamicAllocation.enabled=false" in parameters
 
 
+def test_submit_enables_bounded_speculation_when_requested() -> None:
+    client = _Client(["SUCCESS"])
+
+    run(
+        _parsed("--enable-speculation"),
+        client=client,
+        sleep=lambda _seconds: None,
+    )
+
+    assert client.start_request is not None
+    parameters = client.start_request["jobDriver"]["sparkSubmit"][
+        "sparkSubmitParameters"
+    ]
+    assert "spark.speculation=true" in parameters
+    assert "spark.speculation.quantile=0.9" in parameters
+    assert "spark.speculation.multiplier=4" in parameters
+    assert "spark.speculation.minTaskRuntime=300s" in parameters
+    assert "spark.speculation.efficiency.enabled=false" in parameters
+
+
 def test_resume_waits_for_existing_job_without_resubmitting() -> None:
     client = _Client(["RUNNING", "SUCCESS"])
     events: list[dict[str, Any]] = []

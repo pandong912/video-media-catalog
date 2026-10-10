@@ -51,6 +51,7 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     assert parsed.executor_disk == "400G"
     assert parsed.driver_memory == "16g"
     assert parsed.driver_disk == "50G"
+    assert parsed.enable_speculation is False
     assert parsed.execution_timeout_minutes == 900
     assert parsed.client_token == golden_mod._stage_token(
         build_id=input_data.build_id,
@@ -60,7 +61,15 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
 
 
 def test_golden_release_uses_dedicated_capacity_with_replacement_headroom() -> None:
-    input_data = _input()
+    base = _input()
+    input_data = replace(
+        base,
+        env=replace(
+            base.env,
+            gold_executor_memory_overhead="6g",
+            gold_executor_disk="185G",
+        ),
+    )
 
     parsed = golden_mod._emr_namespace(
         input_data=input_data,
@@ -76,10 +85,11 @@ def test_golden_release_uses_dedicated_capacity_with_replacement_headroom() -> N
     assert parsed.executor_instances == 20
     assert parsed.executor_cores == 4
     assert parsed.executor_memory == "24g"
-    assert parsed.executor_memory_overhead == "8g"
-    assert parsed.executor_disk == "170G"
+    assert parsed.executor_memory_overhead == "6g"
+    assert parsed.executor_disk == "185G"
     assert parsed.shuffle_partitions == 1152
     assert parsed.driver_memory_overhead == "4g"
+    assert parsed.enable_speculation is True
 
 
 def test_golden_release_rejects_capacity_without_replacement_headroom() -> None:

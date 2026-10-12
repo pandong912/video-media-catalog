@@ -50,6 +50,7 @@ _KUBERNETES_TOKEN = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
 _KUBERNETES_CA = Path("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SPARK_MEMORY = re.compile(r"^[1-9][0-9]*[mg]$")
 _RUNTIME_UID = 10001
 
 
@@ -101,6 +102,8 @@ def _validate_input(input_data: GoldIndexProjectionInput) -> None:
         if _SAFE_ID.fullmatch(value) is None:
             raise ValueError(f"{label} is invalid")
     _image_digest(env.builder_image)
+    if _SPARK_MEMORY.fullmatch(env.spark_driver_memory) is None:
+        raise ValueError("Spark driver memory must use a positive m or g value")
     OpenSearchConnection(
         endpoint=env.opensearch_endpoint,
         aws_region=env.aws_region,
@@ -286,6 +289,14 @@ def _job_manifest(
                                 {
                                     "name": "SPARK_LOCAL_DIRS",
                                     "value": "/work/spark",
+                                },
+                                {
+                                    "name": "PYSPARK_SUBMIT_ARGS",
+                                    "value": (
+                                        "--driver-memory "
+                                        f"{env.spark_driver_memory} "
+                                        "pyspark-shell"
+                                    ),
                                 },
                                 {"name": "TMPDIR", "value": "/work/tmp"},
                                 {"name": "HOME", "value": "/work"},

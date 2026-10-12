@@ -87,6 +87,9 @@ def test_gold_index_job_is_pinned_build_only_and_hardened() -> None:
     assert container["workingDir"] == "/work"
     assert container["terminationMessagePolicy"] == "FallbackToLogsOnError"
     assert environment["SPARK_LOCAL_DIRS"] == "/work/spark"
+    assert environment["PYSPARK_SUBMIT_ARGS"] == (
+        "--driver-memory 20g pyspark-shell"
+    )
     assert environment["TMPDIR"] == "/work/tmp"
     assert environment["HOME"] == "/work"
     assert {mount["mountPath"] for mount in container["volumeMounts"]} == {

@@ -29,6 +29,7 @@ class GoldIndexProjectionEnv:
     bulk_partitions: int = 96
     bulk_workers: int = 4
     spark_master: str = "local[*]"
+    spark_driver_memory: str = "20g"
     shuffle_partitions: int = 384
     request_timeout_seconds: int = 30
     min_free_storage_gib: int = 100

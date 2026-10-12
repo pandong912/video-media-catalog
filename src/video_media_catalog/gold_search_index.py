@@ -910,6 +910,7 @@ def _bulk_actions(
     actions: Iterable[dict[str, Any]],
     *,
     client: Any,
+    index_name: str,
     chunk_size: int,
     max_chunk_bytes: int,
     request_timeout: float,
@@ -922,6 +923,7 @@ def _bulk_actions(
     for succeeded, item in streaming_bulk(
         client,
         actions,
+        index=index_name,
         chunk_size=chunk_size,
         max_chunk_bytes=max_chunk_bytes,
         max_retries=3,
@@ -968,6 +970,36 @@ def _close_client(client: Any) -> None:
     transport = getattr(client, "transport", None)
     if transport is not None and hasattr(transport, "close"):
         transport.close()
+
+
+def validate_gold_bulk_write_access(
+    client: Any,
+    *,
+    index_name: str,
+    request_timeout: float,
+    streaming_bulk: Callable[..., Iterable[tuple[bool, dict[str, Any]]]] | None = None,
+) -> None:
+    """Fail fast unless the builder can use the index-scoped bulk endpoint."""
+
+    result = _bulk_actions(
+        [
+            {
+                "_op_type": "delete",
+                "_index": index_name,
+                "_id": "__research-index-bulk-authorization-probe__",
+            }
+        ],
+        client=client,
+        index_name=index_name,
+        chunk_size=1,
+        max_chunk_bytes=1024,
+        request_timeout=request_timeout,
+        streaming_bulk=streaming_bulk,
+    )
+    if result.document_count != 1 or result.error_count != 0:
+        raise RuntimeError(
+            f"Research Gold index-scoped bulk authorization failed: {result.errors}"
+        )
 
 
 @dataclass(frozen=True)
@@ -1058,6 +1090,7 @@ def gold_bulk_partition(
             bulk_result = _bulk_actions(
                 actions,
                 client=client,
+                index_name=index_name,
                 chunk_size=chunk_size,
                 max_chunk_bytes=max_chunk_bytes,
                 request_timeout=connection.timeout_seconds,
@@ -1095,6 +1128,7 @@ def gold_bulk_partition(
             return _bulk_actions(
                 queued_actions(),
                 client=client,
+                index_name=index_name,
                 chunk_size=chunk_size,
                 max_chunk_bytes=max_chunk_bytes,
                 request_timeout=connection.timeout_seconds,

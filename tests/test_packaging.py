@@ -17,7 +17,10 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     old_validate_stage = "validate_" + old_stage
 
     assert not (root / api_dockerfile).exists()
-    assert "FROM eclipse-temurin:17-jre-noble" in dockerfile
+    assert (
+        "FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre-noble"
+        in dockerfile
+    )
     assert '"pyspark==3.5.5"' in pyproject
     assert "ARG SPARK_VERSION=3.5.5" in dockerfile
     assert "ARG AWS_JAVA_SDK_BUNDLE_VERSION=1.12.780" in dockerfile

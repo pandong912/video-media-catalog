@@ -1,6 +1,8 @@
 FROM eclipse-temurin:17-jre-noble
 
 ARG SPARK_VERSION=3.5.5
+ARG SPARK_MIRROR_BASE_URL=https://repo.huaweicloud.com/apache
+ARG SPARK_ARCHIVE_BASE_URL=https://archive.apache.org/dist
 ARG ICEBERG_VERSION=1.8.1
 ARG HADOOP_AWS_VERSION=3.3.4
 ARG AWS_JAVA_SDK_BUNDLE_VERSION=1.12.780
@@ -39,8 +41,12 @@ RUN apt-get update \
         uv-x86_64-unknown-linux-gnu/uvx \
     && rm /tmp/uv.tar.gz \
     && uv --version \
-    && curl --fail --location --retry 5 --output /tmp/spark.tgz \
-        "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+    && (curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 15 --max-time 600 --output /tmp/spark.tgz \
+            "${SPARK_MIRROR_BASE_URL}/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+        || curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 15 --max-time 3600 --output /tmp/spark.tgz \
+            "${SPARK_ARCHIVE_BASE_URL}/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz") \
     && echo "${SPARK_SHA512}  /tmp/spark.tgz" | sha512sum --check --strict \
     && tar --extract --gzip --directory /opt --file /tmp/spark.tgz \
     && mv "/opt/spark-${SPARK_VERSION}-bin-hadoop3" "$SPARK_HOME" \

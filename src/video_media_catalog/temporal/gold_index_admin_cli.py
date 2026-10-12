@@ -53,6 +53,7 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldIndexProjectionEnv:
         bulk_partitions=int(values.get("bulkPartitions", 96)),
         bulk_workers=int(values.get("bulkWorkers", 4)),
         spark_master=str(values.get("sparkMaster", "local[*]")),
+        spark_driver_memory=str(values.get("sparkDriverMemory", "20g")),
         shuffle_partitions=int(values.get("shufflePartitions", 384)),
         request_timeout_seconds=int(values.get("requestTimeoutSeconds", 30)),
         min_free_storage_gib=int(values.get("minFreeStorageGiB", 100)),

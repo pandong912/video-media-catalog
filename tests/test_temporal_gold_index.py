@@ -93,6 +93,7 @@ def test_gold_index_job_is_pinned_build_only_and_hardened() -> None:
         "/work",
         "/work/spark",
         "/work/tmp",
+        "/tmp",
     }
     assert {volume["name"] for volume in pod["volumes"]} == {
         "work",

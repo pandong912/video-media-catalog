@@ -318,6 +318,7 @@ def _job_manifest(
                                 {"name": "work", "mountPath": "/work"},
                                 {"name": "spark-local", "mountPath": "/work/spark"},
                                 {"name": "tmp", "mountPath": "/work/tmp"},
+                                {"name": "tmp", "mountPath": "/tmp"},
                             ],
                         }
                     ],

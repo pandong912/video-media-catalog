@@ -1,0 +1,121 @@
+version: 0.2
+
+env:
+  shell: bash
+  exported-variables:
+    - IMAGE_DIGEST
+    - IMAGE_REFERENCE
+
+phases:
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - ': "${AWS_REGION:?}" "${REGISTRY:?}" "${REPOSITORY:?}" "${SOURCE_REVISION:?}" "${SOURCE_OBJECT_VERSION:?}" "${COSIGN_VERSION:?}" "${COSIGN_SHA256:?}" "${SYFT_VERSION:?}" "${SYFT_SHA256:?}" "${KMS_KEY_ARN:?}" "${EVIDENCE_URI:?}" "${EVIDENCE_KMS_KEY_ARN:?}"'
+      - test "${CODEBUILD_SOURCE_VERSION:?}" = "$SOURCE_OBJECT_VERSION"
+      - test -z "${CODEBUILD_RESOLVED_SOURCE_VERSION:-}" || test "$CODEBUILD_RESOLVED_SOURCE_VERSION" = "$SOURCE_OBJECT_VERSION"
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      - curl --fail --location --retry 5 "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" --output /usr/local/bin/cosign
+      - echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum --check --strict
+      - chmod 0755 /usr/local/bin/cosign
+      - curl --fail --location --retry 5 "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${SYFT_VERSION#v}_linux_amd64.tar.gz" --output /tmp/syft.tar.gz
+      - echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum --check --strict
+      - tar --extract --gzip --directory /usr/local/bin --file /tmp/syft.tar.gz syft
+      - chmod 0755 /usr/local/bin/syft
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        tag="research-index-${SOURCE_REVISION:0:12}-${CODEBUILD_BUILD_NUMBER}"
+        image="$REGISTRY/$REPOSITORY:$tag"
+        docker build \
+          --platform linux/amd64 \
+          --label "org.opencontainers.image.revision=$SOURCE_REVISION" \
+          --label "video.media.catalog.workload=research-gold-index" \
+          --file Dockerfile \
+          --tag "$image" \
+          .
+        docker push "$image"
+        IMAGE_DIGEST="$(aws ecr describe-images \
+          --region "$AWS_REGION" \
+          --repository-name "$REPOSITORY" \
+          --image-ids "imageTag=$tag" \
+          --query 'imageDetails[0].imageDigest' \
+          --output text)"
+        test "${IMAGE_DIGEST#sha256:}" != "$IMAGE_DIGEST"
+        IMAGE_REFERENCE="$REGISTRY/$REPOSITORY@$IMAGE_DIGEST"
+        export IMAGE_DIGEST IMAGE_REFERENCE
+        docker run --rm --entrypoint /app/.venv/bin/python "$IMAGE_REFERENCE" \
+          -c 'import video_media_catalog.gold_search_index; import video_media_catalog.temporal.gold_index_models'
+        syft scan "$IMAGE_REFERENCE" \
+          --output spdx-json=/tmp/research-index-sbom.spdx.json
+        cosign sign --yes --key "awskms:///$KMS_KEY_ARN" "$IMAGE_REFERENCE"
+        cosign verify --key "awskms:///$KMS_KEY_ARN" "$IMAGE_REFERENCE"
+        cosign attest --yes --key "awskms:///$KMS_KEY_ARN" \
+          --predicate /tmp/research-index-sbom.spdx.json \
+          --type spdxjson \
+          "$IMAGE_REFERENCE"
+        for verification_attempt in 1 2 3 4 5 6; do
+          if cosign verify-attestation --key "awskms:///$KMS_KEY_ARN" \
+            --type spdxjson \
+            "$IMAGE_REFERENCE"; then
+            break
+          fi
+          test "$verification_attempt" -lt 6
+          sleep 5
+        done
+  post_build:
+    commands:
+      - |
+        set -euo pipefail
+        aws ecr start-image-scan \
+          --region "$AWS_REGION" \
+          --repository-name "$REPOSITORY" \
+          --image-id "imageDigest=$IMAGE_DIGEST" >/dev/null 2>&1 || true
+        status=""
+        for _ in $(seq 1 60); do
+          if aws ecr describe-image-scan-findings \
+            --region "$AWS_REGION" \
+            --repository-name "$REPOSITORY" \
+            --image-id "imageDigest=$IMAGE_DIGEST" \
+            >/tmp/research-index-scan.json 2>/dev/null; then
+            status="$(jq -r '.imageScanStatus.status' /tmp/research-index-scan.json)"
+            test "$status" != "FAILED"
+            test "$status" = "COMPLETE" && break
+          fi
+          sleep 10
+        done
+        test "$status" = "COMPLETE"
+        high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' /tmp/research-index-scan.json)"
+        critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' /tmp/research-index-scan.json)"
+        test "$high" = "0"
+        test "$critical" = "0"
+        jq -n \
+          --arg sourceRevision "$SOURCE_REVISION" \
+          --arg imageReference "$IMAGE_REFERENCE" \
+          --arg dockerfileDigest "sha256:$(sha256sum Dockerfile | awk '{print $1}')" \
+          --arg lockDigest "sha256:$(sha256sum uv.lock | awk '{print $1}')" \
+          --arg sbomDigest "sha256:$(sha256sum /tmp/research-index-sbom.spdx.json | awk '{print $1}')" \
+          --argjson highFindings "$high" \
+          --argjson criticalFindings "$critical" \
+          '{
+            schemaVersion: "video.media.catalog.research-index-image.v1",
+            sourceRevision: $sourceRevision,
+            imageReference: $imageReference,
+            dockerfileDigest: $dockerfileDigest,
+            lockDigest: $lockDigest,
+            sbom: {
+              mediaType: "application/spdx+json",
+              digest: $sbomDigest,
+              status: "PASS"
+            },
+            highFindings: $highFindings,
+            criticalFindings: $criticalFindings,
+            status: "PASS"
+          }' >/tmp/research-index-image-evidence.json
+        aws s3 cp /tmp/research-index-sbom.spdx.json "${EVIDENCE_URI%/}/sbom.spdx.json" \
+          --content-type application/spdx+json \
+          --sse aws:kms --sse-kms-key-id "$EVIDENCE_KMS_KEY_ARN"
+        aws s3 cp /tmp/research-index-scan.json "${EVIDENCE_URI%/}/scan.json" \
+          --sse aws:kms --sse-kms-key-id "$EVIDENCE_KMS_KEY_ARN"
+        aws s3 cp /tmp/research-index-image-evidence.json "${EVIDENCE_URI%/}/manifest.json" \
+          --sse aws:kms --sse-kms-key-id "$EVIDENCE_KMS_KEY_ARN"

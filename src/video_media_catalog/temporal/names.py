@@ -5,9 +5,13 @@ WORKFLOW_TASK_QUEUE = "vw-media-catalog-tmdb-v1"
 SILVER_TASK_QUEUE = "vw-media-catalog-tmdb-silver-v1"
 GOLDEN_WORKFLOW_TASK_QUEUE = "vw-media-catalog-golden-v1"
 GOLDEN_EMR_TASK_QUEUE = "vw-media-catalog-golden-emr-v1"
+GOLD_INDEX_WORKFLOW_TASK_QUEUE = "vw-media-catalog-gold-index-v1"
+GOLD_INDEX_LAUNCHER_TASK_QUEUE = "vw-media-catalog-gold-index-launcher-v1"
+GOLD_INDEX_VALIDATOR_TASK_QUEUE = "vw-media-catalog-gold-index-validator-v1"
 
 WORKFLOW_TYPE_TMDB_PIPELINE = "TmdbCaptureSilverWorkflow"
 WORKFLOW_TYPE_GOLDEN_BUILD = "GoldenBuildWorkflow"
+WORKFLOW_TYPE_GOLD_INDEX_PROJECTION = "GoldIndexProjectionWorkflow"
 
 SCHEDULE_DAILY_CHANGES = "tmdb-daily-changes-v1"
 SCHEDULE_MONTHLY_INVENTORY = "tmdb-monthly-inventory-v1"

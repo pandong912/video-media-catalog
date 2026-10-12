@@ -1,14 +1,18 @@
 FROM eclipse-temurin:17-jre-noble
 
 ARG SPARK_VERSION=3.5.5
+ARG SPARK_MIRROR_BASE_URL=https://repo.huaweicloud.com/apache
+ARG SPARK_ARCHIVE_BASE_URL=https://archive.apache.org/dist
 ARG ICEBERG_VERSION=1.8.1
 ARG HADOOP_AWS_VERSION=3.3.4
 ARG AWS_JAVA_SDK_BUNDLE_VERSION=1.12.780
+ARG UV_VERSION=0.9.7
 ARG SPARK_SHA512=ec5ff678136b1ff981e396d1f7b5dfbf399439c5cb853917e8c954723194857607494a89b7e205fce988ec48b1590b5caeae3b18e1b5db1370c0522b256ff376
 ARG ICEBERG_RUNTIME_SHA512=7445f9b3962d6382f4de8040a51c62950c39649fb204373bc8fabb41ff7127224c04b4dc9c792b696589f26325f60d13c56cd5b25d9b8127972386cf8ed659dd
 ARG ICEBERG_AWS_SHA512=ba928446b65c2fe030beddb827acab12db9f38e17620a29dc82041bae9b556f2266df76f40f78070192db265545fdf6e75e0b149548e52dc06c81ea98c1a1058
 ARG HADOOP_AWS_SHA1=a65839fbf1869f81a1632e09f415e586922e4f80
 ARG AWS_JAVA_SDK_BUNDLE_SHA1=308a3af95a47e0c4e1f8bd98a37657d4661ae45e
+ARG UV_SHA256=b26fcc8dfa1c39b5a5613445af3be3eefda45d9a39359bee271eafe34913583e
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -26,11 +30,23 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends -o Acquire::Retries=5 \
-        bash ca-certificates curl procps python3-pip python3.12 \
-        python3.12-venv tini \
+        bash ca-certificates curl procps python3.12 tini \
     && rm -rf /var/lib/apt/lists/* \
-    && curl --fail --location --retry 5 --output /tmp/spark.tgz \
-        "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+    && curl --fail --location --retry 5 --output /tmp/uv.tar.gz \
+        "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
+    && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum --check --strict \
+    && tar --extract --gzip --file /tmp/uv.tar.gz \
+        --directory /usr/local/bin --strip-components=1 \
+        uv-x86_64-unknown-linux-gnu/uv \
+        uv-x86_64-unknown-linux-gnu/uvx \
+    && rm /tmp/uv.tar.gz \
+    && uv --version \
+    && (curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 15 --max-time 600 --output /tmp/spark.tgz \
+            "${SPARK_MIRROR_BASE_URL}/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+        || curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 15 --max-time 3600 --output /tmp/spark.tgz \
+            "${SPARK_ARCHIVE_BASE_URL}/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz") \
     && echo "${SPARK_SHA512}  /tmp/spark.tgz" | sha512sum --check --strict \
     && tar --extract --gzip --directory /opt --file /tmp/spark.tgz \
     && mv "/opt/spark-${SPARK_VERSION}-bin-hadoop3" "$SPARK_HOME" \
@@ -54,8 +70,6 @@ RUN apt-get update \
     && echo "${AWS_JAVA_SDK_BUNDLE_SHA1}  $SPARK_HOME/jars/aws-java-sdk-bundle.jar" \
         | sha1sum --check --strict \
     && rm /tmp/spark.tgz \
-    && python3.12 -m pip install --break-system-packages \
-        --no-cache-dir "uv==0.9.7" \
     && groupadd --system --gid 10001 catalog \
     && useradd --system --uid 10001 --gid catalog \
         --home-dir /nonexistent --shell /usr/sbin/nologin catalog

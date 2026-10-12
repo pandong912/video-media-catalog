@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from video_media_catalog.canonical import canonical_json
+from video_media_catalog.canonical import canonical_json, canonical_json_bytes
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_index_scale import (
     SYNTHETIC_SCALE_DOCUMENTS,
@@ -24,6 +24,7 @@ from video_media_catalog.gold_search_index import (
     DEFAULT_GOLD_BULK_PARTITIONS,
     DEFAULT_GOLD_BULK_WORKERS,
     GOLD_AFFECTED_ENTITY_MANIFEST_MEDIA_TYPE,
+    GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE,
     MAPPING_DIGEST,
     MAX_GOLD_BULK_CHUNK_ACTIONS,
     MAX_GOLD_BULK_CHUNK_BYTES,
@@ -61,20 +62,23 @@ from video_media_catalog.opensearch_index import (
     DEFAULT_MAX_BULK_BYTES,
     current_alias_indices,
     index_document_count,
-    switch_read_alias,
 )
 from video_media_catalog.storage import join_uri
 
 CONTROL_MAX_BYTES = 16 * 1024 * 1024
-INDEX_MANIFEST_MEDIA_TYPE = (
-    "application/vnd.video-media-catalog.gold-index-build.v2+json"
+INDEX_MANIFEST_MEDIA_TYPE = GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE
+INDEX_JOB_RESULT_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.gold-index-job-result.v1+json"
 )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="video-media-catalog-gold-index",
-        description="Build the shared authenticated research Gold v2 index.",
+        description=(
+            "Build and validate an isolated Research Gold index without "
+            "activating its read alias."
+        ),
     )
     parser.add_argument("--release-commit-uri", required=True)
     parser.add_argument("--release-commit-hash", required=True)
@@ -82,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--release-commit-version", default="")
     parser.add_argument("--release-commit-etag", default="")
     parser.add_argument("--manifest-prefix", required=True)
+    parser.add_argument(
+        "--result-uri",
+        help="Optional immutable JSON result written after a successful build",
+    )
     parser.add_argument("--completed-at", required=True)
     parser.add_argument("--image-digest", required=True)
     parser.add_argument("--catalog-name", default="media")
@@ -130,6 +138,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=6 * 60 * 60,
     )
     parser.add_argument("--request-timeout-seconds", type=float, default=30)
+    parser.add_argument("--min-free-storage-gib", type=int, default=100)
+    parser.add_argument("--max-jvm-pressure-percent", type=int, default=75)
+    parser.add_argument("--max-cluster-pending-tasks", type=int, default=10)
     parser.add_argument("--allow-insecure-opensearch", action="store_true")
     parser.add_argument("--master")
     parser.add_argument("--app-name", default="media-catalog-research-index")
@@ -296,6 +307,90 @@ def _close(client: Any) -> None:
         transport.close()
 
 
+def validate_opensearch_capacity(
+    client: Any,
+    *,
+    min_free_storage_gib: int,
+    max_jvm_pressure_percent: int,
+    max_pending_tasks: int,
+) -> dict[str, Any]:
+    if min_free_storage_gib < 1:
+        raise ValueError("min-free-storage-gib must be positive")
+    if not 1 <= max_jvm_pressure_percent <= 99:
+        raise ValueError("max-jvm-pressure-percent must be between 1 and 99")
+    if max_pending_tasks < 0:
+        raise ValueError("max-cluster-pending-tasks must not be negative")
+    health = client.cluster.health()
+    status = health.get("status")
+    pending_tasks = health.get("number_of_pending_tasks")
+    if status not in {"green", "yellow"}:
+        raise RuntimeError(f"OpenSearch cluster health is not build-safe: {status}")
+    if (
+        isinstance(pending_tasks, bool)
+        or not isinstance(pending_tasks, int)
+        or pending_tasks > max_pending_tasks
+    ):
+        raise RuntimeError("OpenSearch cluster has excessive pending tasks")
+    stats = client.nodes.stats(metric="jvm,fs")
+    nodes = stats.get("nodes")
+    if not isinstance(nodes, dict) or not nodes:
+        raise RuntimeError("OpenSearch node capacity stats are unavailable")
+    free_bytes: list[int] = []
+    jvm_pressure: list[int] = []
+    for node in nodes.values():
+        available = (
+            node.get("fs", {})
+            .get("total", {})
+            .get("available_in_bytes")
+        )
+        heap_used = node.get("jvm", {}).get("mem", {}).get("heap_used_percent")
+        if (
+            isinstance(available, bool)
+            or not isinstance(available, int)
+            or isinstance(heap_used, bool)
+            or not isinstance(heap_used, int)
+        ):
+            raise RuntimeError("OpenSearch node capacity stats are incomplete")
+        free_bytes.append(available)
+        jvm_pressure.append(heap_used)
+    min_free_bytes = min(free_bytes)
+    max_jvm = max(jvm_pressure)
+    if min_free_bytes < min_free_storage_gib * 1024**3:
+        raise RuntimeError("OpenSearch free storage is below the build threshold")
+    if max_jvm > max_jvm_pressure_percent:
+        raise RuntimeError("OpenSearch JVM pressure is above the build threshold")
+    return {
+        "clusterStatus": status,
+        "pendingTasks": pending_tasks,
+        "dataNodeCount": len(nodes),
+        "minimumFreeStorageBytes": min_free_bytes,
+        "maximumJvmPressurePercent": max_jvm,
+        "requiredFreeStorageBytes": min_free_storage_gib * 1024**3,
+        "allowedJvmPressurePercent": max_jvm_pressure_percent,
+        "allowedPendingTasks": max_pending_tasks,
+    }
+
+
+def cleanup_failed_gold_index(
+    client: Any,
+    *,
+    index_name: str,
+    index_created: bool,
+) -> bool:
+    """Delete only a shadow index created by this failed invocation."""
+
+    if not index_created:
+        return False
+    if index_name in current_alias_indices(client, alias=RESEARCH_READ_ALIAS):
+        return False
+    if not client.indices.exists(index=index_name):
+        return False
+    client.indices.delete(index=index_name)
+    if client.indices.exists(index=index_name):
+        raise RuntimeError("failed Research Gold shadow index was not deleted")
+    return True
+
+
 def _sizing_result(parsed: argparse.Namespace) -> dict[str, Any]:
     _validate_bulk_settings(parsed)
     scales = parsed.scale or list(SYNTHETIC_SCALE_DOCUMENTS)
@@ -399,12 +494,19 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         allow_insecure=parsed.allow_insecure_opensearch,
     )
     client = create_opensearch_client(connection)
-
-    from pyspark.sql import SparkSession
-
     spark = None
     persisted: list[Any] = []
+    index_created = False
     try:
+        capacity_preflight = validate_opensearch_capacity(
+            client,
+            min_free_storage_gib=parsed.min_free_storage_gib,
+            max_jvm_pressure_percent=parsed.max_jvm_pressure_percent,
+            max_pending_tasks=parsed.max_cluster_pending_tasks,
+        )
+
+        from pyspark.sql import SparkSession
+
         builder = SparkSession.builder.appName(parsed.app_name)
         if parsed.master:
             builder = builder.master(parsed.master)
@@ -417,7 +519,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         if parsed.spark_packages:
             builder = builder.config("spark.jars.packages", parsed.spark_packages)
         spark = builder.getOrCreate()
-        ensure_gold_index(
+        index_created = ensure_gold_index(
             client,
             index_name=index_name,
             shards=parsed.shards,
@@ -471,6 +573,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 aws_region=parsed.aws_region,
                 s3_endpoint=parsed.s3_endpoint,
                 s3_path_style_access=parsed.s3_path_style_access,
+                allow_receipt_reuse=not index_created,
             )
             if result.input_document_count != projected_document_count:
                 raise RuntimeError(
@@ -517,6 +620,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 aws_region=parsed.aws_region,
                 s3_endpoint=parsed.s3_endpoint,
                 s3_path_style_access=parsed.s3_path_style_access,
+                allow_receipt_reuse=not index_created,
             )
             receipts.append(baseline_receipt)
             reused_receipt_count += int(baseline_reused)
@@ -580,6 +684,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 aws_region=parsed.aws_region,
                 s3_endpoint=parsed.s3_endpoint,
                 s3_path_style_access=parsed.s3_path_style_access,
+                allow_receipt_reuse=not index_created,
             )
             delete_documents = delete_key_frame.selectExpr("entity_key AS entityKey")
             delete_result = distributed_gold_bulk_index(
@@ -597,6 +702,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 aws_region=parsed.aws_region,
                 s3_endpoint=parsed.s3_endpoint,
                 s3_path_style_access=parsed.s3_path_style_access,
+                allow_receipt_reuse=not index_created,
             )
             affected_operation_count = len(affected_manifest.operations)
             successful_document_count = (
@@ -704,15 +810,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             alias=parsed.read_alias,
         ) not in ([affected_manifest.base_index], [index_name]):
             raise RuntimeError("Gold incremental base alias changed during the build")
-        switch_read_alias(
-            client,
-            alias=parsed.read_alias,
-            target_index=index_name,
-        )
         return {
             "buildId": build_id,
             "index": index_name,
             "alias": parsed.read_alias,
+            "activationStatus": "NOT_ACTIVATED",
             "contextId": commit.context_id,
             "buildMode": build_mode,
             "goldEntityCount": gold_entity_count,
@@ -722,10 +824,21 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "partitionReceiptCount": len(receipts),
             "reusedPartitionReceiptCount": reused_receipt_count,
             "partitionReceiptDigest": receipt_digest,
+            "capacityPreflight": capacity_preflight,
             "manifest": manifest_ref.model_dump(
                 mode="json", by_alias=True, exclude_none=True
             ),
         }
+    except BaseException as exc:
+        try:
+            cleanup_failed_gold_index(
+                client,
+                index_name=index_name,
+                index_created=index_created,
+            )
+        except Exception as cleanup_error:
+            exc.add_note(f"Research Gold shadow cleanup failed: {cleanup_error}")
+        raise
     finally:
         for frame in persisted:
             frame.unpersist()
@@ -735,7 +848,23 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    print(canonical_json(run(build_parser().parse_args(argv))))
+    parsed = build_parser().parse_args(argv)
+    result = run(parsed)
+    if parsed.result_uri:
+        local = urlsplit(parsed.result_uri).scheme == "file"
+        BoundedObjectStore(
+            region=parsed.aws_region,
+            endpoint_url=parsed.s3_endpoint,
+            path_style_access=parsed.s3_path_style_access,
+            client=object() if local else None,
+        ).upload_bytes(
+            canonical_json_bytes(result),
+            parsed.result_uri,
+            media_type=INDEX_JOB_RESULT_MEDIA_TYPE,
+            object_format="OBJECT_FORMAT_JSON",
+            max_bytes=CONTROL_MAX_BYTES,
+        )
+    print(canonical_json(result))
     return 0
 
 

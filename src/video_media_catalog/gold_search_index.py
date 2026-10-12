@@ -65,6 +65,15 @@ GOLD_PARTITION_RECEIPT_MEDIA_TYPE = (
 GOLD_AFFECTED_ENTITY_MANIFEST_MEDIA_TYPE = (
     "application/vnd.video-media-catalog.gold-affected-entities.v2+json"
 )
+GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.gold-index-build.v2+json"
+)
+GOLD_INDEX_VALIDATION_RECEIPT_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.gold-index-validation.v2+json"
+)
+GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.gold-index-activation.v2+json"
+)
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
 
@@ -528,6 +537,47 @@ def gold_index_name(prefix: str, build_id: str) -> str:
     return _safe_name(f"{prefix}-{build_id[:24]}", label="index name")
 
 
+def plan_gold_index_retention(
+    *,
+    creation_epoch_millis: Mapping[str, int],
+    active_indices: Iterable[str],
+    referenced_indices: Iterable[str],
+    delete_before_epoch_millis: int,
+) -> tuple[str, ...]:
+    """Select only old Research indices absent from aliases and durable pins."""
+
+    if (
+        isinstance(delete_before_epoch_millis, bool)
+        or not isinstance(delete_before_epoch_millis, int)
+        or delete_before_epoch_millis < 0
+    ):
+        raise ValueError("retention cutoff must be epoch milliseconds")
+    active = set(active_indices)
+    referenced = set(referenced_indices)
+    for value in active | referenced:
+        _safe_name(value, label="protected Research index")
+        if not value.startswith(RESEARCH_INDEX_PREFIX + "-"):
+            raise ValueError("protected index is outside the Research index family")
+    candidates: list[str] = []
+    pattern = re.compile(rf"^{RESEARCH_INDEX_PREFIX}-[0-9a-f]{{24}}$")
+    for index_name, created_at in creation_epoch_millis.items():
+        if pattern.fullmatch(index_name) is None:
+            continue
+        if (
+            isinstance(created_at, bool)
+            or not isinstance(created_at, int)
+            or created_at < 0
+        ):
+            raise ValueError("Research index creation time is invalid")
+        if (
+            created_at < delete_before_epoch_millis
+            and index_name not in active
+            and index_name not in referenced
+        ):
+            candidates.append(index_name)
+    return tuple(sorted(candidates))
+
+
 def gold_index_definition(
     *,
     shards: int,
@@ -582,6 +632,11 @@ def _has_compatible_mapping(
     return bool(
         metadata is not None and metadata.get("mappingDigest") == MAPPING_DIGEST
     )
+
+
+def validate_gold_index_mapping(client: Any, *, index_name: str) -> None:
+    if not _has_compatible_mapping(client, index_name=index_name):
+        raise RuntimeError("Gold index mapping is incompatible")
 
 
 def ensure_gold_index(
@@ -1173,6 +1228,7 @@ def _index_gold_spark_partition(
     aws_region: str | None,
     s3_endpoint: str | None,
     s3_path_style_access: bool,
+    allow_receipt_reuse: bool,
 ) -> Iterable[dict[str, Any]]:
     uri = gold_partition_receipt_uri(
         receipt_prefix,
@@ -1212,19 +1268,20 @@ def _index_gold_spark_partition(
             or existing.input_digest != input_digest
         ):
             raise RuntimeError(f"immutable Gold partition receipt conflicts: {uri}")
-        yield {
-            "inputDocumentCount": input_count,
-            "documentCount": input_count,
-            "errorCount": 0,
-            "errors": [],
-            "receipt": existing.model_dump(
-                mode="json",
-                by_alias=True,
-                exclude_none=True,
-            ),
-            "reused": True,
-        }
-        return
+        if allow_receipt_reuse:
+            yield {
+                "inputDocumentCount": input_count,
+                "documentCount": input_count,
+                "errorCount": 0,
+                "errors": [],
+                "receipt": existing.model_dump(
+                    mode="json",
+                    by_alias=True,
+                    exclude_none=True,
+                ),
+                "reused": True,
+            }
+            return
 
     partition_result = gold_bulk_partition(
         rows,
@@ -1289,6 +1346,7 @@ def distributed_gold_bulk_index(
     aws_region: str | None = None,
     s3_endpoint: str | None = None,
     s3_path_style_access: bool = False,
+    allow_receipt_reuse: bool = True,
 ) -> GoldDistributedBulkResult:
     """Index deterministic Spark partitions and resume from immutable receipts."""
 
@@ -1322,6 +1380,7 @@ def distributed_gold_bulk_index(
             aws_region=aws_region,
             s3_endpoint=s3_endpoint,
             s3_path_style_access=s3_path_style_access,
+            allow_receipt_reuse=allow_receipt_reuse,
         )
     ).collect()
     result = GoldDistributedBulkResult()
@@ -1451,6 +1510,7 @@ def ensure_incremental_gold_baseline(
     aws_region: str | None = None,
     s3_endpoint: str | None = None,
     s3_path_style_access: bool = False,
+    allow_receipt_reuse: bool = True,
 ) -> tuple[GoldIndexPartitionReceipt, bool]:
     """Copy the immutable base index without mutating active cursor targets."""
 
@@ -1516,14 +1576,15 @@ def ensure_incremental_gold_baseline(
     if existing is not None:
         if existing != receipt:
             raise RuntimeError(f"immutable Gold partition receipt conflicts: {uri}")
-        if current == [affected_manifest.base_index]:
-            validate_gold_index_contents(
-                client,
-                index_name=affected_manifest.base_index,
-                release_plan_id=affected_manifest.base_release_plan_id,
-                expected_document_count=affected_manifest.base_document_count,
-            )
-        return existing, True
+        if allow_receipt_reuse:
+            if current == [affected_manifest.base_index]:
+                validate_gold_index_contents(
+                    client,
+                    index_name=affected_manifest.base_index,
+                    release_plan_id=affected_manifest.base_release_plan_id,
+                    expected_document_count=affected_manifest.base_document_count,
+                )
+            return existing, True
     if current != [affected_manifest.base_index]:
         raise RuntimeError(
             "incremental Gold target alias has no immutable baseline receipt"
@@ -1942,5 +2003,141 @@ class GoldIndexBuildManifest(V2ContractModel):
         ):
             raise ValueError(
                 "partition receipt count and digest must be present together"
+            )
+        return self
+
+
+class GoldIndexValidationReceipt(V2ContractModel):
+    """Immutable evidence that a completed build passed an independent read."""
+
+    schema_version: Literal["2.1"] = "2.1"
+    status: Literal["VALIDATED"] = "VALIDATED"
+    build_manifest: ObjectRef
+    build_id: str
+    release_plan_id: str
+    mapping_digest: str
+    config_digest: str
+    index: str
+    alias: str
+    document_count: int = Field(ge=0)
+    validated_at: str
+
+    @field_validator("build_id")
+    @classmethod
+    def validate_build_id(cls, value: str) -> str:
+        if re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("build_id must be lowercase SHA-256 hex")
+        return value
+
+    @field_validator("release_plan_id", "mapping_digest", "config_digest")
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("index", "alias")
+    @classmethod
+    def validate_names(cls, value: str) -> str:
+        return _safe_name(value, label="OpenSearch name")
+
+    @field_validator("validated_at")
+    @classmethod
+    def validate_validated_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> Self:
+        _validate_immutable_control_ref(
+            self.build_manifest,
+            media_type=GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE,
+            label="Gold index build manifest",
+        )
+        if self.alias != RESEARCH_READ_ALIAS or not self.index.startswith(
+            RESEARCH_INDEX_PREFIX + "-"
+        ):
+            raise ValueError("validation receipt must use the research index family")
+        return self
+
+
+class GoldIndexActivationReceipt(V2ContractModel):
+    """Immutable evidence for one explicit Research read-alias activation."""
+
+    schema_version: Literal["2.1"] = "2.1"
+    status: Literal["ACTIVATED"] = "ACTIVATED"
+    build_manifest: ObjectRef
+    build_id: str
+    release_plan_id: str
+    mapping_digest: str
+    config_digest: str
+    index: str
+    alias: str
+    expected_previous_indices: tuple[str, ...]
+    changed: bool
+    authorized_by: str = Field(min_length=1, max_length=512)
+    authorization_reason: str = Field(min_length=1, max_length=2048)
+    activated_at: str
+
+    @field_validator("build_id")
+    @classmethod
+    def validate_build_id(cls, value: str) -> str:
+        if re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("build_id must be lowercase SHA-256 hex")
+        return value
+
+    @field_validator("release_plan_id", "mapping_digest", "config_digest")
+    @classmethod
+    def validate_digest(cls, value: str) -> str:
+        return require_sha256(value)
+
+    @field_validator("index", "alias")
+    @classmethod
+    def validate_names(cls, value: str) -> str:
+        return _safe_name(value, label="OpenSearch name")
+
+    @field_validator("expected_previous_indices")
+    @classmethod
+    def validate_previous_indices(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if tuple(sorted(set(value))) != value:
+            raise ValueError("expected previous indices must be unique and sorted")
+        for index_name in value:
+            _safe_name(index_name, label="OpenSearch name")
+            if not index_name.startswith(RESEARCH_INDEX_PREFIX + "-"):
+                raise ValueError(
+                    "expected previous indices must use the research index family"
+                )
+        return value
+
+    @field_validator("authorized_by", "authorization_reason")
+    @classmethod
+    def validate_authorization_text(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("activation authorization fields must be trimmed")
+        return value
+
+    @field_validator("activated_at")
+    @classmethod
+    def validate_activated_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> Self:
+        _validate_immutable_control_ref(
+            self.build_manifest,
+            media_type=GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE,
+            label="Gold index build manifest",
+        )
+        if self.alias != RESEARCH_READ_ALIAS or not self.index.startswith(
+            RESEARCH_INDEX_PREFIX + "-"
+        ):
+            raise ValueError("activation receipt must use the research index family")
+        if self.index in self.expected_previous_indices and (
+            self.expected_previous_indices != (self.index,) or self.changed
+        ):
+            raise ValueError(
+                "an already-active target must be the only previous index "
+                "and changed must be false"
+            )
+        if not self.changed and self.expected_previous_indices != (self.index,):
+            raise ValueError(
+                "unchanged activation must already point only to the target index"
             )
         return self

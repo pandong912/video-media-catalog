@@ -1,0 +1,53 @@
+{
+  "algorithmId": "catalog-asset-match-v1",
+  "ambiguityMargin": 50,
+  "domainIdentityAuthority": {
+    "authoritySchemaVersion": "1.1",
+    "exactIdentifierScore": 900,
+    "identityFields": [
+      "domain",
+      "identityKind",
+      "namespace",
+      "value"
+    ],
+    "sourceManifestBound": true,
+    "supportedDomains": [
+      "SPORTS"
+    ],
+    "titleIsIdentity": false
+  },
+  "domains": [
+    "FILM_TV",
+    "SPORTS",
+    "UNKNOWN"
+  ],
+  "maxCandidates": 20,
+  "minimumScore": 250,
+  "retrieval": {
+    "exactIdentifierBoost": 1000
+  },
+  "schemaVersion": "1.0",
+  "sourceAuthorityPolicy": {
+    "blockedPolicyZones": [
+      "federated_ephemeral",
+      "quarantine"
+    ],
+    "identityReferenceOnly": true,
+    "publicEnrichmentAllowed": false,
+    "version": "world-source-authority-policy-v1"
+  },
+  "sort": [
+    "score:desc",
+    "entityKey:asc"
+  ],
+  "weights": {
+    "duration": 80,
+    "episode": 50,
+    "externalIdentifier": 600,
+    "language": 20,
+    "season": 50,
+    "title": 300,
+    "type": 80,
+    "year": 100
+  }
+}

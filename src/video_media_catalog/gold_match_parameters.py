@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from video_media_catalog.canonical import canonical_json
+from video_media_catalog.canonical import canonical_json, canonical_json_bytes
 from video_media_catalog.gold import RESEARCH_CONTEXT_ID
 from video_media_catalog.gold_search_index import (
     MAPPING_DIGEST,
@@ -21,17 +24,29 @@ PARAMETER_SCHEMA_VERSION = "1.0"
 PARAMETER_MEDIA_TYPE = (
     "application/vnd.video-governance.catalog-gold-match-parameters.v1+json"
 )
-ALGORITHM_DIGEST = (
-    "sha256:2fb45e40ade44a3b97c4ead8880695fdb2a5cc24d224b0d11b62ea4b93f1507c"
-)
 _CONCRETE_INDEX = re.compile(rf"^{RESEARCH_INDEX_PREFIX}-[0-9a-f]{{24}}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REGION = re.compile(r"^[a-z]{2}-[a-z]+-\d$")
 
 
+def catalog_match_algorithm_identity(
+    contract: Mapping[str, Any],
+) -> tuple[str, str, str]:
+    if contract.get("schemaVersion") != "1.0":
+        raise ValueError("unsupported catalog match algorithm schema")
+    algorithm_id = contract.get("algorithmId")
+    if algorithm_id != "catalog-asset-match-v1":
+        raise ValueError("unsupported catalog match algorithm ID")
+    digest = "sha256:" + hashlib.sha256(
+        canonical_json_bytes(dict(contract))
+    ).hexdigest()
+    return str(algorithm_id), str(contract["schemaVersion"]), digest
+
+
 def match_parameters_from_manifest(
     manifest: GoldIndexBuildManifest,
     *,
+    algorithm_contract: Mapping[str, Any],
     search_endpoint: str,
     aws_region: str,
     aws_service: str = "es",
@@ -70,6 +85,9 @@ def match_parameters_from_manifest(
         raise ValueError("match parameters require the es service and an AWS region")
     if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 20:
         raise ValueError("topK must be from 1 to 20")
+    algorithm_id, algorithm_schema, algorithm_digest = (
+        catalog_match_algorithm_identity(algorithm_contract)
+    )
     return {
         "schemaVersion": PARAMETER_SCHEMA_VERSION,
         "contextId": RESEARCH_CONTEXT_ID,
@@ -77,7 +95,9 @@ def match_parameters_from_manifest(
         "concreteIndex": manifest.index,
         "mappingDigest": MAPPING_DIGEST,
         "configDigest": manifest.config_digest,
-        "algorithmDigest": ALGORITHM_DIGEST,
+        "algorithmId": algorithm_id,
+        "algorithmSchemaVersion": algorithm_schema,
+        "algorithmDigest": algorithm_digest,
         "searchEndpoint": search_endpoint.rstrip("/"),
         "awsRegion": aws_region,
         "awsService": aws_service,
@@ -88,6 +108,12 @@ def match_parameters_from_manifest(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument(
+        "--algorithm-contract",
+        type=Path,
+        required=True,
+        help="Canonical contract from video-world-compute",
+    )
     parser.add_argument("--search-endpoint", required=True)
     parser.add_argument("--aws-region", required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -96,8 +122,14 @@ def main(argv: list[str] | None = None) -> None:
     manifest = GoldIndexBuildManifest.model_validate_json(
         args.manifest.read_text(encoding="utf-8")
     )
+    algorithm_contract = json.loads(
+        args.algorithm_contract.read_text(encoding="utf-8")
+    )
+    if not isinstance(algorithm_contract, dict):
+        raise ValueError("algorithm contract must contain a JSON object")
     document = match_parameters_from_manifest(
         manifest,
+        algorithm_contract=algorithm_contract,
         search_endpoint=args.search_endpoint,
         aws_region=args.aws_region,
         top_k=args.top_k,

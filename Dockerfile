@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jre-noble
+FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre-noble
 
 ARG SPARK_VERSION=3.5.5
 ARG SPARK_MIRROR_BASE_URL=https://repo.huaweicloud.com/apache

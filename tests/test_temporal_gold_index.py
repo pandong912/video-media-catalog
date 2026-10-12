@@ -73,12 +73,32 @@ def test_gold_index_job_is_pinned_build_only_and_hardened() -> None:
     pod = manifest["spec"]["template"]["spec"]
     container = pod["containers"][0]
     arguments = container["args"]
+    environment = {item["name"]: item["value"] for item in container["env"]}
 
     assert len(manifest["metadata"]["name"]) <= 63
     assert pod["serviceAccountName"] == "research-index-builder"
     assert pod["automountServiceAccountToken"] is True
     assert container["image"].endswith("@" + ("sha256:" + ("c" * 64)))
+    assert pod["securityContext"]["runAsUser"] == 10001
+    assert pod["securityContext"]["runAsGroup"] == 10001
+    assert pod["securityContext"]["fsGroup"] == 10001
+    assert container["securityContext"]["runAsUser"] == 10001
     assert container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert container["workingDir"] == "/work"
+    assert container["terminationMessagePolicy"] == "FallbackToLogsOnError"
+    assert environment["SPARK_LOCAL_DIRS"] == "/work/spark"
+    assert environment["TMPDIR"] == "/work/tmp"
+    assert environment["HOME"] == "/work"
+    assert {mount["mountPath"] for mount in container["volumeMounts"]} == {
+        "/work",
+        "/work/spark",
+        "/work/tmp",
+    }
+    assert {volume["name"] for volume in pod["volumes"]} == {
+        "work",
+        "spark-local",
+        "tmp",
+    }
     assert "--result-uri" in arguments
     assert "--expected-old-index" not in arguments
     assert "promote" not in " ".join(arguments).lower()

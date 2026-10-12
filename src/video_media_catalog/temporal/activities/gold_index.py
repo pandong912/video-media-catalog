@@ -50,6 +50,7 @@ _KUBERNETES_TOKEN = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
 _KUBERNETES_CA = Path("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+_RUNTIME_UID = 10001
 
 
 def _object_ref(payload: ObjectRefPayload) -> ObjectRef:
@@ -259,9 +260,9 @@ def _job_manifest(
                     "terminationGracePeriodSeconds": 30,
                     "securityContext": {
                         "runAsNonRoot": True,
-                        "runAsUser": 65532,
-                        "runAsGroup": 65532,
-                        "fsGroup": 65532,
+                        "runAsUser": _RUNTIME_UID,
+                        "runAsGroup": _RUNTIME_UID,
+                        "fsGroup": _RUNTIME_UID,
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "nodeSelector": dict(sorted(env.node_selector.items())),
@@ -271,6 +272,7 @@ def _job_manifest(
                             "image": env.builder_image,
                             "imagePullPolicy": "IfNotPresent",
                             "command": ["video-media-catalog-gold-index"],
+                            "workingDir": "/work",
                             "args": _job_args(
                                 input_data,
                                 completed_at=completed_at,
@@ -286,6 +288,7 @@ def _job_manifest(
                                     "value": "/work/spark",
                                 },
                                 {"name": "TMPDIR", "value": "/work/tmp"},
+                                {"name": "HOME", "value": "/work"},
                             ],
                             "resources": {
                                 "requests": {
@@ -306,14 +309,23 @@ def _job_manifest(
                             "securityContext": {
                                 "allowPrivilegeEscalation": False,
                                 "readOnlyRootFilesystem": True,
+                                "runAsNonRoot": True,
+                                "runAsUser": _RUNTIME_UID,
                                 "capabilities": {"drop": ["ALL"]},
                             },
+                            "terminationMessagePolicy": "FallbackToLogsOnError",
                             "volumeMounts": [
                                 {"name": "work", "mountPath": "/work"},
+                                {"name": "spark-local", "mountPath": "/work/spark"},
+                                {"name": "tmp", "mountPath": "/work/tmp"},
                             ],
                         }
                     ],
-                    "volumes": [{"name": "work", "emptyDir": {}}],
+                    "volumes": [
+                        {"name": "work", "emptyDir": {}},
+                        {"name": "spark-local", "emptyDir": {}},
+                        {"name": "tmp", "emptyDir": {}},
+                    ],
                 },
             },
         },

@@ -44,6 +44,7 @@ from video_media_catalog.gold_search_index import (
     gold_partition_receipt_set_digest,
     reconcile_full_gold_index_counts,
     validate_affected_entity_results,
+    validate_gold_bulk_write_access,
     validate_gold_affected_entity_manifest,
     validate_gold_index_contents,
 )
@@ -524,6 +525,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             index_name=index_name,
             shards=parsed.shards,
             replicas=parsed.replicas,
+        )
+        validate_gold_bulk_write_access(
+            client,
+            index_name=index_name,
+            request_timeout=parsed.request_timeout_seconds,
         )
         tables = CommunityGoldTables(spark, config)
         frames = {}

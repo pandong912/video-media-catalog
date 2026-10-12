@@ -28,6 +28,7 @@ from video_media_catalog.gold_search_index import (
     gold_index_name,
     plan_gold_index_retention,
     reconcile_full_gold_index_counts,
+    validate_gold_bulk_write_access,
     validate_gold_index_contents,
 )
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
@@ -288,6 +289,42 @@ class _BulkClient:
         self.transport = _Transport()
 
 
+def test_bulk_authorization_probe_uses_index_scoped_endpoint() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_streaming_bulk(_client: Any, actions: Any, **kwargs: Any):
+        calls.append(kwargs)
+        action = next(iter(actions))
+        yield False, {
+            "delete": {
+                "_id": action["_id"],
+                "status": 404,
+            }
+        }
+
+    validate_gold_bulk_write_access(
+        _BulkClient(),
+        index_name="media-catalog-research-build",
+        request_timeout=5,
+        streaming_bulk=fake_streaming_bulk,
+    )
+
+    assert calls == [
+        {
+            "index": "media-catalog-research-build",
+            "chunk_size": 1,
+            "max_chunk_bytes": 1024,
+            "max_retries": 3,
+            "initial_backoff": 1,
+            "max_backoff": 8,
+            "raise_on_error": False,
+            "raise_on_exception": False,
+            "yield_ok": True,
+            "request_timeout": 5,
+        }
+    ]
+
+
 def test_parallel_gold_bulk_workers_keep_chunks_bounded_and_retrying() -> None:
     clients: list[_BulkClient] = []
     calls: list[dict[str, Any]] = []
@@ -324,6 +361,7 @@ def test_parallel_gold_bulk_workers_keep_chunks_bounded_and_retrying() -> None:
     assert result.bulk_result.error_count == 0
     assert len(clients) == 3
     assert all(client.transport.closed for client in clients)
+    assert all(call["index"] == "media-catalog-research-build" for call in calls)
     assert all(call["chunk_size"] == 2 for call in calls)
     assert all(call["max_chunk_bytes"] == 1024 for call in calls)
     assert all(call["max_retries"] == 3 for call in calls)

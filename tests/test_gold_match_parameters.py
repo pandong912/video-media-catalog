@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from video_media_catalog.gold_ingest import GOLD_RELEASE_COMMIT_MEDIA_TYPE
 from video_media_catalog.gold_match_parameters import (
-    ALGORITHM_DIGEST,
+    catalog_match_algorithm_identity,
     match_parameters_from_manifest,
 )
 from video_media_catalog.gold_search_index import (
@@ -15,6 +18,14 @@ from video_media_catalog.gold_search_index import (
 )
 from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
 from video_media_catalog.models import Checksum, ObjectRef
+
+_ALGORITHM_CONTRACT = json.loads(
+    (
+        Path(__file__).parent
+        / "fixtures"
+        / "catalog-gold-match-algorithm.v1.json"
+    ).read_text()
+)
 
 
 def _manifest(index: str) -> GoldIndexBuildManifest:
@@ -64,12 +75,16 @@ def test_parameter_package_pins_concrete_index_and_current_mapping() -> None:
     index = "media-catalog-research-" + ("b" * 24)
     document = match_parameters_from_manifest(
         _manifest(index),
+        algorithm_contract=_ALGORITHM_CONTRACT,
         search_endpoint="https://vpc-ai-video-media-catalog-dev.internal/",
         aws_region="us-east-1",
     )
     assert document["concreteIndex"] == index
     assert document["mappingDigest"] == MAPPING_DIGEST
-    assert document["algorithmDigest"] == ALGORITHM_DIGEST
+    assert document["algorithmDigest"] == (
+        "sha256:014224280780e1ce61bb381e903b047dfa426b15d9454a25ef4f09d95caf8471"
+    )
+    assert document["algorithmId"] == "catalog-asset-match-v1"
     assert document["searchEndpoint"].endswith(".internal")
     assert document["contextId"] == "research"
 
@@ -78,12 +93,21 @@ def test_parameter_package_rejects_alias_and_placeholder_endpoint() -> None:
     with pytest.raises(ValueError, match="concreteIndex"):
         match_parameters_from_manifest(
             _manifest(RESEARCH_READ_ALIAS),
+            algorithm_contract=_ALGORITHM_CONTRACT,
             search_endpoint="https://vpc-ai-video-media-catalog-dev.internal",
             aws_region="us-east-1",
         )
     with pytest.raises(ValueError, match="placeholder"):
         match_parameters_from_manifest(
             _manifest("media-catalog-research-" + ("a" * 24)),
+            algorithm_contract=_ALGORITHM_CONTRACT,
             search_endpoint="https://search.example.invalid",
             aws_region="us-east-1",
+        )
+
+
+def test_parameter_package_rejects_unknown_algorithm_contract() -> None:
+    with pytest.raises(ValueError, match="algorithm ID"):
+        catalog_match_algorithm_identity(
+            {**_ALGORITHM_CONTRACT, "algorithmId": "catalog-asset-match-v2"}
         )

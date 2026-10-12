@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,14 +79,27 @@ def current_alias_indices(client: Any, *, alias: str) -> list[str]:
     return sorted(str(index) for index in response)
 
 
-def switch_read_alias(client: Any, *, alias: str, target_index: str) -> bool:
-    """Atomically point one read alias at exactly one concrete index."""
+def switch_read_alias(
+    client: Any,
+    *,
+    alias: str,
+    target_index: str,
+    expected_current: Iterable[str] | None = None,
+) -> bool:
+    """Point one read alias at exactly one index after an expected-old check."""
 
     _validate_index_name(alias, label="read alias")
     _validate_index_name(target_index, label="target index")
     current = current_alias_indices(client, alias=alias)
     if current == [target_index]:
         return False
+    if expected_current is not None:
+        expected = sorted(set(expected_current))
+        if current != expected:
+            raise RuntimeError(
+                "OpenSearch alias compare-and-swap failed: "
+                f"expected {expected!r}, found {current!r}"
+            )
     actions = [
         {"remove": {"index": index, "alias": alias}}
         for index in current
@@ -102,4 +115,10 @@ def switch_read_alias(client: Any, *, alias: str, target_index: str) -> bool:
         }
     )
     client.indices.update_aliases(body={"actions": actions})
+    activated = current_alias_indices(client, alias=alias)
+    if activated != [target_index]:
+        raise RuntimeError(
+            "OpenSearch alias activation postcondition failed: "
+            f"expected {[target_index]!r}, found {activated!r}"
+        )
     return True

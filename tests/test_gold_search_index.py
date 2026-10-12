@@ -9,12 +9,14 @@ import pytest
 from video_media_catalog.gold_ingest import GOLD_RELEASE_COMMIT_MEDIA_TYPE
 from video_media_catalog.gold_search_index import (
     GOLD_AFFECTED_ENTITY_MANIFEST_MEDIA_TYPE,
+    GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE,
     GOLD_PARTITION_RECEIPT_MEDIA_TYPE,
     INDEX_MAPPINGS,
     MAPPING_DIGEST,
     RESEARCH_INDEX_PREFIX,
     RESEARCH_READ_ALIAS,
     GoldAffectedEntityManifest,
+    GoldIndexActivationReceipt,
     GoldIndexBuildManifest,
     GoldIndexPartitionReceipt,
     GoldPartitionReceiptPublisher,
@@ -24,6 +26,7 @@ from video_media_catalog.gold_search_index import (
     gold_index_config_digest,
     gold_index_config_identity,
     gold_index_name,
+    plan_gold_index_retention,
     reconcile_full_gold_index_counts,
     validate_gold_index_contents,
 )
@@ -102,6 +105,34 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
             image_digest="sha256:" + ("a" * 64),
         )
     assert INDEX_MAPPINGS["_meta"]["mappingDigest"] == MAPPING_DIGEST
+
+
+def test_retention_plan_protects_alias_and_registry_references() -> None:
+    active = RESEARCH_INDEX_PREFIX + "-" + ("a" * 24)
+    referenced = RESEARCH_INDEX_PREFIX + "-" + ("b" * 24)
+    stale = RESEARCH_INDEX_PREFIX + "-" + ("c" * 24)
+    recent = RESEARCH_INDEX_PREFIX + "-" + ("d" * 24)
+
+    assert plan_gold_index_retention(
+        creation_epoch_millis={
+            active: 1,
+            referenced: 1,
+            stale: 1,
+            recent: 100,
+            "vw-dev-assets-000001": 1,
+        },
+        active_indices=[active],
+        referenced_indices=[referenced],
+        delete_before_epoch_millis=50,
+    ) == (stale,)
+
+    with pytest.raises(ValueError, match="outside"):
+        plan_gold_index_retention(
+            creation_epoch_millis={stale: 1},
+            active_indices=[],
+            referenced_indices=["vw-dev-assets-000001"],
+            delete_before_epoch_millis=50,
+        )
 
 
 def test_gold_index_creation_reuses_compatible_mapping() -> None:
@@ -207,6 +238,39 @@ def test_gold_index_manifest_binds_release_commit() -> None:
         GoldIndexBuildManifest.model_validate(
             manifest.model_copy(
                 update={"config_digest": "sha256:" + ("0" * 64)}
+            ).model_dump(mode="python")
+        )
+
+    manifest_ref = ObjectRef(
+        uri="s3://bucket/gold-index-build.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type=GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE,
+        checksum=Checksum(value="9" * 64),
+        size_bytes=200,
+        etag="manifest-etag",
+        object_version="manifest-version",
+    )
+    activation = GoldIndexActivationReceipt(
+        build_manifest=manifest_ref,
+        build_id=manifest.build_id,
+        release_plan_id=manifest.release_plan_id,
+        mapping_digest=manifest.mapping_digest,
+        config_digest=manifest.config_digest,
+        index=manifest.index,
+        alias=manifest.alias,
+        expected_previous_indices=("media-catalog-research-old",),
+        changed=True,
+        authorized_by="group:world-release-managers",
+        authorization_reason="Approved Research r15 shadow validation.",
+        activated_at="2026-09-20T00:00:00Z",
+    )
+    assert activation == type(activation).model_validate_json(
+        activation.json_bytes()
+    )
+    with pytest.raises(ValueError, match="unchanged activation"):
+        GoldIndexActivationReceipt.model_validate(
+            activation.model_copy(
+                update={"changed": False}
             ).model_dump(mode="python")
         )
 
@@ -502,6 +566,21 @@ def test_incremental_baseline_copies_to_new_index_and_resumes(
     assert resumed == receipt
     assert client.reindex_calls == 1
     assert client.update_calls == 1
+
+    # A failed build may delete the shadow index while immutable partition
+    # receipts remain. A newly recreated target must rebuild instead of
+    # treating those receipts as proof that the index still contains data.
+    client.alias_target = "media-catalog-research-base"
+    client.counts["media-catalog-research-target"] = 0
+    rebuilt, reused = ensure_incremental_gold_baseline(
+        client,
+        **arguments,
+        allow_receipt_reuse=False,
+    )
+    assert not reused
+    assert rebuilt == receipt
+    assert client.reindex_calls == 2
+    assert client.update_calls == 2
 
 
 def test_full_count_reconciliation_fails_closed_on_any_drift() -> None:

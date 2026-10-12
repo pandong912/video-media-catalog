@@ -24,8 +24,21 @@ def test_research_index_image_is_built_remotely_from_versioned_source() -> None:
     assert "cosign verify --key" in contract
     assert "cosign attest --yes --key" in contract
     assert "cosign verify-attestation --key" in contract
+    assert 'test "$high" = "0"' in contract
+    assert "highFindings" in contract
     assert "criticalFindings" in contract
     assert "aws s3 cp /tmp/research-index-image-evidence.json" in contract
     assert "kubectl" not in contract
     assert "helm upgrade" not in contract
     assert "argocd" not in contract
+
+
+def test_research_index_runtime_uses_checksum_pinned_uv_without_pip() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text()
+
+    assert "ARG UV_VERSION=0.9.7" in dockerfile
+    assert "ARG UV_SHA256=b26fcc8d" in dockerfile
+    assert '"${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum --check --strict' in dockerfile
+    assert "python3-pip" not in dockerfile
+    assert "python3.12-venv" not in dockerfile
+    assert "python3.12 -m pip" not in dockerfile

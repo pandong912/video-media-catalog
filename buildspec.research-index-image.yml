@@ -79,7 +79,9 @@ phases:
           sleep 10
         done
         test "$status" = "COMPLETE"
+        high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' /tmp/research-index-scan.json)"
         critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' /tmp/research-index-scan.json)"
+        test "$high" = "0"
         test "$critical" = "0"
         jq -n \
           --arg sourceRevision "$SOURCE_REVISION" \
@@ -87,6 +89,7 @@ phases:
           --arg dockerfileDigest "sha256:$(sha256sum Dockerfile | awk '{print $1}')" \
           --arg lockDigest "sha256:$(sha256sum uv.lock | awk '{print $1}')" \
           --arg sbomDigest "sha256:$(sha256sum /tmp/research-index-sbom.spdx.json | awk '{print $1}')" \
+          --argjson highFindings "$high" \
           --argjson criticalFindings "$critical" \
           '{
             schemaVersion: "video.media.catalog.research-index-image.v1",
@@ -99,6 +102,7 @@ phases:
               digest: $sbomDigest,
               status: "PASS"
             },
+            highFindings: $highFindings,
             criticalFindings: $criticalFindings,
             status: "PASS"
           }' >/tmp/research-index-image-evidence.json

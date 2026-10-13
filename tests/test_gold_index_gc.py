@@ -47,6 +47,7 @@ class _Indices:
     def __init__(self, owner: _Client) -> None:
         self.owner = owner
         self.alias_calls = 0
+        self.refresh_calls: list[str] = []
         self.drift_alias_on_call: int | None = None
 
     def exists(self, *, index: str) -> bool:
@@ -68,6 +69,7 @@ class _Indices:
 
     def refresh(self, *, index: str) -> None:
         assert index in self.owner.indexes
+        self.refresh_calls.append(index)
 
     def get_alias(self, *, name: str) -> dict[str, Any]:
         assert name == ALIAS
@@ -659,6 +661,7 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
         additional_archive_indices=(EXTRA_ONE, EXTRA_TWO),
     )
     client.snapshot.force_clone_global_state = True
+    refresh_calls_before_fallback = tuple(client.indices.refresh_calls)
 
     result = compact_snapshot_archive(
         client,
@@ -689,6 +692,7 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
     assert replacement["uuid"] == "fallback-snapshot-uuid"
     assert set(client.indexes) == {ACTIVE}
     assert client.alias_targets == {ACTIVE}
+    assert tuple(client.indices.refresh_calls) == refresh_calls_before_fallback
 
 
 def test_gc_is_idempotent_and_reuses_snapshot_after_restore(

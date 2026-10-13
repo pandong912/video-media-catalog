@@ -21,9 +21,7 @@ from video_media_catalog.models import Checksum, ObjectRef
 
 _ALGORITHM_CONTRACT = json.loads(
     (
-        Path(__file__).parent
-        / "fixtures"
-        / "catalog-gold-match-algorithm.v1.json"
+        Path(__file__).parent / "fixtures" / "catalog-gold-match-algorithm.v1.json"
     ).read_text()
 )
 

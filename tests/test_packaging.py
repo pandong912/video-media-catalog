@@ -18,8 +18,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
 
     assert not (root / api_dockerfile).exists()
     assert (
-        "FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre-noble"
-        in dockerfile
+        "FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre-noble" in dockerfile
     )
     assert '"pyspark==3.5.5"' in pyproject
     assert "ARG SPARK_VERSION=3.5.5" in dockerfile

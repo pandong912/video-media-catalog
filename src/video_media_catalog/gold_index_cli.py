@@ -339,11 +339,7 @@ def validate_opensearch_capacity(
     free_bytes: list[int] = []
     jvm_pressure: list[int] = []
     for node in nodes.values():
-        available = (
-            node.get("fs", {})
-            .get("total", {})
-            .get("available_in_bytes")
-        )
+        available = node.get("fs", {}).get("total", {}).get("available_in_bytes")
         heap_used = node.get("jvm", {}).get("mem", {}).get("heap_used_percent")
         if (
             isinstance(available, bool)

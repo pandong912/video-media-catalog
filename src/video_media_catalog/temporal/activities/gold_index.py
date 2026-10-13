@@ -130,9 +130,7 @@ def _validate_input(input_data: GoldIndexProjectionInput) -> None:
 
 
 def _job_name(input_data: GoldIndexProjectionInput) -> str:
-    suffix = hashlib.sha256(
-        canonical_json_bytes(asdict(input_data))
-    ).hexdigest()[:12]
+    suffix = hashlib.sha256(canonical_json_bytes(asdict(input_data))).hexdigest()[:12]
     prefix = input_data.projection_id[:35].rstrip("-")
     return f"research-index-{prefix}-{suffix}"
 
@@ -222,14 +220,17 @@ def _job_manifest(
     completed_at: str,
 ) -> dict[str, Any]:
     env = input_data.env
-    input_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(
-            {
-                "input": asdict(input_data),
-                "completedAt": completed_at,
-            }
-        )
-    ).hexdigest()
+    input_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "input": asdict(input_data),
+                    "completedAt": completed_at,
+                }
+            )
+        ).hexdigest()
+    )
     name = _job_name(input_data)
     labels = {
         "app.kubernetes.io/name": "research-gold-index",
@@ -245,9 +246,7 @@ def _job_manifest(
             "labels": labels,
             "annotations": {
                 "video-world.io/input-digest": input_digest,
-                "video-world.io/release-plan-id": (
-                    input_data.expected_release_plan_id
-                ),
+                "video-world.io/release-plan-id": (input_data.expected_release_plan_id),
             },
         },
         "spec": {
@@ -312,9 +311,7 @@ def _job_manifest(
                                 "limits": {
                                     "cpu": env.cpu_limit,
                                     "memory": env.memory_limit,
-                                    "ephemeral-storage": (
-                                        env.ephemeral_storage_limit
-                                    ),
+                                    "ephemeral-storage": (env.ephemeral_storage_limit),
                                 },
                             },
                             "securityContext": {
@@ -448,11 +445,7 @@ class _KubernetesApi:
                 and condition.get("type") in {"Complete", "Failed"}
                 for condition in conditions
             )
-            if (
-                isinstance(name, str)
-                and name != expected_name
-                and not terminal
-            ):
+            if isinstance(name, str) and name != expected_name and not terminal:
                 active_names.append(name)
         if active_names:
             raise RuntimeError(
@@ -470,10 +463,7 @@ class _KubernetesApi:
     ) -> None:
         """Fail closed when a labeled, non-terminal conflicting Job exists."""
 
-        collection = (
-            "/apis/batch/v1/namespaces/"
-            f"{quote(namespace, safe='')}/jobs"
-        )
+        collection = f"/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs"
         status, response = self.request("GET", collection)
         if status != 200:
             raise RuntimeError(
@@ -512,15 +502,12 @@ class _KubernetesApi:
                 and condition.get("type") in {"Complete", "Failed"}
                 for condition in conditions
             )
-            expected_retry = (
-                name == expected_name and workload == expected_workload
-            )
+            expected_retry = name == expected_name and workload == expected_workload
             if not expected_retry and not terminal:
                 conflicts.append(f"{name}({workload[0]}/{workload[1]})")
         if conflicts:
             raise RuntimeError(
-                "conflicting Kubernetes Jobs are active: "
-                + ",".join(sorted(conflicts))
+                "conflicting Kubernetes Jobs are active: " + ",".join(sorted(conflicts))
             )
 
     def get_job(self, *, namespace: str, name: str) -> dict[str, Any]:
@@ -674,9 +661,7 @@ def submit_gold_index_build_job(
             "Gold index Job returned the wrong manifest media type",
             non_retryable=True,
         )
-    build = GoldIndexBuildManifest.model_validate(
-        _read_json(store, build_ref)
-    )
+    build = GoldIndexBuildManifest.model_validate(_read_json(store, build_ref))
     if build.release_plan_id != input_data.expected_release_plan_id:
         raise ApplicationError(
             "Gold index build does not match the pinned release plan",

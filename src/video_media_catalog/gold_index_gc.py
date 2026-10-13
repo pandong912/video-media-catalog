@@ -353,9 +353,10 @@ def _stable_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
             if str(key) not in _VOLATILE_INDEX_SETTINGS
         }
     for key in tuple(normalized):
-        if key.startswith("index.") and key.removeprefix("index.").split(".", 1)[
-            0
-        ] in _VOLATILE_INDEX_SETTINGS:
+        if (
+            key.startswith("index.")
+            and key.removeprefix("index.").split(".", 1)[0] in _VOLATILE_INDEX_SETTINGS
+        ):
             normalized.pop(key)
     return normalized
 
@@ -446,9 +447,7 @@ def _assert_alias_is_active_only(
     old_index: str,
     active_index: str,
 ) -> tuple[str, ...]:
-    alias_indices = tuple(
-        current_alias_indices(client, alias=RESEARCH_READ_ALIAS)
-    )
+    alias_indices = tuple(current_alias_indices(client, alias=RESEARCH_READ_ALIAS))
     if old_index in alias_indices:
         raise RuntimeError("old Research index is still attached to the read alias")
     if alias_indices != (active_index,):
@@ -630,9 +629,7 @@ def _ensure_snapshot(
         if not isinstance(indices, list) or tuple(sorted(map(str, indices))) != (
             old_index,
         ):
-            raise RuntimeError(
-                "existing OpenSearch snapshot has a different index set"
-            )
+            raise RuntimeError("existing OpenSearch snapshot has a different index set")
         if record.get("include_global_state") is not False:
             raise RuntimeError("OpenSearch snapshot includes global cluster state")
         if record.get("metadata") != metadata:
@@ -808,8 +805,7 @@ def _retention_candidates(
 ) -> tuple[str, ...]:
     indices = research_indices(client)
     creation_times = {
-        index_name: _creation_epoch_millis(client, index_name)
-        for index_name in indices
+        index_name: _creation_epoch_millis(client, index_name) for index_name in indices
     }
     return plan_gold_index_retention(
         creation_epoch_millis=creation_times,
@@ -945,8 +941,7 @@ def archive_delete(
         and (
             reuse_archive_receipt.uri != discovered_archive_ref.uri
             or reuse_archive_receipt.checksum != discovered_archive_ref.checksum
-            or reuse_archive_receipt.size_bytes
-            != discovered_archive_ref.size_bytes
+            or reuse_archive_receipt.size_bytes != discovered_archive_ref.size_bytes
             or reuse_archive_receipt.etag != discovered_archive_ref.etag
             or reuse_archive_receipt.object_version
             != discovered_archive_ref.object_version
@@ -1112,9 +1107,7 @@ def archive_delete(
         old_index=old_index,
         active_index=active_index,
     )
-    if not _index_exists(client, old_index) or not _index_exists(
-        client, active_index
-    ):
+    if not _index_exists(client, old_index) or not _index_exists(client, active_index):
         raise RuntimeError("Research index existence changed after snapshot")
     if research_indices(client) != tuple(sorted((old_index, active_index))):
         raise RuntimeError("Research index set changed after snapshot")
@@ -1347,9 +1340,7 @@ def restore_drill(
                 old_index=archive.old_index,
                 active_index=archive.active_index,
             )
-            expected_indices = tuple(
-                sorted((archive.active_index, archive.old_index))
-            )
+            expected_indices = tuple(sorted((archive.active_index, archive.old_index)))
             if (
                 before != after
                 or after != existing_restore.alias_indices_after
@@ -1490,9 +1481,8 @@ def _repository_body(
     if _S3_BUCKET.fullmatch(bucket) is None:
         raise ValueError("snapshot bucket is invalid")
     normalized_path = base_path.strip("/")
-    if (
-        not normalized_path
-        or any(part in {"", ".", ".."} for part in normalized_path.split("/"))
+    if not normalized_path or any(
+        part in {"", ".", ".."} for part in normalized_path.split("/")
     ):
         raise ValueError("snapshot base path must be a non-empty normalized S3 key")
     if not region or len(region) > 64:

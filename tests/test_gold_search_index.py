@@ -265,14 +265,10 @@ def test_gold_index_manifest_binds_release_commit() -> None:
         authorization_reason="Approved Research r15 shadow validation.",
         activated_at="2026-09-20T00:00:00Z",
     )
-    assert activation == type(activation).model_validate_json(
-        activation.json_bytes()
-    )
+    assert activation == type(activation).model_validate_json(activation.json_bytes())
     with pytest.raises(ValueError, match="unchanged activation"):
         GoldIndexActivationReceipt.model_validate(
-            activation.model_copy(
-                update={"changed": False}
-            ).model_dump(mode="python")
+            activation.model_copy(update={"changed": False}).model_dump(mode="python")
         )
 
 
@@ -295,12 +291,15 @@ def test_bulk_authorization_probe_uses_index_scoped_endpoint() -> None:
     def fake_streaming_bulk(_client: Any, actions: Any, **kwargs: Any):
         calls.append(kwargs)
         action = next(iter(actions))
-        yield False, {
-            "delete": {
-                "_id": action["_id"],
-                "status": 404,
-            }
-        }
+        yield (
+            False,
+            {
+                "delete": {
+                    "_id": action["_id"],
+                    "status": 404,
+                }
+            },
+        )
 
     validate_gold_bulk_write_access(
         _BulkClient(),

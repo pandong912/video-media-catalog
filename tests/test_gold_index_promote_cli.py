@@ -133,13 +133,7 @@ def test_promote_cli_validates_cas_and_publishes_activation(
 
     assert result["status"] == "ACTIVATED"
     assert client.indices.alias_targets == {manifest.index}
-    receipt_path = (
-        activation_dir / f"gold-index-activation-{manifest.build_id}.json"
-    )
-    receipt = GoldIndexActivationReceipt.model_validate_json(
-        receipt_path.read_bytes()
-    )
-    assert receipt.expected_previous_indices == (
-        "media-catalog-research-old",
-    )
+    receipt_path = activation_dir / f"gold-index-activation-{manifest.build_id}.json"
+    receipt = GoldIndexActivationReceipt.model_validate_json(receipt_path.read_bytes())
+    assert receipt.expected_previous_indices == ("media-catalog-research-old",)
     assert receipt.changed is True

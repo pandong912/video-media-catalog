@@ -48,15 +48,11 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldIndexProjectionEnv:
         opensearch_service=str(values.get("opensearchService", "es")),
         catalog_type=str(values.get("catalogType", "glue")),
         catalog_name=str(values.get("catalogName", "media")),
-        glue_namespace=str(
-            values.get("glueNamespace", "video_media_catalog")
-        ),
+        glue_namespace=str(values.get("glueNamespace", "video_media_catalog")),
         shards=int(values.get("shards", 6)),
         replicas=int(values.get("replicas", 1)),
         bulk_chunk_size=int(values.get("bulkChunkSize", 500)),
-        bulk_max_chunk_bytes=int(
-            values.get("bulkMaxChunkBytes", 5 * 1024 * 1024)
-        ),
+        bulk_max_chunk_bytes=int(values.get("bulkMaxChunkBytes", 5 * 1024 * 1024)),
         bulk_partitions=int(values.get("bulkPartitions", 96)),
         bulk_workers=int(values.get("bulkWorkers", 4)),
         spark_master=str(values.get("sparkMaster", "local[*]")),
@@ -64,23 +60,15 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldIndexProjectionEnv:
         shuffle_partitions=int(values.get("shufflePartitions", 384)),
         request_timeout_seconds=int(values.get("requestTimeoutSeconds", 30)),
         min_free_storage_gib=int(values.get("minFreeStorageGiB", 100)),
-        max_jvm_pressure_percent=int(
-            values.get("maxJvmPressurePercent", 75)
-        ),
-        max_cluster_pending_tasks=int(
-            values.get("maxClusterPendingTasks", 10)
-        ),
+        max_jvm_pressure_percent=int(values.get("maxJvmPressurePercent", 75)),
+        max_cluster_pending_tasks=int(values.get("maxClusterPendingTasks", 10)),
         active_deadline_seconds=int(values.get("activeDeadlineSeconds", 43_200)),
         cpu_request=str(values.get("cpuRequest", "4")),
         cpu_limit=str(values.get("cpuLimit", "8")),
         memory_request=str(values.get("memoryRequest", "24Gi")),
         memory_limit=str(values.get("memoryLimit", "32Gi")),
-        ephemeral_storage_request=str(
-            values.get("ephemeralStorageRequest", "80Gi")
-        ),
-        ephemeral_storage_limit=str(
-            values.get("ephemeralStorageLimit", "120Gi")
-        ),
+        ephemeral_storage_request=str(values.get("ephemeralStorageRequest", "80Gi")),
+        ephemeral_storage_limit=str(values.get("ephemeralStorageLimit", "120Gi")),
         node_selector={
             str(key): str(value)
             for key, value in values.get("nodeSelector", {}).items()
@@ -107,12 +95,8 @@ def _gc_env_from_mapping(values: dict[str, Any]) -> GoldIndexGcEnv:
         cpu_limit=str(values.get("cpuLimit", "2")),
         memory_request=str(values.get("memoryRequest", "512Mi")),
         memory_limit=str(values.get("memoryLimit", "2Gi")),
-        ephemeral_storage_request=str(
-            values.get("ephemeralStorageRequest", "1Gi")
-        ),
-        ephemeral_storage_limit=str(
-            values.get("ephemeralStorageLimit", "4Gi")
-        ),
+        ephemeral_storage_request=str(values.get("ephemeralStorageRequest", "1Gi")),
+        ephemeral_storage_limit=str(values.get("ephemeralStorageLimit", "4Gi")),
         node_selector={
             str(key): str(value)
             for key, value in values.get("nodeSelector", {}).items()
@@ -138,16 +122,12 @@ def _gc_input_from_mapping(values: dict[str, Any]) -> GoldIndexGcInput:
         repository=str(values["repository"]),
         snapshot=str(values["snapshot"]),
         delete_before_epoch_millis=int(values["deleteBeforeEpochMillis"]),
-        activation_receipt=ObjectRefPayload.from_mapping(
-            values["activationReceipt"]
-        ),
+        activation_receipt=ObjectRefPayload.from_mapping(values["activationReceipt"]),
         referenced_indices=tuple(
             sorted(str(value) for value in values.get("referencedIndices", []))
         ),
         reuse_archive_receipt=(
-            None
-            if raw_receipt is None
-            else ObjectRefPayload.from_mapping(raw_receipt)
+            None if raw_receipt is None else ObjectRefPayload.from_mapping(raw_receipt)
         ),
         env=_gc_env_from_mapping(values["env"]),
     )
@@ -170,21 +150,15 @@ def _load_mapping(path: str, *, label: str) -> dict[str, Any]:
 
 
 def _load_input(path: str) -> GoldIndexProjectionInput:
-    return _input_from_mapping(
-        _load_mapping(path, label="Gold index projection")
-    )
+    return _input_from_mapping(_load_mapping(path, label="Gold index projection"))
 
 
 def _load_gc_input(path: str) -> GoldIndexGcInput:
-    return _gc_input_from_mapping(
-        _load_mapping(path, label="Gold index GC")
-    )
+    return _gc_input_from_mapping(_load_mapping(path, label="Gold index GC"))
 
 
 def _load_restore_input(path: str) -> GoldIndexRestoreInput:
-    return _restore_input_from_mapping(
-        _load_mapping(path, label="Gold index restore")
-    )
+    return _restore_input_from_mapping(_load_mapping(path, label="Gold index restore"))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -283,9 +257,7 @@ async def start_projection(parsed: argparse.Namespace) -> dict[str, Any]:
 
 async def start_gc(parsed: argparse.Namespace) -> dict[str, Any]:
     input_data = _load_gc_input(parsed.gc_config_file)
-    workflow_id = (
-        parsed.workflow_id or f"gold-index-gc-{input_data.operation_id}"
-    )
+    workflow_id = parsed.workflow_id or f"gold-index-gc-{input_data.operation_id}"
     client = await Client.connect(
         parsed.temporal_address,
         namespace=parsed.temporal_namespace,
@@ -315,9 +287,7 @@ async def start_gc(parsed: argparse.Namespace) -> dict[str, Any]:
 
 async def start_restore(parsed: argparse.Namespace) -> dict[str, Any]:
     input_data = _load_restore_input(parsed.restore_config_file)
-    workflow_id = (
-        parsed.workflow_id or f"gold-index-restore-{input_data.operation_id}"
-    )
+    workflow_id = parsed.workflow_id or f"gold-index-restore-{input_data.operation_id}"
     client = await Client.connect(
         parsed.temporal_address,
         namespace=parsed.temporal_namespace,

@@ -127,9 +127,7 @@ def test_gc_and_restore_jobs_use_gc_identity_and_exact_cli_args() -> None:
     assert "--activation-receipt-version" in gc_args
     assert "--activation-receipt-etag" in gc_args
     assert gc_container["securityContext"]["readOnlyRootFilesystem"] is True
-    assert gc_manifest["metadata"]["labels"][
-        "app.kubernetes.io/component"
-    ] == "gc"
+    assert gc_manifest["metadata"]["labels"]["app.kubernetes.io/component"] == "gc"
 
     restore_pod = restore_manifest["spec"]["template"]["spec"]
     restore_container = restore_pod["containers"][0]
@@ -140,15 +138,19 @@ def test_gc_and_restore_jobs_use_gc_identity_and_exact_cli_args() -> None:
     assert "--archive-receipt-version" in restore_args
     assert "--archive-receipt-etag" in restore_args
     assert not any("rename" in value for value in restore_args)
-    assert restore_manifest["metadata"]["labels"][
-        "app.kubernetes.io/component"
-    ] == "restore"
-    assert len(
-        _gc_job_manifest(
-            replace(_gc_input(), operation_id="a" * 63),
-            completed_at="2026-10-13T00:00:00Z",
-        )["metadata"]["name"]
-    ) <= 63
+    assert (
+        restore_manifest["metadata"]["labels"]["app.kubernetes.io/component"]
+        == "restore"
+    )
+    assert (
+        len(
+            _gc_job_manifest(
+                replace(_gc_input(), operation_id="a" * 63),
+                completed_at="2026-10-13T00:00:00Z",
+            )["metadata"]["name"]
+        )
+        <= 63
+    )
 
 
 def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
@@ -184,9 +186,7 @@ def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
             "deleteBeforeEpochMillis": 50,
             "activationReceipt": {
                 **archive,
-                "uri": (
-                    "s3://bucket/control/index-activations/activation.json"
-                ),
+                "uri": ("s3://bucket/control/index-activations/activation.json"),
                 "mediaType": GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE,
             },
             "referencedIndices": [],
@@ -204,10 +204,7 @@ def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
 
     assert gc.reuse_archive_receipt is not None
     assert gc.reuse_archive_receipt.object_version == "version"
-    assert (
-        gc.activation_receipt.media_type
-        == GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE
-    )
+    assert gc.activation_receipt.media_type == GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE
     assert restore.archive_receipt.etag == "etag"
     assert restore.env.gc_service_account == "research-index-gc"
 
@@ -320,11 +317,7 @@ def test_gc_preflight_allows_terminal_and_same_idempotent_job() -> None:
             "items": [
                 {
                     "metadata": {"name": "completed-gc", "labels": labels},
-                    "status": {
-                        "conditions": [
-                            {"type": "Complete", "status": "True"}
-                        ]
-                    },
+                    "status": {"conditions": [{"type": "Complete", "status": "True"}]},
                 },
                 {
                     "metadata": {"name": "expected-gc", "labels": labels},

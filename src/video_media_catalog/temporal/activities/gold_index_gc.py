@@ -198,9 +198,7 @@ def _object_args(prefix: str, reference: ObjectRefPayload) -> list[str]:
         str(reference.size_bytes),
     ]
     if reference.object_version:
-        arguments.extend(
-            [f"--{prefix}-version", reference.object_version]
-        )
+        arguments.extend([f"--{prefix}-version", reference.object_version])
     if reference.etag:
         arguments.extend([f"--{prefix}-etag", reference.etag])
     return arguments
@@ -320,15 +318,18 @@ def _runtime_job_manifest(
 ) -> dict[str, Any]:
     env = input_data.env
     name = _job_name(kind, input_data, completed_at=completed_at)
-    input_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(
-            {
-                "kind": kind,
-                "input": asdict(input_data),
-                "completedAt": completed_at,
-            }
-        )
-    ).hexdigest()
+    input_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "kind": kind,
+                    "input": asdict(input_data),
+                    "completedAt": completed_at,
+                }
+            )
+        ).hexdigest()
+    )
     labels = {
         "app.kubernetes.io/name": "research-gold-index",
         "app.kubernetes.io/component": kind,
@@ -393,9 +394,7 @@ def _runtime_job_manifest(
                                 "limits": {
                                     "cpu": env.cpu_limit,
                                     "memory": env.memory_limit,
-                                    "ephemeral-storage": (
-                                        env.ephemeral_storage_limit
-                                    ),
+                                    "ephemeral-storage": (env.ephemeral_storage_limit),
                                 },
                             },
                             "securityContext": {
@@ -502,8 +501,7 @@ def submit_gold_index_gc_job(
         or receipt.active_index != input_data.active_index
         or receipt.repository != input_data.repository
         or receipt.snapshot != input_data.snapshot
-        or receipt.activation_receipt
-        != _object_ref(input_data.activation_receipt)
+        or receipt.activation_receipt != _object_ref(input_data.activation_receipt)
     ):
         raise ApplicationError(
             "GC Job returned a receipt for a different operation",
@@ -581,8 +579,7 @@ def validate_gold_index_gc(
         or receipt.active_index != input_data.active_index
         or receipt.repository != input_data.repository
         or receipt.snapshot != input_data.snapshot
-        or receipt.activation_receipt
-        != _object_ref(input_data.activation_receipt)
+        or receipt.activation_receipt != _object_ref(input_data.activation_receipt)
     ):
         raise ApplicationError("GC receipt operation mismatch", non_retryable=True)
     client = _client(input_data)

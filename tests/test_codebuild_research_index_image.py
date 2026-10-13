@@ -8,10 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_research_index_image_is_built_remotely_from_versioned_source() -> None:
     contract = (ROOT / "buildspec.research-index-image.yml").read_text()
 
-    assert (
-        'test "${CODEBUILD_SOURCE_VERSION:?}" = "$SOURCE_OBJECT_VERSION"'
-        in contract
-    )
+    assert 'test "${CODEBUILD_SOURCE_VERSION:?}" = "$SOURCE_OBJECT_VERSION"' in contract
     assert 'test -z "${CODEBUILD_RESOLVED_SOURCE_VERSION:-}" || test' in contract
     assert "docker build \\" in contract
     assert "--platform linux/amd64" in contract

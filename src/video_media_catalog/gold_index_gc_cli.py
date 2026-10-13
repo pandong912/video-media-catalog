@@ -151,9 +151,7 @@ def _reference(
             raise ValueError(f"{prefix} immutable reference is required")
         return None
     if uri is None or checksum is None or size is None:
-        raise ValueError(
-            f"{prefix} URI, hash, and size must be supplied together"
-        )
+        raise ValueError(f"{prefix} URI, hash, and size must be supplied together")
     reference = ObjectRef(
         uri=str(uri),
         format="OBJECT_FORMAT_JSON",
@@ -191,9 +189,7 @@ def _object_store(
         for name, value in vars(parsed).items()
         if name.endswith("_uri") and value
     ]
-    local_only = bool(uris) and all(
-        urlsplit(uri).scheme == "file" for uri in uris
-    )
+    local_only = bool(uris) and all(urlsplit(uri).scheme == "file" for uri in uris)
     return BoundedObjectStore(
         region=parsed.aws_region,
         endpoint_url=parsed.s3_endpoint,

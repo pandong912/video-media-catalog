@@ -426,9 +426,10 @@ def test_archive_receipt_precedes_delete_and_result_follows(
     assert client.snapshot.last_create_body["indices"] == [OLD]
     assert client.snapshot.last_create_body["include_global_state"] is False
     assert client.snapshot.last_create_body["partial"] is False
-    assert client.snapshot.last_create_body["metadata"][
-        "videoMediaCatalogOperationId"
-    ] == "legacy-958"
+    assert (
+        client.snapshot.last_create_body["metadata"]["videoMediaCatalogOperationId"]
+        == "legacy-958"
+    )
     assert client.events == [
         f"publish:{GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE}",
         "delete",
@@ -608,6 +609,5 @@ def test_restore_receipt_has_expected_media_type(tmp_path: Path) -> None:
     )
 
     assert (
-        restored["restoreReceipt"]["mediaType"]
-        == GOLD_INDEX_RESTORE_RECEIPT_MEDIA_TYPE
+        restored["restoreReceipt"]["mediaType"] == GOLD_INDEX_RESTORE_RECEIPT_MEDIA_TYPE
     )

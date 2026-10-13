@@ -38,9 +38,12 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert old_validate_stage not in dockerfile
     assert "--extra index" in dockerfile
 
-    assert emr_dockerfile.startswith(
-        "FROM public.ecr.aws/emr-serverless/spark/emr-7.9.0:latest"
-    )
+    assert emr_dockerfile.startswith("ARG EMR_BASE_IMAGE=")
+    assert (
+        "public.ecr.aws/emr-serverless/spark/emr-7.9.0@sha256:"
+        "1c66252dcc31d3be32157ba95239fca0f1f3f2d6fa470e827d3be50bbe9a87b5"
+    ) in emr_dockerfile
+    assert "FROM ${EMR_BASE_IMAGE}" in emr_dockerfile
     assert "python3.12" in emr_dockerfile
     assert "USER hadoop:hadoop" in emr_dockerfile
 

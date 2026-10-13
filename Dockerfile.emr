@@ -1,4 +1,5 @@
-FROM public.ecr.aws/emr-serverless/spark/emr-7.9.0:latest
+ARG EMR_BASE_IMAGE=public.ecr.aws/emr-serverless/spark/emr-7.9.0@sha256:1c66252dcc31d3be32157ba95239fca0f1f3f2d6fa470e827d3be50bbe9a87b5
+FROM ${EMR_BASE_IMAGE}
 
 ARG UV_VERSION=0.9.7
 

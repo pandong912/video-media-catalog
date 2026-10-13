@@ -11,9 +11,11 @@ phases:
       - ': "${SOURCE_ARCHIVE_BUCKET:?}" "${SOURCE_ARCHIVE_KEY:?}" "${SOURCE_ARCHIVE_SHA256:?}"'
       - ': "${COSIGN_VERSION:?}" "${COSIGN_SHA256:?}" "${SYFT_VERSION:?}" "${SYFT_SHA256:?}"'
       - ': "${GRYPE_VERSION:?}" "${GRYPE_SHA256:?}"'
+      - ': "${EMR_BASE_IMAGE:?}"'
       - ': "${KMS_KEY_ARN:?}" "${EVIDENCE_URI:?}" "${EVIDENCE_KMS_KEY_ARN:?}"'
       - '[[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]'
       - '[[ "$SOURCE_ARCHIVE_SHA256" =~ ^sha256:[0-9a-f]{64}$ ]]'
+      - '[[ "$EMR_BASE_IMAGE" =~ ^public\.ecr\.aws/emr-serverless/spark/emr-7\.9\.0@sha256:[0-9a-f]{64}$ ]]'
       - test "${CODEBUILD_SOURCE_VERSION:?}" = "$SOURCE_OBJECT_VERSION"
       - aws s3api get-object --bucket "$SOURCE_ARCHIVE_BUCKET" --key "$SOURCE_ARCHIVE_KEY" --version-id "$SOURCE_OBJECT_VERSION" /tmp/source.zip >/tmp/source-object.json
       - test "sha256:$(sha256sum /tmp/source.zip | awk '{print $1}')" = "$SOURCE_ARCHIVE_SHA256"
@@ -38,11 +40,16 @@ phases:
         while IFS='|' read -r unit dockerfile tag_prefix expected_user; do
           tag="${tag_prefix}-${SOURCE_REVISION}-${CODEBUILD_BUILD_NUMBER}"
           image="$REGISTRY/$REPOSITORY:$tag"
+          build_args=()
+          if [[ "$unit" = emr ]]; then
+            build_args+=(--build-arg "EMR_BASE_IMAGE=$EMR_BASE_IMAGE")
+          fi
           docker build \
             --platform linux/amd64 \
             --label "org.opencontainers.image.revision=$SOURCE_REVISION" \
             --label "org.opencontainers.image.source=https://github.com/pandong912/video-media-catalog" \
             --label "video.media.catalog.release-unit=$unit" \
+            "${build_args[@]}" \
             --file "$dockerfile" \
             --tag "$image" \
             .
@@ -97,35 +104,81 @@ phases:
             sleep 10
           done
           scanner=ecr-basic
+          new_critical=0
+          inherited_critical=0
+          base_comparison=null
           if [[ "$status" = COMPLETE ]]; then
             cp "/tmp/media-catalog-release/${unit}-ecr-scan.json" \
               "/tmp/media-catalog-release/${unit}-scan.json"
             high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' "/tmp/media-catalog-release/${unit}-scan.json")"
             critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' "/tmp/media-catalog-release/${unit}-scan.json")"
+            new_critical="$critical"
           elif [[ "$unit" = emr && "$status" = FAILED ]] && jq -e '
             (.imageScanStatus.description // "")
             | contains("exceeds the maximum supported with Basic Scanning")
           ' "/tmp/media-catalog-release/${unit}-ecr-scan.json" >/dev/null; then
-            scanner=grype
+            scanner=grype-differential
             grype "sbom:/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
               --output json \
               >"/tmp/media-catalog-release/${unit}-scan.json"
-            high="$(jq '[.matches[] | select((.vulnerability.severity // "") == "High")] | length' "/tmp/media-catalog-release/${unit}-scan.json")"
-            critical="$(jq '[.matches[] | select((.vulnerability.severity // "") == "Critical")] | length' "/tmp/media-catalog-release/${unit}-scan.json")"
+            syft scan "$EMR_BASE_IMAGE" \
+              --output "spdx-json=/tmp/media-catalog-release/emr-base-sbom.spdx.json"
+            grype "sbom:/tmp/media-catalog-release/emr-base-sbom.spdx.json" \
+              --output json \
+              >"/tmp/media-catalog-release/emr-base-scan.json"
+            high="$(jq --arg severity High '
+              [.matches[]
+                | select((.vulnerability.severity // "") == $severity)
+                | {id:.vulnerability.id,namespace:.vulnerability.namespace,
+                   package:.artifact.name,version:.artifact.version,type:.artifact.type}]
+              | unique | length
+            ' "/tmp/media-catalog-release/${unit}-scan.json")"
+            critical="$(jq --arg severity Critical '
+              [.matches[]
+                | select((.vulnerability.severity // "") == $severity)
+                | {id:.vulnerability.id,namespace:.vulnerability.namespace,
+                   package:.artifact.name,version:.artifact.version,type:.artifact.type}]
+              | unique | length
+            ' "/tmp/media-catalog-release/${unit}-scan.json")"
+            jq -n \
+              --slurpfile derived "/tmp/media-catalog-release/${unit}-scan.json" \
+              --slurpfile base /tmp/media-catalog-release/emr-base-scan.json \
+              '
+                def critical_findings($document):
+                  [$document.matches[]
+                    | select((.vulnerability.severity // "") == "Critical")
+                    | {id:.vulnerability.id,namespace:.vulnerability.namespace,
+                       package:.artifact.name,version:.artifact.version,
+                       type:.artifact.type}]
+                  | unique;
+                critical_findings($derived[0]) - critical_findings($base[0])
+              ' >"/tmp/media-catalog-release/emr-new-critical.json"
+            new_critical="$(jq 'length' /tmp/media-catalog-release/emr-new-critical.json)"
+            inherited_critical="$((critical - new_critical))"
+            test "$new_critical" = 0
+            base_comparison="$(jq -n \
+              --arg imageReference "$EMR_BASE_IMAGE" \
+              --arg scanSha256 "sha256:$(sha256sum /tmp/media-catalog-release/emr-base-scan.json | awk '{print $1}')" \
+              --arg sbomSha256 "sha256:$(sha256sum /tmp/media-catalog-release/emr-base-sbom.spdx.json | awk '{print $1}')" \
+              --arg newCriticalSha256 "sha256:$(sha256sum /tmp/media-catalog-release/emr-new-critical.json | awk '{print $1}')" \
+              '{imageReference:$imageReference,scanner:"grype",
+                scanSha256:$scanSha256,sbomSha256:$sbomSha256,
+                newCriticalFindingsSha256:$newCriticalSha256}')"
           else
             echo "unsupported ECR scan status for ${unit}: ${status:-missing}" >&2
             exit 1
           fi
-          test "$critical" = 0
           scan_disposition=ZERO_HIGH_AND_CRITICAL
           if [[ "$unit" = runtime ]]; then
             test "$high" = 0
-          elif [[ "$scanner" = grype ]]; then
-            scan_disposition=MANAGED_EMR_BASE_GRYPE_HIGH_FINDINGS_RECORDED
+            test "$critical" = 0
+          elif [[ "$scanner" = grype-differential ]]; then
+            scan_disposition=MANAGED_EMR_BASE_FINDINGS_RECORDED_NO_NEW_CRITICAL
           else
             # The AWS-managed EMR 7.9 base currently reports inherited HIGH
             # findings. Keep the count visible and reject every CRITICAL;
             # application dependencies are still represented in the SBOM.
+            test "$critical" = 0
             scan_disposition=MANAGED_EMR_BASE_HIGH_FINDINGS_RECORDED
           fi
           cosign sign --yes --key "awskms:///$KMS_KEY_ARN" "$reference"
@@ -159,10 +212,17 @@ phases:
             --arg signatureSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-signature.json" | awk '{print $1}')" \
             --arg attestationSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-attestation.json" | awk '{print $1}')" \
             --argjson highFindings "$high" \
+            --argjson criticalFindings "$critical" \
+            --argjson newCriticalFindings "$new_critical" \
+            --argjson inheritedCriticalFindings "$inherited_critical" \
+            --argjson baseComparison "$base_comparison" \
             '{unit:$unit,imageReference:$imageReference,imageDigest:$imageDigest,
               scan:{status:"PASS",scanner:$scanner,disposition:$scanDisposition,
-                highFindings:$highFindings,criticalFindings:0,sha256:$scanSha256,
-                ecrAttemptSha256:$ecrScanSha256},
+                highFindings:$highFindings,criticalFindings:$criticalFindings,
+                newCriticalFindings:$newCriticalFindings,
+                inheritedCriticalFindings:$inheritedCriticalFindings,
+                sha256:$scanSha256,ecrAttemptSha256:$ecrScanSha256,
+                baseComparison:$baseComparison},
               sbom:{status:"PASS",mediaType:"application/spdx+json",sha256:$sbomSha256},
               signature:{status:"PASS",sha256:$signatureSha256},
               sbomAttestation:{status:"PASS",sha256:$attestationSha256}}')"
@@ -183,15 +243,20 @@ phases:
           >/tmp/media-catalog-release/manifest.json
       - |
         set -euo pipefail
-        for file in \
+        shopt -s nullglob
+        files=( \
           /tmp/media-catalog-release/runtime-ecr-scan.json \
           /tmp/media-catalog-release/emr-ecr-scan.json \
           /tmp/media-catalog-release/runtime-scan.json \
           /tmp/media-catalog-release/emr-scan.json \
+          /tmp/media-catalog-release/emr-base-scan.json \
+          /tmp/media-catalog-release/emr-new-critical.json \
           /tmp/media-catalog-release/*-sbom.spdx.json \
           /tmp/media-catalog-release/*-signature.json \
           /tmp/media-catalog-release/*-attestation.json \
-          /tmp/media-catalog-release/manifest.json; do
+          /tmp/media-catalog-release/manifest.json \
+        )
+        for file in "${files[@]}"; do
           name="$(basename "$file")"
           content_type=application/json
           [[ "$name" = *-sbom.spdx.json ]] && content_type=application/spdx+json

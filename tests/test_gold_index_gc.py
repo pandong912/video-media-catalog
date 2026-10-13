@@ -176,12 +176,8 @@ class _Cluster:
         self,
         *,
         index: str,
-        wait_for_status: str,
-        timeout: str,
     ) -> dict[str, Any]:
         assert index == OLD
-        assert wait_for_status == "yellow"
-        assert timeout.endswith("s")
         return {"status": "green", "timed_out": False}
 
 

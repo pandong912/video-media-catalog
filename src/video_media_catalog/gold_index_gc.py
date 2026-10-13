@@ -1291,19 +1291,23 @@ def _wait_for_restored_index(
     sleep: Callable[[float], None],
 ) -> None:
     deadline = monotonic() + timeout_seconds
-    while not _index_exists(client, index_name):
+    while True:
+        if _index_exists(client, index_name):
+            health = client.cluster.health(index=index_name)
+            if not isinstance(health, Mapping):
+                raise RuntimeError(
+                    "restored Research index health response is invalid"
+                )
+            if (
+                not bool(health.get("timed_out"))
+                and str(health.get("status", "")) in {"yellow", "green"}
+            ):
+                return
         if monotonic() >= deadline:
-            raise TimeoutError("restored Research index did not appear before timeout")
+            raise TimeoutError(
+                "restored Research index did not reach yellow health before timeout"
+            )
         sleep(poll_seconds)
-    health = client.cluster.health(
-        index=index_name,
-        wait_for_status="yellow",
-        timeout=f"{max(1, int(timeout_seconds))}s",
-    )
-    if not isinstance(health, Mapping) or bool(health.get("timed_out")):
-        raise RuntimeError("restored Research index did not reach yellow health")
-    if str(health.get("status", "")) not in {"yellow", "green"}:
-        raise RuntimeError("restored Research index health is below yellow")
 
 
 def _validate_restore_identity(

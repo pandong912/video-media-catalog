@@ -522,19 +522,19 @@ def _validate_lookup_payload(
     ):
         if not isinstance(provided, dict):
             raise ValueError(f"sourceSilverInputs[{index}] must be an object")
-        batch_payload, batch_ref = _ref_from_mapping(
+        batch_payload, _ = _ref_from_mapping(
             provided.get("batchManifest"),
             label=f"sourceSilverInputs[{index}].batchManifest",
             media_type=_CONNECTOR_BATCH_MEDIA_TYPE,
         )
-        record_payload, record_ref = _ref_from_mapping(
+        record_payload, _ = _ref_from_mapping(
             provided.get("recordSetManifest"),
             label=f"sourceSilverInputs[{index}].recordSetManifest",
             media_type=_RECORD_SET_MEDIA_TYPE,
         )
         if (
-            batch_ref != batch.connector_batch_object
-            or record_ref != batch.record_set_object
+            batch_payload != _object_ref_payload(batch.connector_batch_object)
+            or record_payload != _object_ref_payload(batch.record_set_object)
         ):
             raise ValueError(
                 f"sourceSilverInputs[{index}] does not match the run manifest"

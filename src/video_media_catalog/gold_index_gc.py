@@ -763,6 +763,10 @@ def _ensure_snapshot(
         sleep(poll_seconds)
 
 
+class _UnsafeSnapshotCloneError(RuntimeError):
+    """The clone cannot be retained because it contains cluster-global state."""
+
+
 def _ensure_snapshot_clone(
     client: Any,
     *,
@@ -814,14 +818,14 @@ def _ensure_snapshot_clone(
             raise RuntimeError(
                 "existing OpenSearch snapshot clone has a different index set"
             )
-        if record.get("include_global_state") is not False:
-            raise RuntimeError(
-                "OpenSearch snapshot clone includes global cluster state"
-            )
         state = str(record.get("state", ""))
         if state == "SUCCESS":
             if _snapshot_failed_shards(record) != 0:
                 raise RuntimeError("OpenSearch snapshot clone contains failed shards")
+            if record.get("include_global_state") is not False:
+                raise _UnsafeSnapshotCloneError(
+                    "OpenSearch snapshot clone includes global cluster state"
+                )
             return record
         if state in {"FAILED", "PARTIAL", "INCOMPATIBLE"}:
             raise RuntimeError(f"OpenSearch snapshot clone ended in state {state}")
@@ -854,6 +858,122 @@ def _wait_for_snapshot_absent(
         if monotonic() >= deadline:
             raise TimeoutError("OpenSearch snapshot was not deleted before timeout")
         sleep(poll_seconds)
+
+
+def _ensure_previous_only_snapshot_via_restore(
+    client: Any,
+    *,
+    operation_id: str,
+    source: GoldIndexArchiveReceipt,
+    target_snapshot: str,
+    timeout_seconds: float,
+    poll_seconds: float,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> Mapping[str, Any]:
+    """Replace an unsafe clone via an alias-free restore and fresh snapshot."""
+
+    unsafe_clone = _snapshot_record(
+        client,
+        repository=source.repository,
+        snapshot=target_snapshot,
+    )
+    if unsafe_clone is None:
+        raise RuntimeError("unsafe snapshot clone disappeared before replacement")
+    indices = unsafe_clone.get("indices")
+    if (
+        not isinstance(indices, list)
+        or tuple(sorted(map(str, indices))) != (source.old_index,)
+        or str(unsafe_clone.get("state", "")) != "SUCCESS"
+        or _snapshot_failed_shards(unsafe_clone) != 0
+        or unsafe_clone.get("include_global_state") is False
+    ):
+        raise RuntimeError("unsafe snapshot clone changed before replacement")
+    response = client.snapshot.delete(
+        repository=source.repository,
+        snapshot=target_snapshot,
+    )
+    if isinstance(response, Mapping) and response.get("acknowledged") is False:
+        raise RuntimeError("OpenSearch rejected unsafe snapshot clone deletion")
+    _wait_for_snapshot_absent(
+        client,
+        repository=source.repository,
+        snapshot=target_snapshot,
+        timeout_seconds=timeout_seconds,
+        poll_seconds=poll_seconds,
+        monotonic=monotonic,
+        sleep=sleep,
+    )
+
+    _assert_alias_is_active_only(
+        client,
+        old_index=source.old_index,
+        active_index=source.active_index,
+    )
+    if _index_exists(client, source.old_index):
+        raise RuntimeError(
+            "previous Research index unexpectedly exists before fallback"
+        )
+    client.snapshot.restore(
+        repository=source.repository,
+        snapshot=source.snapshot,
+        body={
+            "indices": [source.old_index],
+            "include_global_state": False,
+            "include_aliases": False,
+        },
+        wait_for_completion=False,
+    )
+    try:
+        _wait_for_restored_index(
+            client,
+            index_name=source.old_index,
+            timeout_seconds=timeout_seconds,
+            poll_seconds=poll_seconds,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+        _assert_evidence_matches(
+            source,
+            collect_index_evidence(client, index_name=source.old_index),
+        )
+        _assert_alias_is_active_only(
+            client,
+            old_index=source.old_index,
+            active_index=source.active_index,
+        )
+        return _ensure_snapshot(
+            client,
+            repository=source.repository,
+            snapshot=target_snapshot,
+            snapshot_indices=(source.old_index,),
+            metadata={
+                "videoMediaCatalogOperationId": operation_id,
+                "compactionSourceSnapshot": source.snapshot,
+                "archiveIndices": source.old_index,
+                "mappingDigest": source.mapping_digest,
+                "settingsDigest": source.settings_digest,
+                "documentCount": str(source.document_count),
+            },
+            timeout_seconds=timeout_seconds,
+            poll_seconds=poll_seconds,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+    finally:
+        if _index_exists(client, source.old_index):
+            _assert_alias_is_active_only(
+                client,
+                old_index=source.old_index,
+                active_index=source.active_index,
+            )
+            client.indices.delete(index=source.old_index)
+        _assert_post_delete_state(
+            client,
+            old_index=source.old_index,
+            active_index=source.active_index,
+            archive_indices=source.snapshot_indices,
+        )
 
 
 def _native_sha256(value: str) -> str:
@@ -1982,22 +2102,37 @@ def compact_snapshot_archive(
             "sourceArchiveReceipt": _receipt_dump(source_archive_receipt),
         }
 
+    replacement_method = "EXISTING"
     if replacement is None:
         if source_record is None:
             raise RuntimeError("source snapshot disappeared before clone")
-        clone_record = _ensure_snapshot_clone(
-            client,
-            repository=source.repository,
-            source_snapshot=source.snapshot,
-            source_snapshot_indices=source.snapshot_indices,
-            source_snapshot_uuid=source.snapshot_uuid,
-            target_snapshot=replacement_snapshot,
-            target_index=source.old_index,
-            timeout_seconds=snapshot_timeout_seconds,
-            poll_seconds=snapshot_poll_seconds,
-            monotonic=monotonic,
-            sleep=sleep,
-        )
+        replacement_method = "CLONE"
+        try:
+            clone_record = _ensure_snapshot_clone(
+                client,
+                repository=source.repository,
+                source_snapshot=source.snapshot,
+                source_snapshot_indices=source.snapshot_indices,
+                source_snapshot_uuid=source.snapshot_uuid,
+                target_snapshot=replacement_snapshot,
+                target_index=source.old_index,
+                timeout_seconds=snapshot_timeout_seconds,
+                poll_seconds=snapshot_poll_seconds,
+                monotonic=monotonic,
+                sleep=sleep,
+            )
+        except _UnsafeSnapshotCloneError:
+            replacement_method = "RESTORE_RESNAPSHOT"
+            clone_record = _ensure_previous_only_snapshot_via_restore(
+                client,
+                operation_id=operation_id,
+                source=source,
+                target_snapshot=replacement_snapshot,
+                timeout_seconds=snapshot_timeout_seconds,
+                poll_seconds=snapshot_poll_seconds,
+                monotonic=monotonic,
+                sleep=sleep,
+            )
         snapshot_uuid = clone_record.get("uuid")
         if not isinstance(snapshot_uuid, str) or not snapshot_uuid:
             raise RuntimeError("OpenSearch snapshot clone omitted its immutable UUID")
@@ -2086,6 +2221,7 @@ def compact_snapshot_archive(
     return {
         "status": "COMPACTED",
         "reused": source_record is None,
+        "replacementMethod": replacement_method,
         "snapshotGcReceipt": _receipt_dump(receipt_ref),
         "sourceArchiveReceipt": _receipt_dump(source_archive_receipt),
         "replacementArchiveReceipt": _receipt_dump(replacement_ref),

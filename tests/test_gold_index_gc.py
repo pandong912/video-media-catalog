@@ -43,6 +43,10 @@ class _NotFound(Exception):
     status_code = 404
 
 
+class _ServiceUnavailable(Exception):
+    status_code = 503
+
+
 class _Indices:
     def __init__(self, owner: _Client) -> None:
         self.owner = owner
@@ -273,6 +277,8 @@ class _Client:
         }
         self.alias_targets = {ACTIVE}
         self.events: list[str] = []
+        self.count_calls = 0
+        self.count_failures_remaining = 0
         self.delete_calls = 0
         self.snapshot_failure = False
         self.indices = _Indices(self)
@@ -280,6 +286,10 @@ class _Client:
         self.cluster = _Cluster()
 
     def count(self, *, index: str) -> dict[str, int]:
+        self.count_calls += 1
+        if self.count_failures_remaining:
+            self.count_failures_remaining -= 1
+            raise _ServiceUnavailable
         return {"count": int(self.indexes[index]["count"])}
 
 
@@ -661,7 +671,10 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
         additional_archive_indices=(EXTRA_ONE, EXTRA_TWO),
     )
     client.snapshot.force_clone_global_state = True
+    client.count_failures_remaining = 1
+    count_calls_before_fallback = client.count_calls
     refresh_calls_before_fallback = tuple(client.indices.refresh_calls)
+    sleeps: list[float] = []
 
     result = compact_snapshot_archive(
         client,
@@ -676,7 +689,7 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
         completed_at=NOW,
         execute=True,
         snapshot_poll_seconds=0.01,
-        sleep=lambda _seconds: None,
+        sleep=sleeps.append,
     )
 
     assert result["status"] == "COMPACTED"
@@ -693,6 +706,8 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
     assert set(client.indexes) == {ACTIVE}
     assert client.alias_targets == {ACTIVE}
     assert tuple(client.indices.refresh_calls) == refresh_calls_before_fallback
+    assert client.count_calls == count_calls_before_fallback + 2
+    assert sleeps == [0.01]
 
 
 def test_gc_is_idempotent_and_reuses_snapshot_after_restore(

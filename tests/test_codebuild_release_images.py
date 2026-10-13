@@ -11,6 +11,9 @@ def test_release_buildspec_signs_both_runtime_images_from_immutable_source() -> 
     assert "emr|Dockerfile.emr|emr-release|hadoop:hadoop" in contract
     assert 'cosign sign --yes --key "awskms:///$KMS_KEY_ARN"' in contract
     assert "cosign verify-attestation" in contract
+    assert '"${GRYPE_VERSION:?}" "${GRYPE_SHA256:?}"' in contract
+    assert "exceeds the maximum supported with Basic Scanning" in contract
+    assert "scanner=grype" in contract
     assert "criticalFindings:0" in contract
-    assert "MANAGED_EMR_BASE_HIGH_FINDINGS_RECORDED" in contract
+    assert "MANAGED_EMR_BASE_GRYPE_HIGH_FINDINGS_RECORDED" in contract
     assert "claimsLiveDeployment:false" in contract

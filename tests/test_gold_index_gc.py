@@ -30,6 +30,8 @@ from video_media_catalog.storage import digest_file
 
 ACTIVE = "media-catalog-research-" + ("a" * 24)
 OLD = "media-catalog-research-" + ("b" * 24)
+EXTRA_ONE = "media-catalog-research-" + ("c" * 24)
+EXTRA_TWO = "media-catalog-research-" + ("d" * 24)
 ALIAS = "media-catalog-research-read"
 NOW = "2026-10-13T00:00:00Z"
 
@@ -308,6 +310,7 @@ def _archive(
     operation_id: str = "legacy-958",
     activation_receipt: ObjectRef | None = None,
     reuse_archive_receipt: ObjectRef | None = None,
+    additional_archive_indices: tuple[str, ...] = (),
     suffix: str = "",
 ) -> dict[str, Any]:
     archive_uri, gc_uri, _ = _paths(tmp_path, suffix)
@@ -324,6 +327,7 @@ def _archive(
         gc_result_uri=gc_uri,
         completed_at=NOW,
         delete_before_epoch_millis=50,
+        additional_archive_indices=additional_archive_indices,
         execute=execute,
         reuse_archive_receipt=reuse_archive_receipt,
         snapshot_poll_seconds=0.01,
@@ -445,6 +449,69 @@ def test_archive_receipt_precedes_delete_and_result_follows(
     assert archive.document_count == 958
     assert archive.activation_receipt == gc.activation_receipt
     assert gc.archive_receipt.checksum.value
+
+
+def test_batch_archive_deletes_failed_shadows_and_restores_only_previous(
+    tmp_path: Path,
+) -> None:
+    client = _Client()
+    for index_name, uuid in (
+        (EXTRA_ONE, "extra-one-uuid"),
+        (EXTRA_TWO, "extra-two-uuid"),
+    ):
+        client.indexes[index_name] = copy.deepcopy(client.indexes[OLD])
+        client.indexes[index_name]["settings"]["index"]["uuid"] = uuid
+    store = BoundedObjectStore(client=object())
+    activation = _activation_ref(tmp_path)
+
+    first = _archive(
+        client,
+        store,
+        tmp_path,
+        activation_receipt=activation,
+        additional_archive_indices=(EXTRA_ONE, EXTRA_TWO),
+    )
+
+    expected_snapshot_indices = tuple(sorted((OLD, EXTRA_ONE, EXTRA_TWO)))
+    assert client.snapshot.last_create_body is not None
+    assert client.snapshot.last_create_body["indices"] == list(
+        expected_snapshot_indices
+    )
+    assert client.delete_calls == 3
+    assert set(client.indexes) == {ACTIVE}
+    archive = GoldIndexArchiveReceipt.model_validate_json(
+        Path(_paths(tmp_path)[0].removeprefix("file://")).read_bytes()
+    )
+    assert archive.snapshot_indices == expected_snapshot_indices
+
+    archive_ref = ObjectRef.model_validate(first["archiveReceipt"])
+    _, _, restore_uri = _paths(tmp_path)
+    restore_drill(
+        client,
+        store,
+        operation_id="restore-batch-958",
+        archive_receipt=archive_ref,
+        restore_receipt_uri=restore_uri,
+        completed_at=NOW,
+        restore_poll_seconds=0.01,
+        sleep=lambda _seconds: None,
+    )
+    assert set(client.indexes) == {ACTIVE, OLD}
+    assert client.snapshot.last_restore_body is not None
+    assert client.snapshot.last_restore_body["indices"] == [OLD]
+
+    second = _archive(
+        client,
+        store,
+        tmp_path,
+        operation_id="legacy-batch-958-redo",
+        activation_receipt=activation,
+        reuse_archive_receipt=archive_ref,
+        suffix="-redo",
+    )
+    assert second["status"] == "DELETED"
+    assert client.snapshot.create_calls == 1
+    assert set(client.indexes) == {ACTIVE}
 
 
 def test_gc_is_idempotent_and_reuses_snapshot_after_restore(

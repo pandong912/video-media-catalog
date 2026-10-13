@@ -144,12 +144,33 @@ def _validate_gc_input(input_data: GoldIndexGcInput) -> None:
         input_data.referenced_indices
     ):
         raise ValueError("referenced indices must be unique and sorted")
+    if tuple(sorted(set(input_data.additional_archive_indices))) != (
+        input_data.additional_archive_indices
+    ):
+        raise ValueError("additional archive indices must be unique and sorted")
     if any(
         _SAFE_NAME.fullmatch(value) is None
         or not value.startswith(RESEARCH_INDEX_PREFIX + "-")
         for value in input_data.referenced_indices
     ):
         raise ValueError("referenced indices must belong to the Research family")
+    if any(
+        _SAFE_NAME.fullmatch(value) is None
+        or not value.startswith(RESEARCH_INDEX_PREFIX + "-")
+        for value in input_data.additional_archive_indices
+    ):
+        raise ValueError(
+            "additional archive indices must belong to the Research family"
+        )
+    if {input_data.old_index, input_data.active_index} & set(
+        input_data.additional_archive_indices
+    ) or set(input_data.referenced_indices) & set(
+        input_data.additional_archive_indices
+    ):
+        raise ValueError(
+            "additional archive indices must exclude active, old, "
+            "and referenced indices"
+        )
     if input_data.reuse_archive_receipt is not None:
         _validate_ref(
             input_data.reuse_archive_receipt,
@@ -256,6 +277,8 @@ def _gc_job_args(
     ]
     for index_name in input_data.referenced_indices:
         arguments.extend(["--referenced-index", index_name])
+    for index_name in input_data.additional_archive_indices:
+        arguments.extend(["--additional-archive-index", index_name])
     if input_data.reuse_archive_receipt is not None:
         arguments.extend(
             _object_args(

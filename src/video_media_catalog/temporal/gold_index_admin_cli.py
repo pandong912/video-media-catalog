@@ -123,6 +123,9 @@ def _gc_input_from_mapping(values: dict[str, Any]) -> GoldIndexGcInput:
         snapshot=str(values["snapshot"]),
         delete_before_epoch_millis=int(values["deleteBeforeEpochMillis"]),
         activation_receipt=ObjectRefPayload.from_mapping(values["activationReceipt"]),
+        additional_archive_indices=tuple(
+            sorted(str(value) for value in values.get("additionalArchiveIndices", []))
+        ),
         referenced_indices=tuple(
             sorted(str(value) for value in values.get("referencedIndices", []))
         ),

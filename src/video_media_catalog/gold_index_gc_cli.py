@@ -94,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     archive.add_argument("--completed-at", required=True)
     archive.add_argument("--delete-before-epoch-millis", type=int, required=True)
     archive.add_argument("--referenced-index", action="append", default=[])
+    archive.add_argument("--additional-archive-index", action="append", default=[])
     archive.add_argument("--snapshot-timeout-seconds", type=float, default=7200)
     archive.add_argument("--snapshot-poll-seconds", type=float, default=15)
     archive.add_argument(
@@ -255,6 +256,7 @@ def run(
                 completed_at=parsed.completed_at,
                 delete_before_epoch_millis=parsed.delete_before_epoch_millis,
                 referenced_indices=tuple(parsed.referenced_index),
+                additional_archive_indices=tuple(parsed.additional_archive_index),
                 execute=parsed.execute,
                 reuse_archive_receipt=reuse,
                 snapshot_timeout_seconds=parsed.snapshot_timeout_seconds,

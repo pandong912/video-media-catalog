@@ -164,6 +164,13 @@ class GoldIndexArchiveReceipt(V2ContractModel):
     def validate_digest(cls, value: str) -> str:
         return require_sha256(value)
 
+    @field_validator("snapshot_indices")
+    @classmethod
+    def validate_snapshot_indices(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for index_name in value:
+            _research_index(index_name, label="snapshot Research index")
+        return value
+
     @field_validator("archived_at")
     @classmethod
     def validate_archived_at(cls, value: str) -> str:
@@ -178,8 +185,15 @@ class GoldIndexArchiveReceipt(V2ContractModel):
         )
         if self.old_index == self.active_index:
             raise ValueError("old and active indices must differ")
-        if self.snapshot_indices != (self.old_index,):
-            raise ValueError("archive snapshot must contain exactly the old index")
+        if (
+            self.snapshot_indices != tuple(sorted(set(self.snapshot_indices)))
+            or self.old_index not in self.snapshot_indices
+            or self.active_index in self.snapshot_indices
+        ):
+            raise ValueError(
+                "archive snapshot indices must be sorted, unique, include old, "
+                "and exclude active"
+            )
         return self
 
 
@@ -463,9 +477,15 @@ def _assert_pre_delete_state(
     *,
     old_index: str,
     active_index: str,
+    archive_indices: tuple[str, ...],
 ) -> None:
-    if not _index_exists(client, old_index):
-        raise RuntimeError("old Research index does not exist")
+    missing = tuple(
+        index_name
+        for index_name in archive_indices
+        if not _index_exists(client, index_name)
+    )
+    if missing:
+        raise RuntimeError(f"archive target Research indices do not exist: {missing!r}")
     if not _index_exists(client, active_index):
         raise RuntimeError("active Research index does not exist")
     _assert_alias_is_active_only(
@@ -474,10 +494,11 @@ def _assert_pre_delete_state(
         active_index=active_index,
     )
     indices = research_indices(client)
-    if indices != tuple(sorted((old_index, active_index))):
+    expected = tuple(sorted((active_index, *archive_indices)))
+    if indices != expected:
         raise RuntimeError(
-            "archive-delete requires exactly the old and active Research indices; "
-            f"found {indices!r}"
+            "archive-delete requires exactly the active and declared archive "
+            f"indices; expected {expected!r}, found {indices!r}"
         )
 
 
@@ -486,14 +507,23 @@ def _assert_post_delete_state(
     *,
     old_index: str,
     active_index: str,
+    archive_indices: tuple[str, ...],
 ) -> None:
     _assert_alias_is_active_only(
         client,
         old_index=old_index,
         active_index=active_index,
     )
-    if _index_exists(client, old_index):
-        raise RuntimeError("old Research index still exists after deletion")
+    remaining_targets = tuple(
+        index_name
+        for index_name in archive_indices
+        if _index_exists(client, index_name)
+    )
+    if remaining_targets:
+        raise RuntimeError(
+            "archived Research indices still exist after deletion: "
+            f"{remaining_targets!r}"
+        )
     if not _index_exists(client, active_index):
         raise RuntimeError("active Research index disappeared during GC")
     indices = research_indices(client)
@@ -561,7 +591,7 @@ def assert_snapshot_success(
     *,
     repository: str,
     snapshot: str,
-    old_index: str,
+    snapshot_indices: tuple[str, ...],
     expected_uuid: str | None = None,
 ) -> Mapping[str, Any]:
     record = _snapshot_record(
@@ -572,10 +602,13 @@ def assert_snapshot_success(
     if record is None:
         raise RuntimeError("OpenSearch snapshot does not exist")
     indices = record.get("indices")
-    if not isinstance(indices, list) or tuple(sorted(map(str, indices))) != (
-        old_index,
+    if (
+        not isinstance(indices, list)
+        or tuple(sorted(map(str, indices))) != snapshot_indices
     ):
-        raise RuntimeError("OpenSearch snapshot does not contain exactly the old index")
+        raise RuntimeError(
+            "OpenSearch snapshot does not contain exactly the declared archive indices"
+        )
     if record.get("include_global_state") is not False:
         raise RuntimeError("OpenSearch snapshot includes global cluster state")
     if expected_uuid is not None and record.get("uuid") != expected_uuid:
@@ -592,7 +625,7 @@ def _ensure_snapshot(
     *,
     repository: str,
     snapshot: str,
-    old_index: str,
+    snapshot_indices: tuple[str, ...],
     metadata: Mapping[str, Any],
     timeout_seconds: float,
     poll_seconds: float,
@@ -609,7 +642,7 @@ def _ensure_snapshot(
             repository=repository,
             snapshot=snapshot,
             body={
-                "indices": [old_index],
+                "indices": list(snapshot_indices),
                 "include_global_state": False,
                 "partial": False,
                 "metadata": dict(metadata),
@@ -626,8 +659,9 @@ def _ensure_snapshot(
         if record is None:
             raise RuntimeError("OpenSearch lost the requested manual snapshot")
         indices = record.get("indices")
-        if not isinstance(indices, list) or tuple(sorted(map(str, indices))) != (
-            old_index,
+        if (
+            not isinstance(indices, list)
+            or tuple(sorted(map(str, indices))) != snapshot_indices
         ):
             raise RuntimeError("existing OpenSearch snapshot has a different index set")
         if record.get("include_global_state") is not False:
@@ -860,6 +894,7 @@ def archive_delete(
     completed_at: str,
     delete_before_epoch_millis: int,
     referenced_indices: tuple[str, ...] = (),
+    additional_archive_indices: tuple[str, ...] = (),
     execute: bool = False,
     reuse_archive_receipt: ObjectRef | None = None,
     snapshot_timeout_seconds: float = 7200,
@@ -867,7 +902,7 @@ def archive_delete(
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Archive and optionally delete one inactive Research index."""
+    """Archive and optionally delete an explicit inactive Research index set."""
 
     operation_id = _operation_id(operation_id)
     repository = _safe_name(repository, label="snapshot repository")
@@ -884,6 +919,17 @@ def archive_delete(
         raise ValueError("referenced Research indices must be unique")
     for index_name in referenced:
         _research_index(index_name, label="referenced Research index")
+    additional = tuple(sorted(set(additional_archive_indices)))
+    if len(additional) != len(additional_archive_indices):
+        raise ValueError("additional archive indices must be unique")
+    for index_name in additional:
+        _research_index(index_name, label="additional archive Research index")
+    if {old_index, active_index} & set(additional) or set(referenced) & set(additional):
+        raise ValueError(
+            "additional archive indices must exclude active, old, "
+            "and referenced indices"
+        )
+    archive_indices = tuple(sorted((old_index, *additional)))
     _validate_activation_receipt(
         store,
         activation_receipt,
@@ -967,22 +1013,31 @@ def archive_delete(
             old_index=old_index,
             active_index=active_index,
         )
+        if not set(archive_indices).issubset(archive.snapshot_indices):
+            raise RuntimeError(
+                "archive receipt does not cover every requested archive index"
+            )
         assert_snapshot_success(
             client,
             repository=repository,
             snapshot=snapshot,
-            old_index=old_index,
+            snapshot_indices=archive.snapshot_indices,
             expected_uuid=archive.snapshot_uuid,
         )
 
-    old_exists = _index_exists(client, old_index)
-    if not old_exists:
+    existing_archive_indices = tuple(
+        index_name
+        for index_name in archive_indices
+        if _index_exists(client, index_name)
+    )
+    if not existing_archive_indices:
         if not execute or archive is None or archive_ref is None:
-            raise RuntimeError("old Research index does not exist")
+            raise RuntimeError("archive target Research indices do not exist")
         _assert_post_delete_state(
             client,
             old_index=old_index,
             active_index=active_index,
+            archive_indices=archive_indices,
         )
         gc_receipt = GoldIndexGcResultReceipt(
             operation_id=operation_id,
@@ -1012,12 +1067,24 @@ def archive_delete(
             "activationReceipt": _receipt_dump(activation_receipt),
         }
 
+    if archive is None and existing_archive_indices != archive_indices:
+        raise RuntimeError("one or more archive target Research indices do not exist")
     _assert_pre_delete_state(
         client,
         old_index=old_index,
         active_index=active_index,
+        archive_indices=existing_archive_indices,
     )
-    evidence = collect_index_evidence(client, index_name=old_index)
+    if old_index in existing_archive_indices:
+        evidence = collect_index_evidence(client, index_name=old_index)
+    elif archive is not None:
+        evidence = IndexEvidence(
+            mapping_digest=archive.mapping_digest,
+            settings_digest=archive.settings_digest,
+            document_count=archive.document_count,
+        )
+    else:
+        raise RuntimeError("old Research index disappeared before it was archived")
     alias_indices = (active_index,)
     candidates: tuple[str, ...] = ()
     if archive is None:
@@ -1027,9 +1094,14 @@ def archive_delete(
             referenced_indices=referenced,
             delete_before_epoch_millis=delete_before_epoch_millis,
         )
-        if old_index not in candidates:
-            raise RuntimeError("old Research index is not eligible for retention GC")
-    else:
+        ineligible = tuple(
+            index_name for index_name in archive_indices if index_name not in candidates
+        )
+        if ineligible:
+            raise RuntimeError(
+                f"Research indices are not eligible for retention GC: {ineligible!r}"
+            )
+    elif old_index in existing_archive_indices:
         _assert_evidence_matches(archive, evidence)
 
     if not execute:
@@ -1038,6 +1110,7 @@ def archive_delete(
             "execute": False,
             "oldIndex": old_index,
             "activeIndex": active_index,
+            "archiveIndices": list(archive_indices),
             "aliasIndices": list(alias_indices),
             "mappingDigest": evidence.mapping_digest,
             "settingsDigest": evidence.settings_digest,
@@ -1050,6 +1123,7 @@ def archive_delete(
     if archive is None:
         snapshot_metadata = {
             "videoMediaCatalogOperationId": operation_id,
+            "archiveIndices": ",".join(archive_indices),
             "mappingDigest": evidence.mapping_digest,
             "settingsDigest": evidence.settings_digest,
             "documentCount": str(evidence.document_count),
@@ -1065,7 +1139,7 @@ def archive_delete(
             client,
             repository=repository,
             snapshot=snapshot,
-            old_index=old_index,
+            snapshot_indices=archive_indices,
             metadata=snapshot_metadata,
             timeout_seconds=snapshot_timeout_seconds,
             poll_seconds=snapshot_poll_seconds,
@@ -1086,7 +1160,7 @@ def archive_delete(
             mapping_digest=evidence.mapping_digest,
             settings_digest=evidence.settings_digest,
             document_count=evidence.document_count,
-            snapshot_indices=(old_index,),
+            snapshot_indices=archive_indices,
             failed_shards=0,
             archived_at=completed_at,
         )
@@ -1102,24 +1176,31 @@ def archive_delete(
         )
 
     # Final fail-closed CAS and evidence check immediately precede deletion.
-    _assert_alias_is_active_only(
+    current_archive_indices = tuple(
+        index_name
+        for index_name in archive_indices
+        if _index_exists(client, index_name)
+    )
+    if current_archive_indices != existing_archive_indices:
+        raise RuntimeError("Research archive index existence changed after snapshot")
+    _assert_pre_delete_state(
         client,
         old_index=old_index,
         active_index=active_index,
+        archive_indices=current_archive_indices,
     )
-    if not _index_exists(client, old_index) or not _index_exists(client, active_index):
-        raise RuntimeError("Research index existence changed after snapshot")
-    if research_indices(client) != tuple(sorted((old_index, active_index))):
-        raise RuntimeError("Research index set changed after snapshot")
-    _assert_evidence_matches(
-        archive,
-        collect_index_evidence(client, index_name=old_index),
-    )
-    client.indices.delete(index=old_index)
+    if old_index in current_archive_indices:
+        _assert_evidence_matches(
+            archive,
+            collect_index_evidence(client, index_name=old_index),
+        )
+    for index_name in current_archive_indices:
+        client.indices.delete(index=index_name)
     _assert_post_delete_state(
         client,
         old_index=old_index,
         active_index=active_index,
+        archive_indices=archive_indices,
     )
 
     gc_receipt = GoldIndexGcResultReceipt(
@@ -1189,13 +1270,14 @@ def validate_gc_result(
         client,
         repository=receipt.repository,
         snapshot=receipt.snapshot,
-        old_index=receipt.old_index,
+        snapshot_indices=archive.snapshot_indices,
         expected_uuid=archive.snapshot_uuid,
     )
     _assert_post_delete_state(
         client,
         old_index=receipt.old_index,
         active_index=receipt.active_index,
+        archive_indices=archive.snapshot_indices,
     )
 
 
@@ -1278,7 +1360,7 @@ def restore_drill(
         client,
         repository=archive.repository,
         snapshot=archive.snapshot,
-        old_index=archive.old_index,
+        snapshot_indices=archive.snapshot_indices,
         expected_uuid=archive.snapshot_uuid,
     )
     before = _assert_alias_is_active_only(
@@ -1450,7 +1532,7 @@ def validate_restore_result(
         client,
         repository=receipt.repository,
         snapshot=receipt.snapshot,
-        old_index=receipt.restored_index,
+        snapshot_indices=archive.snapshot_indices,
         expected_uuid=archive.snapshot_uuid,
     )
     if not _index_exists(client, receipt.restored_index) or not _index_exists(

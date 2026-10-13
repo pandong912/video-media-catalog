@@ -17,8 +17,10 @@ from video_media_catalog.temporal.activities.gold_index import (
 from video_media_catalog.temporal.activities.gold_index_gc import (
     submit_gold_index_gc_job,
     submit_gold_index_restore_job,
+    submit_gold_index_snapshot_gc_job,
     validate_gold_index_gc,
     validate_gold_index_restore,
+    validate_gold_index_snapshot_gc,
 )
 from video_media_catalog.temporal.names import (
     GOLD_INDEX_LAUNCHER_TASK_QUEUE,
@@ -29,6 +31,7 @@ from video_media_catalog.temporal.names import (
 from video_media_catalog.temporal.workflows.gold_index_gc import (
     GoldIndexGcWorkflow,
     GoldIndexRestoreWorkflow,
+    GoldIndexSnapshotGcWorkflow,
 )
 from video_media_catalog.temporal.workflows.gold_index_projection import (
     GoldIndexProjectionWorkflow,
@@ -79,6 +82,7 @@ async def run_worker(parsed: argparse.Namespace) -> None:
                 GoldIndexProjectionWorkflow,
                 GoldIndexGcWorkflow,
                 GoldIndexRestoreWorkflow,
+                GoldIndexSnapshotGcWorkflow,
             ],
         )
     elif parsed.role == "launcher":
@@ -89,6 +93,7 @@ async def run_worker(parsed: argparse.Namespace) -> None:
                 submit_gold_index_build_job,
                 submit_gold_index_gc_job,
                 submit_gold_index_restore_job,
+                submit_gold_index_snapshot_gc_job,
             ],
             activity_executor=executor,
             max_concurrent_activities=1,
@@ -101,6 +106,7 @@ async def run_worker(parsed: argparse.Namespace) -> None:
                 validate_gold_index_build,
                 validate_gold_index_gc,
                 validate_gold_index_restore,
+                validate_gold_index_snapshot_gc,
             ],
             activity_executor=executor,
             max_concurrent_activities=2,

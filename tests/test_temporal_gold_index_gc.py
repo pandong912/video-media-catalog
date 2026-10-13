@@ -13,6 +13,7 @@ from video_media_catalog.gold_index_gc import (
     GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
     GOLD_INDEX_GC_RESULT_MEDIA_TYPE,
     GOLD_INDEX_RESTORE_RECEIPT_MEDIA_TYPE,
+    GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
 )
 from video_media_catalog.gold_search_index import (
     GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE,
@@ -23,16 +24,19 @@ from video_media_catalog.temporal.activities.gold_index_gc import (
     _gc_job_manifest,
     _launch,
     _restore_job_manifest,
+    _snapshot_gc_job_manifest,
 )
 from video_media_catalog.temporal.gold_index_admin_cli import (
     _gc_input_from_mapping,
     _restore_input_from_mapping,
+    _snapshot_gc_input_from_mapping,
 )
 from video_media_catalog.temporal.gold_index_models import (
     GoldIndexGcEnv,
     GoldIndexGcInput,
     GoldIndexRestoreInput,
     GoldIndexRuntimeJobResult,
+    GoldIndexSnapshotGcInput,
 )
 from video_media_catalog.temporal.models import ObjectRefPayload
 from video_media_catalog.temporal.names import (
@@ -42,6 +46,7 @@ from video_media_catalog.temporal.names import (
 from video_media_catalog.temporal.workflows.gold_index_gc import (
     GoldIndexGcWorkflow,
     GoldIndexRestoreWorkflow,
+    GoldIndexSnapshotGcWorkflow,
 )
 
 ACTIVE = "media-catalog-research-" + ("a" * 24)
@@ -105,6 +110,18 @@ def _restore_input() -> GoldIndexRestoreInput:
     )
 
 
+def _snapshot_gc_input() -> GoldIndexSnapshotGcInput:
+    return GoldIndexSnapshotGcInput(
+        operation_id="compact-legacy-958",
+        source_archive_receipt=_ref(
+            "s3://bucket/control/index-archives/archive.json",
+            GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+        ),
+        replacement_snapshot="legacy-958-previous-only",
+        env=_env(),
+    )
+
+
 def test_gc_and_restore_jobs_use_gc_identity_and_exact_cli_args() -> None:
     gc_manifest = _gc_job_manifest(
         _gc_input(),
@@ -113,6 +130,10 @@ def test_gc_and_restore_jobs_use_gc_identity_and_exact_cli_args() -> None:
     restore_manifest = _restore_job_manifest(
         _restore_input(),
         completed_at="2026-10-13T01:00:00Z",
+    )
+    snapshot_gc_manifest = _snapshot_gc_job_manifest(
+        _snapshot_gc_input(),
+        completed_at="2026-10-13T02:00:00Z",
     )
 
     gc_pod = gc_manifest["spec"]["template"]["spec"]
@@ -144,6 +165,19 @@ def test_gc_and_restore_jobs_use_gc_identity_and_exact_cli_args() -> None:
     assert (
         restore_manifest["metadata"]["labels"]["app.kubernetes.io/component"]
         == "restore"
+    )
+    snapshot_gc_pod = snapshot_gc_manifest["spec"]["template"]["spec"]
+    snapshot_gc_args = snapshot_gc_pod["containers"][0]["args"]
+    assert snapshot_gc_args[0] == "compact-snapshot"
+    assert "--execute" in snapshot_gc_args
+    assert "--source-archive-receipt-version" in snapshot_gc_args
+    assert (
+        snapshot_gc_args[snapshot_gc_args.index("--replacement-snapshot") + 1]
+        == "legacy-958-previous-only"
+    )
+    assert (
+        snapshot_gc_manifest["metadata"]["labels"]["app.kubernetes.io/component"]
+        == "snapshot-gc"
     )
     assert (
         len(
@@ -205,6 +239,14 @@ def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
             "env": env,
         }
     )
+    snapshot_gc = _snapshot_gc_input_from_mapping(
+        {
+            "operationId": "compact-legacy-958",
+            "sourceArchiveReceipt": archive,
+            "replacementSnapshot": "legacy-958-previous-only",
+            "env": env,
+        }
+    )
 
     assert gc.reuse_archive_receipt is not None
     assert gc.additional_archive_indices == (EXTRA,)
@@ -212,6 +254,8 @@ def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
     assert gc.activation_receipt.media_type == GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE
     assert restore.archive_receipt.etag == "etag"
     assert restore.env.gc_service_account == "research-index-gc"
+    assert snapshot_gc.source_archive_receipt.object_version == "version"
+    assert snapshot_gc.replacement_snapshot == "legacy-958-previous-only"
 
 
 @pytest.mark.parametrize(
@@ -220,6 +264,7 @@ def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
         ("research-gold-index", "builder"),
         ("catalog-gold-match", "matcher"),
         ("research-gold-index", "gc"),
+        ("research-gold-index", "snapshot-gc"),
     ],
 )
 def test_gc_preflight_rejects_active_conflicting_jobs(
@@ -271,7 +316,11 @@ def test_runtime_job_preflight_runs_before_gc_and_restore_create(
                 "matcher",
             ) in values["blocked_workloads"]
             assert ("research-gold-index", "gc") in values["blocked_workloads"]
-            assert values["expected_workload"][1] in {"gc", "restore"}
+            assert values["expected_workload"][1] in {
+                "gc",
+                "restore",
+                "snapshot-gc",
+            }
 
         def create_or_get_job(self, _manifest) -> None:
             events.append("create")
@@ -293,6 +342,10 @@ def test_runtime_job_preflight_runs_before_gc_and_restore_create(
             _restore_input(),
             completed_at="2026-10-13T01:00:00Z",
         ),
+        _snapshot_gc_job_manifest(
+            _snapshot_gc_input(),
+            completed_at="2026-10-13T02:00:00Z",
+        ),
     )
     for manifest in manifests:
         _launch(
@@ -301,6 +354,9 @@ def test_runtime_job_preflight_runs_before_gc_and_restore_create(
         )
 
     assert events == [
+        "preflight",
+        "create",
+        "wait",
         "preflight",
         "create",
         "wait",
@@ -354,6 +410,10 @@ async def _workflow_case() -> None:
         "s3://bucket/control/index-restores/restore.json",
         GOLD_INDEX_RESTORE_RECEIPT_MEDIA_TYPE,
     )
+    snapshot_gc_receipt = _ref(
+        "s3://bucket/control/index-gc-results/snapshot-gc.json",
+        GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
+    )
 
     @activity.defn(name="SubmitGoldIndexGcJob")
     async def submit_gc(
@@ -387,22 +447,42 @@ async def _workflow_case() -> None:
         calls.append("validate-restore")
         return job.receipt
 
+    @activity.defn(name="SubmitGoldIndexSnapshotGcJob")
+    async def submit_snapshot_gc(
+        _input_data: GoldIndexSnapshotGcInput,
+        _completed_at: str,
+    ) -> GoldIndexRuntimeJobResult:
+        calls.append("submit-snapshot-gc")
+        return GoldIndexRuntimeJobResult("snapshot-gc-job", snapshot_gc_receipt)
+
+    @activity.defn(name="ValidateGoldIndexSnapshotGc")
+    async def validate_snapshot_gc(
+        _input_data: GoldIndexSnapshotGcInput,
+        job: GoldIndexRuntimeJobResult,
+    ) -> ObjectRefPayload:
+        calls.append("validate-snapshot-gc")
+        return job.receipt
+
     async with (
         await WorkflowEnvironment.start_time_skipping() as temporal,
         Worker(
             temporal.client,
             task_queue="gold-index-gc-test",
-            workflows=[GoldIndexGcWorkflow, GoldIndexRestoreWorkflow],
+            workflows=[
+                GoldIndexGcWorkflow,
+                GoldIndexRestoreWorkflow,
+                GoldIndexSnapshotGcWorkflow,
+            ],
         ),
         Worker(
             temporal.client,
             task_queue=GOLD_INDEX_LAUNCHER_TASK_QUEUE,
-            activities=[submit_gc, submit_restore],
+            activities=[submit_gc, submit_restore, submit_snapshot_gc],
         ),
         Worker(
             temporal.client,
             task_queue=GOLD_INDEX_VALIDATOR_TASK_QUEUE,
-            activities=[validate_gc, validate_restore],
+            activities=[validate_gc, validate_restore, validate_snapshot_gc],
         ),
     ):
         gc_result = await temporal.client.execute_workflow(
@@ -419,12 +499,22 @@ async def _workflow_case() -> None:
             task_queue="gold-index-gc-test",
             execution_timeout=timedelta(minutes=5),
         )
+        snapshot_gc_result = await temporal.client.execute_workflow(
+            GoldIndexSnapshotGcWorkflow.run,
+            _snapshot_gc_input(),
+            id="gold-index-snapshot-gc-test",
+            task_queue="gold-index-gc-test",
+            execution_timeout=timedelta(minutes=5),
+        )
 
     assert calls == [
         "submit-gc",
         "validate-gc",
         "submit-restore",
         "validate-restore",
+        "submit-snapshot-gc",
+        "validate-snapshot-gc",
     ]
     assert gc_result.gc_result_receipt == gc_receipt
     assert restore_result.restore_receipt == restore_receipt
+    assert snapshot_gc_result.snapshot_gc_receipt == snapshot_gc_receipt

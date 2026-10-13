@@ -75,6 +75,20 @@ class _Indices:
         assert index in self.owner.indexes
         self.refresh_calls.append(index)
 
+    def recovery(
+        self,
+        *,
+        index: str,
+        params: dict[str, str],
+    ) -> dict[str, Any]:
+        assert index in self.owner.indexes
+        assert params == {"active_only": "true", "detailed": "false"}
+        self.owner.recovery_calls += 1
+        if self.owner.active_recovery_checks_remaining:
+            self.owner.active_recovery_checks_remaining -= 1
+            return {index: {"shards": [{"stage": "INDEX"}]}}
+        return {index: {"shards": []}}
+
     def get_alias(self, *, name: str) -> dict[str, Any]:
         assert name == ALIAS
         self.alias_calls += 1
@@ -279,6 +293,8 @@ class _Client:
         self.events: list[str] = []
         self.count_calls = 0
         self.count_failures_remaining = 0
+        self.recovery_calls = 0
+        self.active_recovery_checks_remaining = 0
         self.delete_calls = 0
         self.snapshot_failure = False
         self.indices = _Indices(self)
@@ -671,6 +687,7 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
         additional_archive_indices=(EXTRA_ONE, EXTRA_TWO),
     )
     client.snapshot.force_clone_global_state = True
+    client.active_recovery_checks_remaining = 2
     client.count_failures_remaining = 1
     count_calls_before_fallback = client.count_calls
     refresh_calls_before_fallback = tuple(client.indices.refresh_calls)
@@ -706,8 +723,9 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
     assert set(client.indexes) == {ACTIVE}
     assert client.alias_targets == {ACTIVE}
     assert tuple(client.indices.refresh_calls) == refresh_calls_before_fallback
+    assert client.recovery_calls == 3
     assert client.count_calls == count_calls_before_fallback + 2
-    assert sleeps == [0.01]
+    assert sleeps == [0.01, 0.01, 0.01]
 
 
 def test_gc_is_idempotent_and_reuses_snapshot_after_restore(

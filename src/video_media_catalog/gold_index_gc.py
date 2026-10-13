@@ -1658,18 +1658,57 @@ def _wait_for_restored_index(
 ) -> None:
     deadline = monotonic() + timeout_seconds
     while True:
-        if _index_exists(client, index_name):
-            health = client.cluster.health(index=index_name)
-            if not isinstance(health, Mapping):
-                raise RuntimeError("restored Research index health response is invalid")
-            if not bool(health.get("timed_out")) and str(health.get("status", "")) in {
-                "yellow",
-                "green",
-            }:
-                return
+        try:
+            if _index_exists(client, index_name):
+                health = client.cluster.health(index=index_name)
+                if not isinstance(health, Mapping):
+                    raise RuntimeError(
+                        "restored Research index health response is invalid"
+                    )
+                recovery = client.indices.recovery(
+                    index=index_name,
+                    params={"active_only": "true", "detailed": "false"},
+                )
+                if not isinstance(recovery, Mapping):
+                    raise RuntimeError(
+                        "restored Research index recovery response is invalid"
+                    )
+                index_recovery = recovery.get(index_name)
+                if index_recovery is None:
+                    active_recoveries = ()
+                elif isinstance(index_recovery, Mapping):
+                    shards = index_recovery.get("shards")
+                    if not isinstance(shards, list):
+                        raise RuntimeError(
+                            "restored Research index shard recovery is invalid"
+                        )
+                    active_recoveries = []
+                    for shard in shards:
+                        if not isinstance(shard, Mapping) or not isinstance(
+                            shard.get("stage"),
+                            str,
+                        ):
+                            raise RuntimeError(
+                                "restored Research index shard recovery is invalid"
+                            )
+                        if shard["stage"] != "DONE":
+                            active_recoveries.append(shard)
+                else:
+                    raise RuntimeError(
+                        "restored Research index recovery response is invalid"
+                    )
+                if (
+                    not bool(health.get("timed_out"))
+                    and str(health.get("status", "")) in {"yellow", "green"}
+                    and not active_recoveries
+                ):
+                    return
+        except Exception as exc:
+            if _status_code(exc) != 404 and not _is_transient_opensearch_error(exc):
+                raise
         if monotonic() >= deadline:
             raise TimeoutError(
-                "restored Research index did not reach yellow health before timeout"
+                "restored Research index did not complete shard recovery before timeout"
             )
         sleep(poll_seconds)
 

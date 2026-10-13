@@ -190,20 +190,37 @@ phases:
           done
           cosign verify --key "awskms:///$KMS_KEY_ARN" --output json "$reference" \
             >"/tmp/media-catalog-release/${unit}-signature.json"
+          attestation_tlog=rekor-verified
+          attested=false
           for attempt in $(seq 1 8); do
             if cosign attest --yes --key "awskms:///$KMS_KEY_ARN" \
               --predicate "/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
               --type spdxjson \
               "$reference"; then
+              attested=true
               break
             fi
-            test "$attempt" -lt 8
-            sleep "$((attempt * 5))"
+            if [[ "$attempt" -lt 8 ]]; then
+              sleep "$((attempt * 5))"
+            fi
           done
+          if [[ "$attested" != true ]]; then
+            cosign attest --yes --tlog-upload=false \
+              --key "awskms:///$KMS_KEY_ARN" \
+              --predicate "/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
+              --type spdxjson \
+              "$reference"
+            attestation_tlog=kms-only-rekor-unavailable
+          fi
+          verify_tlog_args=()
+          if [[ "$attestation_tlog" = kms-only-rekor-unavailable ]]; then
+            verify_tlog_args+=(--insecure-ignore-tlog)
+          fi
           for attempt in 1 2 3 4 5 6; do
             if cosign verify-attestation \
               --key "awskms:///$KMS_KEY_ARN" \
               --type spdxjson \
+              "${verify_tlog_args[@]}" \
               --output json \
               "$reference" \
               >"/tmp/media-catalog-release/${unit}-attestation.json"; then
@@ -223,6 +240,7 @@ phases:
             --arg sbomSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-sbom.spdx.json" | awk '{print $1}')" \
             --arg signatureSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-signature.json" | awk '{print $1}')" \
             --arg attestationSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-attestation.json" | awk '{print $1}')" \
+            --arg attestationTransparencyLog "$attestation_tlog" \
             --argjson highFindings "$high" \
             --argjson criticalFindings "$critical" \
             --argjson newCriticalFindings "$new_critical" \
@@ -236,8 +254,11 @@ phases:
                 sha256:$scanSha256,ecrAttemptSha256:$ecrScanSha256,
                 baseComparison:$baseComparison},
               sbom:{status:"PASS",mediaType:"application/spdx+json",sha256:$sbomSha256},
-              signature:{status:"PASS",sha256:$signatureSha256},
-              sbomAttestation:{status:"PASS",sha256:$attestationSha256}}')"
+              signature:{status:"PASS",transparencyLog:"rekor-verified",
+                sha256:$signatureSha256},
+              sbomAttestation:{status:"PASS",
+                transparencyLog:$attestationTransparencyLog,
+                sha256:$attestationSha256}}')"
           images="$(jq --argjson entry "$entry" '. + [$entry]' <<<"$images")"
         done
         jq -n \

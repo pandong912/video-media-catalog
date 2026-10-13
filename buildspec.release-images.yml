@@ -181,13 +181,25 @@ phases:
             test "$critical" = 0
             scan_disposition=MANAGED_EMR_BASE_HIGH_FINDINGS_RECORDED
           fi
-          cosign sign --yes --key "awskms:///$KMS_KEY_ARN" "$reference"
+          for attempt in $(seq 1 8); do
+            if cosign sign --yes --key "awskms:///$KMS_KEY_ARN" "$reference"; then
+              break
+            fi
+            test "$attempt" -lt 8
+            sleep "$((attempt * 5))"
+          done
           cosign verify --key "awskms:///$KMS_KEY_ARN" --output json "$reference" \
             >"/tmp/media-catalog-release/${unit}-signature.json"
-          cosign attest --yes --key "awskms:///$KMS_KEY_ARN" \
-            --predicate "/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
-            --type spdxjson \
-            "$reference"
+          for attempt in $(seq 1 8); do
+            if cosign attest --yes --key "awskms:///$KMS_KEY_ARN" \
+              --predicate "/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
+              --type spdxjson \
+              "$reference"; then
+              break
+            fi
+            test "$attempt" -lt 8
+            sleep "$((attempt * 5))"
+          done
           for attempt in 1 2 3 4 5 6; do
             if cosign verify-attestation \
               --key "awskms:///$KMS_KEY_ARN" \

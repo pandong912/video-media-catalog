@@ -12,6 +12,10 @@ DEFAULT_MAX_BULK_BYTES = 5 * 1024 * 1024
 _SAFE_INDEX_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
 
 
+class IncompleteShardCountError(RuntimeError):
+    """OpenSearch returned a count before every target shard succeeded."""
+
+
 def _validate_index_name(value: str, *, label: str) -> str:
     if _SAFE_INDEX_NAME.fullmatch(value) is None:
         raise ValueError(f"{label} is not a safe lowercase OpenSearch name")
@@ -66,6 +70,22 @@ def index_document_count(
     if refresh:
         client.indices.refresh(index=index_name)
     response = client.count(index=index_name)
+    shards = response.get("_shards")
+    if not isinstance(shards, Mapping):
+        raise RuntimeError("OpenSearch count shard response is invalid")
+    shard_values: dict[str, int] = {}
+    for shard_field in ("total", "successful", "failed"):
+        value = shards.get(shard_field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RuntimeError("OpenSearch count shard response is invalid")
+        shard_values[shard_field] = value
+    if (
+        shard_values["failed"] != 0
+        or shard_values["successful"] != shard_values["total"]
+    ):
+        raise IncompleteShardCountError(
+            "OpenSearch count did not complete on every target shard"
+        )
     count = response.get("count")
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
         raise RuntimeError("OpenSearch count response is invalid")

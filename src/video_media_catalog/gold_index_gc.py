@@ -30,6 +30,7 @@ from video_media_catalog.object_store import (
     conditional_publish_bytes,
 )
 from video_media_catalog.opensearch_index import (
+    IncompleteShardCountError,
     current_alias_indices,
     index_document_count,
 )
@@ -497,6 +498,7 @@ def _is_transient_opensearch_error(exc: BaseException) -> bool:
         seen.add(id(current))
         if (
             _status_code(current) in _TRANSIENT_OPENSEARCH_STATUSES
+            or isinstance(current, IncompleteShardCountError)
             or type(current).__name__ in _TRANSIENT_OPENSEARCH_ERRORS
         ):
             return True
@@ -674,12 +676,21 @@ def _assert_evidence_matches(
     expected: GoldIndexArchiveReceipt,
     actual: IndexEvidence,
 ) -> None:
-    if (
-        expected.mapping_digest != actual.mapping_digest
-        or expected.settings_digest != actual.settings_digest
-        or expected.document_count != actual.document_count
-    ):
-        raise RuntimeError("Research index differs from its immutable archive receipt")
+    mismatches = []
+    if expected.mapping_digest != actual.mapping_digest:
+        mismatches.append("mapping_digest")
+    if expected.settings_digest != actual.settings_digest:
+        mismatches.append("settings_digest")
+    if expected.document_count != actual.document_count:
+        mismatches.append(
+            "document_count "
+            f"(expected {expected.document_count}, found {actual.document_count})"
+        )
+    if mismatches:
+        raise RuntimeError(
+            "Research index differs from its immutable archive receipt: "
+            + ", ".join(mismatches)
+        )
 
 
 def _snapshot_record(

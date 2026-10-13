@@ -532,10 +532,9 @@ def _validate_lookup_payload(
             label=f"sourceSilverInputs[{index}].recordSetManifest",
             media_type=_RECORD_SET_MEDIA_TYPE,
         )
-        if (
-            batch_payload != _object_ref_payload(batch.connector_batch_object)
-            or record_payload != _object_ref_payload(batch.record_set_object)
-        ):
+        if batch_payload != _object_ref_payload(
+            batch.connector_batch_object
+        ) or record_payload != _object_ref_payload(batch.record_set_object):
             raise ValueError(
                 f"sourceSilverInputs[{index}] does not match the run manifest"
             )

@@ -456,8 +456,13 @@ def _stable_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def collect_index_evidence(client: Any, *, index_name: str) -> IndexEvidence:
-    """Capture restorable mapping/settings digests and a refreshed count."""
+def collect_index_evidence(
+    client: Any,
+    *,
+    index_name: str,
+    refresh: bool = True,
+) -> IndexEvidence:
+    """Capture restorable mapping/settings digests and a document count."""
 
     _research_index(index_name, label="Research index")
     mappings = _extract_index_value(
@@ -473,7 +478,11 @@ def collect_index_evidence(client: Any, *, index_name: str) -> IndexEvidence:
     return IndexEvidence(
         mapping_digest=_canonical_digest(mappings),
         settings_digest=_canonical_digest(_stable_settings(settings)),
-        document_count=index_document_count(client, index_name=index_name),
+        document_count=index_document_count(
+            client,
+            index_name=index_name,
+            refresh=refresh,
+        ),
     )
 
 
@@ -935,7 +944,14 @@ def _ensure_previous_only_snapshot_via_restore(
         )
         _assert_evidence_matches(
             source,
-            collect_index_evidence(client, index_name=source.old_index),
+            # A completed green snapshot restore is already a searchable,
+            # immutable point-in-time view. Refreshing tens of millions of
+            # restored documents can exceed the request timeout.
+            collect_index_evidence(
+                client,
+                index_name=source.old_index,
+                refresh=False,
+            ),
         )
         _assert_alias_is_active_only(
             client,

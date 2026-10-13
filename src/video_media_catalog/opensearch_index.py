@@ -57,8 +57,14 @@ class BulkResult:
         )
 
 
-def index_document_count(client: Any, *, index_name: str) -> int:
-    client.indices.refresh(index=index_name)
+def index_document_count(
+    client: Any,
+    *,
+    index_name: str,
+    refresh: bool = True,
+) -> int:
+    if refresh:
+        client.indices.refresh(index=index_name)
     response = client.count(index=index_name)
     count = response.get("count")
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:

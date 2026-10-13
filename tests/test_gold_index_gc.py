@@ -99,6 +99,7 @@ class _Snapshot:
         self.restore_calls = 0
         self.clone_calls = 0
         self.snapshot_delete_calls = 0
+        self.force_clone_global_state = False
         self.cloned_records: dict[str, dict[str, Any]] = {}
         self.last_create_body: dict[str, Any] | None = None
         self.last_restore_body: dict[str, Any] | None = None
@@ -125,15 +126,18 @@ class _Snapshot:
         wait_for_completion: bool,
     ) -> None:
         assert repository == "research-archive"
-        assert snapshot == "legacy-958"
         assert wait_for_completion is False
         self.create_calls += 1
         self.last_create_body = copy.deepcopy(body)
         self.data = copy.deepcopy(self.owner.indexes[OLD])
         failed = self.owner.snapshot_failure
-        self.record = {
+        record = {
             "snapshot": snapshot,
-            "uuid": "snapshot-uuid",
+            "uuid": (
+                "snapshot-uuid"
+                if snapshot == "legacy-958"
+                else "fallback-snapshot-uuid"
+            ),
             "state": "FAILED" if failed else "SUCCESS",
             "indices": list(body["indices"]),
             "include_global_state": body["include_global_state"],
@@ -145,6 +149,10 @@ class _Snapshot:
                 "failed": 1 if failed else 0,
             },
         }
+        if snapshot == "legacy-958":
+            self.record = record
+        else:
+            self.cloned_records[snapshot] = record
 
     def restore(
         self,
@@ -185,17 +193,21 @@ class _Snapshot:
                 "snapshot": target_snapshot,
                 "uuid": "clone-uuid",
                 "indices": [OLD],
+                "include_global_state": self.force_clone_global_state,
             }
         )
         self.cloned_records[target_snapshot] = cloned
 
     def delete(self, *, repository: str, snapshot: str) -> dict[str, bool]:
         assert repository == "research-archive"
-        assert snapshot == "legacy-958"
-        assert self.record is not None
         self.owner.events.append("delete_snapshot")
         self.snapshot_delete_calls += 1
-        self.record = None
+        if snapshot == "legacy-958":
+            assert self.record is not None
+            self.record = None
+        else:
+            assert snapshot in self.cloned_records
+            del self.cloned_records[snapshot]
         return {"acknowledged": True}
 
     def get_repository(self, *, repository: str) -> dict[str, Any]:
@@ -627,6 +639,56 @@ def test_snapshot_compaction_retains_previous_and_deletes_shadow_data(
     assert repeated["reused"] is True
     assert client.snapshot.clone_calls == 1
     assert client.snapshot.snapshot_delete_calls == 1
+
+
+def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
+    tmp_path: Path,
+) -> None:
+    client = _Client()
+    for index_name, uuid in (
+        (EXTRA_ONE, "extra-one-uuid"),
+        (EXTRA_TWO, "extra-two-uuid"),
+    ):
+        client.indexes[index_name] = copy.deepcopy(client.indexes[OLD])
+        client.indexes[index_name]["settings"]["index"]["uuid"] = uuid
+    store = _EventStore(client.events)
+    archived = _archive(
+        client,
+        store,
+        tmp_path,
+        additional_archive_indices=(EXTRA_ONE, EXTRA_TWO),
+    )
+    client.snapshot.force_clone_global_state = True
+
+    result = compact_snapshot_archive(
+        client,
+        store,
+        operation_id="compact-legacy-958-fallback",
+        source_archive_receipt=ObjectRef.model_validate(archived["archiveReceipt"]),
+        replacement_snapshot="legacy-958-previous-only",
+        replacement_archive_receipt_uri=(
+            tmp_path / "archive-previous-only-fallback.json"
+        ).as_uri(),
+        snapshot_gc_result_uri=(tmp_path / "snapshot-gc-fallback.json").as_uri(),
+        completed_at=NOW,
+        execute=True,
+        snapshot_poll_seconds=0.01,
+        sleep=lambda _seconds: None,
+    )
+
+    assert result["status"] == "COMPACTED"
+    assert result["replacementMethod"] == "RESTORE_RESNAPSHOT"
+    assert client.snapshot.clone_calls == 1
+    assert client.snapshot.restore_calls == 1
+    assert client.snapshot.create_calls == 2
+    assert client.snapshot.snapshot_delete_calls == 2
+    assert client.snapshot.record is None
+    replacement = client.snapshot.cloned_records["legacy-958-previous-only"]
+    assert replacement["indices"] == [OLD]
+    assert replacement["include_global_state"] is False
+    assert replacement["uuid"] == "fallback-snapshot-uuid"
+    assert set(client.indexes) == {ACTIVE}
+    assert client.alias_targets == {ACTIVE}
 
 
 def test_gc_is_idempotent_and_reuses_snapshot_after_restore(

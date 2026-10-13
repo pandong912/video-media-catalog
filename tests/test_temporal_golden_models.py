@@ -6,6 +6,7 @@ import pytest
 
 from video_media_catalog.gold_freshness import research_release_freshness_policy
 from video_media_catalog.temporal.activities.golden import (
+    _incremental_identity_source_run_ids,
     _validate_preflight_documents,
 )
 from video_media_catalog.temporal.errors import NonRetryableGoldenBuildError
@@ -115,6 +116,34 @@ def test_preflight_pins_nineteen_runs_and_minimum_freshness_slos() -> None:
     assert result.tvmaze_age_hours <= result.tvmaze_slo_hours
 
 
+def test_preflight_includes_supplemental_runs_in_snapshot_and_identity() -> None:
+    base = _input()
+    input_data = replace(
+        base,
+        supplemental_source_run_ids=(_run(30), _run(31)),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert set(input_data.supplemental_source_run_ids) <= set(
+        result.all_snapshot_run_ids
+    )
+    assert _incremental_identity_source_run_ids(input_data, result) == tuple(
+        sorted(
+            (
+                *input_data.tmdb_source_run_ids,
+                *input_data.supplemental_source_run_ids,
+            )
+        )
+    )
+
+
 def test_preflight_applies_audited_temporary_quality_thresholds() -> None:
     base = _input()
     input_data = replace(
@@ -218,6 +247,7 @@ def test_golden_input_is_temporal_serializable() -> None:
     payload = asdict(_input())
     assert payload["identity_generation_id"] == "pure-source-2026-09-r1"
     assert len(payload["tmdb_source_run_ids"]) == 15
+    assert payload["supplemental_source_run_ids"] == ()
     assert payload["env"]["gold_tmdb_freshness_slo_hours"] == 36
     assert payload["env"]["gold_max_unresolved_identity_ratio"] == 0.05
     assert payload["env"]["gold_quality_override_reason"] == ""

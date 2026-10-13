@@ -47,7 +47,10 @@ commits remain single-writer.
 After Source Silver commits:
 
 1. publish a new research Silver snapshot containing the new EIDR run IDs;
-2. include those run IDs in the next pinned Golden Build;
+2. add those run IDs to the next pinned Golden Build's
+   `supplementalSourceRunIds`; the workflow includes them in both the Silver
+   snapshot and incremental Identity input. Remove any older `identityReuse`
+   receipt unless it binds the same TMDB plus supplemental run set;
 3. run the existing Identity, Gold, and OpenSearch publication path.
 
 EIDR remains optional in the Gold freshness policy because public exact

@@ -310,16 +310,39 @@ def _validate_preflight_documents(
             }
         )
     )
+    supplemental_runs = tuple(
+        sorted(
+            {
+                _require_sha256(value, label="supplemental source run ID")
+                for value in input_data.supplemental_source_run_ids
+            }
+        )
+    )
     if len(baseline_sources) != len(input_data.baseline_source_run_ids):
         raise NonRetryableGoldenBuildError("baseline source run IDs must be unique")
     if len(tmdb_runs) != 15:
         raise NonRetryableGoldenBuildError(
             "Golden Build requires exactly 15 unique TMDB source runs"
         )
+    if len(supplemental_runs) != len(input_data.supplemental_source_run_ids):
+        raise NonRetryableGoldenBuildError("supplemental source run IDs must be unique")
     identity_run = _require_sha256(
         input_data.baseline_identity_run_id,
         label="baseline Identity run ID",
     )
+    overlap = (
+        (set(baseline_sources) & set(tmdb_runs))
+        | (set(baseline_sources) & set(supplemental_runs))
+        | (set(tmdb_runs) & set(supplemental_runs))
+        | (
+            {identity_run}
+            & (set(baseline_sources) | set(tmdb_runs) | set(supplemental_runs))
+        )
+    )
+    if overlap:
+        raise NonRetryableGoldenBuildError(
+            "baseline, TMDB, supplemental, and Identity run IDs must not overlap"
+        )
     expected_baseline_runs = set(baseline_sources) | {identity_run}
     if baseline.get("schemaVersion") != "2.0":
         raise NonRetryableGoldenBuildError("baseline snapshot must use schema v2")
@@ -381,7 +404,9 @@ def _validate_preflight_documents(
         raise NonRetryableGoldenBuildError(
             "source age exceeds the bounded freshness override"
         )
-    all_runs = tuple(sorted(expected_baseline_runs | set(tmdb_runs)))
+    all_runs = tuple(
+        sorted(expected_baseline_runs | set(tmdb_runs) | set(supplemental_runs))
+    )
     runtime_digest, resolution_digest, bound_digest = _identity_config_digests(
         input_data.build_id
     )
@@ -414,6 +439,20 @@ def _validate_preflight_documents(
     )
 
 
+def _incremental_identity_source_run_ids(
+    input_data: GoldenBuildInput,
+    preflight: GoldenPreflightResult,
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                *preflight.tmdb_source_run_ids,
+                *input_data.supplemental_source_run_ids,
+            }
+        )
+    )
+
+
 def _argument_values(arguments: list[str], flag: str) -> tuple[str, ...]:
     values: list[str] = []
     for index, value in enumerate(arguments):
@@ -441,6 +480,10 @@ def _validated_reused_identity(
     preflight: GoldenPreflightResult,
     payload: dict[str, Any],
 ) -> GoldenIdentityResult:
+    identity_source_run_ids = _incremental_identity_source_run_ids(
+        input_data,
+        preflight,
+    )
     if payload.get("schemaVersion") != "1.0":
         raise NonRetryableGoldenBuildError("Identity reuse receipt must use schema v1")
     source_build_id = str(payload.get("sourceBuildId") or "")
@@ -471,8 +514,7 @@ def _validated_reused_identity(
         or summary.get("stage") != "identity-resolution"
         or summary.get("identityGenerationId") != input_data.identity_generation_id
         or summary.get("identityMode") != "incremental"
-        or tuple(sorted(summary.get("sourceRunIds") or ()))
-        != preflight.tmdb_source_run_ids
+        or tuple(sorted(summary.get("sourceRunIds") or ())) != identity_source_run_ids
         or summary.get("configDigest") != source_bound
         or summary.get("identityResolutionConfigDigest") != source_resolution
         or source_resolution != preflight.identity_resolution_config_digest
@@ -499,7 +541,7 @@ def _validated_reused_identity(
         or not arguments
         or arguments[0] != "resolve-identity"
         or tuple(sorted(_argument_values(arguments, "--source-run-id")))
-        != preflight.tmdb_source_run_ids
+        != identity_source_run_ids
         or _single_argument(arguments, "--identity-generation-id")
         != input_data.identity_generation_id
         or _single_argument(arguments, "--identity-mode") != "incremental"
@@ -591,6 +633,10 @@ def prepare_golden_build(
             "baselineSourceRunIds": list(input_data.baseline_source_run_ids),
             "baselineIdentityRunId": input_data.baseline_identity_run_id,
             "tmdbSourceRunIds": list(preflight.tmdb_source_run_ids),
+            "supplementalSourceRunIds": list(input_data.supplemental_source_run_ids),
+            "incrementalIdentitySourceRunIds": list(
+                _incremental_identity_source_run_ids(input_data, preflight)
+            ),
             "allSnapshotRunIds": list(preflight.all_snapshot_run_ids),
             "sourceWatermarks": dict(sorted(input_data.source_watermarks.items())),
             "identityConfigDigest": preflight.identity_config_digest,
@@ -1026,13 +1072,17 @@ def resolve_golden_identity(
     committed_at: str,
 ) -> GoldenIdentityResult:
     try:
+        identity_source_run_ids = _incremental_identity_source_run_ids(
+            input_data,
+            preflight,
+        )
         args = [
             "resolve-identity",
             *_object_args("silver-snapshot", snapshot.snapshot),
             "--silver-snapshot-media-type",
             SILVER_SNAPSHOT_MEDIA_TYPE,
         ]
-        for run_id in preflight.tmdb_source_run_ids:
+        for run_id in identity_source_run_ids:
             args.extend(["--source-run-id", run_id])
         args.extend(
             [
@@ -1071,7 +1121,7 @@ def resolve_golden_identity(
             summary.get("identityGenerationId") != input_data.identity_generation_id
             or summary.get("identityMode") != "incremental"
             or tuple(sorted(summary.get("sourceRunIds") or ()))
-            != preflight.tmdb_source_run_ids
+            != identity_source_run_ids
             or summary.get("configDigest") != preflight.identity_bound_config_digest
             or summary.get("identityResolutionConfigDigest")
             != preflight.identity_resolution_config_digest

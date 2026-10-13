@@ -91,6 +91,9 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
             max_slo_hours=int(override.get("maxSloHours", 720)),
         ),
         env=_env_from_mapping(values["env"]),
+        supplemental_source_run_ids=tuple(
+            str(value) for value in values.get("supplementalSourceRunIds", ())
+        ),
         identity_reuse=(
             None
             if identity_reuse is None

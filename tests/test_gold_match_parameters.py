@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_ingest import GOLD_RELEASE_COMMIT_MEDIA_TYPE
 from video_media_catalog.gold_match_parameters import (
     catalog_match_algorithm_identity,
@@ -26,7 +27,11 @@ _ALGORITHM_CONTRACT = json.loads(
 )
 
 
-def _manifest(index: str) -> GoldIndexBuildManifest:
+def _manifest(
+    index: str,
+    *,
+    source_policy_digest: str | None = None,
+) -> GoldIndexBuildManifest:
     config = gold_index_config_identity(
         read_alias=RESEARCH_READ_ALIAS,
         index_prefix="media-catalog-research",
@@ -54,6 +59,11 @@ def _manifest(index: str) -> GoldIndexBuildManifest:
             for table in GOLD_DATA_COLUMNS
         },
         mapping_digest=MAPPING_DIGEST,
+        source_policy_digest=(
+            load_catalog_source_policy().digest
+            if source_policy_digest is None
+            else source_policy_digest
+        ),
         config_identity=config,
         config_digest=config.digest,
         document_count=1,
@@ -109,3 +119,21 @@ def test_parameter_package_rejects_unknown_algorithm_contract() -> None:
         catalog_match_algorithm_identity(
             {**_ALGORITHM_CONTRACT, "algorithmId": "catalog-asset-match-v2"}
         )
+
+
+def test_parameter_package_rejects_missing_or_stale_source_policy() -> None:
+    index = "media-catalog-research-" + ("d" * 24)
+    missing = _manifest(index).model_copy(update={"source_policy_digest": None})
+    stale = _manifest(
+        index,
+        source_policy_digest="sha256:" + ("0" * 64),
+    )
+
+    for manifest in (missing, stale):
+        with pytest.raises(ValueError, match="sourcePolicyDigest"):
+            match_parameters_from_manifest(
+                manifest,
+                algorithm_contract=_ALGORITHM_CONTRACT,
+                search_endpoint="https://vpc-ai-video-media-catalog-dev.internal",
+                aws_region="us-east-1",
+            )

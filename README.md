@@ -36,7 +36,7 @@ digest 为
 只允许 retrieval/ranking，不能自动参与身份或物化。Catalog 的
 source-product、capture/freshness 与 projection 技术能力保存在独立实现映射，
 live 权限始终与 canonical policy 求交，不产生第二个授权 digest。Golden
-Build 可使用显式 `sourceRunStates` 钉住 capture/run、freshness、watermark
+Build 必须使用显式 `sourceRunStates` 钉住 capture/run、freshness、watermark
 与用途；retrieval-only run 只被跟踪，不会被送入 snapshot、Identity 或
 Gold，且流程不会读取或伪造外部凭据。
 

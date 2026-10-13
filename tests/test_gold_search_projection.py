@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_search_projection import (
@@ -82,6 +84,48 @@ def _wikidata_lineage_fields(
     }
 
 
+def _canonical_lineage_fields(
+    index: int,
+    *,
+    source_product_id: str,
+    source_name: str,
+    source_path: str,
+    policy_id: str,
+    policy_zone: str,
+    license_id: str,
+    attribution_text: str,
+    source_url: str,
+) -> dict[str, str | None]:
+    assertion_id = "sha256:" + f"{index:064x}"
+    return {
+        "selected_assertion_id": assertion_id,
+        "assertion_ids_json": canonical_json([assertion_id]),
+        "trace_json": canonical_json(
+            {
+                "assertions": [
+                    {
+                        "assertionId": assertion_id,
+                        "sourceProductId": source_product_id,
+                        "sourceName": source_name,
+                        "sourceRecordId": str(index),
+                        "sourcePath": source_path,
+                        "observedAt": "2026-09-19T00:00:00Z",
+                        "citationKeys": ["sha256:" + ("7" * 64)],
+                        "rights": {
+                            "policyId": policy_id,
+                            "policyZone": policy_zone,
+                            "licenseId": license_id,
+                            "attributionText": attribution_text,
+                            "sourceUrl": source_url,
+                            "shareAlike": False,
+                        },
+                    }
+                ]
+            }
+        ),
+    }
+
+
 def test_gold_projection_is_bounded_and_locale_aware() -> None:
     titles = [
         {
@@ -134,7 +178,17 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
                 "value": "tt0000001",
                 "issuer": "IMDb",
                 "referent_kind": "SERIES",
-                **_lineage_fields(1003, source_path="/externals/imdb"),
+                **_canonical_lineage_fields(
+                    1003,
+                    source_product_id="imdb-non-commercial-datasets",
+                    source_name="IMDb non-commercial datasets",
+                    source_path="/title.basics.tsv/titleId",
+                    policy_id="imdb-research-noncommercial",
+                    policy_zone="research_private",
+                    license_id="IMDb-NonCommercial-Datasets-Terms",
+                    attribution_text="IMDb non-commercial datasets.",
+                    source_url="https://developer.imdb.com/non-commercial-datasets/",
+                ),
                 "selected_assertion_id": None,
             },
             {
@@ -164,9 +218,16 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
                 "value": "doi:10.5240/aaaa-bbbb-cccc-dddd-eeee-c",
                 "issuer": "EIDR Association",
                 "referent_kind": "EDITORIAL_WORK",
-                **_wikidata_lineage_fields(
+                **_canonical_lineage_fields(
                     1007,
-                    source_path="/claims/P2704/0/mainsnak/datavalue/value",
+                    source_product_id="eidr-public-registry",
+                    source_name="EIDR public registry records",
+                    source_path="/id",
+                    policy_id="eidr-public-registry",
+                    policy_zone="public_registry",
+                    license_id="EIDR-Public-Registry-Terms",
+                    attribution_text="Data from EIDR.",
+                    source_url="https://www.eidr.org/our-work",
                 ),
                 "selected_assertion_id": None,
             },
@@ -201,16 +262,16 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     assert document["attributes"]["runtimeMinutes"] == ["45"]
     identifiers = {item["namespace"]: item for item in document["externalIdentifiers"]}
     assert identifiers["imdb-title"]["value"] == "tt0000001"
+    assert identifiers["imdb-title"]["sourceProductId"] == "imdb"
+    assert identifiers["imdb-title"]["assertionId"] == ("sha256:" + f"{1003:064x}")
+    assert identifiers["imdb-title"]["citationKeys"]
     assert identifiers["imdb-title"]["url"] is None
-    assert identifiers["douban-work"]["url"] == (
-        "https://movie.douban.com/subject/1295644/"
-    )
-    assert identifiers["douban-person"]["url"] == (
-        "https://movie.douban.com/celebrity/30123456/"
-    )
+    assert "douban-work" not in identifiers
+    assert "douban-person" not in identifiers
     assert identifiers["eidr-content"]["url"] == (
         "https://doi.org/10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-C"
     )
+    assert identifiers["eidr-content"]["sourceProductId"] == "eidr"
     assert document["conflictPredicates"] == ["status"]
     assert document["contextId"] == "research"
     assert document["sourcePolicyDigest"] == load_catalog_source_policy().digest
@@ -218,21 +279,115 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     assert document["seriesEntityKey"] is None
     assert document["seasonEntityKey"] is None
     assert "ownerSubject" not in document
-    assert document["sourceBadges"][0]["sourceProductId"] == "tvmaze-public-api"
     assert {item["sourceProductId"] for item in document["sourceBadges"]} == {
-        "tvmaze-public-api",
-        "wikidata-json-dump",
+        "eidr",
+        "imdb",
+        "tvmaze",
+        "wikidata",
     }
     assert not any(
         item["sourceProductId"].startswith("douban")
         for item in document["sourceBadges"]
     )
     assert document["winningAssertions"][0]["citationKeys"]
-    assert document["rights"][0]["attributionText"].startswith("TV data")
+    assert {item["sourceProductId"] for item in document["winningAssertions"]} <= {
+        "eidr",
+        "imdb",
+        "tvmaze",
+        "wikidata",
+    }
+    rights = {item["sourceProductId"]: item for item in document["rights"]}
+    assert rights["eidr"]["attributionText"] == (
+        "Entertainment Identifier Registry Association"
+    )
+    assert rights["wikidata"]["attributionText"] == "Wikidata contributors"
+    assert rights["tvmaze"]["attributionText"].startswith("TV data")
     assert document["conflicts"][0]["candidateValuesJson"] == [
         '"Ended"',
         '"Running"',
     ]
+
+
+def test_materialization_evidence_intersects_canonical_predicates() -> None:
+    eidr_title = {
+        "predicate": "title",
+        "value_json": '"EIDR display title"',
+        "qualifiers_json": '{"language":"en","titleRole":"PRIMARY"}',
+        "resolution_status": "SELECTED",
+        **_canonical_lineage_fields(
+            2001,
+            source_product_id="eidr-public-registry",
+            source_name="EIDR public registry records",
+            source_path="/title",
+            policy_id="eidr-public-registry",
+            policy_zone="public_registry",
+            license_id="EIDR-Public-Registry-Terms",
+            attribution_text="Data from EIDR.",
+            source_url="https://www.eidr.org/our-work",
+        ),
+    }
+    wikidata_title = {
+        "predicate": "title",
+        "value_json": '"Wikidata identity title"',
+        "qualifiers_json": '{"language":"en","titleRole":"ALIAS"}',
+        "resolution_status": "SELECTED",
+        **_wikidata_lineage_fields(2002, source_path="/labels/en"),
+    }
+    row = {
+        "entity_key": "sha256:" + ("6" * 64),
+        "entity_level": "WORK",
+        "entity_kind": "MOVIE",
+        "status": "ACTIVE",
+        "release_plan_id": "sha256:" + ("7" * 64),
+        "source_node_count": 2,
+        "fields": [eidr_title, wikidata_title],
+        "identifiers": [
+            {
+                "namespace_id": "eidr-content",
+                "value": "10.5240/1111-2222-3333-4444-5555-5",
+                "issuer": "EIDR Association",
+                "referent_kind": "EDITORIAL_WORK",
+                **_wikidata_lineage_fields(2003, source_path="/claims/P2704/0"),
+                "selected_assertion_id": None,
+            }
+        ],
+        "relation_summary": [],
+        "conflict_count": 0,
+        "conflicts": [],
+    }
+
+    document = project_gold_entity(row)
+    assert {item["value"] for item in document["titles"]} == {
+        "EIDR display title",
+        "Wikidata identity title",
+    }
+    assert [
+        (item["sourceProductId"], item["predicate"])
+        for item in document["winningAssertions"]
+    ] == [("wikidata", "title")]
+    assert document["externalIdentifiers"] == []
+
+
+def test_projection_rejects_noncanonical_source_policy_digest() -> None:
+    row = {
+        "entity_key": "sha256:" + ("8" * 64),
+        "entity_level": "WORK",
+        "entity_kind": "MOVIE",
+        "status": "ACTIVE",
+        "release_plan_id": "sha256:" + ("9" * 64),
+        "source_node_count": 1,
+        "fields": [],
+        "identifiers": [],
+        "relation_summary": [],
+        "conflict_count": 0,
+        "conflicts": [],
+    }
+
+    with pytest.raises(ValueError, match="differs from canonical policy"):
+        project_gold_entity(
+            row,
+            source_policy_digest="sha256:" + ("0" * 64),
+        )
 
 
 def test_match_profile_uses_one_selected_value_and_drops_conflicts() -> None:

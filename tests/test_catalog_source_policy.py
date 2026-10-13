@@ -52,15 +52,18 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
 def test_live_permissions_are_intersected_with_technical_support() -> None:
     policy = load_catalog_source_policy()
 
-    assert set(
-        policy.enabled_source_ids(CatalogSourceCapability.IDENTITY_SPINE)
-    ) == {"eidr-public-registry", "wikidata-json-dump"}
-    assert set(
-        policy.enabled_source_ids(CatalogSourceCapability.MATERIALIZATION)
-    ) == {"eidr-public-registry", "wikidata-json-dump"}
-    assert set(
-        policy.enabled_source_ids(CatalogSourceCapability.GOLD_PROJECTION)
-    ) == {"eidr-public-registry", "wikidata-json-dump"}
+    assert set(policy.enabled_source_ids(CatalogSourceCapability.IDENTITY_SPINE)) == {
+        "eidr-public-registry",
+        "wikidata-json-dump",
+    }
+    assert set(policy.enabled_source_ids(CatalogSourceCapability.MATERIALIZATION)) == {
+        "eidr-public-registry",
+        "wikidata-json-dump",
+    }
+    assert set(policy.enabled_source_ids(CatalogSourceCapability.GOLD_PROJECTION)) == {
+        "eidr-public-registry",
+        "wikidata-json-dump",
+    }
 
     for source_product_id, activation in (
         ("imdb-non-commercial-datasets", CatalogSourceActivation.PENDING),
@@ -73,9 +76,7 @@ def test_live_permissions_are_intersected_with_technical_support() -> None:
             CatalogCanonicalCapability.RETRIEVAL,
             CatalogCanonicalCapability.RANKING,
         }
-        assert CatalogSourceCapability.IDENTITY_SPINE in (
-            source.supported_capabilities
-        )
+        assert CatalogSourceCapability.IDENTITY_SPINE in (source.supported_capabilities)
         assert CatalogSourceCapability.IDENTITY_SPINE not in (
             source.enabled_capabilities
         )
@@ -96,9 +97,10 @@ def test_live_permissions_are_intersected_with_technical_support() -> None:
 def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
     policy = load_catalog_source_policy()
 
-    assert policy.enabled_namespace_ids(
-        CatalogSourceCapability.IDENTITY_SPINE
-    ) == ("eidr-content", "wikidata-item")
+    assert policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE) == (
+        "eidr-content",
+        "wikidata-item",
+    )
     identity_rows = exact_id_namespace_rows(
         build_community_registry(),
         allowed_namespace_ids=policy.enabled_namespace_ids(
@@ -123,6 +125,35 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         )
 
 
+def test_materializable_predicates_are_enforced_per_canonical_source() -> None:
+    policy = load_catalog_source_policy()
+
+    assert policy.allows_materializable_predicate(
+        "wikidata-json-dump",
+        "identity.title",
+    )
+    assert policy.allows_materializable_predicate(
+        "wikidata-json-dump",
+        "hierarchy.parent",
+    )
+    assert policy.allows_materializable_predicate(
+        "eidr-public-registry",
+        "hierarchy.series",
+    )
+    assert not policy.allows_materializable_predicate(
+        "eidr-public-registry",
+        "identity.title",
+    )
+    assert not policy.allows_materializable_predicate(
+        "imdb-non-commercial-datasets",
+        "identity.title",
+    )
+    assert not policy.allows_materializable_predicate(
+        "unknown-source",
+        "identity.title",
+    )
+
+
 def test_unknown_source_mapping_fails_closed() -> None:
     policy = load_catalog_source_policy()
 
@@ -134,9 +165,7 @@ def test_unknown_source_mapping_fails_closed() -> None:
         policy.canonical_source_id("unknown-source")
 
     implementations = tuple(
-        implementation.model_copy(
-            update={"source_id": "unknown"}
-        )
+        implementation.model_copy(update={"source_id": "unknown"})
         if implementation.source_product_id == "tmdb-research"
         else implementation
         for implementation in CATALOG_SOURCE_IMPLEMENTATIONS
@@ -148,9 +177,7 @@ def test_unknown_source_mapping_fails_closed() -> None:
         )
 
     unknown_product = tuple(
-        implementation.model_copy(
-            update={"source_product_id": "unknown-source"}
-        )
+        implementation.model_copy(update={"source_product_id": "unknown-source"})
         if implementation.source_product_id == "tmdb-research"
         else implementation
         for implementation in CATALOG_SOURCE_IMPLEMENTATIONS
@@ -200,9 +227,7 @@ def test_conflicting_source_and_namespace_mappings_fail_closed() -> None:
 def test_pending_source_cannot_gain_identity_capability(tmp_path: Path) -> None:
     payload = json.loads(default_catalog_source_policy_path().read_text())
     mutated = copy.deepcopy(payload)
-    imdb = next(
-        source for source in mutated["sources"] if source["sourceId"] == "imdb"
-    )
+    imdb = next(source for source in mutated["sources"] if source["sourceId"] == "imdb")
     imdb["capabilities"].append("IDENTITY")
     path = tmp_path / "policy.json"
     path.write_text(json.dumps(mutated))

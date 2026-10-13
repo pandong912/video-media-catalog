@@ -1107,13 +1107,9 @@ def build_identity_resolution_dataframes(
 
     if source_policy is not None and ingest_runs is not None:
         enabled_identity_sources = set(
-            source_policy.enabled_source_ids(
-                CatalogSourceCapability.IDENTITY_SPINE
-            )
+            source_policy.enabled_source_ids(CatalogSourceCapability.IDENTITY_SPINE)
         ) & set(
-            source_policy.enabled_source_ids(
-                CatalogSourceCapability.MATERIALIZATION
-            )
+            source_policy.enabled_source_ids(CatalogSourceCapability.MATERIALIZATION)
         )
         allowed_sources = F.broadcast(
             spark.createDataFrame(
@@ -1129,8 +1125,7 @@ def build_identity_resolution_dataframes(
             .dropDuplicates()
             .join(
                 allowed_sources,
-                F.col("source_product_id")
-                == F.col("_allowed_source_product_id"),
+                F.col("source_product_id") == F.col("_allowed_source_product_id"),
                 "left_anti",
             )
             .limit(1)

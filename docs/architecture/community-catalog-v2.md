@@ -137,6 +137,8 @@ The batch indexer builds only the research family:
 - prefix `media-catalog-research`;
 - read alias `media-catalog-research-read`;
 - strict mapping with projectionVersion `8`;
+- mapping digest
+  `sha256:944610eb9fadf4feab55d2a68e693b07ad020cbb7a34467e8f6480f4c8452721`;
 - deterministic build identity bound to one Gold release commit;
 - partition receipts, count reconciliation, and atomic alias update.
 
@@ -145,10 +147,14 @@ Projection v8 adds nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
 Ambiguous, missing, malformed, or over-bound parent candidates produce null;
 episode-to-season-to-series traversal requires a unique season and a unique
 season-to-series edge. Every document also carries the pinned
-`sourcePolicyDigest`.
+`sourcePolicyDigest`. Serving provenance uses canonical source IDs in
+`sourceProductId` fields. Each live external identifier also carries its
+canonical source, assertion ID, and bounded citation keys; unknown namespaces
+or source/namespace ownership conflicts are omitted from materialization
+evidence.
 
-The Temporal Golden input optionally carries normalized `sourceRunStates`.
-When present, IMDb, TVmaze, Wikidata, and TMDB each declare exact committed run
+The Temporal Golden input must carry normalized `sourceRunStates`. IMDb,
+TVmaze, Wikidata, and TMDB each declare exact committed run
 IDs, run status, freshness status, watermark, optional acquisition time, and
 explicit Identity/materialization intent. Both intents default false. The
 preflight requires the states to cover exactly the pinned source runs and
@@ -156,10 +162,11 @@ rejects stale, pending, failed, excluded, conflicting, or policy-disabled
 materialization. Retrieval-only IMDb/TVmaze/TMDB runs remain visible in the
 orchestration state and freshness evidence but are omitted from the new Silver
 snapshot, incremental Identity input and Gold epoch; Wikidata (and optional
-EIDR) can enter those stages. Legacy inputs remain readable, while downstream
-Identity and Gold entrypoints independently reject disallowed ingest-run
-products. IMDb and TVmaze override evidence remains explicit without granting
-either source Identity or Gold permission.
+EIDR) can enter those stages. Legacy payloads remain deserializable, but new
+preflight fails closed when explicit states are absent; downstream Identity and
+Gold entrypoints independently reject disallowed ingest-run products. IMDb and
+TVmaze override evidence remains explicit without granting either source
+Identity or Gold permission.
 
 Full rebuild is authoritative. The optional affected-entity path copies an
 immutable base into a new concrete index and never mutates the old index. It

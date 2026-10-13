@@ -108,7 +108,9 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
     assert documents[0].displayName == "Example"
     assert documents[0].contextId == "research"
     assert "ownerSubject" not in documents[0].asDict()
-    assert documents[0].sourceBadges[0].sourceProductId == "tvmaze-public-api"
+    assert documents[0].sourceBadges[0].sourceProductId == "tvmaze"
+    assert documents[0].externalIdentifiers[0].sourceProductId == "tvmaze"
+    assert documents[0].externalIdentifiers[0].assertionId == ("sha256:" + ("2" * 64))
 
     affected = spark.createDataFrame([(entity_key,)], "entity_key string")
     filtered = build_gold_search_projection(

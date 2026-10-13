@@ -16,9 +16,7 @@ from pydantic import Field, field_validator, model_validator
 from video_media_catalog.canonical import canonical_json_bytes, sha256_digest
 from video_media_catalog.v2_contracts import V2ContractModel, require_slug
 
-CATALOG_SOURCE_POLICY_SCHEMA_VERSION = (
-    "video.world.catalog-source-policy-registry.v1"
-)
+CATALOG_SOURCE_POLICY_SCHEMA_VERSION = "video.world.catalog-source-policy-registry.v1"
 CATALOG_SOURCE_POLICY_DIGEST = (
     "sha256:4da143ac61dd11a9aa59bd567b36af47fc57d9b4c0cb4f0cc09b1696a1a11277"
 )
@@ -67,9 +65,7 @@ class CatalogSourceCapability(StrEnum):
 
 
 _CANONICAL_REQUIREMENTS = {
-    CatalogSourceCapability.CAPTURE: frozenset(
-        {CatalogCanonicalCapability.RETRIEVAL}
-    ),
+    CatalogSourceCapability.CAPTURE: frozenset({CatalogCanonicalCapability.RETRIEVAL}),
     CatalogSourceCapability.FRESHNESS: frozenset(
         {CatalogCanonicalCapability.RETRIEVAL}
     ),
@@ -188,11 +184,7 @@ class CatalogCanonicalSourcePolicy(V2ContractModel):
         value: tuple[CatalogCanonicalNamespacePolicy, ...],
     ) -> tuple[CatalogCanonicalNamespacePolicy, ...]:
         canonical = [item.namespace for item in value]
-        if (
-            not value
-            or len(value) > 32
-            or len(canonical) != len(set(canonical))
-        ):
+        if not value or len(value) > 32 or len(canonical) != len(set(canonical)):
             raise ValueError("Catalog source namespaces are invalid")
         return value
 
@@ -202,8 +194,7 @@ class CatalogCanonicalSourcePolicy(V2ContractModel):
         if CatalogCanonicalCapability.RETRIEVAL not in capabilities:
             raise ValueError("Catalog source must allow retrieval")
         if (
-            self.status
-            != CatalogCanonicalSourceStatus.APPROVED_FOR_OFFLINE_IDENTITY
+            self.status != CatalogCanonicalSourceStatus.APPROVED_FOR_OFFLINE_IDENTITY
             and capabilities
             & {
                 CatalogCanonicalCapability.IDENTITY,
@@ -218,9 +209,8 @@ class CatalogCanonicalSourcePolicy(V2ContractModel):
             and CatalogCanonicalCapability.IDENTITY not in capabilities
         ):
             raise ValueError("Catalog materialization requires identity capability")
-        if (
-            CatalogCanonicalCapability.MATERIALIZATION not in capabilities
-            and any(item.materializable_predicates for item in self.namespaces)
+        if CatalogCanonicalCapability.MATERIALIZATION not in capabilities and any(
+            item.materializable_predicates for item in self.namespaces
         ):
             raise ValueError(
                 "non-materializing Catalog source cannot list materializable predicates"
@@ -232,8 +222,7 @@ class CatalogCanonicalSourcePolicy(V2ContractModel):
             CatalogCanonicalCapability.IDENTITY,
             CatalogCanonicalCapability.MATERIALIZATION,
         } and (
-            self.status
-            != CatalogCanonicalSourceStatus.APPROVED_FOR_OFFLINE_IDENTITY
+            self.status != CatalogCanonicalSourceStatus.APPROVED_FOR_OFFLINE_IDENTITY
         ):
             return False
         return capability in self.capabilities
@@ -254,9 +243,9 @@ class CatalogCanonicalSourcePolicy(V2ContractModel):
 
 
 class CatalogCanonicalPolicyRegistry(V2ContractModel):
-    schema_version: Literal[
-        "video.world.catalog-source-policy-registry.v1"
-    ] = CATALOG_SOURCE_POLICY_SCHEMA_VERSION
+    schema_version: Literal["video.world.catalog-source-policy-registry.v1"] = (
+        CATALOG_SOURCE_POLICY_SCHEMA_VERSION
+    )
     registry_version: str
     sources: tuple[CatalogCanonicalSourcePolicy, ...] = Field(
         min_length=1,
@@ -379,9 +368,7 @@ class CatalogSourceImplementation(V2ContractModel):
     ) -> tuple[CatalogNamespaceImplementation, ...]:
         namespace_ids = [item.namespace_id for item in value]
         if not value or len(namespace_ids) != len(set(namespace_ids)):
-            raise ValueError(
-                "Catalog implementation namespace mappings must be unique"
-            )
+            raise ValueError("Catalog implementation namespace mappings must be unique")
         return tuple(sorted(value, key=lambda item: item.namespace_id))
 
 
@@ -638,6 +625,36 @@ class CatalogSourcePolicy:
     def canonical_source_id(self, source_product_id: str) -> str:
         return self.source(source_product_id).source_id
 
+    def namespace(self, namespace_id: str) -> CatalogNamespacePolicyEntry:
+        normalized = require_slug(
+            namespace_id,
+            label="catalog namespace_id",
+        )
+        try:
+            return self._namespaces_by_id[normalized]
+        except KeyError as exc:
+            raise ValueError(
+                f"namespace is absent from canonical Catalog mapping: {normalized}"
+            ) from exc
+
+    def allows_materializable_predicate(
+        self,
+        source_product_id: str,
+        predicate: str,
+    ) -> bool:
+        try:
+            source = self.source(source_product_id)
+        except ValueError:
+            return False
+        normalized = _canonical_token(
+            predicate,
+            label="Catalog materializable predicate",
+        )
+        return source.allows(CatalogSourceCapability.MATERIALIZATION) and any(
+            normalized in namespace.materializable_predicates
+            for namespace in source.canonical.namespaces
+        )
+
     def allows_source(
         self,
         source_product_id: str,
@@ -682,12 +699,8 @@ class CatalogSourcePolicy:
         )
 
     def validate_registry(self, registry: Any) -> None:
-        products = {
-            item.source_product_id: item for item in registry.source_products
-        }
-        namespaces = {
-            item.namespace_id: item for item in registry.source_namespaces
-        }
+        products = {item.source_product_id: item for item in registry.source_products}
+        namespaces = {item.namespace_id: item for item in registry.source_namespaces}
         for implementation in self.implementations:
             product = products.get(implementation.source_product_id)
             if product is None:
@@ -707,13 +720,9 @@ class CatalogSourcePolicy:
                         "Catalog namespace is absent from source registry: "
                         f"{mapping.namespace_id}"
                     )
-                if (
-                    registered.source_product_id
-                    != implementation.source_product_id
-                ):
+                if registered.source_product_id != implementation.source_product_id:
                     raise ValueError(
-                        "Catalog namespace source differs for "
-                        f"{mapping.namespace_id}"
+                        f"Catalog namespace source differs for {mapping.namespace_id}"
                     )
 
 

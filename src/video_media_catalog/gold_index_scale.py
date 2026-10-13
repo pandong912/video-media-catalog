@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from video_media_catalog.canonical import canonical_json_bytes
+from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGEST
 from video_media_catalog.gold_search_index import (
     DEFAULT_GOLD_BULK_PARTITIONS,
     DEFAULT_GOLD_BULK_WORKERS,
@@ -57,6 +58,9 @@ def synthetic_gold_document(sequence: int) -> dict[str, Any]:
     if sequence < 0:
         raise ValueError("synthetic document sequence must be non-negative")
     key = "sha256:" + hashlib.sha256(f"gold-{sequence}".encode()).hexdigest()
+    assertion_id = (
+        "sha256:" + hashlib.sha256(f"gold-identifier-{sequence}".encode()).hexdigest()
+    )
     title = f"Synthetic Film or Series {sequence:08d}"
     return {
         "entityKey": key,
@@ -65,8 +69,13 @@ def synthetic_gold_document(sequence: int) -> dict[str, Any]:
         "status": "ACTIVE",
         "releasePlanId": "sha256:" + ("a" * 64),
         "contextId": "research",
+        "sourcePolicyDigest": CATALOG_SOURCE_POLICY_DIGEST,
         "displayName": title,
         "displayLanguage": "en",
+        "contentType": "MOVIE" if sequence % 2 == 0 else "TV_SERIES",
+        "parentEntityKey": None,
+        "seriesEntityKey": None,
+        "seasonEntityKey": None,
         "titles": [
             {"value": title, "language": "en", "titleRole": "PRIMARY"},
             {
@@ -87,19 +96,23 @@ def synthetic_gold_document(sequence: int) -> dict[str, Any]:
         },
         "externalIdentifiers": [
             {
+                "sourceProductId": "imdb",
                 "namespace": "imdb-title",
                 "value": f"tt{sequence % 100_000_000:08d}",
                 "issuer": "IMDb",
                 "referentKind": "WORK",
+                "assertionId": assertion_id,
+                "citationKeys": [],
+                "url": None,
             }
         ],
         "relationSummary": [{"predicate": "HAS_CONTRIBUTOR", "count": 8}],
         "sourceBadges": [
             {
-                "sourceProductId": "synthetic-public-catalog",
-                "displayName": "Synthetic public catalog",
-                "sourceUrl": "https://example.invalid/catalog",
-                "policyZones": ["open"],
+                "sourceProductId": "imdb",
+                "displayName": "IMDb non-commercial datasets",
+                "sourceUrl": "https://developer.imdb.com/non-commercial-datasets/",
+                "policyZones": ["research_private"],
                 "assertionCount": 12,
                 "winningAssertionCount": 8,
             }
@@ -119,6 +132,7 @@ def synthetic_gold_document(sequence: int) -> dict[str, Any]:
             "citationKeys": 0,
             "rights": 0,
             "conflicts": 0,
+            "hierarchyRelations": 0,
             "formats": 0,
             "languages": 0,
             "statuses": 0,

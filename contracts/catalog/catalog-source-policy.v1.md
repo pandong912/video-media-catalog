@@ -53,8 +53,17 @@ entrypoints pin `sourcePolicyDigest`, filter exact-blocking namespaces through
 the live intersection, and reject selected source runs that are not authorized
 for Identity/materialization. Gold also rejects an Identity resolution run
 whose input manifest does not bind the current canonical digest. Temporal
-`sourceRunStates` may still track retrieval-only runs and their freshness, but
-those runs are excluded from snapshot, Identity and Gold inputs.
+`sourceRunStates` are mandatory for new Golden preflights and may still track
+retrieval-only runs and their freshness, but those runs are excluded from
+snapshot, Identity and Gold inputs.
+
+Gold serving documents retain the compatibility field name `sourceProductId`
+but write the canonical `sourceId` value. External identifiers additionally
+bind one assertion ID and bounded citation keys, and are emitted only when
+assertion source and canonical namespace ownership agree. Materialization
+evidence is intersected with each namespace's `materializablePredicates`;
+Wikidata identity titles and hierarchy are permitted, while EIDR titles are
+display-only and EIDR hierarchy remains permitted.
 
 This policy never grants a license. Existing rights profiles, termination
 fences, audience/purpose/territory checks, attribution, and Gold quality gates

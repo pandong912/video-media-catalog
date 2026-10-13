@@ -135,10 +135,13 @@ _MAPPINGS: dict[str, Any] = {
             "type": "nested",
             "dynamic": "strict",
             "properties": {
+                "sourceProductId": {"type": "keyword"},
                 "namespace": {"type": "keyword"},
                 "value": {"type": "keyword", "ignore_above": 1024},
                 "issuer": {"type": "keyword"},
                 "referentKind": {"type": "keyword"},
+                "assertionId": {"type": "keyword"},
+                "citationKeys": {"type": "keyword"},
                 "url": {"type": "keyword", "index": False},
             },
         },

@@ -156,9 +156,8 @@ def exact_id_namespace_rows(
     }
     rows: dict[tuple[str, str, str], dict[str, object]] = {}
     for namespace in registry.source_namespaces:
-        if (
-            namespace.source_product_id not in active_products
-            or (allowed is not None and namespace.namespace_id not in allowed)
+        if namespace.source_product_id not in active_products or (
+            allowed is not None and namespace.namespace_id not in allowed
         ):
             continue
         pattern = namespace.identifier_pattern

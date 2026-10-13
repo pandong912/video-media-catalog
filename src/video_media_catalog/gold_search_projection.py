@@ -6,10 +6,15 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import Any
 
 from video_media_catalog.canonical import canonical_json
-from video_media_catalog.catalog_source_policy import load_catalog_source_policy
+from video_media_catalog.catalog_source_policy import (
+    CatalogSourceCapability,
+    CatalogSourcePolicy,
+    load_catalog_source_policy,
+)
 from video_media_catalog.douban import douban_jump_url
 from video_media_catalog.eidr import normalize_eidr_id
 from video_media_catalog.gold import (
@@ -42,13 +47,9 @@ _PARENT_RELATION_PREDICATES = frozenset(
     }
 )
 _SERIES_RELATION_PREDICATES = frozenset({"part_of", "part_of_series"})
-_SEASON_RELATION_PREDICATES = frozenset(
-    {"part_of", "part_of_season", "season"}
-)
+_SEASON_RELATION_PREDICATES = frozenset({"part_of", "part_of_season", "season"})
 _EXPLICIT_SERIES_RELATION_PREDICATES = frozenset({"part_of_series"})
-_EXPLICIT_SEASON_RELATION_PREDICATES = frozenset(
-    {"part_of_season", "season"}
-)
+_EXPLICIT_SEASON_RELATION_PREDICATES = frozenset({"part_of_season", "season"})
 
 _ATTRIBUTE_PREDICATES = {
     "format": "formats",
@@ -67,7 +68,16 @@ _MATCH_INT_PREDICATES = {
     "episode_number": (1, 2**31 - 1),
     "runtime_minutes": (1, 10_000),
 }
+_IDENTITY_FIELD_PREDICATES = {
+    "title": "identity.title",
+    "original_title": "identity.alias",
+}
 _PREMIERED_YEAR = re.compile(r"^(\d{4})(?:-\d{2}-\d{2})?$")
+
+
+@lru_cache(maxsize=1)
+def _projection_source_policy() -> CatalogSourcePolicy:
+    return load_catalog_source_policy()
 
 
 def _external_identifier_url(
@@ -230,11 +240,15 @@ def _derive_hierarchy_keys(
         if object_key is None:
             continue
         parent_candidates.add(object_key)
-        object_level = str(
-            relation.get("object_entity_level")
-            or relation.get("objectEntityLevel")
-            or ""
-        ).strip().upper()
+        object_level = (
+            str(
+                relation.get("object_entity_level")
+                or relation.get("objectEntityLevel")
+                or ""
+            )
+            .strip()
+            .upper()
+        )
         if object_level == "SERIES" or (
             not object_level and predicate in _EXPLICIT_SERIES_RELATION_PREDICATES
         ):
@@ -258,9 +272,7 @@ def _derive_hierarchy_keys(
             series_key
             if series_key is not None
             else (
-                next(iter(parent_candidates))
-                if len(parent_candidates) == 1
-                else None
+                next(iter(parent_candidates)) if len(parent_candidates) == 1 else None
             )
         )
         season_key = None
@@ -280,12 +292,17 @@ def project_gold_entity(
     source_policy_digest: str | None = None,
 ) -> dict[str, Any]:
     value = _dict(row)
+    source_policy = _projection_source_policy()
     policy_digest = require_sha256(
         source_policy_digest
         or value.get("source_policy_digest")
-        or load_catalog_source_policy().digest,
+        or source_policy.digest,
         label="source_policy_digest",
     )
+    if policy_digest != source_policy.digest:
+        raise ValueError(
+            "Gold projection source_policy_digest differs from canonical policy"
+        )
     (
         parent_entity_key,
         series_entity_key,
@@ -331,6 +348,16 @@ def project_gold_entity(
         predicate = str(field["predicate"])
         for assertion_id in winner_ids:
             item = field_lineage_by_id[assertion_id]
+            source = source_policy.source(item.source_product_id)
+            if source.allows(CatalogSourceCapability.MATERIALIZATION):
+                canonical_predicate = _IDENTITY_FIELD_PREDICATES.get(predicate)
+                if canonical_predicate is None or not (
+                    source_policy.allows_materializable_predicate(
+                        item.source_product_id,
+                        canonical_predicate,
+                    )
+                ):
+                    continue
             citations = list(item.citation_keys)
             citation_overflow += max(0, len(citations) - MAX_CITATION_KEYS)
             winning.append(
@@ -341,7 +368,7 @@ def project_gold_entity(
                     "valueJson": field["value_json"],
                     "qualifiersJson": field["qualifiers_json"],
                     "resolutionStatus": field["resolution_status"],
-                    "sourceProductId": item.source_product_id,
+                    "sourceProductId": source.source_id,
                     "sourceRecordId": item.source_record_id,
                     "sourcePath": item.source_path,
                     "observedAt": item.observed_at,
@@ -391,6 +418,7 @@ def project_gold_entity(
     display_language = titles[0]["language"] if titles else "und"
 
     raw_identifiers = [_dict(item) for item in (value.get("identifiers") or [])]
+    identifier_candidates: list[dict[str, Any]] = []
     for identifier in raw_identifiers:
         identifier_lineage = _lineage(identifier)
         register_lineage(identifier_lineage)
@@ -409,6 +437,13 @@ def project_gold_entity(
         )
         for assertion_id in assertion_ids:
             item = identifier_lineage_by_id[assertion_id]
+            source = source_policy.source(item.source_product_id)
+            try:
+                namespace = source_policy.namespace(str(identifier["namespace_id"]))
+            except ValueError:
+                continue
+            if namespace.source.source_product_id != item.source_product_id:
+                continue
             citations = list(item.citation_keys)
             citation_overflow += max(0, len(citations) - MAX_CITATION_KEYS)
             winning.append(
@@ -419,7 +454,7 @@ def project_gold_entity(
                     "valueJson": identifier_value,
                     "qualifiersJson": "{}",
                     "resolutionStatus": "ACCEPTED",
-                    "sourceProductId": item.source_product_id,
+                    "sourceProductId": source.source_id,
                     "sourceRecordId": item.source_record_id,
                     "sourcePath": item.source_path,
                     "observedAt": item.observed_at,
@@ -431,35 +466,53 @@ def project_gold_entity(
                 }
             )
             winning_ids.add(assertion_id)
-
-    identifiers = sorted(
-        {
-            (
-                str(item["namespace_id"]),
-                str(item["value"]),
-                str(item["issuer"]),
-                str(item["referent_kind"]),
+            namespace_id = str(identifier["namespace_id"])
+            identifier_value_text = str(identifier["value"])
+            referent_kind = str(identifier["referent_kind"])
+            identifier_candidates.append(
+                {
+                    "sourceProductId": source.source_id,
+                    "namespace": namespace_id,
+                    "value": identifier_value_text,
+                    "issuer": str(identifier["issuer"]),
+                    "referentKind": referent_kind,
+                    "assertionId": assertion_id,
+                    "citationKeys": citations[:MAX_CITATION_KEYS],
+                    "url": _external_identifier_url(
+                        namespace_id,
+                        identifier_value_text,
+                        referent_kind,
+                    ),
+                }
             )
-            for item in raw_identifiers
-        }
-    )
-    identifier_overflow = max(0, len(identifiers) - MAX_IDENTIFIERS)
-    identifier_documents = [
-        {
-            "namespace": namespace,
-            "value": identifier,
-            "issuer": issuer,
-            "referentKind": referent_kind,
-            "url": _external_identifier_url(
-                namespace,
-                identifier,
-                referent_kind,
+
+    identifier_documents_by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for document in sorted(
+        identifier_candidates,
+        key=lambda item: (
+            item["namespace"],
+            item["value"],
+            item["issuer"],
+            item["referentKind"],
+            item["sourceProductId"],
+            item["assertionId"],
+        ),
+    ):
+        identifier_documents_by_key.setdefault(
+            (
+                document["namespace"],
+                document["value"],
+                document["issuer"],
+                document["referentKind"],
             ),
-        }
-        for namespace, identifier, issuer, referent_kind in identifiers[
-            :MAX_IDENTIFIERS
-        ]
-    ]
+            document,
+        )
+    all_identifier_documents = list(identifier_documents_by_key.values())
+    identifier_overflow = max(
+        0,
+        len(all_identifier_documents) - MAX_IDENTIFIERS,
+    )
+    identifier_documents = all_identifier_documents[:MAX_IDENTIFIERS]
     relation_summary = sorted(
         (
             {
@@ -501,7 +554,10 @@ def project_gold_entity(
                     len(candidates) - MAX_CONFLICT_VALUES,
                 ),
                 "sourceProductIds": sorted(
-                    {item.source_product_id for item in conflict_lineage}
+                    {
+                        source_policy.canonical_source_id(item.source_product_id)
+                        for item in conflict_lineage
+                    }
                 ),
             }
         )
@@ -522,13 +578,14 @@ def project_gold_entity(
     badge_identity: dict[str, tuple[str, str, set[str]]] = {}
     rights: dict[tuple[str, str], dict[str, Any]] = {}
     for assertion_id, item in lineage_by_id.items():
-        product_id = item.source_product_id
-        badge_counts[product_id].add(assertion_id)
+        source = source_policy.source(item.source_product_id)
+        source_id = source.source_id
+        badge_counts[source_id].add(assertion_id)
         if assertion_id in winning_ids:
-            winning_badge_counts[product_id].add(assertion_id)
-        badge = badge_identity.get(product_id)
+            winning_badge_counts[source_id].add(assertion_id)
+        badge = badge_identity.get(source_id)
         if badge is None:
-            badge_identity[product_id] = (
+            badge_identity[source_id] = (
                 item.source_name,
                 item.rights.source_url,
                 {item.rights.policy_zone.value},
@@ -537,14 +594,16 @@ def project_gold_entity(
             if badge[:2] != (item.source_name, item.rights.source_url):
                 raise ValueError("source badge metadata changed within one entity")
             badge[2].add(item.rights.policy_zone.value)
-        rights_key = (product_id, item.rights.policy_id)
+        rights_key = (source_id, item.rights.policy_id)
         rights_document = {
-            "sourceProductId": product_id,
+            "sourceProductId": source_id,
             "policyId": item.rights.policy_id,
             "policyZone": item.rights.policy_zone.value,
             "licenseId": item.rights.license_id,
             "licenseUri": item.rights.license_uri,
-            "attributionText": item.rights.attribution_text,
+            "attributionText": (
+                source.canonical.attribution or item.rights.attribution_text
+            ),
             "sourceUrl": item.rights.source_url,
             "shareAlike": item.rights.share_alike,
         }
@@ -555,14 +614,14 @@ def project_gold_entity(
 
     source_badges = [
         {
-            "sourceProductId": product_id,
-            "displayName": badge_identity[product_id][0],
-            "sourceUrl": badge_identity[product_id][1],
-            "policyZones": sorted(badge_identity[product_id][2]),
-            "assertionCount": len(badge_counts[product_id]),
-            "winningAssertionCount": len(winning_badge_counts[product_id]),
+            "sourceProductId": source_id,
+            "displayName": badge_identity[source_id][0],
+            "sourceUrl": badge_identity[source_id][1],
+            "policyZones": sorted(badge_identity[source_id][2]),
+            "assertionCount": len(badge_counts[source_id]),
+            "winningAssertionCount": len(winning_badge_counts[source_id]),
         }
-        for product_id in sorted(badge_identity)
+        for source_id in sorted(badge_identity)
     ]
     rights_documents = [rights[key] for key in sorted(rights)]
     winning.sort(
@@ -689,10 +748,17 @@ def projection_schema():
                 ArrayType(
                     StructType(
                         [
+                            StructField("sourceProductId", string, False),
                             StructField("namespace", string, False),
                             StructField("value", string, False),
                             StructField("issuer", string, False),
                             StructField("referentKind", string, False),
+                            StructField("assertionId", string, False),
+                            StructField(
+                                "citationKeys",
+                                ArrayType(string, False),
+                                False,
+                            ),
                             StructField("url", string, True),
                         ]
                     ),
@@ -882,9 +948,7 @@ def _build_hierarchy_projection(
     def parent_edges(relations: Any) -> Any:
         return (
             relations.where(
-                F.lower(F.col("predicate")).isin(
-                    *sorted(_PARENT_RELATION_PREDICATES)
-                )
+                F.lower(F.col("predicate")).isin(*sorted(_PARENT_RELATION_PREDICATES))
             )
             .alias("r")
             .join(
@@ -1017,9 +1081,7 @@ def _build_hierarchy_projection(
             F.col("_unique_season_entity_key"),
         )
         .when(
-            (F.col("_subject_level") == "EPISODE")
-            & no_season
-            & unique_series,
+            (F.col("_subject_level") == "EPISODE") & no_season & unique_series,
             F.col("_unique_series_entity_key"),
         )
         .alias("parent_entity_key"),
@@ -1129,8 +1191,7 @@ def build_gold_search_projection(
     )
     selected_relations = affected(release_relations, "subject_entity_key")
     relation_summary = (
-        selected_relations
-        .groupBy("subject_entity_key", "predicate")
+        selected_relations.groupBy("subject_entity_key", "predicate")
         .count()
         .groupBy("subject_entity_key")
         .agg(

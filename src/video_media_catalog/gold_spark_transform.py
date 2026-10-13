@@ -86,21 +86,15 @@ def _validate_identity_source_policy_provenance(
     source_policy: CatalogSourcePolicy,
 ) -> None:
     identity_runs = tuple(
-        run
-        for run in ingest_runs
-        if run.run_kind == IngestRunKind.IDENTITY_RESOLUTION
+        run for run in ingest_runs if run.run_kind == IngestRunKind.IDENTITY_RESOLUTION
     )
     if not identity_runs:
-        raise ValueError(
-            "Gold source policy requires an Identity resolution run"
-        )
+        raise ValueError("Gold source policy requires an Identity resolution run")
     if any(
         run.input_manifest.get("sourcePolicyDigest") != source_policy.digest
         for run in identity_runs
     ):
-        raise ValueError(
-            "Identity run does not bind the current Catalog source policy"
-        )
+        raise ValueError("Identity run does not bind the current Catalog source policy")
 
 
 @dataclass
@@ -1410,13 +1404,9 @@ def build_distributed_gold(
 
     if source_policy is not None:
         enabled_materialization_sources = set(
-            source_policy.enabled_source_ids(
-                CatalogSourceCapability.MATERIALIZATION
-            )
+            source_policy.enabled_source_ids(CatalogSourceCapability.MATERIALIZATION)
         ) & set(
-            source_policy.enabled_source_ids(
-                CatalogSourceCapability.GOLD_PROJECTION
-            )
+            source_policy.enabled_source_ids(CatalogSourceCapability.GOLD_PROJECTION)
         )
         allowed_sources = F.broadcast(
             spark.createDataFrame(
@@ -1431,8 +1421,7 @@ def build_distributed_gold(
             .dropDuplicates()
             .join(
                 allowed_sources,
-                F.col("source_product_id")
-                == F.col("_allowed_source_product_id"),
+                F.col("source_product_id") == F.col("_allowed_source_product_id"),
                 "left_anti",
             )
             .limit(1)
@@ -2168,7 +2157,7 @@ def build_distributed_gold(
             if freshness_policy is not None
             else disabled_release_freshness_policy()
         )
-        if bounded_run_ids:
+        if bounded_run_ids or source_policy is not None:
             effective_freshness_policy = scope_release_freshness_policy(
                 effective_freshness_policy,
                 selected_source_product_ids={

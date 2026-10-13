@@ -273,10 +273,13 @@ def _normalized_source_run_states(
     *,
     source_policy: CatalogSourcePolicy,
 ) -> tuple[GoldenSourceRunState, ...]:
-    """Validate the opt-in unified capture/run/freshness handoff."""
+    """Validate the mandatory unified capture/run/freshness handoff."""
 
     if not input_data.source_run_states:
-        return ()
+        raise NonRetryableGoldenBuildError(
+            "Golden Build requires explicit sourceRunStates; legacy source routing "
+            "cannot prove canonical identity/materialization authorization"
+        )
 
     normalized: list[GoldenSourceRunState] = []
     source_ids: set[str] = set()
@@ -304,9 +307,7 @@ def _normalized_source_run_states(
             )
         )
         if len(run_ids) != len(raw.run_ids):
-            raise NonRetryableGoldenBuildError(
-                "source state run IDs must be unique"
-            )
+            raise NonRetryableGoldenBuildError("source state run IDs must be unique")
         overlap = assigned_run_ids & set(run_ids)
         if overlap:
             raise NonRetryableGoldenBuildError(
@@ -422,8 +423,7 @@ def _normalized_source_run_states(
     missing = _EXPECTED_SOURCE_PRODUCTS - source_ids
     if missing:
         raise NonRetryableGoldenBuildError(
-            "explicit source run states must include IMDb, TVmaze, Wikidata, "
-            "and TMDB"
+            "explicit source run states must include IMDb, TVmaze, Wikidata, and TMDB"
         )
     states = {item.source_product_id: item for item in normalized}
     for source_product_id in _EXPECTED_SOURCE_PRODUCTS:
@@ -683,9 +683,7 @@ def _validate_preflight_documents(
         raise NonRetryableGoldenBuildError(
             "source age exceeds the bounded freshness override"
         )
-    source_policy = load_catalog_source_policy(
-        registry=build_community_registry()
-    )
+    source_policy = load_catalog_source_policy(registry=build_community_registry())
     source_run_states = _normalized_source_run_states(
         input_data,
         source_policy=source_policy,
@@ -1465,8 +1463,7 @@ def resolve_golden_identity(
             or summary.get("configDigest") != preflight.identity_bound_config_digest
             or summary.get("identityResolutionConfigDigest")
             != preflight.identity_resolution_config_digest
-            or summary.get("sourcePolicyDigest")
-            != preflight.source_policy_digest
+            or summary.get("sourcePolicyDigest") != preflight.source_policy_digest
         ):
             raise NonRetryableGoldenBuildError(
                 "Identity summary differs from pinned incremental inputs"
@@ -1624,24 +1621,26 @@ def _validate_release_documents(
         if preflight.source_run_states
         else _EXPECTED_SOURCE_PRODUCTS
     )
-    if any(
-        sources[source_product_id].get("status") != "PASS"
-        for source_product_id in _EXPECTED_SOURCE_PRODUCTS
-        if source_product_id in materialized_sources
-    ):
-        raise NonRetryableGoldenBuildError(
-            "Gold quality report contains a non-passing required source"
+    source_policy = load_catalog_source_policy()
+    for source_product_id in materialized_sources:
+        expected_status = (
+            {"PASS"}
+            if source_policy.allows_source(
+                source_product_id,
+                CatalogSourceCapability.FRESHNESS,
+            )
+            else {"NOT_REQUIRED"}
         )
+        if sources.get(source_product_id, {}).get("status") not in expected_status:
+            raise NonRetryableGoldenBuildError(
+                "Gold quality report contains a non-passing materialized source"
+            )
     tmdb = sources["tmdb-research"]
-    if (
-        "tmdb-research" in materialized_sources
-        and (
-            int(tmdb.get("sloHours") or 0)
-            != input_data.env.gold_tmdb_freshness_slo_hours
-            or tmdb.get("status") != "PASS"
-            or float(tmdb.get("effectiveAgeHours") or 0)
-            >= input_data.env.gold_tmdb_freshness_slo_hours
-        )
+    if "tmdb-research" in materialized_sources and (
+        int(tmdb.get("sloHours") or 0) != input_data.env.gold_tmdb_freshness_slo_hours
+        or tmdb.get("status") != "PASS"
+        or float(tmdb.get("effectiveAgeHours") or 0)
+        >= input_data.env.gold_tmdb_freshness_slo_hours
     ):
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks the pinned TMDB freshness threshold"
@@ -1657,8 +1656,7 @@ def _validate_release_documents(
             sorted(
                 state.source_product_id
                 for state in preflight.source_run_states
-                if state.freshness_status
-                == GoldenSourceFreshnessStatus.OVERRIDDEN
+                if state.freshness_status == GoldenSourceFreshnessStatus.OVERRIDDEN
             )
         )
         if preflight.source_run_states
@@ -1667,9 +1665,11 @@ def _validate_release_documents(
             "tvmaze-public-api",
         )
     )
-    if override.get("reason") != input_data.freshness_override.reason.strip() or tuple(
-        sorted(override.get("sourceProductIds") or ())
-    ) != expected_override_sources:
+    if (
+        override.get("reason") != input_data.freshness_override.reason.strip()
+        or tuple(sorted(override.get("sourceProductIds") or ()))
+        != expected_override_sources
+    ):
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks the pinned freshness override evidence"
         )
@@ -1679,13 +1679,23 @@ def _validate_release_documents(
     }
     for source, slo in expected_slos.items():
         row = sources[source]
-        if (
-            int(row.get("sloHours") or 0) != slo
-            or row.get("status") != "PASS"
-            or float(row.get("effectiveAgeHours") or 0) > slo
-        ):
+        if int(row.get("sloHours") or 0) != slo:
             raise NonRetryableGoldenBuildError(
                 f"freshness override was not applied correctly for {source}"
+            )
+        if source in materialized_sources:
+            if row.get("status") != "PASS" or (
+                float(row.get("effectiveAgeHours") or 0) > slo
+            ):
+                raise NonRetryableGoldenBuildError(
+                    f"freshness override was not applied correctly for {source}"
+                )
+        elif (
+            row.get("status") not in {"OPTIONAL", "PASS"}
+            or row.get("required") is not False
+        ):
+            raise NonRetryableGoldenBuildError(
+                f"non-materialized freshness source was not scoped out: {source}"
             )
     attribution = _read_ref_json(
         client,
@@ -1697,7 +1707,12 @@ def _validate_release_documents(
         for item in attribution.get("entries") or []
         if isinstance(item, dict)
     }
-    if not _EXPECTED_SOURCE_PRODUCTS.issubset(attributed_sources):
+    if preflight.source_run_states:
+        if attributed_sources != materialized_sources:
+            raise NonRetryableGoldenBuildError(
+                "Gold attribution manifest differs from the materialized source set"
+            )
+    elif not _EXPECTED_SOURCE_PRODUCTS.issubset(attributed_sources):
         raise NonRetryableGoldenBuildError(
             "Gold attribution manifest lacks one or more required sources"
         )

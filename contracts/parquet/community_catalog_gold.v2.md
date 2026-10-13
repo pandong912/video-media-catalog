@@ -232,19 +232,21 @@ freshness requirement. The entire freshness policy is part of the Gold config
 digest; the evaluated matrix and blocking violations are part of the quality
 report identity.
 
-Temporal Golden inputs may additionally pin `sourceRunStates`. The explicit
-state combines source product, exact Silver run IDs, terminal run status,
+Temporal Golden inputs must pin `sourceRunStates`. The explicit state combines
+source product, exact Silver run IDs, terminal run status,
 freshness status, watermark, optional acquisition time and immutable capture
-reference, plus Identity/materialization intent. When this field is present,
-IMDb, TVmaze, Wikidata, and TMDB must all be committed and fresh (or carry the
+reference, plus Identity/materialization intent. IMDb, TVmaze, Wikidata, and
+TMDB must all be committed and fresh (or carry the
 existing bounded override evidence), and the union of state run IDs must equal
 the legacy pinned run fields exactly. This is orchestration evidence only: it
 does not call a provider, provide credentials, or replace the Gold freshness
 matrix computed from committed ingest manifests. For the current Golden
 release path, IMDb and TVmaze states must be `OVERRIDDEN`, while TMDB and
 Wikidata are `PASS`; release validation reconciles those states with the
-quality report's override evidence and requires every required source row to
-pass.
+quality report's override evidence. Only materialized sources are required to
+pass the scoped Gold freshness policy; tracked retrieval-only sources remain
+non-required and cannot enter the epoch. Legacy payloads remain parseable, but
+preflight without explicit states fails closed.
 
 ## Source termination and removal
 
@@ -274,6 +276,8 @@ The active research index family is:
 - read alias: `media-catalog-research-read`;
 - document ID: internal `entityKey`;
 - mapping: strict, projectionVersion `8`, and digest bound;
+- mapping digest:
+  `sha256:944610eb9fadf4feab55d2a68e693b07ad020cbb7a34467e8f6480f4c8452721`;
 - source: one immutable Gold release commit and its exact table snapshots.
 
 The default and authoritative publication path is a full rebuild into a new
@@ -309,6 +313,18 @@ from rights-filtered Gold relation rows. A missing, ambiguous, malformed, or
 over-bound hierarchy remains null. Episode-to-series traversal requires both a
 unique episode-to-season edge and a unique season-to-series edge.
 
+All serving `sourceProductId` values are canonical source IDs (`wikidata`,
+`eidr`, `imdb`, `tvmaze`, or `tmdb`), even though the field name is retained
+for consumer compatibility. Local Catalog product IDs remain internal lineage.
+Each `externalIdentifiers` item contains canonical `sourceProductId`,
+`assertionId`, and bounded `citationKeys`. It is emitted only when the assertion
+source owns the namespace in the canonical policy. Unknown namespaces and
+source/namespace ownership conflicts fail closed and produce no materializable
+identifier. `winningAssertions` for identity-capable sources are additionally
+intersected with canonical `materializablePredicates`; for example, an EIDR
+title remains available as bounded display data but cannot become identity
+materialization evidence.
+
 Complete assertions and relation edges remain in Iceberg. This slice exposes
 bounded citation keys plus source record/path metadata because the current
 Silver schema has no dedicated Citation table.
@@ -334,7 +350,9 @@ validation requires every document to carry that release and policy digest.
 Legacy release/manifests without the field remain parseable, but projection v8
 refuses to build, validate, or promote them; they cannot be relabeled with the
 current policy digest. A release must be rebuilt under the current canonical
-policy.
+policy. Catalog Gold match-parameter publication likewise requires both the
+current projection-v8 mapping digest and the canonical `sourcePolicyDigest`;
+missing or stale manifests cannot publish parameters.
 The batch indexer publishes only the fixed `media-catalog-research-read` alias.
 HTTP serving is outside this repository.
 

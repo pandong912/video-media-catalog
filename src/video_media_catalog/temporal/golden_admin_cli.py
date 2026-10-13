@@ -92,9 +92,7 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
                 ),
                 watermark=str(raw.get("watermark", "")),
                 acquired_at=(
-                    None
-                    if raw.get("acquiredAt") is None
-                    else str(raw["acquiredAt"])
+                    None if raw.get("acquiredAt") is None else str(raw["acquiredAt"])
                 ),
                 identity_spine=_state_bool(
                     raw,

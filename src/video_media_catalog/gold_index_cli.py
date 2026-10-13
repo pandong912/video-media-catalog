@@ -44,8 +44,8 @@ from video_media_catalog.gold_search_index import (
     gold_partition_receipt_set_digest,
     reconcile_full_gold_index_counts,
     validate_affected_entity_results,
-    validate_gold_bulk_write_access,
     validate_gold_affected_entity_manifest,
+    validate_gold_bulk_write_access,
     validate_gold_index_contents,
 )
 from video_media_catalog.gold_search_projection import (

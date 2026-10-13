@@ -25,6 +25,7 @@ from video_media_catalog.connector import (
     DeleteCoverage,
 )
 from video_media_catalog.eidr_backfill import (
+    WIKIDATA_P2704_DISCOVERY_SCOPE,
     EidrBackfillStopReason,
     EidrExactLookupResult,
     EidrLookupStatus,
@@ -42,6 +43,9 @@ from video_media_catalog.eidr_backfill import (
     run_eidr_exact_lookup_manifest,
 )
 from video_media_catalog.eidr_backfill_cli import (
+    PUBLIC_RESEARCH_DEFAULT_BATCH_IDS,
+    PUBLIC_RESEARCH_DEFAULT_MAX_IDS,
+    PUBLIC_RESEARCH_MINIMUM_REQUEST_INTERVAL_SECONDS,
     _resolve_lookup_provider,
     build_parser,
     main,
@@ -936,6 +940,96 @@ def test_cli_parser_exposes_discovery_and_lookup_commands() -> None:
     )
     assert lookup.command == "lookup-batch"
     assert lookup.batch_size == 1
+
+    wikidata_extract = build_parser().parse_args(
+        [
+            "extract-wikidata-p2704",
+            "--silver-snapshot-uri",
+            "file:///tmp/silver.json",
+            "--silver-snapshot-hash",
+            "a" * 64,
+            "--silver-snapshot-size",
+            "100",
+            "--source-release-id",
+            "sha256:" + ("b" * 64),
+            "--destination-prefix",
+            "file:///tmp/out",
+            "--created-at",
+            "2026-09-20T00:00:00Z",
+            "--warehouse",
+            "file:///tmp/warehouse",
+        ]
+    )
+    assert wikidata_extract.command == "extract-wikidata-p2704"
+
+    public_lookup = build_parser().parse_args(
+        [
+            "lookup-public-research",
+            "--manifest-uri",
+            "file:///tmp/manifest.json",
+            "--manifest-hash",
+            "c" * 64,
+            "--manifest-size",
+            "100",
+            "--destination-prefix",
+            "file:///tmp/out",
+            "--acquired-at",
+            "2026-09-20T00:01:00Z",
+            "--image-digest",
+            "sha256:" + ("d" * 64),
+            "--authorization-evidence-uri",
+            "file:///tmp/eidr-authorization.json",
+            "--authorization-evidence-hash",
+            "e" * 64,
+            "--authorization-evidence-size",
+            "100",
+            "--authorization-issued-at",
+            "2026-09-20T00:00:00Z",
+        ]
+    )
+    assert public_lookup.command == "lookup-public-research"
+    assert public_lookup.batch_size == PUBLIC_RESEARCH_DEFAULT_BATCH_IDS
+    assert public_lookup.max_ids == PUBLIC_RESEARCH_DEFAULT_MAX_IDS
+    assert (
+        public_lookup.minimum_request_interval_seconds
+        == PUBLIC_RESEARCH_MINIMUM_REQUEST_INTERVAL_SECONDS
+    )
+
+
+def test_wikidata_p2704_scope_changes_discovery_binding_id(tmp_path: Path) -> None:
+    store = BoundedObjectStore(client=object())
+    destination = tmp_path / "discovered"
+    snapshot = build_community_silver_snapshot_set(
+        committed_run_ids=("sha256:" + ("a" * 64),),
+        run_snapshot_id=99,
+        commit_snapshot_id=100,
+        data_snapshot_ids={
+            table: (201 if table == "community_identifier_assertion" else None)
+            for table in DATA_TABLE_COLUMNS
+        },
+        created_at="2026-09-20T00:00:00Z",
+    )
+    snapshot_object = store.upload_bytes(
+        snapshot.json_bytes(),
+        (destination / "silver-snapshot.json").as_uri(),
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        object_format="OBJECT_FORMAT_JSON",
+        max_bytes=CONTROL_MAX_BYTES,
+    ).object_ref
+    source_release_id = "sha256:" + ("b" * 64)
+    unscoped = build_eidr_discovery_source_binding(
+        source_release_id=source_release_id,
+        silver_snapshot=snapshot,
+        silver_snapshot_object=snapshot_object,
+    )
+    scoped = build_eidr_discovery_source_binding(
+        source_release_id=source_release_id,
+        silver_snapshot=snapshot,
+        silver_snapshot_object=snapshot_object,
+        discovery_scope=WIKIDATA_P2704_DISCOVERY_SCOPE,
+    )
+    assert scoped.discovery_scope == WIKIDATA_P2704_DISCOVERY_SCOPE
+    assert unscoped.binding_id != scoped.binding_id
 
 
 @pytest.fixture(scope="module")

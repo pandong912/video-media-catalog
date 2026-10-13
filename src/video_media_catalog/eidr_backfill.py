@@ -99,6 +99,10 @@ DEFAULT_BACKFILL_MAX_DURATION_SECONDS = 6 * 60 * 60
 MAX_BACKFILL_MAX_DURATION_SECONDS = 7 * 24 * 60 * 60
 DEFAULT_BACKFILL_MAX_IDS = 100_000
 MAX_BACKFILL_MAX_IDS = MAX_BACKFILL_MAX_BATCHES * MAX_LOOKUP_BATCH_IDS
+WIKIDATA_P2704_DISCOVERY_PROFILE_ID = "wikidata-p2704-public-research"
+WIKIDATA_SOURCE_PRODUCT_ID = "wikidata-json-dump"
+WIKIDATA_NAMESPACE_ID = "wikidata-item"
+WIKIDATA_EIDR_PROPERTY_ID = "P2704"
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
 _SHARD_PATTERN = re.compile(r"^[0-9a-f]{2}$")
 _SOURCE_SEMAPHORE = threading.BoundedSemaphore(EIDR_SOURCE_SEMAPHORE_PERMITS)
@@ -255,6 +259,21 @@ class _TimestampedStore:
         )
 
 
+class EidrDiscoveryScope(V2ContractModel):
+    """Auditable source boundary for a discovered-ID manifest."""
+
+    profile_id: Literal["wikidata-p2704-public-research"] = (
+        WIKIDATA_P2704_DISCOVERY_PROFILE_ID
+    )
+    source_product_id: Literal["wikidata-json-dump"] = WIKIDATA_SOURCE_PRODUCT_ID
+    subject_namespace_id: Literal["wikidata-item"] = WIKIDATA_NAMESPACE_ID
+    identifier_namespace_id: Literal["eidr-content"] = EIDR_NAMESPACE_ID
+    source_property_id: Literal["P2704"] = WIKIDATA_EIDR_PROPERTY_ID
+
+
+WIKIDATA_P2704_DISCOVERY_SCOPE = EidrDiscoveryScope()
+
+
 class EidrDiscoverySourceBinding(V2ContractModel):
     binding_id: str
     source_release_id: str
@@ -262,6 +281,7 @@ class EidrDiscoverySourceBinding(V2ContractModel):
     silver_snapshot_object: ObjectRef
     identifier_assertion_snapshot_id: int = Field(gt=0)
     committed_run_ids: tuple[str, ...]
+    discovery_scope: EidrDiscoveryScope | None = None
 
     @field_validator(
         "binding_id",
@@ -302,13 +322,19 @@ class EidrDiscoverySourceBinding(V2ContractModel):
 
 
 def _source_binding_identity(binding: EidrDiscoverySourceBinding) -> dict[str, Any]:
-    return {
+    identity = {
         "sourceReleaseId": binding.source_release_id,
         "silverSnapshotSetId": binding.silver_snapshot_set_id,
         "silverSnapshotObject": _object_identity(binding.silver_snapshot_object),
         "identifierAssertionSnapshotId": binding.identifier_assertion_snapshot_id,
         "committedRunIds": binding.committed_run_ids,
     }
+    if binding.discovery_scope is not None:
+        identity["discoveryScope"] = binding.discovery_scope.model_dump(
+            mode="json",
+            by_alias=True,
+        )
+    return identity
 
 
 def build_eidr_discovery_source_binding(
@@ -316,6 +342,7 @@ def build_eidr_discovery_source_binding(
     source_release_id: str,
     silver_snapshot: CommunitySilverSnapshotSet,
     silver_snapshot_object: ObjectRef,
+    discovery_scope: EidrDiscoveryScope | None = None,
 ) -> EidrDiscoverySourceBinding:
     _require_model_reference(
         silver_snapshot,
@@ -337,6 +364,7 @@ def build_eidr_discovery_source_binding(
         "silver_snapshot_object": silver_snapshot_object,
         "identifier_assertion_snapshot_id": assertion_snapshot,
         "committed_run_ids": silver_snapshot.committed_run_ids,
+        "discovery_scope": discovery_scope,
     }
     provisional = EidrDiscoverySourceBinding.model_validate(
         {"binding_id": _ZERO_DIGEST, **values},
@@ -786,6 +814,8 @@ def build_discovered_eidr_id_frame(
     *,
     silver_snapshot: CommunitySilverSnapshotSet,
     page_size: int = DEFAULT_DISCOVERED_PAGE_IDS,
+    ingest_runs: Any | None = None,
+    discovery_scope: EidrDiscoveryScope | None = None,
 ) -> Any:
     """Distributed normalize/dedupe/page transform over a pinned assertion epoch."""
 
@@ -794,9 +824,19 @@ def build_discovered_eidr_id_frame(
     if silver_snapshot.data_snapshot_ids["community_identifier_assertion"] is None:
         raise ValueError("pinned Silver epoch has no IdentifierAssertion snapshot")
     required = {"run_id", "namespace_id", "value", "status"}
+    if discovery_scope is not None:
+        required.update({"subject_namespace_id", "provenance_json"})
     missing = sorted(required - set(identifier_assertions.columns))
     if missing:
         raise ValueError(f"IdentifierAssertion frame is missing columns: {missing}")
+    if discovery_scope is not None:
+        if ingest_runs is None:
+            raise ValueError(
+                "scoped EIDR discovery requires the pinned ingest-run frame"
+            )
+        run_missing = sorted({"run_id", "source_product_id"} - set(ingest_runs.columns))
+        if run_missing:
+            raise ValueError(f"IngestRun frame is missing columns: {run_missing}")
 
     from pyspark.sql import Window
     from pyspark.sql import functions as F
@@ -808,20 +848,35 @@ def build_discovered_eidr_id_frame(
             "run_id STRING",
         )
     )
-    candidates = (
-        identifier_assertions.join(selected_runs, "run_id", "inner")
-        .where(
-            (F.col("namespace_id") == EIDR_NAMESPACE_ID) & (F.col("status") == "ACTIVE")
+    if discovery_scope is not None:
+        selected_runs = F.broadcast(
+            ingest_runs.select("run_id", "source_product_id")
+            .join(selected_runs, "run_id", "inner")
+            .where(F.col("source_product_id") == discovery_scope.source_product_id)
+            .select("run_id")
+            .dropDuplicates()
         )
-        .select(
-            F.upper(
-                F.regexp_replace(
-                    F.trim(F.col("value")),
-                    r"(?i)^(?:https?://doi\.org/|doi:)",
-                    "",
+    selected_assertions = identifier_assertions.join(selected_runs, "run_id", "inner")
+    if discovery_scope is not None:
+        source_path_prefix = f"/claims/{discovery_scope.source_property_id}/"
+        selected_assertions = selected_assertions.where(
+            (F.col("subject_namespace_id") == discovery_scope.subject_namespace_id)
+            & (
+                F.get_json_object(F.col("provenance_json"), "$.sourcePath").startswith(
+                    source_path_prefix
                 )
-            ).alias("eidr_id")
+            )
         )
+    candidates = selected_assertions.where(
+        (F.col("namespace_id") == EIDR_NAMESPACE_ID) & (F.col("status") == "ACTIVE")
+    ).select(
+        F.upper(
+            F.regexp_replace(
+                F.trim(F.col("value")),
+                r"(?i)^(?:https?://doi\.org/|doi:)",
+                "",
+            )
+        ).alias("eidr_id")
     )
     eidr_pattern = r"^10\.5240/(?:[0-9A-Z]{4}-){5}[0-9A-Z]$"
     if candidates.where(~F.col("eidr_id").rlike(eidr_pattern)).limit(1).count():
@@ -851,6 +906,8 @@ def extract_and_publish_discovered_eidr_ids(
     created_at: str,
     store: RuntimeObjectStore,
     page_size: int = DEFAULT_DISCOVERED_PAGE_IDS,
+    ingest_runs: Any | None = None,
+    discovery_scope: EidrDiscoveryScope | None = None,
 ) -> PublishedDiscoveredEidrIds:
     """Extract on Spark, then stream bounded pages to immutable storage."""
 
@@ -858,11 +915,14 @@ def extract_and_publish_discovered_eidr_ids(
         source_release_id=source_release_id,
         silver_snapshot=silver_snapshot,
         silver_snapshot_object=silver_snapshot_object,
+        discovery_scope=discovery_scope,
     )
     frame = build_discovered_eidr_id_frame(
         identifier_assertions,
         silver_snapshot=silver_snapshot,
         page_size=page_size,
+        ingest_runs=ingest_runs,
+        discovery_scope=discovery_scope,
     )
     ordered = frame.orderBy("shard_key", "page_index", "eidr_id")
     return publish_discovered_eidr_id_manifest(

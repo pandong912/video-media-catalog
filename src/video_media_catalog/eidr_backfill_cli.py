@@ -35,6 +35,7 @@ from video_media_catalog.eidr_backfill import (
     MAX_LOOKUP_BATCH_IDS,
     MAX_MAX_XML_BYTES,
     MAX_RECORD_SHARD_BYTES,
+    WIKIDATA_P2704_DISCOVERY_SCOPE,
     EidrCompleteFeedProof,
     EidrProvider,
     EidrProviderNotAuthorizedError,
@@ -69,6 +70,15 @@ DEFAULT_MAX_SOURCE_SILVER_INPUTS = DEFAULT_BACKFILL_MAX_BATCHES
 MAX_SOURCE_SILVER_INPUTS = MAX_BACKFILL_MAX_BATCHES
 DEFAULT_MAX_SOURCE_SILVER_OUTPUT_BYTES = 1024 * 1024
 MAX_SOURCE_SILVER_OUTPUT_BYTES = CONTROL_MAX_BYTES
+PUBLIC_RESEARCH_DEFAULT_BATCH_IDS = 25
+PUBLIC_RESEARCH_MAX_BATCH_IDS = 50
+PUBLIC_RESEARCH_DEFAULT_MAX_BATCHES = 10
+PUBLIC_RESEARCH_MAX_BATCHES = 40
+PUBLIC_RESEARCH_DEFAULT_MAX_DURATION_SECONDS = 60 * 60
+PUBLIC_RESEARCH_MAX_DURATION_SECONDS = 2 * 60 * 60
+PUBLIC_RESEARCH_DEFAULT_MAX_IDS = 250
+PUBLIC_RESEARCH_MAX_IDS = 1_000
+PUBLIC_RESEARCH_MINIMUM_REQUEST_INTERVAL_SECONDS = 1.0
 
 
 def _add_object_ref_args(
@@ -112,7 +122,14 @@ def _add_catalog_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--spark-packages")
 
 
-def _add_public_provider_args(parser: argparse.ArgumentParser) -> None:
+def _add_public_provider_args(
+    parser: argparse.ArgumentParser,
+    *,
+    minimum_request_interval_seconds: float = (
+        DEFAULT_MINIMUM_REQUEST_INTERVAL_SECONDS
+    ),
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+) -> None:
     _add_object_ref_args(parser, "authorization_evidence", required=False)
     parser.add_argument("--authorization-issued-at")
     parser.add_argument("--user-agent", default=DEFAULT_EIDR_PUBLIC_USER_AGENT)
@@ -124,12 +141,12 @@ def _add_public_provider_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--minimum-request-interval-seconds",
         type=float,
-        default=DEFAULT_MINIMUM_REQUEST_INTERVAL_SECONDS,
+        default=minimum_request_interval_seconds,
     )
     parser.add_argument(
         "--max-attempts",
         type=int,
-        default=DEFAULT_MAX_ATTEMPTS,
+        default=max_attempts,
     )
     parser.add_argument(
         "--retry-initial-backoff-seconds",
@@ -148,7 +165,15 @@ def _add_public_provider_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_lookup_args(parser: argparse.ArgumentParser) -> None:
+def _add_lookup_args(
+    parser: argparse.ArgumentParser,
+    *,
+    batch_size: int = DEFAULT_LOOKUP_BATCH_IDS,
+    minimum_request_interval_seconds: float = (
+        DEFAULT_MINIMUM_REQUEST_INTERVAL_SECONDS
+    ),
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+) -> None:
     _add_object_ref_args(parser, "manifest", required=True)
     _add_object_ref_args(parser, "watermark", required=False)
     parser.add_argument("--destination-prefix", required=True)
@@ -157,7 +182,7 @@ def _add_lookup_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=DEFAULT_LOOKUP_BATCH_IDS,
+        default=batch_size,
     )
     parser.add_argument(
         "--max-xml-bytes",
@@ -169,8 +194,26 @@ def _add_lookup_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=DEFAULT_RECORD_SHARD_BYTES,
     )
-    _add_public_provider_args(parser)
+    _add_public_provider_args(
+        parser,
+        minimum_request_interval_seconds=minimum_request_interval_seconds,
+        max_attempts=max_attempts,
+    )
     _add_store_args(parser)
+
+
+def _add_extraction_args(parser: argparse.ArgumentParser) -> None:
+    _add_object_ref_args(parser, "silver_snapshot", required=True)
+    parser.add_argument("--source-release-id", required=True)
+    parser.add_argument("--destination-prefix", required=True)
+    parser.add_argument("--created-at", required=True)
+    parser.add_argument(
+        "--page-size",
+        type=int,
+        default=DEFAULT_DISCOVERED_PAGE_IDS,
+    )
+    _add_store_args(parser)
+    _add_catalog_args(parser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -189,17 +232,16 @@ def build_parser() -> argparse.ArgumentParser:
         "extract-ids",
         help="publish a discovered-ID manifest from a pinned Silver epoch",
     )
-    _add_object_ref_args(extraction, "silver_snapshot", required=True)
-    extraction.add_argument("--source-release-id", required=True)
-    extraction.add_argument("--destination-prefix", required=True)
-    extraction.add_argument("--created-at", required=True)
-    extraction.add_argument(
-        "--page-size",
-        type=int,
-        default=DEFAULT_DISCOVERED_PAGE_IDS,
+    _add_extraction_args(extraction)
+
+    wikidata_extraction = commands.add_parser(
+        "extract-wikidata-p2704",
+        help=(
+            "publish only EIDR IDs asserted by committed Wikidata P2704 "
+            "records in a pinned Silver epoch"
+        ),
     )
-    _add_store_args(extraction)
-    _add_catalog_args(extraction)
+    _add_extraction_args(wikidata_extraction)
 
     lookup = commands.add_parser(
         "lookup-batch",
@@ -232,6 +274,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-ids",
         type=int,
         default=DEFAULT_BACKFILL_MAX_IDS,
+    )
+
+    public_research_lookup = commands.add_parser(
+        "lookup-public-research",
+        help=(
+            "run a low-rate bounded public lookup over a Wikidata P2704 "
+            "manifest; always PARTIAL and never scheduled as a Registry crawl"
+        ),
+    )
+    _add_lookup_args(
+        public_research_lookup,
+        batch_size=PUBLIC_RESEARCH_DEFAULT_BATCH_IDS,
+        minimum_request_interval_seconds=(
+            PUBLIC_RESEARCH_MINIMUM_REQUEST_INTERVAL_SECONDS
+        ),
+        max_attempts=3,
+    )
+    public_research_lookup.add_argument(
+        "--max-batches",
+        type=int,
+        default=PUBLIC_RESEARCH_DEFAULT_MAX_BATCHES,
+    )
+    public_research_lookup.add_argument(
+        "--max-duration-seconds",
+        type=float,
+        default=PUBLIC_RESEARCH_DEFAULT_MAX_DURATION_SECONDS,
+    )
+    public_research_lookup.add_argument(
+        "--max-ids",
+        type=int,
+        default=PUBLIC_RESEARCH_DEFAULT_MAX_IDS,
     )
 
     expansion = commands.add_parser(
@@ -504,6 +577,18 @@ def _run_extract(
             .option("snapshot-id", str(snapshot_id))
             .load(tables.table_name("community_identifier_assertion"))
         )
+        discovery_scope = (
+            WIKIDATA_P2704_DISCOVERY_SCOPE
+            if parsed.command == "extract-wikidata-p2704"
+            else None
+        )
+        ingest_runs = None
+        if discovery_scope is not None:
+            ingest_runs = (
+                session.read.format("iceberg")
+                .option("snapshot-id", str(snapshot.run_snapshot_id))
+                .load(tables.table_name("community_ingest_run"))
+            )
         published = extract_and_publish_discovered_eidr_ids(
             identifier_assertions=assertions,
             silver_snapshot=snapshot,
@@ -513,6 +598,8 @@ def _run_extract(
             created_at=parsed.created_at,
             store=runtime_store,
             page_size=parsed.page_size,
+            ingest_runs=ingest_runs,
+            discovery_scope=discovery_scope,
         )
         return {
             "manifestId": published.manifest.manifest_id,
@@ -524,6 +611,11 @@ def _run_extract(
             "idCount": published.manifest.id_count,
             "pageCount": published.manifest.page_count,
             "sourceBindingId": published.manifest.source.binding_id,
+            "discoveryScope": (
+                None
+                if discovery_scope is None
+                else discovery_scope.model_dump(mode="json", by_alias=True)
+            ),
         }
     finally:
         if owns_session:
@@ -555,7 +647,21 @@ def _run_expand_source_silver_inputs(
     inputs = expand_eidr_source_silver_inputs(manifest)
     if len(inputs) > parsed.max_inputs:
         raise ValueError("Source Silver input count exceeds --max-inputs")
-    output = [
+    output = _source_silver_inputs_payload(inputs)
+    output_bytes = len(canonical_json_bytes(output)) + 1
+    if output_bytes > parsed.max_output_bytes:
+        raise ValueError("Source Silver input JSON exceeds --max-output-bytes")
+    verify_eidr_backfill_run_manifest_objects(
+        manifest=manifest,
+        store=runtime_store,
+    )
+    return output
+
+
+def _source_silver_inputs_payload(
+    inputs: Sequence[tuple[ObjectRef, ObjectRef]],
+) -> list[dict[str, Any]]:
+    return [
         {
             "batchManifest": batch_manifest.model_dump(
                 mode="json",
@@ -570,14 +676,10 @@ def _run_expand_source_silver_inputs(
         }
         for batch_manifest, record_set_manifest in inputs
     ]
-    output_bytes = len(canonical_json_bytes(output)) + 1
-    if output_bytes > parsed.max_output_bytes:
-        raise ValueError("Source Silver input JSON exceeds --max-output-bytes")
-    verify_eidr_backfill_run_manifest_objects(
-        manifest=manifest,
-        store=runtime_store,
-    )
-    return output
+
+
+def _is_manifest_lookup(command: str) -> bool:
+    return command in {"lookup-manifest", "lookup-public-research"}
 
 
 def _run_lookup(
@@ -593,10 +695,10 @@ def _run_lookup(
         raise ValueError("max-xml-bytes is outside the supported bound")
     if not 0 < parsed.record_shard_bytes <= MAX_RECORD_SHARD_BYTES:
         raise ValueError("record-shard-bytes is outside the supported bound")
-    if parsed.command == "lookup-manifest":
+    if _is_manifest_lookup(parsed.command):
         if complete_feed_proof is not None:
             raise ValueError(
-                "lookup-manifest is always partial and rejects complete-feed proof"
+                "manifest lookup is always partial and rejects complete-feed proof"
             )
         if not 0 < parsed.max_batches <= MAX_BACKFILL_MAX_BATCHES:
             raise ValueError("max-batches is outside the supported bound")
@@ -604,6 +706,26 @@ def _run_lookup(
             raise ValueError("max-duration-seconds is outside the supported bound")
         if not 0 < parsed.max_ids <= MAX_BACKFILL_MAX_IDS:
             raise ValueError("max-ids is outside the supported bound")
+    if parsed.command == "lookup-public-research":
+        if parsed.batch_size > PUBLIC_RESEARCH_MAX_BATCH_IDS:
+            raise ValueError(
+                "public research batch-size exceeds the low-rate profile bound"
+            )
+        if parsed.max_batches > PUBLIC_RESEARCH_MAX_BATCHES:
+            raise ValueError("public research max-batches exceeds the profile bound")
+        if parsed.max_duration_seconds > PUBLIC_RESEARCH_MAX_DURATION_SECONDS:
+            raise ValueError(
+                "public research max-duration-seconds exceeds the profile bound"
+            )
+        if parsed.max_ids > PUBLIC_RESEARCH_MAX_IDS:
+            raise ValueError("public research max-ids exceeds the profile bound")
+        if (
+            parsed.minimum_request_interval_seconds
+            < PUBLIC_RESEARCH_MINIMUM_REQUEST_INTERVAL_SECONDS
+        ):
+            raise ValueError(
+                "public research request interval is below the profile minimum"
+            )
     destination = _output_prefix(parsed.destination_prefix)
     resolved_provider = _resolve_lookup_provider(parsed, injected=provider)
     manifest_ref = _object_ref(
@@ -632,6 +754,13 @@ def _run_lookup(
         reference=manifest_ref,
         store=runtime_store,
     )
+    if (
+        parsed.command == "lookup-public-research"
+        and manifest.source.discovery_scope != WIKIDATA_P2704_DISCOVERY_SCOPE
+    ):
+        raise ValueError(
+            "public research lookup requires a Wikidata P2704 discovered-ID manifest"
+        )
     watermark = (
         None
         if watermark_ref is None
@@ -640,7 +769,7 @@ def _run_lookup(
             store=runtime_store,
         )
     )
-    if parsed.command == "lookup-manifest":
+    if _is_manifest_lookup(parsed.command):
         run_result = run_eidr_exact_lookup_manifest(
             manifest=manifest,
             manifest_object=manifest_ref,
@@ -681,6 +810,11 @@ def _run_lookup(
                 item.connector_batch_object is not None for item in run_manifest.batches
             ),
         }
+        if parsed.command == "lookup-public-research":
+            response["profile"] = WIKIDATA_P2704_DISCOVERY_SCOPE.profile_id
+            response["sourceSilverInputs"] = _source_silver_inputs_payload(
+                expand_eidr_source_silver_inputs(run_manifest)
+            )
         if run_result.watermark is not None and run_result.watermark_object is not None:
             response["watermarkId"] = run_result.watermark.watermark_id
             response["watermark"] = run_result.watermark_object.model_dump(
@@ -751,9 +885,9 @@ def run(
                 "expand-source-silver-inputs accepts only immutable object inputs"
             )
         return _run_expand_source_silver_inputs(parsed, store=store)
-    if parsed.command == "extract-ids":
+    if parsed.command in {"extract-ids", "extract-wikidata-p2704"}:
         if provider is not None or complete_feed_proof is not None:
-            raise ValueError("extract-ids does not accept provider injection")
+            raise ValueError("EIDR extraction does not accept provider injection")
         return _run_extract(parsed, store=store, spark=spark)
     if spark is not None:
         raise ValueError("lookup commands do not accept a Spark session")

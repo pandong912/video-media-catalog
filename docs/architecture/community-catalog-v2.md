@@ -75,6 +75,13 @@ control `ObjectRef`, and emits only a bounded JSON array of
 entry. Argo may pass this exact array to `withParam`; each item remains an
 ordinary single-batch input to `video-media-catalog-community-spark`.
 
+For personal research, `extract-wikidata-p2704` and `lookup-public-research`
+bind a `wikidata-p2704-public-research` discovery scope into the manifest
+identity, filter committed `wikidata-json-dump` P2704 assertions only, enforce
+low-rate lookup bounds, and return `sourceSilverInputs` for the same Source
+Silver fan-out. Operational and licensing detail lives in
+`docs/sources/eidr-public-research.md`.
+
 ## Silver and Identity
 
 Silver schema `2.x` stores source records and assertions under deterministic

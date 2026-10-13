@@ -16,6 +16,7 @@ from video_media_catalog.gold_index_gc import (
     GoldIndexGcResultReceipt,
     GoldIndexRestoreReceipt,
     GoldIndexSnapshotGcReceipt,
+    _wait_for_index_evidence,
     archive_delete,
     compact_snapshot_archive,
     register_snapshot_repository,
@@ -726,6 +727,27 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
     assert client.recovery_calls == 3
     assert client.count_calls == count_calls_before_fallback + 2
     assert sleeps == [0.01, 0.01, 0.01]
+
+
+def test_restored_evidence_retry_uses_the_configured_snapshot_deadline() -> None:
+    client = _Client()
+    client.count_failures_remaining = 2
+    ticks = iter((0.0, 601.0, 1199.0))
+    sleeps: list[float] = []
+
+    evidence = _wait_for_index_evidence(
+        client,
+        index_name=OLD,
+        refresh=False,
+        timeout_seconds=1200,
+        poll_seconds=15,
+        monotonic=lambda: next(ticks),
+        sleep=sleeps.append,
+    )
+
+    assert evidence.document_count == 958
+    assert client.count_calls == 3
+    assert sleeps == [15, 15]
 
 
 def test_gc_is_idempotent_and_reuses_snapshot_after_restore(

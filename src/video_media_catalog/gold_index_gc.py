@@ -75,7 +75,6 @@ _TRANSIENT_OPENSEARCH_STATUSES = frozenset({408, 429, 502, 503, 504})
 _TRANSIENT_OPENSEARCH_ERRORS = frozenset(
     {"ConnectionError", "ConnectionTimeout", "ReadTimeout", "TimeoutError"}
 )
-_RESTORED_EVIDENCE_TIMEOUT_SECONDS = 600.0
 
 
 def _safe_name(value: str, *, label: str) -> str:
@@ -515,10 +514,7 @@ def _wait_for_index_evidence(
     monotonic: Callable[[], float],
     sleep: Callable[[float], None],
 ) -> IndexEvidence:
-    deadline = monotonic() + min(
-        timeout_seconds,
-        _RESTORED_EVIDENCE_TIMEOUT_SECONDS,
-    )
+    deadline = monotonic() + timeout_seconds
     while True:
         try:
             return collect_index_evidence(

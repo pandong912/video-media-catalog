@@ -130,9 +130,7 @@ def _validate_input(input_data: GoldIndexProjectionInput) -> None:
 
 
 def _job_name(input_data: GoldIndexProjectionInput) -> str:
-    suffix = hashlib.sha256(
-        canonical_json_bytes(asdict(input_data))
-    ).hexdigest()[:12]
+    suffix = hashlib.sha256(canonical_json_bytes(asdict(input_data))).hexdigest()[:12]
     prefix = input_data.projection_id[:35].rstrip("-")
     return f"research-index-{prefix}-{suffix}"
 
@@ -222,14 +220,17 @@ def _job_manifest(
     completed_at: str,
 ) -> dict[str, Any]:
     env = input_data.env
-    input_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(
-            {
-                "input": asdict(input_data),
-                "completedAt": completed_at,
-            }
-        )
-    ).hexdigest()
+    input_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "input": asdict(input_data),
+                    "completedAt": completed_at,
+                }
+            )
+        ).hexdigest()
+    )
     name = _job_name(input_data)
     labels = {
         "app.kubernetes.io/name": "research-gold-index",
@@ -245,9 +246,7 @@ def _job_manifest(
             "labels": labels,
             "annotations": {
                 "video-world.io/input-digest": input_digest,
-                "video-world.io/release-plan-id": (
-                    input_data.expected_release_plan_id
-                ),
+                "video-world.io/release-plan-id": (input_data.expected_release_plan_id),
             },
         },
         "spec": {
@@ -312,9 +311,7 @@ def _job_manifest(
                                 "limits": {
                                     "cpu": env.cpu_limit,
                                     "memory": env.memory_limit,
-                                    "ephemeral-storage": (
-                                        env.ephemeral_storage_limit
-                                    ),
+                                    "ephemeral-storage": (env.ephemeral_storage_limit),
                                 },
                             },
                             "securityContext": {
@@ -448,16 +445,69 @@ class _KubernetesApi:
                 and condition.get("type") in {"Complete", "Failed"}
                 for condition in conditions
             )
-            if (
-                isinstance(name, str)
-                and name != expected_name
-                and not terminal
-            ):
+            if isinstance(name, str) and name != expected_name and not terminal:
                 active_names.append(name)
         if active_names:
             raise RuntimeError(
                 "another Research Gold index build is active: "
                 + ",".join(sorted(active_names))
+            )
+
+    def assert_no_conflicting_jobs(
+        self,
+        *,
+        namespace: str,
+        expected_name: str,
+        expected_workload: tuple[str, str],
+        blocked_workloads: frozenset[tuple[str, str]],
+    ) -> None:
+        """Fail closed when a labeled, non-terminal conflicting Job exists."""
+
+        collection = f"/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs"
+        status, response = self.request("GET", collection)
+        if status != 200:
+            raise RuntimeError(
+                f"Kubernetes Job list failed ({status}): "
+                f"{response.get('message', 'unknown error')}"
+            )
+        items = response.get("items")
+        if not isinstance(items, list):
+            raise RuntimeError("Kubernetes Job list response is invalid")
+        conflicts: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise RuntimeError("Kubernetes Job list item is invalid")
+            metadata = item.get("metadata")
+            job_status = item.get("status") or {}
+            if not isinstance(metadata, dict) or not isinstance(job_status, dict):
+                raise RuntimeError("Kubernetes Job metadata/status is invalid")
+            labels = metadata.get("labels") or {}
+            if not isinstance(labels, dict):
+                raise RuntimeError("Kubernetes Job labels are invalid")
+            workload = (
+                str(labels.get("app.kubernetes.io/name", "")),
+                str(labels.get("app.kubernetes.io/component", "")),
+            )
+            if workload not in blocked_workloads:
+                continue
+            name = metadata.get("name")
+            if not isinstance(name, str) or not name:
+                raise RuntimeError("conflicting Kubernetes Job has no valid name")
+            conditions = job_status.get("conditions") or []
+            if not isinstance(conditions, list):
+                raise RuntimeError("Kubernetes Job conditions are invalid")
+            terminal = any(
+                isinstance(condition, dict)
+                and condition.get("status") == "True"
+                and condition.get("type") in {"Complete", "Failed"}
+                for condition in conditions
+            )
+            expected_retry = name == expected_name and workload == expected_workload
+            if not expected_retry and not terminal:
+                conflicts.append(f"{name}({workload[0]}/{workload[1]})")
+        if conflicts:
+            raise RuntimeError(
+                "conflicting Kubernetes Jobs are active: " + ",".join(sorted(conflicts))
             )
 
     def get_job(self, *, namespace: str, name: str) -> dict[str, Any]:
@@ -611,9 +661,7 @@ def submit_gold_index_build_job(
             "Gold index Job returned the wrong manifest media type",
             non_retryable=True,
         )
-    build = GoldIndexBuildManifest.model_validate(
-        _read_json(store, build_ref)
-    )
+    build = GoldIndexBuildManifest.model_validate(_read_json(store, build_ref))
     if build.release_plan_id != input_data.expected_release_plan_id:
         raise ApplicationError(
             "Gold index build does not match the pinned release plan",

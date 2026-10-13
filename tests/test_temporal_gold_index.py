@@ -87,9 +87,7 @@ def test_gold_index_job_is_pinned_build_only_and_hardened() -> None:
     assert container["workingDir"] == "/work"
     assert container["terminationMessagePolicy"] == "FallbackToLogsOnError"
     assert environment["SPARK_LOCAL_DIRS"] == "/work/spark"
-    assert environment["PYSPARK_SUBMIT_ARGS"] == (
-        "--driver-memory 20g pyspark-shell"
-    )
+    assert environment["PYSPARK_SUBMIT_ARGS"] == ("--driver-memory 20g pyspark-shell")
     assert environment["TMPDIR"] == "/work/tmp"
     assert environment["HOME"] == "/work"
     assert {mount["mountPath"] for mount in container["volumeMounts"]} == {
@@ -150,9 +148,7 @@ async def _workflow_case() -> None:
     calls: list[str] = []
     build_manifest = _ref(
         "s3://bucket/control/index-build.json",
-        media_type=(
-            "application/vnd.video-media-catalog.gold-index-build.v2+json"
-        ),
+        media_type=("application/vnd.video-media-catalog.gold-index-build.v2+json"),
     )
     validation = _ref(
         "s3://bucket/control/index-validation.json",

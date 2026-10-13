@@ -18,8 +18,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
 
     assert not (root / api_dockerfile).exists()
     assert (
-        "FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre-noble"
-        in dockerfile
+        "FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre-noble" in dockerfile
     )
     assert '"pyspark==3.5.5"' in pyproject
     assert "ARG SPARK_VERSION=3.5.5" in dockerfile
@@ -51,6 +50,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
         "video-media-catalog-identity-curation",
         "video-media-catalog-gold-spark",
         "video-media-catalog-gold-index",
+        "video-media-catalog-gold-index-gc",
         "video-media-catalog-wikidata-full-media",
         "video-media-catalog-eidr-backfill",
         "video-media-catalog-europeana-oai",

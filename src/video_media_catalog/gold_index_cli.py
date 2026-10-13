@@ -44,8 +44,8 @@ from video_media_catalog.gold_search_index import (
     gold_partition_receipt_set_digest,
     reconcile_full_gold_index_counts,
     validate_affected_entity_results,
-    validate_gold_bulk_write_access,
     validate_gold_affected_entity_manifest,
+    validate_gold_bulk_write_access,
     validate_gold_index_contents,
 )
 from video_media_catalog.gold_search_projection import (
@@ -339,11 +339,7 @@ def validate_opensearch_capacity(
     free_bytes: list[int] = []
     jvm_pressure: list[int] = []
     for node in nodes.values():
-        available = (
-            node.get("fs", {})
-            .get("total", {})
-            .get("available_in_bytes")
-        )
+        available = node.get("fs", {}).get("total", {}).get("available_in_bytes")
         heap_used = node.get("jvm", {}).get("mem", {}).get("heap_used_percent")
         if (
             isinstance(available, bool)

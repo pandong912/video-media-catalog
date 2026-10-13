@@ -67,3 +67,68 @@ class GoldIndexProjectionResult:
     build_manifest: ObjectRefPayload
     validation_receipt: ObjectRefPayload
     activation_status: str = "DISABLED"
+
+
+@dataclass(frozen=True)
+class GoldIndexGcEnv:
+    aws_region: str
+    kubernetes_namespace: str
+    gc_service_account: str
+    gc_image: str
+    archive_prefix: str
+    gc_result_prefix: str
+    restore_prefix: str
+    opensearch_endpoint: str
+    opensearch_service: str = "es"
+    request_timeout_seconds: int = 30
+    snapshot_timeout_seconds: int = 7200
+    snapshot_poll_seconds: int = 15
+    active_deadline_seconds: int = 10_800
+    cpu_request: str = "500m"
+    cpu_limit: str = "2"
+    memory_request: str = "512Mi"
+    memory_limit: str = "2Gi"
+    ephemeral_storage_request: str = "1Gi"
+    ephemeral_storage_limit: str = "4Gi"
+    node_selector: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class GoldIndexGcInput:
+    operation_id: str
+    old_index: str
+    active_index: str
+    repository: str
+    snapshot: str
+    delete_before_epoch_millis: int
+    activation_receipt: ObjectRefPayload
+    env: GoldIndexGcEnv
+    referenced_indices: tuple[str, ...] = ()
+    reuse_archive_receipt: ObjectRefPayload | None = None
+
+
+@dataclass(frozen=True)
+class GoldIndexRestoreInput:
+    operation_id: str
+    archive_receipt: ObjectRefPayload
+    env: GoldIndexGcEnv
+
+
+@dataclass(frozen=True)
+class GoldIndexRuntimeJobResult:
+    job_name: str
+    receipt: ObjectRefPayload
+
+
+@dataclass(frozen=True)
+class GoldIndexGcWorkflowResult:
+    operation_id: str
+    job_name: str
+    gc_result_receipt: ObjectRefPayload
+
+
+@dataclass(frozen=True)
+class GoldIndexRestoreWorkflowResult:
+    operation_id: str
+    job_name: str
+    restore_receipt: ObjectRefPayload

@@ -37,9 +37,9 @@ def catalog_match_algorithm_identity(
     algorithm_id = contract.get("algorithmId")
     if algorithm_id != "catalog-asset-match-v1":
         raise ValueError("unsupported catalog match algorithm ID")
-    digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(dict(contract))
-    ).hexdigest()
+    digest = (
+        "sha256:" + hashlib.sha256(canonical_json_bytes(dict(contract))).hexdigest()
+    )
     return str(algorithm_id), str(contract["schemaVersion"]), digest
 
 
@@ -85,8 +85,8 @@ def match_parameters_from_manifest(
         raise ValueError("match parameters require the es service and an AWS region")
     if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 20:
         raise ValueError("topK must be from 1 to 20")
-    algorithm_id, algorithm_schema, algorithm_digest = (
-        catalog_match_algorithm_identity(algorithm_contract)
+    algorithm_id, algorithm_schema, algorithm_digest = catalog_match_algorithm_identity(
+        algorithm_contract
     )
     return {
         "schemaVersion": PARAMETER_SCHEMA_VERSION,
@@ -122,9 +122,7 @@ def main(argv: list[str] | None = None) -> None:
     manifest = GoldIndexBuildManifest.model_validate_json(
         args.manifest.read_text(encoding="utf-8")
     )
-    algorithm_contract = json.loads(
-        args.algorithm_contract.read_text(encoding="utf-8")
-    )
+    algorithm_contract = json.loads(args.algorithm_contract.read_text(encoding="utf-8"))
     if not isinstance(algorithm_contract, dict):
         raise ValueError("algorithm contract must contain a JSON object")
     document = match_parameters_from_manifest(

@@ -45,7 +45,11 @@ phases:
         IMAGE_REFERENCE="$REGISTRY/$REPOSITORY@$IMAGE_DIGEST"
         export IMAGE_DIGEST IMAGE_REFERENCE
         docker run --rm --entrypoint /app/.venv/bin/python "$IMAGE_REFERENCE" \
-          -c 'import video_media_catalog.gold_search_index; import video_media_catalog.temporal.gold_index_models'
+          -c 'import video_media_catalog.gold_index_gc; import video_media_catalog.gold_search_index; import video_media_catalog.temporal.gold_index_models'
+        docker run --rm --entrypoint /app/.venv/bin/video-media-catalog-gold-index-gc \
+          "$IMAGE_REFERENCE" --help
+        docker run --rm --entrypoint /app/.venv/bin/video-media-catalog-gold-index-temporal-admin \
+          "$IMAGE_REFERENCE" --help
         syft scan "$IMAGE_REFERENCE" \
           --output spdx-json=/tmp/research-index-sbom.spdx.json
         cosign sign --yes --key "awskms:///$KMS_KEY_ARN" "$IMAGE_REFERENCE"

@@ -24,6 +24,9 @@ phases:
       - curl --fail --location --retry 5 "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" --output /usr/local/bin/cosign
       - echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum --check --strict
       - chmod 0755 /usr/local/bin/cosign
+      - cosign signing-config create --out /tmp/cosign-kms-only-signing-config.json
+      - test "$(jq -r '.mediaType' /tmp/cosign-kms-only-signing-config.json)" = application/vnd.dev.sigstore.signingconfig.v0.2+json
+      - test "$(jq -r '.rekorTlogConfig | length' /tmp/cosign-kms-only-signing-config.json)" = 0
       - curl --fail --location --retry 5 "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${SYFT_VERSION#v}_linux_amd64.tar.gz" --output /tmp/syft.tar.gz
       - echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum --check --strict
       - tar --extract --gzip --directory /usr/local/bin --file /tmp/syft.tar.gz syft
@@ -205,7 +208,8 @@ phases:
             fi
           done
           if [[ "$attested" != true ]]; then
-            cosign attest --yes --tlog-upload=false \
+            cosign attest --yes \
+              --signing-config /tmp/cosign-kms-only-signing-config.json \
               --key "awskms:///$KMS_KEY_ARN" \
               --predicate "/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
               --type spdxjson \

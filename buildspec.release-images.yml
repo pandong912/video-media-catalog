@@ -1,0 +1,169 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - ': "${AWS_REGION:?}" "${REGISTRY:?}" "${REPOSITORY:?}" "${SOURCE_REVISION:?}" "${SOURCE_OBJECT_VERSION:?}"'
+      - ': "${SOURCE_ARCHIVE_BUCKET:?}" "${SOURCE_ARCHIVE_KEY:?}" "${SOURCE_ARCHIVE_SHA256:?}"'
+      - ': "${COSIGN_VERSION:?}" "${COSIGN_SHA256:?}" "${SYFT_VERSION:?}" "${SYFT_SHA256:?}"'
+      - ': "${KMS_KEY_ARN:?}" "${EVIDENCE_URI:?}" "${EVIDENCE_KMS_KEY_ARN:?}"'
+      - '[[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]'
+      - '[[ "$SOURCE_ARCHIVE_SHA256" =~ ^sha256:[0-9a-f]{64}$ ]]'
+      - test "${CODEBUILD_SOURCE_VERSION:?}" = "$SOURCE_OBJECT_VERSION"
+      - aws s3api get-object --bucket "$SOURCE_ARCHIVE_BUCKET" --key "$SOURCE_ARCHIVE_KEY" --version-id "$SOURCE_OBJECT_VERSION" /tmp/source.zip >/tmp/source-object.json
+      - test "sha256:$(sha256sum /tmp/source.zip | awk '{print $1}')" = "$SOURCE_ARCHIVE_SHA256"
+      - rm -f /tmp/source.zip
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      - curl --fail --location --retry 5 "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" --output /usr/local/bin/cosign
+      - echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum --check --strict
+      - chmod 0755 /usr/local/bin/cosign
+      - curl --fail --location --retry 5 "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${SYFT_VERSION#v}_linux_amd64.tar.gz" --output /tmp/syft.tar.gz
+      - echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum --check --strict
+      - tar --extract --gzip --directory /usr/local/bin --file /tmp/syft.tar.gz syft
+      - chmod 0755 /usr/local/bin/syft
+      - mkdir -p /tmp/media-catalog-release
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        while IFS='|' read -r unit dockerfile tag_prefix expected_user; do
+          tag="${tag_prefix}-${SOURCE_REVISION}-${CODEBUILD_BUILD_NUMBER}"
+          image="$REGISTRY/$REPOSITORY:$tag"
+          docker build \
+            --platform linux/amd64 \
+            --label "org.opencontainers.image.revision=$SOURCE_REVISION" \
+            --label "org.opencontainers.image.source=https://github.com/pandong912/video-media-catalog" \
+            --label "video.media.catalog.release-unit=$unit" \
+            --file "$dockerfile" \
+            --tag "$image" \
+            .
+          test "$(docker image inspect "$image" --format '{{.Config.User}}')" = "$expected_user"
+          docker push "$image"
+          digest="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$REPOSITORY" \
+            --image-ids "imageTag=$tag" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          reference="$REGISTRY/$REPOSITORY@$digest"
+          if [[ "$unit" = runtime ]]; then
+            docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+              --entrypoint /app/.venv/bin/python "$reference" \
+              -c 'import video_media_catalog.eidr_backfill; import video_media_catalog.temporal'
+          else
+            docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+              --entrypoint /opt/video-media-catalog/.venv/bin/python "$reference" \
+              -c 'import video_media_catalog.eidr_backfill; import video_media_catalog.community_cli'
+          fi
+          printf '%s' "$reference" >"/tmp/media-catalog-release/${unit}.image"
+        done <<'IMAGES'
+        runtime|Dockerfile|release|10001:10001
+        emr|Dockerfile.emr|emr-release|hadoop:hadoop
+        IMAGES
+  post_build:
+    commands:
+      - |
+        set -euo pipefail
+        images='[]'
+        for unit in runtime emr; do
+          reference="$(cat "/tmp/media-catalog-release/${unit}.image")"
+          digest="${reference##*@}"
+          aws ecr start-image-scan \
+            --region "$AWS_REGION" \
+            --repository-name "$REPOSITORY" \
+            --image-id "imageDigest=$digest" >/dev/null 2>&1 || true
+          status=""
+          for _ in $(seq 1 60); do
+            if aws ecr describe-image-scan-findings \
+              --region "$AWS_REGION" \
+              --repository-name "$REPOSITORY" \
+              --image-id "imageDigest=$digest" \
+              >/tmp/media-catalog-release/"${unit}-scan.json" 2>/dev/null; then
+              status="$(jq -r '.imageScanStatus.status' /tmp/media-catalog-release/"${unit}-scan.json")"
+              test "$status" != FAILED
+              test "$status" = COMPLETE && break
+            fi
+            sleep 10
+          done
+          test "$status" = COMPLETE
+          high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' /tmp/media-catalog-release/"${unit}-scan.json")"
+          critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' /tmp/media-catalog-release/"${unit}-scan.json")"
+          test "$critical" = 0
+          scan_disposition=ZERO_HIGH_AND_CRITICAL
+          if [[ "$unit" = runtime ]]; then
+            test "$high" = 0
+          else
+            # The AWS-managed EMR 7.9 base currently reports inherited HIGH
+            # findings. Keep the count visible and reject every CRITICAL;
+            # application dependencies are still represented in the SBOM.
+            scan_disposition=MANAGED_EMR_BASE_HIGH_FINDINGS_RECORDED
+          fi
+          syft scan "$reference" \
+            --output "spdx-json=/tmp/media-catalog-release/${unit}-sbom.spdx.json"
+          cosign sign --yes --key "awskms:///$KMS_KEY_ARN" "$reference"
+          cosign verify --key "awskms:///$KMS_KEY_ARN" --output json "$reference" \
+            >"/tmp/media-catalog-release/${unit}-signature.json"
+          cosign attest --yes --key "awskms:///$KMS_KEY_ARN" \
+            --predicate "/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
+            --type spdxjson \
+            "$reference"
+          for attempt in 1 2 3 4 5 6; do
+            if cosign verify-attestation \
+              --key "awskms:///$KMS_KEY_ARN" \
+              --type spdxjson \
+              --output json \
+              "$reference" \
+              >"/tmp/media-catalog-release/${unit}-attestation.json"; then
+              break
+            fi
+            test "$attempt" -lt 6
+            sleep 5
+          done
+          entry="$(jq -n \
+            --arg unit "$unit" \
+            --arg imageReference "$reference" \
+            --arg imageDigest "$digest" \
+            --arg scanDisposition "$scan_disposition" \
+            --arg scanSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-scan.json" | awk '{print $1}')" \
+            --arg sbomSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-sbom.spdx.json" | awk '{print $1}')" \
+            --arg signatureSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-signature.json" | awk '{print $1}')" \
+            --arg attestationSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-attestation.json" | awk '{print $1}')" \
+            --argjson highFindings "$high" \
+            '{unit:$unit,imageReference:$imageReference,imageDigest:$imageDigest,
+              scan:{status:"PASS",disposition:$scanDisposition,
+                highFindings:$highFindings,criticalFindings:0,sha256:$scanSha256},
+              sbom:{status:"PASS",mediaType:"application/spdx+json",sha256:$sbomSha256},
+              signature:{status:"PASS",sha256:$signatureSha256},
+              sbomAttestation:{status:"PASS",sha256:$attestationSha256}}')"
+          images="$(jq --argjson entry "$entry" '. + [$entry]' <<<"$images")"
+        done
+        jq -n \
+          --arg buildArn "$CODEBUILD_BUILD_ARN" \
+          --arg sourceRevision "$SOURCE_REVISION" \
+          --arg sourceObjectVersion "$SOURCE_OBJECT_VERSION" \
+          --arg sourceArchiveSha256 "$SOURCE_ARCHIVE_SHA256" \
+          --arg signingKey "$KMS_KEY_ARN" \
+          --argjson images "$images" \
+          '{schemaVersion:"video.media.catalog.codebuild-release-images.v1",
+            buildArn:$buildArn,sourceRevision:$sourceRevision,
+            sourceObjectVersion:$sourceObjectVersion,
+            sourceArchiveSha256:$sourceArchiveSha256,signingKey:$signingKey,
+            images:$images,status:"APPROVED",claimsLiveDeployment:false}' \
+          >/tmp/media-catalog-release/manifest.json
+      - |
+        set -euo pipefail
+        for file in /tmp/media-catalog-release/*-scan.json /tmp/media-catalog-release/*-sbom.spdx.json /tmp/media-catalog-release/*-signature.json /tmp/media-catalog-release/*-attestation.json /tmp/media-catalog-release/manifest.json; do
+          name="$(basename "$file")"
+          content_type=application/json
+          [[ "$name" = *-sbom.spdx.json ]] && content_type=application/spdx+json
+          aws s3 cp "$file" "${EVIDENCE_URI%/}/$name" \
+            --content-type "$content_type" \
+            --sse aws:kms \
+            --sse-kms-key-id "$EVIDENCE_KMS_KEY_ARN"
+        done
+        cat /tmp/media-catalog-release/manifest.json

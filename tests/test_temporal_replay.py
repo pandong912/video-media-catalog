@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from temporalio.worker import Replayer
 
+from video_media_catalog.temporal.workflows.eidr_public_research import (
+    EidrPublicResearchWorkflow,
+)
 from video_media_catalog.temporal.workflows.gold_index_gc import (
     GoldIndexGcWorkflow,
     GoldIndexRestoreWorkflow,
@@ -17,6 +20,7 @@ def test_workflow_definition_is_replay_safe() -> None:
     replayer = Replayer(
         workflows=[
             TmdbCaptureSilverWorkflow,
+            EidrPublicResearchWorkflow,
             GoldenBuildWorkflow,
             GoldIndexGcWorkflow,
             GoldIndexRestoreWorkflow,

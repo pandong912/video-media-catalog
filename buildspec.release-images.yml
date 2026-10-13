@@ -10,6 +10,7 @@ phases:
       - ': "${AWS_REGION:?}" "${REGISTRY:?}" "${REPOSITORY:?}" "${SOURCE_REVISION:?}" "${SOURCE_OBJECT_VERSION:?}"'
       - ': "${SOURCE_ARCHIVE_BUCKET:?}" "${SOURCE_ARCHIVE_KEY:?}" "${SOURCE_ARCHIVE_SHA256:?}"'
       - ': "${COSIGN_VERSION:?}" "${COSIGN_SHA256:?}" "${SYFT_VERSION:?}" "${SYFT_SHA256:?}"'
+      - ': "${GRYPE_VERSION:?}" "${GRYPE_SHA256:?}"'
       - ': "${KMS_KEY_ARN:?}" "${EVIDENCE_URI:?}" "${EVIDENCE_KMS_KEY_ARN:?}"'
       - '[[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]'
       - '[[ "$SOURCE_ARCHIVE_SHA256" =~ ^sha256:[0-9a-f]{64}$ ]]'
@@ -25,6 +26,10 @@ phases:
       - echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum --check --strict
       - tar --extract --gzip --directory /usr/local/bin --file /tmp/syft.tar.gz syft
       - chmod 0755 /usr/local/bin/syft
+      - curl --fail --location --retry 5 "https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}/grype_${GRYPE_VERSION#v}_linux_amd64.tar.gz" --output /tmp/grype.tar.gz
+      - echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum --check --strict
+      - tar --extract --gzip --directory /usr/local/bin --file /tmp/grype.tar.gz grype
+      - chmod 0755 /usr/local/bin/grype
       - mkdir -p /tmp/media-catalog-release
   build:
     commands:
@@ -73,6 +78,8 @@ phases:
         for unit in runtime emr; do
           reference="$(cat "/tmp/media-catalog-release/${unit}.image")"
           digest="${reference##*@}"
+          syft scan "$reference" \
+            --output "spdx-json=/tmp/media-catalog-release/${unit}-sbom.spdx.json"
           aws ecr start-image-scan \
             --region "$AWS_REGION" \
             --repository-name "$REPOSITORY" \
@@ -83,28 +90,44 @@ phases:
               --region "$AWS_REGION" \
               --repository-name "$REPOSITORY" \
               --image-id "imageDigest=$digest" \
-              >/tmp/media-catalog-release/"${unit}-scan.json" 2>/dev/null; then
-              status="$(jq -r '.imageScanStatus.status' /tmp/media-catalog-release/"${unit}-scan.json")"
-              test "$status" != FAILED
-              test "$status" = COMPLETE && break
+              >"/tmp/media-catalog-release/${unit}-ecr-scan.json" 2>/dev/null; then
+              status="$(jq -r '.imageScanStatus.status' "/tmp/media-catalog-release/${unit}-ecr-scan.json")"
+              [[ "$status" = COMPLETE || "$status" = FAILED ]] && break
             fi
             sleep 10
           done
-          test "$status" = COMPLETE
-          high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' /tmp/media-catalog-release/"${unit}-scan.json")"
-          critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' /tmp/media-catalog-release/"${unit}-scan.json")"
+          scanner=ecr-basic
+          if [[ "$status" = COMPLETE ]]; then
+            cp "/tmp/media-catalog-release/${unit}-ecr-scan.json" \
+              "/tmp/media-catalog-release/${unit}-scan.json"
+            high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' "/tmp/media-catalog-release/${unit}-scan.json")"
+            critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' "/tmp/media-catalog-release/${unit}-scan.json")"
+          elif [[ "$unit" = emr && "$status" = FAILED ]] && jq -e '
+            (.imageScanStatus.description // "")
+            | contains("exceeds the maximum supported with Basic Scanning")
+          ' "/tmp/media-catalog-release/${unit}-ecr-scan.json" >/dev/null; then
+            scanner=grype
+            grype "sbom:/tmp/media-catalog-release/${unit}-sbom.spdx.json" \
+              --output json \
+              >"/tmp/media-catalog-release/${unit}-scan.json"
+            high="$(jq '[.matches[] | select((.vulnerability.severity // "") == "High")] | length' "/tmp/media-catalog-release/${unit}-scan.json")"
+            critical="$(jq '[.matches[] | select((.vulnerability.severity // "") == "Critical")] | length' "/tmp/media-catalog-release/${unit}-scan.json")"
+          else
+            echo "unsupported ECR scan status for ${unit}: ${status:-missing}" >&2
+            exit 1
+          fi
           test "$critical" = 0
           scan_disposition=ZERO_HIGH_AND_CRITICAL
           if [[ "$unit" = runtime ]]; then
             test "$high" = 0
+          elif [[ "$scanner" = grype ]]; then
+            scan_disposition=MANAGED_EMR_BASE_GRYPE_HIGH_FINDINGS_RECORDED
           else
             # The AWS-managed EMR 7.9 base currently reports inherited HIGH
             # findings. Keep the count visible and reject every CRITICAL;
             # application dependencies are still represented in the SBOM.
             scan_disposition=MANAGED_EMR_BASE_HIGH_FINDINGS_RECORDED
           fi
-          syft scan "$reference" \
-            --output "spdx-json=/tmp/media-catalog-release/${unit}-sbom.spdx.json"
           cosign sign --yes --key "awskms:///$KMS_KEY_ARN" "$reference"
           cosign verify --key "awskms:///$KMS_KEY_ARN" --output json "$reference" \
             >"/tmp/media-catalog-release/${unit}-signature.json"
@@ -128,15 +151,18 @@ phases:
             --arg unit "$unit" \
             --arg imageReference "$reference" \
             --arg imageDigest "$digest" \
+            --arg scanner "$scanner" \
             --arg scanDisposition "$scan_disposition" \
             --arg scanSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-scan.json" | awk '{print $1}')" \
+            --arg ecrScanSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-ecr-scan.json" | awk '{print $1}')" \
             --arg sbomSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-sbom.spdx.json" | awk '{print $1}')" \
             --arg signatureSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-signature.json" | awk '{print $1}')" \
             --arg attestationSha256 "sha256:$(sha256sum "/tmp/media-catalog-release/${unit}-attestation.json" | awk '{print $1}')" \
             --argjson highFindings "$high" \
             '{unit:$unit,imageReference:$imageReference,imageDigest:$imageDigest,
-              scan:{status:"PASS",disposition:$scanDisposition,
-                highFindings:$highFindings,criticalFindings:0,sha256:$scanSha256},
+              scan:{status:"PASS",scanner:$scanner,disposition:$scanDisposition,
+                highFindings:$highFindings,criticalFindings:0,sha256:$scanSha256,
+                ecrAttemptSha256:$ecrScanSha256},
               sbom:{status:"PASS",mediaType:"application/spdx+json",sha256:$sbomSha256},
               signature:{status:"PASS",sha256:$signatureSha256},
               sbomAttestation:{status:"PASS",sha256:$attestationSha256}}')"
@@ -157,7 +183,15 @@ phases:
           >/tmp/media-catalog-release/manifest.json
       - |
         set -euo pipefail
-        for file in /tmp/media-catalog-release/*-scan.json /tmp/media-catalog-release/*-sbom.spdx.json /tmp/media-catalog-release/*-signature.json /tmp/media-catalog-release/*-attestation.json /tmp/media-catalog-release/manifest.json; do
+        for file in \
+          /tmp/media-catalog-release/runtime-ecr-scan.json \
+          /tmp/media-catalog-release/emr-ecr-scan.json \
+          /tmp/media-catalog-release/runtime-scan.json \
+          /tmp/media-catalog-release/emr-scan.json \
+          /tmp/media-catalog-release/*-sbom.spdx.json \
+          /tmp/media-catalog-release/*-signature.json \
+          /tmp/media-catalog-release/*-attestation.json \
+          /tmp/media-catalog-release/manifest.json; do
           name="$(basename "$file")"
           content_type=application/json
           [[ "$name" = *-sbom.spdx.json ]] && content_type=application/spdx+json

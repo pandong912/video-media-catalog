@@ -130,7 +130,7 @@ EMR Source Silver。Token 经 Secrets Manager + External Secrets 注入 Worker�
 ### EIDR exact lookup
 
 ```bash
-video-media-catalog-eidr-backfill extract-ids \
+video-media-catalog-eidr-backfill extract-wikidata-p2704 \
   --silver-snapshot-uri s3://bucket/research-silver/snapshot.json \
   --silver-snapshot-hash sha256:<hex> \
   --silver-snapshot-size <bytes> \
@@ -142,8 +142,33 @@ video-media-catalog-eidr-backfill extract-ids \
   --warehouse s3://bucket/catalog-warehouse
 ```
 
-该入口只补全 Silver 中已发现的 EIDR ID，不提供 title search、crawl 或未授权的
-registry mirror。
+该入口只选择固定 Silver epoch 中由 `wikidata-json-dump` 的 P2704 产生的
+`eidr-content`，并把来源范围写入不可变 manifest。个人研究解析使用低频、有界
+profile：
+
+```bash
+video-media-catalog-eidr-backfill lookup-public-research \
+  --manifest-uri s3://bucket/research-captures/eidr/.../manifest.json \
+  --manifest-hash sha256:<hex> \
+  --manifest-size <bytes> \
+  --manifest-version <VersionId> \
+  --manifest-etag <ETag> \
+  --authorization-evidence-uri s3://bucket/research-control/eidr/authorization.json \
+  --authorization-evidence-hash sha256:<hex> \
+  --authorization-evidence-size <bytes> \
+  --authorization-evidence-version <VersionId> \
+  --authorization-evidence-etag <ETag> \
+  --authorization-issued-at 2026-09-20T00:00:00Z \
+  --destination-prefix s3://bucket/research-captures \
+  --acquired-at 2026-09-20T01:00:00Z \
+  --image-digest sha256:<hex>
+```
+
+默认每批 25 条、单次最多 250 条、请求间隔至少 1 秒；硬上限为单次 1,000
+条。输出中的 `sourceSilverInputs` 可直接交给现有 Source Silver fan-out，后续
+Silver epoch / Golden Build 会与 IMDb、TMDB 等来源合并。该路径始终为
+`PARTIAL`，不提供 title search、定时 crawl、删除推断或未授权的 Registry
+mirror。完整操作和许可边界见 `docs/sources/eidr-public-research.md`。
 
 ### Europeana OAI-PMH
 

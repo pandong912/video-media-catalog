@@ -10,6 +10,7 @@ def test_release_buildspec_signs_both_runtime_images_from_immutable_source() -> 
     assert "runtime|Dockerfile|release|10001:10001" in contract
     assert "emr|Dockerfile.emr|emr-release|hadoop:hadoop" in contract
     assert 'cosign sign --yes --key "awskms:///$KMS_KEY_ARN"' in contract
+    assert contract.count("for attempt in $(seq 1 8)") == 2
     assert "cosign verify-attestation" in contract
     assert '"${GRYPE_VERSION:?}" "${GRYPE_SHA256:?}"' in contract
     assert '"${EMR_BASE_IMAGE:?}"' in contract

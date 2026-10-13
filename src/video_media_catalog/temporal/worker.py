@@ -14,12 +14,20 @@ from video_media_catalog.temporal.activities.capture import (
     capture_tmdb_day,
     validate_tmdb_token,
 )
+from video_media_catalog.temporal.activities.eidr_public_research import (
+    discover_eidr_public_research_ids,
+    lookup_eidr_public_research,
+    write_eidr_public_research_summary,
+)
 from video_media_catalog.temporal.activities.silver import submit_source_silver
 from video_media_catalog.temporal.activities.summary import write_pipeline_summary
 from video_media_catalog.temporal.names import (
     SILVER_TASK_QUEUE,
     TEMPORAL_NAMESPACE,
     WORKFLOW_TASK_QUEUE,
+)
+from video_media_catalog.temporal.workflows.eidr_public_research import (
+    EidrPublicResearchWorkflow,
 )
 from video_media_catalog.temporal.workflows.tmdb_pipeline import (
     TmdbCaptureSilverWorkflow,
@@ -81,11 +89,17 @@ async def run_workers(parsed: argparse.Namespace) -> None:
     primary = Worker(
         client,
         task_queue=parsed.task_queue,
-        workflows=[TmdbCaptureSilverWorkflow],
+        workflows=[
+            TmdbCaptureSilverWorkflow,
+            EidrPublicResearchWorkflow,
+        ],
         activities=[
             validate_tmdb_token,
             capture_tmdb_day,
             write_pipeline_summary,
+            discover_eidr_public_research_ids,
+            lookup_eidr_public_research,
+            write_eidr_public_research_summary,
         ],
         activity_executor=executor,
         max_concurrent_activities=parsed.max_capture_activities,

@@ -22,10 +22,19 @@ from temporalio.client import (
     ScheduleUpdate,
     ScheduleUpdateInput,
 )
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
-from video_media_catalog.temporal.models import PipelineEnv, PipelineInput
+from video_media_catalog.temporal.eidr_models import (
+    EidrPublicResearchInput,
+    eidr_public_research_workflow_id,
+)
+from video_media_catalog.temporal.models import (
+    ObjectRefPayload,
+    PipelineEnv,
+    PipelineInput,
+)
 from video_media_catalog.temporal.names import (
     BOOTSTRAP_EXPORT_DATE,
     BOOTSTRAP_WINDOW_END,
@@ -37,6 +46,9 @@ from video_media_catalog.temporal.names import (
     WORKFLOW_TASK_QUEUE,
 )
 from video_media_catalog.temporal.plan import workflow_id_for
+from video_media_catalog.temporal.workflows.eidr_public_research import (
+    EidrPublicResearchWorkflow,
+)
 from video_media_catalog.temporal.workflows.tmdb_pipeline import (
     TmdbCaptureSilverWorkflow,
 )
@@ -70,6 +82,43 @@ def _env_from_mapping(values: dict[str, Any]) -> PipelineEnv:
 def _load_env(path: str) -> PipelineEnv:
     with open(path, encoding="utf-8") as handle:
         return _env_from_mapping(json.load(handle))
+
+
+def _eidr_input_from_mapping(values: dict[str, Any]) -> EidrPublicResearchInput:
+    optional: dict[str, Any] = {}
+    for json_name, field_name in (
+        ("maxIds", "max_ids"),
+        ("maxBatches", "max_batches"),
+        ("batchSize", "batch_size"),
+        ("maxDurationSeconds", "max_duration_seconds"),
+        (
+            "minimumRequestIntervalSeconds",
+            "minimum_request_interval_seconds",
+        ),
+        ("discoveryPageSize", "discovery_page_size"),
+    ):
+        if json_name in values:
+            optional[field_name] = values[json_name]
+    return EidrPublicResearchInput(
+        env=_env_from_mapping(values["env"]),
+        silver_snapshot=ObjectRefPayload.from_mapping(values["silverSnapshot"]),
+        source_release_id=str(values["sourceReleaseId"]),
+        authorization_evidence=ObjectRefPayload.from_mapping(
+            values["authorizationEvidence"]
+        ),
+        authorization_issued_at=str(values["authorizationIssuedAt"]),
+        acquired_at=str(values["acquiredAt"]),
+        emr_image_digest=str(values["emrImageDigest"]),
+        **optional,
+    )
+
+
+def _load_eidr_input(path: str) -> EidrPublicResearchInput:
+    with open(path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("EIDR public-research config must contain a JSON object")
+    return _eidr_input_from_mapping(payload)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -124,6 +173,18 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--window-end")
     start.add_argument("--acquired-at")
     start.add_argument("--workflow-id")
+
+    eidr = sub.add_parser(
+        "start-eidr-public-research",
+        help="Start one pinned EIDR public-research workflow exactly once",
+    )
+    eidr.add_argument(
+        "--config-file",
+        default=os.environ.get(
+            "EIDR_PUBLIC_RESEARCH_CONFIG_FILE",
+            "/config/eidr-public-research.json",
+        ),
+    )
     return parser
 
 
@@ -287,12 +348,43 @@ async def start_pipeline(parsed: argparse.Namespace) -> dict[str, Any]:
     return {"workflowId": handle.id, "runId": handle.result_run_id}
 
 
+async def start_eidr_public_research(
+    parsed: argparse.Namespace,
+) -> dict[str, Any]:
+    input_data = _load_eidr_input(parsed.config_file)
+    workflow_id = eidr_public_research_workflow_id(input_data)
+    client = await _connect(parsed)
+    try:
+        handle = await client.start_workflow(
+            EidrPublicResearchWorkflow.run,
+            input_data,
+            id=workflow_id,
+            task_queue=parsed.task_queue,
+            execution_timeout=timedelta(days=7),
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+        )
+    except WorkflowAlreadyStartedError:
+        existing = client.get_workflow_handle(workflow_id)
+        return {
+            "workflowId": workflow_id,
+            "runId": existing.result_run_id,
+            "started": False,
+        }
+    return {
+        "workflowId": handle.id,
+        "runId": handle.result_run_id,
+        "started": True,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parsed = build_parser().parse_args(argv)
     if parsed.command == "ensure-runtime":
         result = asyncio.run(ensure_runtime(parsed))
     elif parsed.command == "start-pipeline":
         result = asyncio.run(start_pipeline(parsed))
+    elif parsed.command == "start-eidr-public-research":
+        result = asyncio.run(start_eidr_public_research(parsed))
     else:
         raise SystemExit(f"unsupported command: {parsed.command}")
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

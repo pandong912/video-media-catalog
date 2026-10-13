@@ -13,6 +13,7 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
@@ -244,6 +245,8 @@ async def _upsert_schedule(
     try:
         await client.create_schedule(schedule_id, schedule)
         return
+    except ScheduleAlreadyRunningError:
+        pass
     except RPCError as exc:
         if exc.status != RPCStatusCode.ALREADY_EXISTS:
             raise

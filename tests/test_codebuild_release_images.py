@@ -11,7 +11,8 @@ def test_release_buildspec_signs_both_runtime_images_from_immutable_source() -> 
     assert "emr|Dockerfile.emr|emr-release|hadoop:hadoop" in contract
     assert 'cosign sign --yes --key "awskms:///$KMS_KEY_ARN"' in contract
     assert contract.count("for attempt in $(seq 1 8)") == 2
-    assert "cosign attest --yes --tlog-upload=false" in contract
+    assert "cosign signing-config create" in contract
+    assert "--signing-config /tmp/cosign-kms-only-signing-config.json" in contract
     assert "kms-only-rekor-unavailable" in contract
     assert "attestationTransparencyLog" in contract
     assert "cosign verify-attestation" in contract

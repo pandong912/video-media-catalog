@@ -1295,13 +1295,11 @@ def _wait_for_restored_index(
         if _index_exists(client, index_name):
             health = client.cluster.health(index=index_name)
             if not isinstance(health, Mapping):
-                raise RuntimeError(
-                    "restored Research index health response is invalid"
-                )
-            if (
-                not bool(health.get("timed_out"))
-                and str(health.get("status", "")) in {"yellow", "green"}
-            ):
+                raise RuntimeError("restored Research index health response is invalid")
+            if not bool(health.get("timed_out")) and str(health.get("status", "")) in {
+                "yellow",
+                "green",
+            }:
                 return
         if monotonic() >= deadline:
             raise TimeoutError(

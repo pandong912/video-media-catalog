@@ -71,6 +71,11 @@ _VOLATILE_INDEX_SETTINGS = frozenset(
         "version",
     }
 )
+_TRANSIENT_OPENSEARCH_STATUSES = frozenset({408, 429, 502, 503, 504})
+_TRANSIENT_OPENSEARCH_ERRORS = frozenset(
+    {"ConnectionError", "ConnectionTimeout", "ReadTimeout", "TimeoutError"}
+)
+_RESTORED_EVIDENCE_TIMEOUT_SECONDS = 600.0
 
 
 def _safe_name(value: str, *, label: str) -> str:
@@ -484,6 +489,51 @@ def collect_index_evidence(
             refresh=refresh,
         ),
     )
+
+
+def _is_transient_opensearch_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if (
+            _status_code(current) in _TRANSIENT_OPENSEARCH_STATUSES
+            or type(current).__name__ in _TRANSIENT_OPENSEARCH_ERRORS
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _wait_for_index_evidence(
+    client: Any,
+    *,
+    index_name: str,
+    refresh: bool,
+    timeout_seconds: float,
+    poll_seconds: float,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> IndexEvidence:
+    deadline = monotonic() + min(
+        timeout_seconds,
+        _RESTORED_EVIDENCE_TIMEOUT_SECONDS,
+    )
+    while True:
+        try:
+            return collect_index_evidence(
+                client,
+                index_name=index_name,
+                refresh=refresh,
+            )
+        except Exception as exc:
+            if not _is_transient_opensearch_error(exc):
+                raise
+            if monotonic() >= deadline:
+                raise TimeoutError(
+                    "restored Research index evidence remained unavailable"
+                ) from exc
+            sleep(poll_seconds)
 
 
 def _index_exists(client: Any, index_name: str) -> bool:
@@ -946,11 +996,17 @@ def _ensure_previous_only_snapshot_via_restore(
             source,
             # A completed green snapshot restore is already a searchable,
             # immutable point-in-time view. Refreshing tens of millions of
-            # restored documents can exceed the request timeout.
-            collect_index_evidence(
+            # restored documents can exceed the request timeout. Search
+            # readiness can briefly lag index health, so retry only transient
+            # OpenSearch availability failures within a bounded window.
+            _wait_for_index_evidence(
                 client,
                 index_name=source.old_index,
                 refresh=False,
+                timeout_seconds=timeout_seconds,
+                poll_seconds=poll_seconds,
+                monotonic=monotonic,
+                sleep=sleep,
             ),
         )
         _assert_alias_is_active_only(

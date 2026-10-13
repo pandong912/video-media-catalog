@@ -12,6 +12,8 @@ GOLD_INDEX_VALIDATOR_TASK_QUEUE = "vw-media-catalog-gold-index-validator-v1"
 WORKFLOW_TYPE_TMDB_PIPELINE = "TmdbCaptureSilverWorkflow"
 WORKFLOW_TYPE_GOLDEN_BUILD = "GoldenBuildWorkflow"
 WORKFLOW_TYPE_GOLD_INDEX_PROJECTION = "GoldIndexProjectionWorkflow"
+WORKFLOW_TYPE_GOLD_INDEX_GC = "GoldIndexGcWorkflow"
+WORKFLOW_TYPE_GOLD_INDEX_RESTORE = "GoldIndexRestoreWorkflow"
 
 SCHEDULE_DAILY_CHANGES = "tmdb-daily-changes-v1"
 SCHEDULE_MONTHLY_INVENTORY = "tmdb-monthly-inventory-v1"

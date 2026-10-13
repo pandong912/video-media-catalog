@@ -460,6 +460,69 @@ class _KubernetesApi:
                 + ",".join(sorted(active_names))
             )
 
+    def assert_no_conflicting_jobs(
+        self,
+        *,
+        namespace: str,
+        expected_name: str,
+        expected_workload: tuple[str, str],
+        blocked_workloads: frozenset[tuple[str, str]],
+    ) -> None:
+        """Fail closed when a labeled, non-terminal conflicting Job exists."""
+
+        collection = (
+            "/apis/batch/v1/namespaces/"
+            f"{quote(namespace, safe='')}/jobs"
+        )
+        status, response = self.request("GET", collection)
+        if status != 200:
+            raise RuntimeError(
+                f"Kubernetes Job list failed ({status}): "
+                f"{response.get('message', 'unknown error')}"
+            )
+        items = response.get("items")
+        if not isinstance(items, list):
+            raise RuntimeError("Kubernetes Job list response is invalid")
+        conflicts: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise RuntimeError("Kubernetes Job list item is invalid")
+            metadata = item.get("metadata")
+            job_status = item.get("status") or {}
+            if not isinstance(metadata, dict) or not isinstance(job_status, dict):
+                raise RuntimeError("Kubernetes Job metadata/status is invalid")
+            labels = metadata.get("labels") or {}
+            if not isinstance(labels, dict):
+                raise RuntimeError("Kubernetes Job labels are invalid")
+            workload = (
+                str(labels.get("app.kubernetes.io/name", "")),
+                str(labels.get("app.kubernetes.io/component", "")),
+            )
+            if workload not in blocked_workloads:
+                continue
+            name = metadata.get("name")
+            if not isinstance(name, str) or not name:
+                raise RuntimeError("conflicting Kubernetes Job has no valid name")
+            conditions = job_status.get("conditions") or []
+            if not isinstance(conditions, list):
+                raise RuntimeError("Kubernetes Job conditions are invalid")
+            terminal = any(
+                isinstance(condition, dict)
+                and condition.get("status") == "True"
+                and condition.get("type") in {"Complete", "Failed"}
+                for condition in conditions
+            )
+            expected_retry = (
+                name == expected_name and workload == expected_workload
+            )
+            if not expected_retry and not terminal:
+                conflicts.append(f"{name}({workload[0]}/{workload[1]})")
+        if conflicts:
+            raise RuntimeError(
+                "conflicting Kubernetes Jobs are active: "
+                + ",".join(sorted(conflicts))
+            )
+
     def get_job(self, *, namespace: str, name: str) -> dict[str, Any]:
         path = (
             "/apis/batch/v1/namespaces/"

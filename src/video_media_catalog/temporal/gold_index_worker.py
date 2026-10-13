@@ -1,4 +1,4 @@
-"""Least-privilege Workers for the Research Gold index projection."""
+"""Least-privilege Workers for Research Gold projection, GC, and restore."""
 
 from __future__ import annotations
 
@@ -14,11 +14,21 @@ from video_media_catalog.temporal.activities.gold_index import (
     submit_gold_index_build_job,
     validate_gold_index_build,
 )
+from video_media_catalog.temporal.activities.gold_index_gc import (
+    submit_gold_index_gc_job,
+    submit_gold_index_restore_job,
+    validate_gold_index_gc,
+    validate_gold_index_restore,
+)
 from video_media_catalog.temporal.names import (
     GOLD_INDEX_LAUNCHER_TASK_QUEUE,
     GOLD_INDEX_VALIDATOR_TASK_QUEUE,
     GOLD_INDEX_WORKFLOW_TASK_QUEUE,
     TEMPORAL_NAMESPACE,
+)
+from video_media_catalog.temporal.workflows.gold_index_gc import (
+    GoldIndexGcWorkflow,
+    GoldIndexRestoreWorkflow,
 )
 from video_media_catalog.temporal.workflows.gold_index_projection import (
     GoldIndexProjectionWorkflow,
@@ -65,13 +75,21 @@ async def run_worker(parsed: argparse.Namespace) -> None:
         worker = Worker(
             client,
             task_queue=GOLD_INDEX_WORKFLOW_TASK_QUEUE,
-            workflows=[GoldIndexProjectionWorkflow],
+            workflows=[
+                GoldIndexProjectionWorkflow,
+                GoldIndexGcWorkflow,
+                GoldIndexRestoreWorkflow,
+            ],
         )
     elif parsed.role == "launcher":
         worker = Worker(
             client,
             task_queue=GOLD_INDEX_LAUNCHER_TASK_QUEUE,
-            activities=[submit_gold_index_build_job],
+            activities=[
+                submit_gold_index_build_job,
+                submit_gold_index_gc_job,
+                submit_gold_index_restore_job,
+            ],
             activity_executor=executor,
             max_concurrent_activities=1,
         )
@@ -79,7 +97,11 @@ async def run_worker(parsed: argparse.Namespace) -> None:
         worker = Worker(
             client,
             task_queue=GOLD_INDEX_VALIDATOR_TASK_QUEUE,
-            activities=[validate_gold_index_build],
+            activities=[
+                validate_gold_index_build,
+                validate_gold_index_gc,
+                validate_gold_index_restore,
+            ],
             activity_executor=executor,
             max_concurrent_activities=2,
         )

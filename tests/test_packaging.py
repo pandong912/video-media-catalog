@@ -51,6 +51,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
         "video-media-catalog-identity-curation",
         "video-media-catalog-gold-spark",
         "video-media-catalog-gold-index",
+        "video-media-catalog-gold-index-gc",
         "video-media-catalog-wikidata-full-media",
         "video-media-catalog-eidr-backfill",
         "video-media-catalog-europeana-oai",

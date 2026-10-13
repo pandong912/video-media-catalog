@@ -712,9 +712,7 @@ def _run_lookup(
                 "public research batch-size exceeds the low-rate profile bound"
             )
         if parsed.max_batches > PUBLIC_RESEARCH_MAX_BATCHES:
-            raise ValueError(
-                "public research max-batches exceeds the profile bound"
-            )
+            raise ValueError("public research max-batches exceeds the profile bound")
         if parsed.max_duration_seconds > PUBLIC_RESEARCH_MAX_DURATION_SECONDS:
             raise ValueError(
                 "public research max-duration-seconds exceeds the profile bound"

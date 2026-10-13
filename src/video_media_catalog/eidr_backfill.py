@@ -834,9 +834,7 @@ def build_discovered_eidr_id_frame(
             raise ValueError(
                 "scoped EIDR discovery requires the pinned ingest-run frame"
             )
-        run_missing = sorted(
-            {"run_id", "source_product_id"} - set(ingest_runs.columns)
-        )
+        run_missing = sorted({"run_id", "source_product_id"} - set(ingest_runs.columns))
         if run_missing:
             raise ValueError(f"IngestRun frame is missing columns: {run_missing}")
 
@@ -854,9 +852,7 @@ def build_discovered_eidr_id_frame(
         selected_runs = F.broadcast(
             ingest_runs.select("run_id", "source_product_id")
             .join(selected_runs, "run_id", "inner")
-            .where(
-                F.col("source_product_id") == discovery_scope.source_product_id
-            )
+            .where(F.col("source_product_id") == discovery_scope.source_product_id)
             .select("run_id")
             .dropDuplicates()
         )
@@ -864,30 +860,23 @@ def build_discovered_eidr_id_frame(
     if discovery_scope is not None:
         source_path_prefix = f"/claims/{discovery_scope.source_property_id}/"
         selected_assertions = selected_assertions.where(
-            (
-                F.col("subject_namespace_id")
-                == discovery_scope.subject_namespace_id
-            )
+            (F.col("subject_namespace_id") == discovery_scope.subject_namespace_id)
             & (
                 F.get_json_object(F.col("provenance_json"), "$.sourcePath").startswith(
                     source_path_prefix
                 )
             )
         )
-    candidates = (
-        selected_assertions
-        .where(
-            (F.col("namespace_id") == EIDR_NAMESPACE_ID) & (F.col("status") == "ACTIVE")
-        )
-        .select(
-            F.upper(
-                F.regexp_replace(
-                    F.trim(F.col("value")),
-                    r"(?i)^(?:https?://doi\.org/|doi:)",
-                    "",
-                )
-            ).alias("eidr_id")
-        )
+    candidates = selected_assertions.where(
+        (F.col("namespace_id") == EIDR_NAMESPACE_ID) & (F.col("status") == "ACTIVE")
+    ).select(
+        F.upper(
+            F.regexp_replace(
+                F.trim(F.col("value")),
+                r"(?i)^(?:https?://doi\.org/|doi:)",
+                "",
+            )
+        ).alias("eidr_id")
     )
     eidr_pattern = r"^10\.5240/(?:[0-9A-Z]{4}-){5}[0-9A-Z]$"
     if candidates.where(~F.col("eidr_id").rlike(eidr_pattern)).limit(1).count():

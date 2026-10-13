@@ -19,6 +19,13 @@ EXPECTED_URL = (
     f"https://resolve.eidr.org/EIDR/object/{EIDR_ID}?type=Full&followAlias=false"
 )
 XML = f"<FullMetadata><ID>{EIDR_ID}</ID></FullMetadata>".encode()
+ALIAS_TARGET = "10.5240/FFFF-EEEE-DDDD-CCCC-BBBB-A"
+ALIAS_XML = (
+    '<AliasContinuation xmlns="http://www.eidr.org/schema">'
+    f"<LastAliased>{EIDR_ID}</LastAliased>"
+    f"<TargetOfLastAliased>{ALIAS_TARGET}</TargetOfLastAliased>"
+    "</AliasContinuation>"
+).encode()
 
 
 def _evidence() -> ObjectRef:
@@ -127,6 +134,26 @@ def test_public_provider_maps_404_to_not_found() -> None:
     )
     assert result[0].status == EidrLookupStatus.NOT_FOUND
     assert result[0].xml is None
+
+
+def test_public_provider_does_not_implicitly_follow_alias_continuation() -> None:
+    result = _provider(
+        SequenceOpener(FakeResponse(status=200, body=ALIAS_XML))
+    ).lookup_exact(
+        eidr_ids=(EIDR_ID,),
+        request_id="request",
+    )
+
+    assert result[0].status == EidrLookupStatus.NOT_FOUND
+    assert result[0].xml is None
+
+
+def test_public_provider_rejects_unbound_alias_continuation() -> None:
+    mismatched = ALIAS_XML.replace(EIDR_ID.encode(), ALIAS_TARGET.encode())
+    provider = _provider(SequenceOpener(FakeResponse(status=200, body=mismatched)))
+
+    with pytest.raises(EidrPublicProviderError, match="requested identifier"):
+        provider.lookup_exact(eidr_ids=(EIDR_ID,), request_id="request")
 
 
 @pytest.mark.parametrize(

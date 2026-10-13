@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import threading
 import time
+import xml.etree.ElementTree as ET
 from contextlib import suppress
 from datetime import UTC
 from email.utils import parsedate_to_datetime
@@ -12,6 +13,9 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring
 
 from video_media_catalog.community_sources import eidr_rights_profile
 from video_media_catalog.eidr import normalize_eidr_id
@@ -127,6 +131,41 @@ def _content_length(headers: Any) -> int | None:
             "EIDR resolver returned an invalid Content-Length"
         )
     return parsed
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].rsplit(":", 1)[-1]
+
+
+def _alias_continuation_target(body: bytes, *, eidr_id: str) -> str | None:
+    try:
+        root = fromstring(body)
+    except (ET.ParseError, DefusedXmlException):
+        return None
+    if _local_name(root.tag) != "AliasContinuation":
+        return None
+    values = {
+        _local_name(candidate.tag): "".join(candidate.itertext()).strip()
+        for candidate in root.iter()
+    }
+    last_aliased = values.get("LastAliased")
+    target = values.get("TargetOfLastAliased")
+    if not last_aliased or not target:
+        raise EidrPublicProviderError(
+            "EIDR alias continuation is missing its source or target"
+        )
+    try:
+        normalized_source = normalize_eidr_id(last_aliased)
+        normalized_target = normalize_eidr_id(target)
+    except ValueError as exc:
+        raise EidrPublicProviderError(
+            "EIDR alias continuation contains an invalid identifier"
+        ) from exc
+    if normalized_source != eidr_id or normalized_target == eidr_id:
+        raise EidrPublicProviderError(
+            "EIDR alias continuation does not bind the requested identifier"
+        )
+    return normalized_target
 
 
 def _retry_after_seconds(
@@ -335,6 +374,16 @@ class EidrPublicProvider:
                 if len(body) > self.max_xml_bytes:
                     raise EidrPublicProviderError(
                         "EIDR resolver XML exceeds the configured byte bound"
+                    )
+                if _alias_continuation_target(body, eidr_id=eidr_id) is not None:
+                    # This profile intentionally does not traverse aliases. The
+                    # requested ID returned no record metadata of its own.
+                    return EidrExactLookupResult(
+                        eidr_id=eidr_id,
+                        status=EidrLookupStatus.NOT_FOUND,
+                        attempt_count=attempt,
+                        retry_count=retries,
+                        rate_limit_count=rate_limits,
                     )
                 return EidrExactLookupResult(
                     eidr_id=eidr_id,

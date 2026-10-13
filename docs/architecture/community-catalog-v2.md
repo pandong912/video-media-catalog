@@ -36,6 +36,18 @@ Supported acquisition remains:
 - IMDb official TSV snapshot capture;
 - TMDB daily inventory and changes/detail capture.
 
+Catalog Match activation is a separate versioned decision in
+`contracts/catalog/catalog-source-policy.v1.json`, the same portable canonical
+artifact consumed by Platform and Compute. Implemented connector or namespace
+support does not imply live Identity/Gold enablement: Catalog maps its local
+products to canonical source IDs, then intersects technical support with the
+canonical grants. Wikidata/EIDR may drive Identity/materialization;
+IMDb/TVmaze/TMDB remain retrieval/ranking-only. The canonical policy digest is
+pinned by Golden Identity, Gold release, release commit, and search documents;
+there is no implementation-specific authorization digest. Unknown,
+conflicting, pending or excluded mappings fail closed, and rights checks remain
+an independent mandatory gate.
+
 ### EIDR public exact resolution
 
 The public EIDR path is anonymous and accepts only identifiers discovered from
@@ -124,12 +136,36 @@ The batch indexer builds only the research family:
 
 - prefix `media-catalog-research`;
 - read alias `media-catalog-research-read`;
-- strict mapping with projectionVersion `7`;
+- strict mapping with projectionVersion `8`;
 - deterministic build identity bound to one Gold release commit;
 - partition receipts, count reconciliation, and atomic alias update.
 
+Projection v8 adds nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
+`seasonEntityKey`. They are derived only from rights-filtered Gold relations.
+Ambiguous, missing, malformed, or over-bound parent candidates produce null;
+episode-to-season-to-series traversal requires a unique season and a unique
+season-to-series edge. Every document also carries the pinned
+`sourcePolicyDigest`.
+
+The Temporal Golden input optionally carries normalized `sourceRunStates`.
+When present, IMDb, TVmaze, Wikidata, and TMDB each declare exact committed run
+IDs, run status, freshness status, watermark, optional acquisition time, and
+explicit Identity/materialization intent. Both intents default false. The
+preflight requires the states to cover exactly the pinned source runs and
+rejects stale, pending, failed, excluded, conflicting, or policy-disabled
+materialization. Retrieval-only IMDb/TVmaze/TMDB runs remain visible in the
+orchestration state and freshness evidence but are omitted from the new Silver
+snapshot, incremental Identity input and Gold epoch; Wikidata (and optional
+EIDR) can enter those stages. Legacy inputs remain readable, while downstream
+Identity and Gold entrypoints independently reject disallowed ingest-run
+products. IMDb and TVmaze override evidence remains explicit without granting
+either source Identity or Gold permission.
+
 Full rebuild is authoritative. The optional affected-entity path copies an
-immutable base into a new concrete index and never mutates the old index.
+immutable base into a new concrete index and never mutates the old index. It
+requires the base and target to share `sourcePolicyDigest`; a source-policy
+change forces a full rebuild. Whole-index validation checks both release and
+source-policy provenance before publication.
 
 ## Operational safety
 

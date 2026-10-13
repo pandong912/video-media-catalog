@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "video.world.catalog-source-policy-registry.v1",
+  "registryVersion": "1.0.0",
+  "sources": [
+    {
+      "sourceId": "wikidata",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "CC0-1.0",
+      "licenseUri": "https://www.wikidata.org/wiki/Wikidata:Licensing",
+      "attribution": "Wikidata contributors",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
+      "namespaces": [
+        {
+          "namespace": "wikidata.item",
+          "aliases": ["wikidata", "wikidata-item"],
+          "materializablePredicates": [
+            "identity.title",
+            "identity.alias",
+            "hierarchy.parent",
+            "hierarchy.series",
+            "hierarchy.season"
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": "eidr",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "EIDR-PUBLIC-REGISTRY",
+      "licenseUri": "https://www.eidr.org/our-work",
+      "attribution": "Entertainment Identifier Registry Association",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
+      "namespaces": [
+        {
+          "namespace": "eidr.content",
+          "aliases": ["eidr", "eidr-content"],
+          "materializablePredicates": ["hierarchy.parent", "hierarchy.series", "hierarchy.season"]
+        }
+      ]
+    },
+    {
+      "sourceId": "imdb",
+      "status": "PENDING_LEGAL_REVIEW",
+      "licenseId": "IMDB-COMMERCIAL",
+      "licenseUri": "https://developer.imdb.com",
+      "attribution": "",
+      "capabilities": ["RETRIEVAL", "RANKING"],
+      "namespaces": [
+        {
+          "namespace": "imdb.title",
+          "aliases": ["imdb", "imdb-title"],
+          "materializablePredicates": []
+        }
+      ]
+    },
+    {
+      "sourceId": "tvmaze",
+      "status": "PENDING_LEGAL_REVIEW",
+      "licenseId": "TVMAZE-API-TERMS",
+      "licenseUri": "https://www.tvmaze.com/api",
+      "attribution": "",
+      "capabilities": ["RETRIEVAL", "RANKING"],
+      "namespaces": [
+        {
+          "namespace": "tvmaze.show",
+          "aliases": ["tvmaze", "tvmaze-show"],
+          "materializablePredicates": []
+        }
+      ]
+    },
+    {
+      "sourceId": "tmdb",
+      "status": "EXCLUDED_FROM_V1",
+      "licenseId": "TMDB-API-TERMS",
+      "licenseUri": "https://www.themoviedb.org/api-terms-of-use",
+      "attribution": "",
+      "capabilities": ["RETRIEVAL", "RANKING"],
+      "namespaces": [
+        {
+          "namespace": "tmdb.movie",
+          "aliases": ["tmdb-movie"],
+          "materializablePredicates": []
+        },
+        {
+          "namespace": "tmdb.tv",
+          "aliases": ["tmdb-tv"],
+          "materializablePredicates": []
+        }
+      ]
+    }
+  ]
+}

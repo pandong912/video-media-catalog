@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_search_index import (
     GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE,
     GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE,
@@ -126,6 +127,10 @@ def run(
         raise ValueError("build manifest does not match expected build ID")
     if manifest.release_plan_id != parsed.expected_release_plan_id:
         raise ValueError("build manifest does not match expected release plan")
+    if manifest.source_policy_digest != load_catalog_source_policy().digest:
+        raise ValueError(
+            "build manifest does not bind the current canonical source policy"
+        )
 
     expected_previous = tuple(sorted(set(parsed.expected_old_index)))
     if len(expected_previous) != len(parsed.expected_old_index):
@@ -148,6 +153,7 @@ def run(
             index_name=manifest.index,
             release_plan_id=manifest.release_plan_id,
             expected_document_count=manifest.document_count,
+            source_policy_digest=manifest.source_policy_digest,
         )
         switch_read_alias(
             opensearch,

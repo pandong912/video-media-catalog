@@ -15,6 +15,10 @@ from video_media_catalog.assertions import (
     RelationshipAssertion,
 )
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.catalog_source_policy import (
+    CatalogSourceCapability,
+    CatalogSourcePolicy,
+)
 from video_media_catalog.gold import (
     GoldAssertionLineage,
     GoldReleasePlan,
@@ -347,11 +351,14 @@ def resolve_gold_draft(
     field_policy: GoldResolutionPolicy,
     termination_fences: tuple[RightsTerminationFence, ...] = (),
     registry: SourceRegistrySnapshot | None = None,
+    source_policy: CatalogSourcePolicy | None = None,
 ) -> GoldResolutionDraft:
     if registry is None:
         from video_media_catalog.community_sources import build_community_registry
 
         registry = build_community_registry()
+    if source_policy is not None:
+        source_policy.validate_registry(registry)
     profiles = {profile.policy_id: profile for profile in rights_profiles}
     if len(profiles) != len(rights_profiles):
         raise ValueError("rights registry contains duplicate policy IDs")
@@ -488,7 +495,16 @@ def resolve_gold_draft(
                     )
                 )
 
-    namespace_rows = exact_id_namespace_rows(registry)
+    namespace_rows = exact_id_namespace_rows(
+        registry,
+        allowed_namespace_ids=(
+            None
+            if source_policy is None
+            else source_policy.enabled_namespace_ids(
+                CatalogSourceCapability.GOLD_PROJECTION
+            )
+        ),
+    )
     identifier_groups: dict[
         tuple[str, str, str],
         list[tuple[str, IdentifierAssertion, IdentifierBlockingProjection]],

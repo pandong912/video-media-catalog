@@ -10,6 +10,12 @@ Gold never rewrites internal entity keys. Research-private data is eligible
 only when its registered policy explicitly permits the required research
 actions.
 
+The portable canonical Catalog source policy is the sole source enablement
+artifact. Catalog-local implementation capabilities are intersected with it.
+The current policy allows Wikidata and EIDR to drive Identity/Gold; IMDb,
+TVmaze, and TMDB are retrieval/ranking-only and their ingest runs are rejected
+from Gold materialization.
+
 ## Release plan
 
 Before Gold rows are written, the builder publishes an immutable release plan:
@@ -20,7 +26,8 @@ Before Gold rows are written, the builder publishes an immutable release plan:
   `epochId` plus committed-run count/digest;
 - exact Silver data snapshot IDs;
 - identity membership snapshot;
-- rights registry, field policy, resolver, image, and config digests;
+- rights registry, Catalog Match source policy, field policy, resolver, image,
+  and config digests;
 - the source freshness/coverage policy inside the config digest;
 - expected row counts for every Gold table.
 
@@ -225,6 +232,20 @@ freshness requirement. The entire freshness policy is part of the Gold config
 digest; the evaluated matrix and blocking violations are part of the quality
 report identity.
 
+Temporal Golden inputs may additionally pin `sourceRunStates`. The explicit
+state combines source product, exact Silver run IDs, terminal run status,
+freshness status, watermark, optional acquisition time and immutable capture
+reference, plus Identity/materialization intent. When this field is present,
+IMDb, TVmaze, Wikidata, and TMDB must all be committed and fresh (or carry the
+existing bounded override evidence), and the union of state run IDs must equal
+the legacy pinned run fields exactly. This is orchestration evidence only: it
+does not call a provider, provide credentials, or replace the Gold freshness
+matrix computed from committed ingest manifests. For the current Golden
+release path, IMDb and TVmaze states must be `OVERRIDDEN`, while TMDB and
+Wikidata are `PASS`; release validation reconciles those states with the
+quality report's override evidence and requires every required source row to
+pass.
+
 ## Source termination and removal
 
 A source termination creates an immutable rights fence before any purge or
@@ -252,7 +273,7 @@ The active research index family is:
 - versioned indexes: `media-catalog-research-<build-id>`;
 - read alias: `media-catalog-research-read`;
 - document ID: internal `entityKey`;
-- mapping: strict, projectionVersion `7`, and digest bound;
+- mapping: strict, projectionVersion `8`, and digest bound;
 - source: one immutable Gold release commit and its exact table snapshots.
 
 The default and authoritative publication path is a full rebuild into a new
@@ -282,14 +303,20 @@ bound target release plan and context. Any drift prevents alias publication.
 Documents contain bounded titles, external identifiers, selected attributes,
 relation counts, `sourceBadges`, `winningAssertions` with citation keys,
 `rights`/attribution summaries, first-class `conflicts`, provenance release ID,
-literal `contextId`, and overflow counts. Complete assertions and relation
-edges remain in Iceberg. This slice exposes bounded citation keys plus source
-record/path metadata because the current Silver schema has no dedicated
-Citation table.
+literal `contextId`, `sourcePolicyDigest`, and overflow counts. Nullable scalar
+`parentEntityKey`, `seriesEntityKey`, and `seasonEntityKey` are derived only
+from rights-filtered Gold relation rows. A missing, ambiguous, malformed, or
+over-bound hierarchy remains null. Episode-to-series traversal requires both a
+unique episode-to-season edge and a unique season-to-series edge.
 
-`externalIdentifiers[].url` is optional and derived during index projection.
-Only bounded positive ASCII decimal IDs in a known namespace and compatible
-referent kind receive a URL. `douban-work` uses
+Complete assertions and relation edges remain in Iceberg. This slice exposes
+bounded citation keys plus source record/path metadata because the current
+Silver schema has no dedicated Citation table.
+
+`externalIdentifiers[].url` is optional and derived during index projection,
+after the namespace passes the canonical source-policy gate. The implementation
+can format only bounded positive ASCII decimal IDs in a known namespace and
+compatible referent kind. `douban-work` uses
 `https://movie.douban.com/subject/{id}/`; `douban-person` uses
 `https://movie.douban.com/celebrity/{id}/`. Alias schemes `douban` and
 `douban-subject` values are disambiguated by referent kind. Unknown namespaces,
@@ -297,11 +324,19 @@ conflicting kinds, zero/leading-zero IDs, overlong values, path/query fragments,
 Unicode digits, and all other malformed values produce no URL. The URL is a
 deterministic navigation convenience over a Wikidata-provided ID: the pipeline
 does not fetch or store Douban titles, ratings, reviews, or images, and lineage
-and rights remain Wikidata.
+and rights remain Wikidata. The current canonical policy has no Douban
+namespace mapping, so this formatter is technical support only and emits no
+live Douban identifier until a reviewed canonical policy grants it.
 
 Release commit, index config digest, and index build manifest bind the exact
-research release identity. The batch indexer publishes only the fixed
-`media-catalog-research-read` alias. HTTP serving is outside this repository.
+research release identity, including `sourcePolicyDigest`. Whole-index
+validation requires every document to carry that release and policy digest.
+Legacy release/manifests without the field remain parseable, but projection v8
+refuses to build, validate, or promote them; they cannot be relabeled with the
+current policy digest. A release must be rebuilt under the current canonical
+policy.
+The batch indexer publishes only the fixed `media-catalog-research-read` alias.
+HTTP serving is outside this repository.
 
 ## Optional affected-entity indexing
 
@@ -320,6 +355,11 @@ actions, verifies every affected ID, then performs the same full target
 release/count checks before an atomic alias switch. Readers already bound to the
 base concrete index continue querying that
 unchanged concrete index. The next weekly full rebuild remains authoritative.
+The base must already use the target `sourcePolicyDigest`; a policy change
+therefore requires a full rebuild instead of relabeling documents produced
+under another source policy. Baseline copy updates both `releasePlanId` and
+`sourcePolicyDigest`, and final validation checks both values across the whole
+target index.
 
 ## Offline sizing contract
 

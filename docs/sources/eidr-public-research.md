@@ -14,8 +14,10 @@ mirror.
 4. `lookup-public-research` resolves a small number of those already-known IDs
    through the fixed anonymous EIDR object endpoint.
 5. Successful XML responses become ordinary partial Connector captures. Existing
-   Source Silver, Identity, Gold, and OpenSearch stages merge them with IMDb,
-   TMDB, TVmaze, and Wikidata.
+   Source Silver can retain them beside IMDb, TMDB, TVmaze, and Wikidata.
+   Identity, Gold, and OpenSearch consume only the sources authorized by the
+   canonical Catalog policy; currently that means EIDR and Wikidata, while the
+   other three remain retrieval/ranking-only.
 
 The discovery scope is part of the manifest identity. An unscoped or non-Wikidata
 manifest cannot be used with the public-research command.
@@ -102,7 +104,9 @@ After Source Silver commits:
    `supplementalSourceRunIds`; the workflow includes them in both the Silver
    snapshot and incremental Identity input. Remove any older `identityReuse`
    receipt unless it binds the same TMDB plus supplemental run set;
-3. run the existing Identity, Gold, and OpenSearch publication path.
+3. run the existing Identity, Gold, and OpenSearch publication path. The
+   runtime source policy must still enable the source and canonical namespace;
+   a pending/failed capture state cannot be materialized.
 
 EIDR remains optional in the Gold freshness policy because public exact
 resolution is not a complete feed. A release may attribute resolved records to

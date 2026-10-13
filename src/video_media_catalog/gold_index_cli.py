@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, canonical_json_bytes
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_iceberg import CommunityGoldTables
 from video_media_catalog.gold_index_scale import (
     SYNTHETIC_SCALE_DOCUMENTS,
@@ -437,6 +438,12 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     commit = _read_commit(store, reference)
     if commit.context_id != "research":
         raise ValueError("release commit is not a research release")
+    runtime_source_policy_digest = load_catalog_source_policy().digest
+    if commit.source_policy_digest != runtime_source_policy_digest:
+        raise ValueError(
+            "release commit does not bind the current canonical source policy"
+        )
+    source_policy_digest = runtime_source_policy_digest
     affected_manifest = (
         None
         if affected_reference is None
@@ -557,6 +564,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 spark,
                 gold_tables=frames,
                 release_plan_id=commit.release_plan_id,
+                source_policy_digest=source_policy_digest,
             ).persist()
             persisted.append(documents)
             projected_document_count = documents.count()
@@ -668,6 +676,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                 gold_tables=frames,
                 release_plan_id=commit.release_plan_id,
                 affected_entity_keys=upsert_key_frame,
+                source_policy_digest=source_policy_digest,
             ).persist()
             persisted.append(documents)
             projected_document_count = documents.count()
@@ -750,6 +759,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             index_name=index_name,
             release_plan_id=commit.release_plan_id,
             expected_document_count=gold_entity_count,
+            source_policy_digest=source_policy_digest,
         )
         receipt_digest = gold_partition_receipt_set_digest(receipts)
         manifest = GoldIndexBuildManifest(
@@ -761,6 +771,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             affected_entity_manifest=affected_reference,
             table_snapshot_ids=commit.table_snapshot_ids,
             mapping_digest=MAPPING_DIGEST,
+            source_policy_digest=source_policy_digest,
             config_identity=config_identity,
             config_digest=config_digest,
             document_count=actual_count,
@@ -790,6 +801,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             index_name=index_name,
             release_plan_id=commit.release_plan_id,
             expected_document_count=gold_entity_count,
+            source_policy_digest=source_policy_digest,
         )
         if build_mode == "FULL":
             reconcile_full_gold_index_counts(

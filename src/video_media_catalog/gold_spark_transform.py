@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import groupby
 from typing import Any
@@ -15,7 +16,11 @@ from video_media_catalog.attribution import (
     build_attribution_manifest,
 )
 from video_media_catalog.canonical import canonical_json
-from video_media_catalog.community_ingest import CommunityIngestRun
+from video_media_catalog.catalog_source_policy import (
+    CatalogSourceCapability,
+    CatalogSourcePolicy,
+)
+from video_media_catalog.community_ingest import CommunityIngestRun, IngestRunKind
 from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.gold import (
     GoldAssertionLineage,
@@ -73,6 +78,29 @@ from video_media_catalog.source_lifecycle import (
 )
 from video_media_catalog.source_registry import SourceRegistrySnapshot
 from video_media_catalog.v2_contracts import parse_rfc3339
+
+
+def _validate_identity_source_policy_provenance(
+    ingest_runs: Iterable[CommunityIngestRun],
+    *,
+    source_policy: CatalogSourcePolicy,
+) -> None:
+    identity_runs = tuple(
+        run
+        for run in ingest_runs
+        if run.run_kind == IngestRunKind.IDENTITY_RESOLUTION
+    )
+    if not identity_runs:
+        raise ValueError(
+            "Gold source policy requires an Identity resolution run"
+        )
+    if any(
+        run.input_manifest.get("sourcePolicyDigest") != source_policy.digest
+        for run in identity_runs
+    ):
+        raise ValueError(
+            "Identity run does not bind the current Catalog source policy"
+        )
 
 
 @dataclass
@@ -955,13 +983,23 @@ def _project_identifier_assertions(
     identifiers: Any,
     *,
     registry: SourceRegistrySnapshot,
+    source_policy: CatalogSourcePolicy | None = None,
 ):
     """Bind each resolved assertion to one registry/entity exact-blocking slot."""
 
     from pyspark.sql import functions as F
     from pyspark.sql.types import BooleanType, StringType
 
-    namespace_rows = exact_id_namespace_rows(registry)
+    namespace_rows = exact_id_namespace_rows(
+        registry,
+        allowed_namespace_ids=(
+            None
+            if source_policy is None
+            else source_policy.enabled_namespace_ids(
+                CatalogSourceCapability.GOLD_PROJECTION
+            )
+        ),
+    )
     namespace_slots = F.broadcast(
         spark.createDataFrame(
             [
@@ -1332,6 +1370,7 @@ def build_distributed_gold(
     freshness_override: FreshnessOverrideEvidence | None = None,
     build_mode: GoldBuildMode = GoldBuildMode.RELEASE,
     termination_fences: tuple[RightsTerminationFence, ...] = (),
+    source_policy: CatalogSourcePolicy | None = None,
 ) -> GoldSparkBuild:
     required = {
         "community_ingest_run",
@@ -1348,6 +1387,8 @@ def build_distributed_gold(
         raise ValueError("Gold build is missing required Silver tables")
     if len({fence.fence_id for fence in termination_fences}) != len(termination_fences):
         raise ValueError("Gold build contains duplicate termination fences")
+    if source_policy is not None:
+        source_policy.validate_registry(registry)
     source_products_by_id = {
         product.source_product_id: product for product in registry.source_products
     }
@@ -1366,6 +1407,40 @@ def build_distributed_gold(
             raise ValueError("termination fence is not bound to the source registry")
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
+
+    if source_policy is not None:
+        enabled_materialization_sources = set(
+            source_policy.enabled_source_ids(
+                CatalogSourceCapability.MATERIALIZATION
+            )
+        ) & set(
+            source_policy.enabled_source_ids(
+                CatalogSourceCapability.GOLD_PROJECTION
+            )
+        )
+        allowed_sources = F.broadcast(
+            spark.createDataFrame(
+                [(value,) for value in sorted(enabled_materialization_sources)],
+                "_allowed_source_product_id STRING",
+            )
+        )
+        disallowed_source_run = (
+            visible_silver["community_ingest_run"]
+            .where(F.col("run_kind") == IngestRunKind.SOURCE_ASSERTIONS.value)
+            .select("source_product_id")
+            .dropDuplicates()
+            .join(
+                allowed_sources,
+                F.col("source_product_id")
+                == F.col("_allowed_source_product_id"),
+                "left_anti",
+            )
+            .limit(1)
+        )
+        if disallowed_source_run.count():
+            raise ValueError(
+                "Gold source run is not enabled by Catalog Match source policy"
+            )
 
     # Drafts are also reliably checkpointed to object storage. Keep one local
     # replica for speed; a second copy can exhaust an executor before the final
@@ -1521,6 +1596,7 @@ def build_distributed_gold(
             spark,
             resolved_identifiers,
             registry=registry,
+            source_policy=source_policy,
         ).persist()
         intermediates.append(projected_identifiers)
         projected_identifier_count = projected_identifiers.count()
@@ -1855,6 +1931,9 @@ def build_distributed_gold(
             silver_snapshot_ids=silver_snapshot_ids,
             identity_snapshot_ids=identity_snapshot_ids,
             rights_registry_digest=registry.digest,
+            source_policy_digest=(
+                None if source_policy is None else source_policy.digest
+            ),
             field_policy_digest=field_policy.digest,
             resolver_digest=resolver_digest,
             image_digest=image_digest,
@@ -2074,6 +2153,16 @@ def build_distributed_gold(
             .select("manifest_json")
             .collect()
         )
+        if source_policy is not None:
+            try:
+                _validate_identity_source_policy_provenance(
+                    selected_ingest_runs,
+                    source_policy=source_policy,
+                )
+            except ValueError:
+                for frame in output_frames.values():
+                    frame.unpersist()
+                raise
         effective_freshness_policy = (
             freshness_policy
             if freshness_policy is not None

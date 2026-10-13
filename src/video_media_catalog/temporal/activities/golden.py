@@ -15,6 +15,11 @@ from urllib.parse import urlparse
 from temporalio import activity
 
 from video_media_catalog.canonical import canonical_json_bytes
+from video_media_catalog.catalog_source_policy import (
+    CatalogSourceCapability,
+    CatalogSourcePolicy,
+    load_catalog_source_policy,
+)
 from video_media_catalog.community_snapshot import (
     SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
@@ -22,7 +27,10 @@ from video_media_catalog.community_snapshot import (
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.emr_driver_logs import read_driver_json_summary
 from video_media_catalog.emr_serverless_cli import run as run_emr_submit
-from video_media_catalog.gold_freshness import research_release_freshness_policy
+from video_media_catalog.gold_freshness import (
+    research_release_freshness_policy,
+    scope_release_freshness_policy,
+)
 from video_media_catalog.gold_ingest import (
     ATTRIBUTION_MEDIA_TYPE,
     GOLD_QUALITY_MEDIA_TYPE,
@@ -43,6 +51,9 @@ from video_media_catalog.temporal.golden_models import (
     GoldenPreflightResult,
     GoldenReleaseResult,
     GoldenSnapshotResult,
+    GoldenSourceFreshnessStatus,
+    GoldenSourceRunState,
+    GoldenSourceRunStatus,
 )
 from video_media_catalog.temporal.models import ObjectRefPayload
 
@@ -184,6 +195,24 @@ def _object_ref_payload(reference: ObjectRefPayload) -> dict[str, Any]:
     }
 
 
+def _source_run_state_payload(state: GoldenSourceRunState) -> dict[str, Any]:
+    return {
+        "sourceProductId": state.source_product_id,
+        "runIds": list(state.run_ids),
+        "runStatus": state.run_status.value,
+        "freshnessStatus": state.freshness_status.value,
+        "watermark": state.watermark,
+        "identitySpine": state.identity_spine,
+        "materialization": state.materialization,
+        **({"acquiredAt": state.acquired_at} if state.acquired_at else {}),
+        **(
+            {"captureReference": _object_ref_payload(state.capture_reference)}
+            if state.capture_reference is not None
+            else {}
+        ),
+    }
+
+
 def _put_immutable_json(
     client: Any,
     *,
@@ -239,8 +268,257 @@ def _parse_time(value: str, *, label: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _identity_config_digests(build_id: str) -> tuple[str, str, str]:
+def _normalized_source_run_states(
+    input_data: GoldenBuildInput,
+    *,
+    source_policy: CatalogSourcePolicy,
+) -> tuple[GoldenSourceRunState, ...]:
+    """Validate the opt-in unified capture/run/freshness handoff."""
+
+    if not input_data.source_run_states:
+        return ()
+
+    normalized: list[GoldenSourceRunState] = []
+    source_ids: set[str] = set()
+    assigned_run_ids: set[str] = set()
+    for raw in input_data.source_run_states:
+        source_product_id = raw.source_product_id.strip().lower()
+        if source_product_id in source_ids:
+            raise NonRetryableGoldenBuildError(
+                "source run states must contain unique source products"
+            )
+        source_ids.add(source_product_id)
+        try:
+            source_policy.source(source_product_id)
+            run_status = GoldenSourceRunStatus(raw.run_status)
+            freshness_status = GoldenSourceFreshnessStatus(raw.freshness_status)
+        except ValueError as exc:
+            raise NonRetryableGoldenBuildError(str(exc)) from exc
+
+        run_ids = tuple(
+            sorted(
+                {
+                    _require_sha256(value, label="source state run ID")
+                    for value in raw.run_ids
+                }
+            )
+        )
+        if len(run_ids) != len(raw.run_ids):
+            raise NonRetryableGoldenBuildError(
+                "source state run IDs must be unique"
+            )
+        overlap = assigned_run_ids & set(run_ids)
+        if overlap:
+            raise NonRetryableGoldenBuildError(
+                "one source run cannot belong to multiple source states"
+            )
+        assigned_run_ids.update(run_ids)
+
+        if run_status == GoldenSourceRunStatus.COMMITTED:
+            if not run_ids:
+                raise NonRetryableGoldenBuildError(
+                    "committed source states require run IDs"
+                )
+        elif run_ids or raw.identity_spine or raw.materialization:
+            raise NonRetryableGoldenBuildError(
+                "pending, failed, or excluded source states cannot carry "
+                "identity/materialization runs"
+            )
+
+        if raw.identity_spine != raw.materialization:
+            raise NonRetryableGoldenBuildError(
+                "Golden source states must enable Identity and Gold together"
+            )
+        try:
+            if raw.identity_spine:
+                source_policy.require_source(
+                    source_product_id,
+                    CatalogSourceCapability.IDENTITY_SPINE,
+                )
+            if raw.materialization:
+                source_policy.require_source(
+                    source_product_id,
+                    CatalogSourceCapability.MATERIALIZATION,
+                )
+                source_policy.require_source(
+                    source_product_id,
+                    CatalogSourceCapability.GOLD_PROJECTION,
+                )
+        except ValueError as exc:
+            raise NonRetryableGoldenBuildError(str(exc)) from exc
+        if raw.materialization:
+            allowed_freshness = (
+                {
+                    GoldenSourceFreshnessStatus.PASS,
+                    GoldenSourceFreshnessStatus.OVERRIDDEN,
+                }
+                if source_policy.allows_source(
+                    source_product_id,
+                    CatalogSourceCapability.FRESHNESS,
+                )
+                else {
+                    GoldenSourceFreshnessStatus.PASS,
+                    GoldenSourceFreshnessStatus.NOT_REQUIRED,
+                }
+            )
+            if freshness_status not in allowed_freshness:
+                raise NonRetryableGoldenBuildError(
+                    f"{source_product_id} is not fresh enough for materialization"
+                )
+
+        watermark = raw.watermark.strip()
+        if len(watermark) > 1024:
+            raise NonRetryableGoldenBuildError(
+                "source state watermark exceeds 1024 characters"
+            )
+        expected_watermark = input_data.source_watermarks.get(source_product_id)
+        if expected_watermark is not None and watermark != expected_watermark:
+            raise NonRetryableGoldenBuildError(
+                f"source state watermark differs for {source_product_id}"
+            )
+        acquired_at = raw.acquired_at
+        if acquired_at is not None:
+            acquired_at = (
+                _parse_time(
+                    acquired_at,
+                    label=f"{source_product_id} acquired_at",
+                )
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+        reference = raw.capture_reference
+        if reference is not None:
+            parsed = urlparse(reference.uri)
+            if (
+                parsed.scheme not in {"file", "s3"}
+                or reference.size_bytes <= 0
+                or (
+                    parsed.scheme == "s3"
+                    and (not reference.etag or not reference.object_version)
+                )
+            ):
+                raise NonRetryableGoldenBuildError(
+                    "source capture reference must be an immutable file or S3 object"
+                )
+            _require_sha256(
+                reference.checksum_digest(),
+                label="source capture reference checksum",
+            )
+        normalized.append(
+            GoldenSourceRunState(
+                source_product_id=source_product_id,
+                run_ids=run_ids,
+                run_status=run_status,
+                freshness_status=freshness_status,
+                watermark=watermark,
+                acquired_at=acquired_at,
+                identity_spine=raw.identity_spine,
+                materialization=raw.materialization,
+                capture_reference=reference,
+            )
+        )
+
+    missing = _EXPECTED_SOURCE_PRODUCTS - source_ids
+    if missing:
+        raise NonRetryableGoldenBuildError(
+            "explicit source run states must include IMDb, TVmaze, Wikidata, "
+            "and TMDB"
+        )
+    states = {item.source_product_id: item for item in normalized}
+    for source_product_id in _EXPECTED_SOURCE_PRODUCTS:
+        state = states[source_product_id]
+        if (
+            state.run_status != GoldenSourceRunStatus.COMMITTED
+            or state.freshness_status
+            not in {
+                GoldenSourceFreshnessStatus.PASS,
+                GoldenSourceFreshnessStatus.OVERRIDDEN,
+            }
+        ):
+            raise NonRetryableGoldenBuildError(
+                f"{source_product_id} must be committed and fresh"
+            )
+    if not any(state.materialization for state in normalized):
+        raise NonRetryableGoldenBuildError(
+            "explicit source run states require an enabled Identity/Gold source"
+        )
+    expected_override_sources = {
+        "imdb-non-commercial-datasets",
+        "tvmaze-public-api",
+    }
+    actual_override_sources = {
+        source_product_id
+        for source_product_id in _EXPECTED_SOURCE_PRODUCTS
+        if states[source_product_id].freshness_status
+        == GoldenSourceFreshnessStatus.OVERRIDDEN
+    }
+    if actual_override_sources != expected_override_sources:
+        raise NonRetryableGoldenBuildError(
+            "explicit freshness override states must match IMDb and TVmaze"
+        )
+    for source_product_id, expected_acquired_at in (
+        (
+            "imdb-non-commercial-datasets",
+            input_data.freshness_override.imdb_acquired_at,
+        ),
+        (
+            "tvmaze-public-api",
+            input_data.freshness_override.tvmaze_acquired_at,
+        ),
+    ):
+        state = states[source_product_id]
+        if (
+            state.freshness_status == GoldenSourceFreshnessStatus.OVERRIDDEN
+            and state.acquired_at
+            != _parse_time(
+                expected_acquired_at,
+                label=f"{source_product_id} override acquired_at",
+            )
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        ):
+            raise NonRetryableGoldenBuildError(
+                f"{source_product_id} override state differs from freshness evidence"
+            )
+
+    expected_run_ids = {
+        _require_sha256(value, label="pinned source run ID")
+        for value in (
+            *input_data.baseline_source_run_ids,
+            *input_data.tmdb_source_run_ids,
+            *input_data.supplemental_source_run_ids,
+        )
+    }
+    if assigned_run_ids != expected_run_ids:
+        raise NonRetryableGoldenBuildError(
+            "source run states must exactly assign every pinned source run"
+        )
+    if set(states["tmdb-research"].run_ids) != {
+        _require_sha256(value, label="TMDB source run ID")
+        for value in input_data.tmdb_source_run_ids
+    }:
+        raise NonRetryableGoldenBuildError(
+            "TMDB source state differs from the pinned TMDB runs"
+        )
+    return tuple(sorted(normalized, key=lambda item: item.source_product_id))
+
+
+def _identity_config_digests(
+    build_id: str,
+    *,
+    source_policy_digest: str | None = None,
+) -> tuple[str, str, str]:
     resolution = IdentityResolutionConfig()
+    source_digest = (
+        load_catalog_source_policy().digest
+        if source_policy_digest is None
+        else _require_sha256(
+            source_policy_digest,
+            label="source policy digest",
+        )
+    )
     runtime = _digest(
         canonical_json_bytes(
             {
@@ -248,6 +526,7 @@ def _identity_config_digests(build_id: str) -> tuple[str, str, str]:
                 "buildId": build_id,
                 "stage": "golden-incremental-identity",
                 "identityMode": "incremental",
+                "sourcePolicyDigest": source_digest,
             }
         )
     )
@@ -404,18 +683,47 @@ def _validate_preflight_documents(
         raise NonRetryableGoldenBuildError(
             "source age exceeds the bounded freshness override"
         )
+    source_policy = load_catalog_source_policy(
+        registry=build_community_registry()
+    )
+    source_run_states = _normalized_source_run_states(
+        input_data,
+        source_policy=source_policy,
+    )
     all_runs = tuple(
-        sorted(expected_baseline_runs | set(tmdb_runs) | set(supplemental_runs))
+        sorted(
+            (
+                {identity_run}
+                | {
+                    run_id
+                    for state in source_run_states
+                    if state.materialization
+                    for run_id in state.run_ids
+                }
+            )
+            if source_run_states
+            else expected_baseline_runs | set(tmdb_runs) | set(supplemental_runs)
+        )
     )
     runtime_digest, resolution_digest, bound_digest = _identity_config_digests(
-        input_data.build_id
+        input_data.build_id,
+        source_policy_digest=source_policy.digest,
     )
-    freshness_policy_digest = research_release_freshness_policy(
+    freshness_policy = research_release_freshness_policy(
         tmdb_slo_hours=input_data.env.gold_tmdb_freshness_slo_hours,
         tvmaze_slo_hours=tvmaze_slo,
         imdb_slo_hours=imdb_slo,
         wikidata_slo_hours=45 * 24,
-    ).digest
+    )
+    if source_run_states:
+        freshness_policy = scope_release_freshness_policy(
+            freshness_policy,
+            selected_source_product_ids={
+                state.source_product_id
+                for state in source_run_states
+                if state.materialization
+            },
+        )
     return GoldenPreflightResult(
         build_spec=ObjectRefPayload(
             uri="s3://pending/build-spec.json",
@@ -432,10 +740,12 @@ def _validate_preflight_documents(
         tvmaze_age_hours=tvmaze_age,
         imdb_slo_hours=imdb_slo,
         tvmaze_slo_hours=tvmaze_slo,
-        freshness_policy_digest=freshness_policy_digest,
+        freshness_policy_digest=freshness_policy.digest,
         identity_config_digest=runtime_digest,
         identity_resolution_config_digest=resolution_digest,
         identity_bound_config_digest=bound_digest,
+        source_policy_digest=source_policy.digest,
+        source_run_states=source_run_states,
     )
 
 
@@ -443,6 +753,15 @@ def _incremental_identity_source_run_ids(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
 ) -> tuple[str, ...]:
+    if preflight.source_run_states:
+        return tuple(
+            sorted(
+                run_id
+                for state in preflight.source_run_states
+                if state.identity_spine
+                for run_id in state.run_ids
+            )
+        )
     return tuple(
         sorted(
             {
@@ -506,8 +825,12 @@ def _validated_reused_identity(
             "Identity reuse receipt lacks job or summary evidence"
         )
 
+    source_policy_digest = (
+        preflight.source_policy_digest or load_catalog_source_policy().digest
+    )
     source_runtime, source_resolution, source_bound = _identity_config_digests(
-        source_build_id
+        source_build_id,
+        source_policy_digest=source_policy_digest,
     )
     if (
         summary.get("context") != "research"
@@ -519,6 +842,10 @@ def _validated_reused_identity(
         or summary.get("identityResolutionConfigDigest") != source_resolution
         or source_resolution != preflight.identity_resolution_config_digest
         or summary.get("registryDigest") != build_community_registry().digest
+        or (
+            bool(preflight.source_policy_digest)
+            and summary.get("sourcePolicyDigest") != source_policy_digest
+        )
     ):
         raise NonRetryableGoldenBuildError(
             "reused Identity summary differs from pinned incremental inputs"
@@ -547,6 +874,11 @@ def _validated_reused_identity(
         or _single_argument(arguments, "--identity-mode") != "incremental"
         or _single_argument(arguments, "--image-digest") != image_digest
         or _single_argument(arguments, "--config-digest") != source_runtime
+        or (
+            bool(preflight.source_policy_digest)
+            and _single_argument(arguments, "--source-policy-digest")
+            != source_policy_digest
+        )
     ):
         raise NonRetryableGoldenBuildError(
             "reused Identity EMR job differs from receipt provenance"
@@ -639,6 +971,11 @@ def prepare_golden_build(
             ),
             "allSnapshotRunIds": list(preflight.all_snapshot_run_ids),
             "sourceWatermarks": dict(sorted(input_data.source_watermarks.items())),
+            "sourcePolicyDigest": preflight.source_policy_digest,
+            "sourceRunStates": [
+                _source_run_state_payload(state)
+                for state in preflight.source_run_states
+            ],
             "identityConfigDigest": preflight.identity_config_digest,
             "identityResolutionConfigDigest": (
                 preflight.identity_resolution_config_digest
@@ -1094,6 +1431,8 @@ def resolve_golden_identity(
                 input_data.env.image_digest,
                 "--config-digest",
                 preflight.identity_config_digest,
+                "--source-policy-digest",
+                preflight.source_policy_digest,
                 "--started-at",
                 started_at,
                 "--committed-at",
@@ -1111,6 +1450,7 @@ def resolve_golden_identity(
                 "commitKey",
                 "configDigest",
                 "identityResolutionConfigDigest",
+                "sourcePolicyDigest",
                 "tableCounts",
                 "tableSnapshotIds",
             ),
@@ -1125,6 +1465,8 @@ def resolve_golden_identity(
             or summary.get("configDigest") != preflight.identity_bound_config_digest
             or summary.get("identityResolutionConfigDigest")
             != preflight.identity_resolution_config_digest
+            or summary.get("sourcePolicyDigest")
+            != preflight.source_policy_digest
         ):
             raise NonRetryableGoldenBuildError(
                 "Identity summary differs from pinned incremental inputs"
@@ -1273,12 +1615,33 @@ def _validate_release_documents(
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks one or more required sources"
         )
+    materialized_sources = (
+        {
+            state.source_product_id
+            for state in preflight.source_run_states
+            if state.materialization
+        }
+        if preflight.source_run_states
+        else _EXPECTED_SOURCE_PRODUCTS
+    )
+    if any(
+        sources[source_product_id].get("status") != "PASS"
+        for source_product_id in _EXPECTED_SOURCE_PRODUCTS
+        if source_product_id in materialized_sources
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Gold quality report contains a non-passing required source"
+        )
     tmdb = sources["tmdb-research"]
     if (
-        int(tmdb.get("sloHours") or 0) != input_data.env.gold_tmdb_freshness_slo_hours
-        or tmdb.get("status") != "PASS"
-        or float(tmdb.get("effectiveAgeHours") or 0)
-        >= input_data.env.gold_tmdb_freshness_slo_hours
+        "tmdb-research" in materialized_sources
+        and (
+            int(tmdb.get("sloHours") or 0)
+            != input_data.env.gold_tmdb_freshness_slo_hours
+            or tmdb.get("status") != "PASS"
+            or float(tmdb.get("effectiveAgeHours") or 0)
+            >= input_data.env.gold_tmdb_freshness_slo_hours
+        )
     ):
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks the pinned TMDB freshness threshold"
@@ -1289,12 +1652,24 @@ def _validate_release_documents(
             "Gold quality report exceeds the pinned unresolved identity threshold"
         )
     override = freshness.get("overrideEvidence") or {}
+    expected_override_sources = (
+        tuple(
+            sorted(
+                state.source_product_id
+                for state in preflight.source_run_states
+                if state.freshness_status
+                == GoldenSourceFreshnessStatus.OVERRIDDEN
+            )
+        )
+        if preflight.source_run_states
+        else (
+            "imdb-non-commercial-datasets",
+            "tvmaze-public-api",
+        )
+    )
     if override.get("reason") != input_data.freshness_override.reason.strip() or tuple(
         sorted(override.get("sourceProductIds") or ())
-    ) != (
-        "imdb-non-commercial-datasets",
-        "tvmaze-public-api",
-    ):
+    ) != expected_override_sources:
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks the pinned freshness override evidence"
         )
@@ -1342,6 +1717,10 @@ def _validate_release_documents(
     if (
         commit.release_plan_id != release_plan_id
         or commit.commit_key != commit_key
+        or (
+            bool(preflight.source_policy_digest)
+            and commit.source_policy_digest != preflight.source_policy_digest
+        )
         or commit.table_counts != table_counts
         or commit.table_snapshot_ids != table_snapshot_ids
         or commit.quality_report.uri != quality_ref.uri
@@ -1384,6 +1763,8 @@ def submit_golden_release(
             "--return-failed-quality-summary",
             "--image-digest",
             env.image_digest,
+            "--source-policy-digest",
+            preflight.source_policy_digest,
             "--max-unresolved-identity-ratio",
             str(env.gold_max_unresolved_identity_ratio),
             "--tmdb-freshness-slo-hours",

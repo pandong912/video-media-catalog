@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_index_promote_cli import build_parser, run
 from video_media_catalog.gold_ingest import GOLD_RELEASE_COMMIT_MEDIA_TYPE
 from video_media_catalog.gold_search_index import (
@@ -74,6 +75,7 @@ def _manifest(tmp_path: Path) -> GoldIndexBuildManifest:
         release_commit=release_ref,
         table_snapshot_ids={table: 1 for table in GOLD_DATA_COLUMNS},
         mapping_digest=MAPPING_DIGEST,
+        source_policy_digest=load_catalog_source_policy().digest,
         config_identity=config,
         config_digest=config.digest,
         document_count=3,

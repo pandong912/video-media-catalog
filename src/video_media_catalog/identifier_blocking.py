@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -132,9 +133,16 @@ def blocking_referent_kind_for_entity(
 
 def exact_id_namespace_rows(
     registry: SourceRegistrySnapshot,
+    *,
+    allowed_namespace_ids: Collection[str] | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Project active registry namespaces into exact-blocking join metadata."""
 
+    allowed = (
+        None
+        if allowed_namespace_ids is None
+        else {value.strip().lower() for value in allowed_namespace_ids}
+    )
     active_systems = {
         system.source_system_id
         for system in registry.source_systems
@@ -148,7 +156,10 @@ def exact_id_namespace_rows(
     }
     rows: dict[tuple[str, str, str], dict[str, object]] = {}
     for namespace in registry.source_namespaces:
-        if namespace.source_product_id not in active_products:
+        if (
+            namespace.source_product_id not in active_products
+            or (allowed is not None and namespace.namespace_id not in allowed)
+        ):
             continue
         pattern = namespace.identifier_pattern
         if pattern is not None:

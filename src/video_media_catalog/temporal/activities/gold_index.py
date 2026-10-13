@@ -21,6 +21,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from video_media_catalog.canonical import canonical_json_bytes
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_index_cli import INDEX_JOB_RESULT_MEDIA_TYPE
 from video_media_catalog.gold_search_index import (
     GOLD_INDEX_BUILD_MANIFEST_MEDIA_TYPE,
@@ -667,6 +668,7 @@ def submit_gold_index_build_job(
             "Gold index build does not match the pinned release plan",
             non_retryable=True,
         )
+    _require_current_source_policy(build)
     if build.config_identity.image_digest != _image_digest(
         input_data.env.builder_image
     ):
@@ -688,6 +690,14 @@ def _close(client: Any) -> None:
         close()
 
 
+def _require_current_source_policy(build: GoldIndexBuildManifest) -> None:
+    if build.source_policy_digest != load_catalog_source_policy().digest:
+        raise ApplicationError(
+            "Gold index build does not bind the current canonical source policy",
+            non_retryable=True,
+        )
+
+
 @activity.defn(name="ValidateGoldIndexBuild")
 def validate_gold_index_build(
     input_data: GoldIndexProjectionInput,
@@ -703,6 +713,7 @@ def validate_gold_index_build(
             "Gold index validation release plan mismatch",
             non_retryable=True,
         )
+    _require_current_source_policy(build)
     client = create_opensearch_client(
         OpenSearchConnection(
             endpoint=input_data.env.opensearch_endpoint,
@@ -718,6 +729,7 @@ def validate_gold_index_build(
             index_name=build.index,
             release_plan_id=build.release_plan_id,
             expected_document_count=build.document_count,
+            source_policy_digest=build.source_policy_digest,
         )
     finally:
         _close(client)

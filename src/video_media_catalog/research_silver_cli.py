@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, deterministic_key
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_ingest import (
     CommunityIngestCommit,
@@ -155,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     identity.add_argument("--image-digest", required=True)
     identity.add_argument("--config-digest", required=True)
+    identity.add_argument("--source-policy-digest", default="")
     identity_defaults = IdentityResolutionConfig()
     identity.add_argument(
         "--identity-max-label-iterations",
@@ -921,6 +923,15 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "tableMapping": output_tables.table_mapping,
         }
         registry = build_community_registry()
+        source_policy = load_catalog_source_policy(registry=registry)
+        if (
+            parsed.source_policy_digest
+            and parsed.source_policy_digest.lower() != source_policy.digest
+        ):
+            raise ValueError(
+                "pinned source policy digest differs from the runtime contract"
+            )
+        pinned_inputs["sourcePolicyDigest"] = source_policy.digest
         input_id = deterministic_key(
             "community-identity-resolution-input-v2",
             pinned_inputs,
@@ -940,6 +951,7 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             config_digest=config_digest,
             started_at=started_at,
             registry=registry,
+            source_policy=source_policy,
             pinned_inputs=pinned_inputs,
             source_records=visible["community_source_record"],
             ingest_runs=ingest_runs,
@@ -966,6 +978,7 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             "runId": run.run_id,
             "commitKey": commit.commit_key,
             "registryDigest": registry.digest,
+            "sourcePolicyDigest": source_policy.digest,
             "configDigest": run.config_digest,
             "identityResolutionConfigDigest": resolution_config.digest,
             "identityGenerationId": identity_generation_id,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_search_projection import (
+    MAX_HIERARCHY_RELATION_CANDIDATES,
     MAX_TITLES,
     project_gold_entity,
 )
@@ -211,6 +213,10 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     )
     assert document["conflictPredicates"] == ["status"]
     assert document["contextId"] == "research"
+    assert document["sourcePolicyDigest"] == load_catalog_source_policy().digest
+    assert document["parentEntityKey"] is None
+    assert document["seriesEntityKey"] is None
+    assert document["seasonEntityKey"] is None
     assert "ownerSubject" not in document
     assert document["sourceBadges"][0]["sourceProductId"] == "tvmaze-public-api"
     assert {item["sourceProductId"] for item in document["sourceBadges"]} == {
@@ -292,3 +298,72 @@ def test_match_profile_uses_one_selected_value_and_drops_conflicts() -> None:
     assert document["releaseYear"] is None
     assert document["seasonNumber"] == 1
     assert document["episodeNumber"] == 2
+
+
+def test_hierarchy_keys_are_unique_bounded_and_fail_closed() -> None:
+    season_key = "sha256:" + ("1" * 64)
+    series_key = "sha256:" + ("2" * 64)
+    row = {
+        "entity_key": "sha256:" + ("3" * 64),
+        "entity_level": "EPISODE",
+        "entity_kind": "TV_EPISODE",
+        "status": "ACTIVE",
+        "release_plan_id": "sha256:" + ("4" * 64),
+        "source_node_count": 1,
+        "fields": [],
+        "identifiers": [],
+        "relation_summary": [],
+        "relations": [
+            {
+                "predicate": "part_of_season",
+                "object_entity_key": season_key,
+                "object_entity_level": "SEASON",
+            },
+            {
+                "predicate": "part_of_series",
+                "object_entity_key": series_key,
+                "object_entity_level": "SERIES",
+            },
+        ],
+        "conflict_count": 0,
+        "conflicts": [],
+    }
+
+    document = project_gold_entity(row)
+    assert document["parentEntityKey"] == season_key
+    assert document["seriesEntityKey"] == series_key
+    assert document["seasonEntityKey"] == season_key
+    assert document["overflow"]["hierarchyRelations"] == 0
+
+    ambiguous = {
+        **row,
+        "relations": [
+            *row["relations"],
+            {
+                "predicate": "part_of_season",
+                "object_entity_key": "sha256:" + ("5" * 64),
+                "object_entity_level": "SEASON",
+            },
+        ],
+    }
+    ambiguous_document = project_gold_entity(ambiguous)
+    assert ambiguous_document["parentEntityKey"] is None
+    assert ambiguous_document["seasonEntityKey"] is None
+    assert ambiguous_document["seriesEntityKey"] == series_key
+
+    overflowing = {
+        **row,
+        "relations": [
+            {
+                "predicate": "part_of_season",
+                "object_entity_key": "sha256:" + f"{index:064x}",
+                "object_entity_level": "SEASON",
+            }
+            for index in range(1, MAX_HIERARCHY_RELATION_CANDIDATES + 2)
+        ],
+    }
+    overflow_document = project_gold_entity(overflowing)
+    assert overflow_document["parentEntityKey"] is None
+    assert overflow_document["seriesEntityKey"] is None
+    assert overflow_document["seasonEntityKey"] is None
+    assert overflow_document["overflow"]["hierarchyRelations"] == 1

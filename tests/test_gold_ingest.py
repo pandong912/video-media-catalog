@@ -100,6 +100,7 @@ def _plan(draft: GoldResolutionDraft):
         silver_snapshot_ids={"community_field_assertion": 10},
         identity_snapshot_ids={"community_entity_membership": 11},
         rights_registry_digest="sha256:" + ("b" * 64),
+        source_policy_digest="sha256:" + ("9" * 64),
         field_policy_digest=policy.digest,
         resolver_digest="sha256:" + ("c" * 64),
         image_digest="sha256:" + ("d" * 64),
@@ -165,9 +166,11 @@ def test_gold_quality_and_release_commit_are_bound() -> None:
             ATTRIBUTION_MEDIA_TYPE,
             "attribution.json",
         ),
+        source_policy_digest=plan.source_policy_digest,
     )
     assert commit == type(commit).model_validate_json(commit.json_bytes())
     assert commit.schema_version == "2.1"
+    assert commit.source_policy_digest == plan.source_policy_digest
     assert "ownerSubject" not in commit.model_dump(mode="json", by_alias=True)
     with pytest.raises(ValueError):
         type(commit).model_validate(

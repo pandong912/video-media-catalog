@@ -58,9 +58,12 @@ class FakeClient:
         self.indices = FakeIndices()
         self.total_count = 0
         self.filtered_count = 0
+        self.count_bodies: list[Any] = []
 
     def count(self, *, index: str, body=None):
         assert index in self.indices.created
+        if body is not None:
+            self.count_bodies.append(body)
         return {"count": self.total_count if body is None else self.filtered_count}
 
 
@@ -83,13 +86,26 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     )
     assert digest.startswith("sha256:")
     assert digest == (
-        "sha256:4f99a4d300d5dd742e46a95627ddb62c6b50440fba1b69123129843a3b9e0b9f"
+        "sha256:03228a338268ada1e07e40061480e4fdc84eb51db2f6a3b79d70db1487a6a68a"
     )
     assert name.startswith("media-catalog-research-")
     assert "sourceBadges" in INDEX_MAPPINGS["properties"]
     assert "winningAssertions" in INDEX_MAPPINGS["properties"]
     assert "rights" in INDEX_MAPPINGS["properties"]
     assert "conflicts" in INDEX_MAPPINGS["properties"]
+    assert INDEX_MAPPINGS["_meta"]["mappingVersion"] == "8"
+    assert INDEX_MAPPINGS["properties"]["sourcePolicyDigest"] == {
+        "type": "keyword"
+    }
+    assert INDEX_MAPPINGS["properties"]["parentEntityKey"] == {"type": "keyword"}
+    assert INDEX_MAPPINGS["properties"]["seriesEntityKey"] == {"type": "keyword"}
+    assert INDEX_MAPPINGS["properties"]["seasonEntityKey"] == {"type": "keyword"}
+    assert (
+        INDEX_MAPPINGS["properties"]["overflow"]["properties"][
+            "hierarchyRelations"
+        ]
+        == {"type": "integer"}
+    )
     assert "ownerSubject" not in INDEX_MAPPINGS["properties"]
     assert INDEX_MAPPINGS["properties"]["externalIdentifiers"]["properties"]["url"] == {
         "type": "keyword",
@@ -175,15 +191,20 @@ def test_gold_index_contents_validation_rejects_mixed_release_plans() -> None:
             expected_document_count=2,
         )
     client.filtered_count = 2
+    source_policy_digest = "sha256:" + ("b" * 64)
     assert (
         validate_gold_index_contents(
             client,
             index_name="media-catalog-research-build",
             release_plan_id="sha256:" + ("a" * 64),
             expected_document_count=2,
+            source_policy_digest=source_policy_digest,
         )
         == 2
     )
+    assert {
+        "term": {"sourcePolicyDigest": source_policy_digest}
+    } in client.count_bodies[-1]["query"]["bool"]["filter"]
 
 
 def test_gold_index_manifest_binds_release_commit() -> None:
@@ -215,6 +236,7 @@ def test_gold_index_manifest_binds_release_commit() -> None:
             for table in GOLD_DATA_COLUMNS
         },
         mapping_digest=MAPPING_DIGEST,
+        source_policy_digest="sha256:" + ("d" * 64),
         config_identity=config_identity,
         config_digest=config_identity.digest,
         document_count=1,
@@ -229,6 +251,7 @@ def test_gold_index_manifest_binds_release_commit() -> None:
         completed_at="2026-09-19T00:00:00Z",
     )
     assert manifest == type(manifest).model_validate_json(manifest.json_bytes())
+    assert manifest.source_policy_digest == "sha256:" + ("d" * 64)
     with pytest.raises(ValueError, match="research index family"):
         GoldIndexBuildManifest.model_validate(
             manifest.model_copy(
@@ -515,6 +538,7 @@ class _IncrementalClient:
         self.task_responses: dict[str, dict[str, Any]] = {}
         self.reindex_calls = 0
         self.update_calls = 0
+        self.update_body: dict[str, Any] | None = None
 
     def count(self, *, index: str, body: Any = None) -> dict[str, int]:
         _ = body
@@ -533,8 +557,9 @@ class _IncrementalClient:
         }
         return {"task": "node:reindex"}
 
-    def update_by_query(self, **_kwargs: Any) -> dict[str, str]:
+    def update_by_query(self, **kwargs: Any) -> dict[str, str]:
         self.update_calls += 1
+        self.update_body = kwargs["body"]
         self.task_responses["node:update"] = {
             "total": 2,
             "updated": 2,
@@ -558,6 +583,7 @@ def test_incremental_baseline_copies_to_new_index_and_resumes(
         size_bytes=100,
     )
     target_release = "sha256:" + ("1" * 64)
+    source_policy_digest = "sha256:" + ("9" * 64)
     affected = GoldAffectedEntityManifest(
         release_plan_id=target_release,
         release_commit=release,
@@ -581,7 +607,10 @@ def test_incremental_baseline_copies_to_new_index_and_resumes(
         "alias": RESEARCH_READ_ALIAS,
         "index_name": "media-catalog-research-target",
         "build_id": "c" * 64,
-        "release_commit": SimpleNamespace(release_plan_id=target_release),
+        "release_commit": SimpleNamespace(
+            release_plan_id=target_release,
+            source_policy_digest=source_policy_digest,
+        ),
         "release_commit_reference": release,
         "affected_manifest": affected,
         "affected_manifest_reference": affected_reference,
@@ -595,6 +624,11 @@ def test_incremental_baseline_copies_to_new_index_and_resumes(
     assert receipt.operation == "BASELINE"
     assert client.reindex_calls == 1
     assert client.update_calls == 1
+    assert client.update_body is not None
+    assert client.update_body["script"]["params"] == {
+        "releasePlanId": target_release,
+        "sourcePolicyDigest": source_policy_digest,
+    }
     assert client.counts["media-catalog-research-base"] == 2
 
     client.alias_target = "media-catalog-research-target"

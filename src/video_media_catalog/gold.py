@@ -538,6 +538,7 @@ class GoldReleasePlan(V2ContractModel):
     silver_snapshot_ids: dict[str, int | None]
     identity_snapshot_ids: dict[str, int | None]
     rights_registry_digest: str
+    source_policy_digest: str | None = None
     field_policy_digest: str
     resolver_digest: str
     image_digest: str
@@ -548,6 +549,7 @@ class GoldReleasePlan(V2ContractModel):
     @field_validator(
         "release_plan_id",
         "rights_registry_digest",
+        "source_policy_digest",
         "field_policy_digest",
         "resolver_digest",
         "image_digest",
@@ -644,6 +646,8 @@ def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
         "expectedCounts": plan.expected_counts,
         "plannedAt": plan.planned_at,
     }
+    if plan.source_policy_digest is not None:
+        identity["sourcePolicyDigest"] = plan.source_policy_digest
     if plan.silver_epoch_id is None:
         identity["committedRunIds"] = plan.committed_run_ids
     else:

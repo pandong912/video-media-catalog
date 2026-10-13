@@ -46,6 +46,7 @@ from video_media_catalog.temporal.workflows.gold_index_gc import (
 
 ACTIVE = "media-catalog-research-" + ("a" * 24)
 OLD = "media-catalog-research-" + ("b" * 24)
+EXTRA = "media-catalog-research-" + ("c" * 24)
 
 
 def _ref(uri: str, media_type: str) -> ObjectRefPayload:
@@ -87,6 +88,7 @@ def _gc_input() -> GoldIndexGcInput:
             "s3://bucket/control/index-activations/activation.json",
             GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE,
         ),
+        additional_archive_indices=(EXTRA,),
         referenced_indices=(),
         env=_env(),
     )
@@ -124,6 +126,7 @@ def test_gc_and_restore_jobs_use_gc_identity_and_exact_cli_args() -> None:
     assert "--execute" in gc_args
     assert gc_args[gc_args.index("--old-index") + 1] == OLD
     assert gc_args[gc_args.index("--active-index") + 1] == ACTIVE
+    assert gc_args[gc_args.index("--additional-archive-index") + 1] == EXTRA
     assert "--activation-receipt-version" in gc_args
     assert "--activation-receipt-etag" in gc_args
     assert gc_container["securityContext"]["readOnlyRootFilesystem"] is True
@@ -189,6 +192,7 @@ def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
                 "uri": ("s3://bucket/control/index-activations/activation.json"),
                 "mediaType": GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE,
             },
+            "additionalArchiveIndices": [EXTRA],
             "referencedIndices": [],
             "reuseArchiveReceipt": archive,
             "env": env,
@@ -203,6 +207,7 @@ def test_temporal_admin_json_contracts_parse_gc_and_restore() -> None:
     )
 
     assert gc.reuse_archive_receipt is not None
+    assert gc.additional_archive_indices == (EXTRA,)
     assert gc.reuse_archive_receipt.object_version == "version"
     assert gc.activation_receipt.media_type == GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE
     assert restore.archive_receipt.etag == "etag"

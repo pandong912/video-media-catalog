@@ -103,6 +103,7 @@ class GoldIndexGcInput:
     delete_before_epoch_millis: int
     activation_receipt: ObjectRefPayload
     env: GoldIndexGcEnv
+    additional_archive_indices: tuple[str, ...] = ()
     referenced_indices: tuple[str, ...] = ()
     reuse_archive_receipt: ObjectRefPayload | None = None
 

@@ -407,7 +407,7 @@ def map_eidr_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
         envelope=envelope,
         source_node=node,
         mapper_id="eidr-source-mapper",
-        mapper_version="2.0.0",
+        mapper_version="2.1.0",
     )
     builder.add_identifier(
         EIDR_NAMESPACE_ID,
@@ -466,14 +466,19 @@ def map_eidr_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
             continue
         scheme = str(alternate.get("scheme") or "alternate").lower()
         value = alternate.get("value")
-        namespace = {
-            "imdb": (
-                "imdb-name"
-                if isinstance(value, str) and value.lower().startswith("nm")
-                else "imdb-title"
-            ),
-            "eidr": EIDR_NAMESPACE_ID,
-        }.get(scheme, "eidr-alternate")
+        namespace = (
+            _imdb_namespace_id(value.lower())
+            if scheme == "imdb" and isinstance(value, str)
+            else EIDR_NAMESPACE_ID
+            if scheme == "eidr"
+            else None
+        )
+        # EIDR exposes many provider-specific AlternateID domains. Flattening
+        # them into one exact-blocking namespace can merge unrelated works when
+        # two domains reuse the same value. Preserve those values in raw XML
+        # until each domain has a reviewed registry namespace.
+        if namespace is None:
+            continue
         builder.add_identifier(
             namespace,
             value,

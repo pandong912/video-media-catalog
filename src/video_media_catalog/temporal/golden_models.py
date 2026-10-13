@@ -60,6 +60,7 @@ class GoldenBuildInput:
     source_watermarks: dict[str, str]
     freshness_override: FreshnessOverrideInput
     env: GoldenBuildEnv
+    supplemental_source_run_ids: tuple[str, ...] = ()
     identity_reuse: ObjectRefPayload | None = None
 
 

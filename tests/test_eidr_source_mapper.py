@@ -106,7 +106,28 @@ def test_eidr_mapper_preserves_episode_parent_chain() -> None:
     assert relation.qualifiers == {"ordinal": "2"}
 
 
+def test_eidr_mapper_only_promotes_reviewed_alternate_id_namespaces() -> None:
+    mapped = map_eidr_record(
+        _envelope(
+            {
+                "alternateIds": [
+                    {"scheme": "imdb", "value": "tt0000001"},
+                    {"scheme": "eidr", "value": EIDR_ID},
+                    {"scheme": "proprietary-house-id", "value": "42"},
+                ]
+            }
+        )
+    )
+
+    identifiers = {
+        (item.namespace_id, item.value) for item in mapped.identifier_assertions
+    }
+    assert ("imdb-title", "tt0000001") in identifiers
+    assert ("eidr-content", EIDR_ID) in identifiers
+    assert all(value != "42" for _, value in identifiers)
+
+
 def test_eidr_checkpoint_identity_matches_mapper_implementation() -> None:
     identity = mapper_identity_for_product("eidr-public-registry")
     assert identity.mapper_id == "eidr-source-mapper"
-    assert identity.mapper_version == "2.0.0"
+    assert identity.mapper_version == "2.1.0"

@@ -1936,10 +1936,17 @@ def _validate_provider(
         raise EidrProviderNotAuthorizedError(
             "EIDR provider authorization does not bind the active source policy"
         )
-    store.verify(
-        authorization.authorization_object,
-        max_bytes=MAX_AUTHORIZATION_OBJECT_BYTES,
-    )
+    # Authorization evidence is deliberately tiny and version-pinned. Read and
+    # hash the exact bytes so legacy S3 evidence remains usable even when it was
+    # uploaded before native SHA-256 object metadata was enabled.
+    with tempfile.TemporaryDirectory(
+        prefix="eidr-provider-authorization-"
+    ) as directory:
+        store.download(
+            authorization.authorization_object,
+            Path(directory) / "authorization-evidence.json",
+            max_bytes=MAX_AUTHORIZATION_OBJECT_BYTES,
+        )
     return authorization
 
 

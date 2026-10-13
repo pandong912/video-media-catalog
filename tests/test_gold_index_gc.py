@@ -294,6 +294,7 @@ class _Client:
         self.events: list[str] = []
         self.count_calls = 0
         self.count_failures_remaining = 0
+        self.incomplete_count_responses_remaining = 0
         self.recovery_calls = 0
         self.active_recovery_checks_remaining = 0
         self.delete_calls = 0
@@ -302,12 +303,29 @@ class _Client:
         self.snapshot = _Snapshot(self)
         self.cluster = _Cluster()
 
-    def count(self, *, index: str) -> dict[str, int]:
+    def count(self, *, index: str) -> dict[str, Any]:
         self.count_calls += 1
         if self.count_failures_remaining:
             self.count_failures_remaining -= 1
             raise _ServiceUnavailable
-        return {"count": int(self.indexes[index]["count"])}
+        if self.incomplete_count_responses_remaining:
+            self.incomplete_count_responses_remaining -= 1
+            return {
+                "count": 0,
+                "_shards": {
+                    "total": 1,
+                    "successful": 0,
+                    "failed": 1,
+                },
+            }
+        return {
+            "count": int(self.indexes[index]["count"]),
+            "_shards": {
+                "total": 1,
+                "successful": 1,
+                "failed": 0,
+            },
+        }
 
 
 class _EventStore(BoundedObjectStore):
@@ -690,6 +708,7 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
     client.snapshot.force_clone_global_state = True
     client.active_recovery_checks_remaining = 2
     client.count_failures_remaining = 1
+    client.incomplete_count_responses_remaining = 1
     count_calls_before_fallback = client.count_calls
     refresh_calls_before_fallback = tuple(client.indices.refresh_calls)
     sleeps: list[float] = []
@@ -725,8 +744,8 @@ def test_snapshot_compaction_replaces_clone_with_global_state_via_restore(
     assert client.alias_targets == {ACTIVE}
     assert tuple(client.indices.refresh_calls) == refresh_calls_before_fallback
     assert client.recovery_calls == 3
-    assert client.count_calls == count_calls_before_fallback + 2
-    assert sleeps == [0.01, 0.01, 0.01]
+    assert client.count_calls == count_calls_before_fallback + 3
+    assert sleeps == [0.01, 0.01, 0.01, 0.01]
 
 
 def test_restored_evidence_retry_uses_the_configured_snapshot_deadline() -> None:

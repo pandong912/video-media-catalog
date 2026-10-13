@@ -11,14 +11,18 @@ with workflow.unsafe.imports_passed_through():
     from video_media_catalog.temporal.activities.gold_index_gc import (
         submit_gold_index_gc_job,
         submit_gold_index_restore_job,
+        submit_gold_index_snapshot_gc_job,
         validate_gold_index_gc,
         validate_gold_index_restore,
+        validate_gold_index_snapshot_gc,
     )
     from video_media_catalog.temporal.gold_index_models import (
         GoldIndexGcInput,
         GoldIndexGcWorkflowResult,
         GoldIndexRestoreInput,
         GoldIndexRestoreWorkflowResult,
+        GoldIndexSnapshotGcInput,
+        GoldIndexSnapshotGcWorkflowResult,
     )
     from video_media_catalog.temporal.names import (
         GOLD_INDEX_LAUNCHER_TASK_QUEUE,
@@ -101,4 +105,34 @@ class GoldIndexRestoreWorkflow:
             operation_id=input_data.operation_id,
             job_name=job.job_name,
             restore_receipt=receipt,
+        )
+
+
+@workflow.defn(name="GoldIndexSnapshotGcWorkflow")
+class GoldIndexSnapshotGcWorkflow:
+    @workflow.run
+    async def run(
+        self,
+        input_data: GoldIndexSnapshotGcInput,
+    ) -> GoldIndexSnapshotGcWorkflowResult:
+        job = await workflow.execute_activity(
+            submit_gold_index_snapshot_gc_job,
+            args=[input_data, _workflow_time()],
+            task_queue=GOLD_INDEX_LAUNCHER_TASK_QUEUE,
+            start_to_close_timeout=timedelta(hours=4),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=_JOB_RETRY,
+        )
+        receipt = await workflow.execute_activity(
+            validate_gold_index_snapshot_gc,
+            args=[input_data, job],
+            task_queue=GOLD_INDEX_VALIDATOR_TASK_QUEUE,
+            start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=_VALIDATION_RETRY,
+        )
+        return GoldIndexSnapshotGcWorkflowResult(
+            operation_id=input_data.operation_id,
+            job_name=job.job_name,
+            snapshot_gc_receipt=receipt,
         )

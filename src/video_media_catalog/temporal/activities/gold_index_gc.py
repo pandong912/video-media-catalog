@@ -16,11 +16,14 @@ from video_media_catalog.gold_index_gc import (
     GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
     GOLD_INDEX_GC_RESULT_MEDIA_TYPE,
     GOLD_INDEX_RESTORE_RECEIPT_MEDIA_TYPE,
+    GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
     GoldIndexGcResultReceipt,
     GoldIndexRestoreReceipt,
+    GoldIndexSnapshotGcReceipt,
     read_control_model,
     validate_gc_result,
     validate_restore_result,
+    validate_snapshot_gc_result,
 )
 from video_media_catalog.gold_search_index import (
     GOLD_INDEX_ACTIVATION_RECEIPT_MEDIA_TYPE,
@@ -45,6 +48,7 @@ from video_media_catalog.temporal.gold_index_models import (
     GoldIndexGcInput,
     GoldIndexRestoreInput,
     GoldIndexRuntimeJobResult,
+    GoldIndexSnapshotGcInput,
 )
 from video_media_catalog.temporal.models import ObjectRefPayload
 
@@ -57,6 +61,7 @@ _CONFLICTING_JOB_WORKLOADS = frozenset(
         ("catalog-gold-match", "matcher"),
         ("research-gold-index", "gc"),
         ("research-gold-index", "restore"),
+        ("research-gold-index", "snapshot-gc"),
     }
 )
 
@@ -80,7 +85,9 @@ def _validate_ref(
         raise ValueError(f"S3 {label} must be version and ETag pinned")
 
 
-def _validate_env(input_data: GoldIndexGcInput | GoldIndexRestoreInput) -> None:
+def _validate_env(
+    input_data: GoldIndexGcInput | GoldIndexRestoreInput | GoldIndexSnapshotGcInput,
+) -> None:
     env = input_data.env
     if _SAFE_ID.fullmatch(input_data.operation_id) is None:
         raise ValueError("operation_id must be a safe lowercase identifier")
@@ -188,6 +195,17 @@ def _validate_restore_input(input_data: GoldIndexRestoreInput) -> None:
     )
 
 
+def _validate_snapshot_gc_input(input_data: GoldIndexSnapshotGcInput) -> None:
+    _validate_env(input_data)
+    _validate_ref(
+        input_data.source_archive_receipt,
+        label="source archive receipt",
+        media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+    )
+    if _SAFE_NAME.fullmatch(input_data.replacement_snapshot) is None:
+        raise ValueError("replacement snapshot is invalid")
+
+
 def _archive_receipt_uri(input_data: GoldIndexGcInput) -> str:
     return join_uri(
         input_data.env.archive_prefix,
@@ -209,6 +227,22 @@ def _restore_receipt_uri(input_data: GoldIndexRestoreInput) -> str:
     )
 
 
+def _replacement_archive_receipt_uri(
+    input_data: GoldIndexSnapshotGcInput,
+) -> str:
+    return join_uri(
+        input_data.env.archive_prefix,
+        f"gold-index-archive-{input_data.operation_id}.json",
+    )
+
+
+def _snapshot_gc_result_uri(input_data: GoldIndexSnapshotGcInput) -> str:
+    return join_uri(
+        input_data.env.gc_result_prefix,
+        f"gold-index-snapshot-gc-{input_data.operation_id}.json",
+    )
+
+
 def _object_args(prefix: str, reference: ObjectRefPayload) -> list[str]:
     arguments = [
         f"--{prefix}-uri",
@@ -226,7 +260,7 @@ def _object_args(prefix: str, reference: ObjectRefPayload) -> list[str]:
 
 
 def _connection_args(
-    input_data: GoldIndexGcInput | GoldIndexRestoreInput,
+    input_data: GoldIndexGcInput | GoldIndexRestoreInput | GoldIndexSnapshotGcInput,
 ) -> list[str]:
     env = input_data.env
     return [
@@ -312,9 +346,40 @@ def _restore_job_args(
     ]
 
 
+def _snapshot_gc_job_args(
+    input_data: GoldIndexSnapshotGcInput,
+    *,
+    completed_at: str,
+) -> list[str]:
+    env = input_data.env
+    return [
+        "compact-snapshot",
+        *_connection_args(input_data),
+        "--operation-id",
+        input_data.operation_id,
+        *_object_args(
+            "source-archive-receipt",
+            input_data.source_archive_receipt,
+        ),
+        "--replacement-snapshot",
+        input_data.replacement_snapshot,
+        "--replacement-archive-receipt-uri",
+        _replacement_archive_receipt_uri(input_data),
+        "--snapshot-gc-result-uri",
+        _snapshot_gc_result_uri(input_data),
+        "--completed-at",
+        completed_at,
+        "--snapshot-timeout-seconds",
+        str(env.snapshot_timeout_seconds),
+        "--snapshot-poll-seconds",
+        str(env.snapshot_poll_seconds),
+        "--execute",
+    ]
+
+
 def _job_name(
     kind: str,
-    input_data: GoldIndexGcInput | GoldIndexRestoreInput,
+    input_data: GoldIndexGcInput | GoldIndexRestoreInput | GoldIndexSnapshotGcInput,
     *,
     completed_at: str,
 ) -> str:
@@ -335,7 +400,7 @@ def _job_name(
 def _runtime_job_manifest(
     *,
     kind: str,
-    input_data: GoldIndexGcInput | GoldIndexRestoreInput,
+    input_data: GoldIndexGcInput | GoldIndexRestoreInput | GoldIndexSnapshotGcInput,
     completed_at: str,
     arguments: list[str],
 ) -> dict[str, Any]:
@@ -473,6 +538,20 @@ def _restore_job_manifest(
     )
 
 
+def _snapshot_gc_job_manifest(
+    input_data: GoldIndexSnapshotGcInput,
+    *,
+    completed_at: str,
+) -> dict[str, Any]:
+    _validate_snapshot_gc_input(input_data)
+    return _runtime_job_manifest(
+        kind="snapshot-gc",
+        input_data=input_data,
+        completed_at=completed_at,
+        arguments=_snapshot_gc_job_args(input_data, completed_at=completed_at),
+    )
+
+
 def _launch(
     *,
     manifest: dict[str, Any],
@@ -569,8 +648,49 @@ def submit_gold_index_restore_job(
     )
 
 
+@activity.defn(name="SubmitGoldIndexSnapshotGcJob")
+def submit_gold_index_snapshot_gc_job(
+    input_data: GoldIndexSnapshotGcInput,
+    completed_at: str,
+) -> GoldIndexRuntimeJobResult:
+    manifest = _snapshot_gc_job_manifest(
+        input_data,
+        completed_at=completed_at,
+    )
+    job_name = _launch(
+        manifest=manifest,
+        namespace=input_data.env.kubernetes_namespace,
+    )
+    store = BoundedObjectStore(region=input_data.env.aws_region)
+    receipt_ref = _discover_ref(
+        store,
+        uri=_snapshot_gc_result_uri(input_data),
+        media_type=GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
+    )
+    receipt = read_control_model(
+        store,
+        receipt_ref,
+        media_type=GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
+        model=GoldIndexSnapshotGcReceipt,
+    )
+    if (
+        receipt.operation_id != input_data.operation_id
+        or receipt.source_archive_receipt
+        != _object_ref(input_data.source_archive_receipt)
+        or receipt.retained_snapshot != input_data.replacement_snapshot
+    ):
+        raise ApplicationError(
+            "snapshot GC Job returned a receipt for a different operation",
+            non_retryable=True,
+        )
+    return GoldIndexRuntimeJobResult(
+        job_name=job_name,
+        receipt=_payload(receipt_ref),
+    )
+
+
 def _client(
-    input_data: GoldIndexGcInput | GoldIndexRestoreInput,
+    input_data: GoldIndexGcInput | GoldIndexRestoreInput | GoldIndexSnapshotGcInput,
 ) -> Any:
     return create_opensearch_client(
         OpenSearchConnection(
@@ -638,6 +758,38 @@ def validate_gold_index_restore(
     client = _client(input_data)
     try:
         validate_restore_result(client, store, receipt)
+    finally:
+        _close(client)
+    return job_result.receipt
+
+
+@activity.defn(name="ValidateGoldIndexSnapshotGc")
+def validate_gold_index_snapshot_gc(
+    input_data: GoldIndexSnapshotGcInput,
+    job_result: GoldIndexRuntimeJobResult,
+) -> ObjectRefPayload:
+    _validate_snapshot_gc_input(input_data)
+    store = BoundedObjectStore(region=input_data.env.aws_region)
+    receipt_ref = _object_ref(job_result.receipt)
+    receipt = read_control_model(
+        store,
+        receipt_ref,
+        media_type=GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
+        model=GoldIndexSnapshotGcReceipt,
+    )
+    if (
+        receipt.operation_id != input_data.operation_id
+        or receipt.source_archive_receipt
+        != _object_ref(input_data.source_archive_receipt)
+        or receipt.retained_snapshot != input_data.replacement_snapshot
+    ):
+        raise ApplicationError(
+            "snapshot GC receipt operation mismatch",
+            non_retryable=True,
+        )
+    client = _client(input_data)
+    try:
+        validate_snapshot_gc_result(client, store, receipt)
     finally:
         _close(client)
     return job_result.receipt

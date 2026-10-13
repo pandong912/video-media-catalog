@@ -11,6 +11,7 @@ from video_media_catalog.canonical import canonical_json
 from video_media_catalog.gold_index_gc import (
     GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
     archive_delete,
+    compact_snapshot_archive,
     register_snapshot_repository,
     restore_drill,
 )
@@ -124,6 +125,33 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--completed-at", required=True)
     restore.add_argument("--restore-timeout-seconds", type=float, default=7200)
     restore.add_argument("--restore-poll-seconds", type=float, default=15)
+
+    compact = commands.add_parser(
+        "compact-snapshot",
+        help=(
+            "Plan by default; pass --execute to clone only the released "
+            "previous index and delete the superseded multi-index snapshot"
+        ),
+    )
+    _add_opensearch_arguments(compact)
+    _add_object_store_arguments(compact)
+    compact.add_argument("--operation-id", required=True)
+    _add_archive_ref_arguments(
+        compact,
+        prefix="source-archive-receipt",
+        required=True,
+    )
+    compact.add_argument("--replacement-snapshot", required=True)
+    compact.add_argument("--replacement-archive-receipt-uri", required=True)
+    compact.add_argument("--snapshot-gc-result-uri", required=True)
+    compact.add_argument("--completed-at", required=True)
+    compact.add_argument("--snapshot-timeout-seconds", type=float, default=7200)
+    compact.add_argument("--snapshot-poll-seconds", type=float, default=15)
+    compact.add_argument(
+        "--execute",
+        action="store_true",
+        help="Clone, publish replacement evidence, and delete the old snapshot",
+    )
     return parser
 
 
@@ -262,23 +290,45 @@ def run(
                 snapshot_timeout_seconds=parsed.snapshot_timeout_seconds,
                 snapshot_poll_seconds=parsed.snapshot_poll_seconds,
             )
-        archive_receipt = _reference(
+        if parsed.command == "restore-drill":
+            archive_receipt = _reference(
+                parsed,
+                prefix="archive-receipt",
+                media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+                required=True,
+            )
+            if archive_receipt is None:
+                raise RuntimeError("archive receipt reference is unavailable")
+            return restore_drill(
+                opensearch,
+                object_store,
+                operation_id=parsed.operation_id,
+                archive_receipt=archive_receipt,
+                restore_receipt_uri=parsed.restore_receipt_uri,
+                completed_at=parsed.completed_at,
+                restore_timeout_seconds=parsed.restore_timeout_seconds,
+                restore_poll_seconds=parsed.restore_poll_seconds,
+            )
+        source_archive_receipt = _reference(
             parsed,
-            prefix="archive-receipt",
+            prefix="source-archive-receipt",
             media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
             required=True,
         )
-        if archive_receipt is None:
-            raise RuntimeError("archive receipt reference is unavailable")
-        return restore_drill(
+        if source_archive_receipt is None:
+            raise RuntimeError("source archive receipt reference is unavailable")
+        return compact_snapshot_archive(
             opensearch,
             object_store,
             operation_id=parsed.operation_id,
-            archive_receipt=archive_receipt,
-            restore_receipt_uri=parsed.restore_receipt_uri,
+            source_archive_receipt=source_archive_receipt,
+            replacement_snapshot=parsed.replacement_snapshot,
+            replacement_archive_receipt_uri=(parsed.replacement_archive_receipt_uri),
+            snapshot_gc_result_uri=parsed.snapshot_gc_result_uri,
             completed_at=parsed.completed_at,
-            restore_timeout_seconds=parsed.restore_timeout_seconds,
-            restore_poll_seconds=parsed.restore_poll_seconds,
+            execute=parsed.execute,
+            snapshot_timeout_seconds=parsed.snapshot_timeout_seconds,
+            snapshot_poll_seconds=parsed.snapshot_poll_seconds,
         )
     finally:
         if owns_client:

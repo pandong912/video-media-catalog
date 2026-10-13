@@ -11,10 +11,13 @@ from video_media_catalog.gold_index_gc import (
     GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
     GOLD_INDEX_GC_RESULT_MEDIA_TYPE,
     GOLD_INDEX_RESTORE_RECEIPT_MEDIA_TYPE,
+    GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
     GoldIndexArchiveReceipt,
     GoldIndexGcResultReceipt,
     GoldIndexRestoreReceipt,
+    GoldIndexSnapshotGcReceipt,
     archive_delete,
+    compact_snapshot_archive,
     register_snapshot_repository,
     restore_drill,
 )
@@ -94,16 +97,24 @@ class _Snapshot:
         self.data: dict[str, Any] | None = None
         self.create_calls = 0
         self.restore_calls = 0
+        self.clone_calls = 0
+        self.snapshot_delete_calls = 0
+        self.cloned_records: dict[str, dict[str, Any]] = {}
         self.last_create_body: dict[str, Any] | None = None
         self.last_restore_body: dict[str, Any] | None = None
+        self.last_clone_body: dict[str, Any] | None = None
         self.repository: dict[str, Any] | None = None
 
     def get(self, *, repository: str, snapshot: str) -> dict[str, Any]:
         assert repository == "research-archive"
-        assert snapshot == "legacy-958"
-        if self.record is None:
+        record = (
+            self.record
+            if snapshot == "legacy-958"
+            else self.cloned_records.get(snapshot)
+        )
+        if record is None:
             raise _NotFound
-        return {"snapshots": [copy.deepcopy(self.record)]}
+        return {"snapshots": [copy.deepcopy(record)]}
 
     def create(
         self,
@@ -153,6 +164,39 @@ class _Snapshot:
         restored["settings"]["index"]["uuid"] = "restored-uuid"
         restored["settings"]["index"]["creation_date"] = "999"
         self.owner.indexes[OLD] = restored
+
+    def clone(
+        self,
+        *,
+        repository: str,
+        snapshot: str,
+        target_snapshot: str,
+        body: dict[str, Any],
+    ) -> None:
+        assert repository == "research-archive"
+        assert snapshot == "legacy-958"
+        assert self.record is not None
+        assert body["indices"] == OLD
+        self.clone_calls += 1
+        self.last_clone_body = copy.deepcopy(body)
+        cloned = copy.deepcopy(self.record)
+        cloned.update(
+            {
+                "snapshot": target_snapshot,
+                "uuid": "clone-uuid",
+                "indices": [OLD],
+            }
+        )
+        self.cloned_records[target_snapshot] = cloned
+
+    def delete(self, *, repository: str, snapshot: str) -> dict[str, bool]:
+        assert repository == "research-archive"
+        assert snapshot == "legacy-958"
+        assert self.record is not None
+        self.owner.events.append("delete_snapshot")
+        self.snapshot_delete_calls += 1
+        self.record = None
+        return {"acknowledged": True}
 
     def get_repository(self, *, repository: str) -> dict[str, Any]:
         if self.repository is None:
@@ -508,6 +552,81 @@ def test_batch_archive_deletes_failed_shadows_and_restores_only_previous(
     assert second["status"] == "DELETED"
     assert client.snapshot.create_calls == 1
     assert set(client.indexes) == {ACTIVE}
+
+
+def test_snapshot_compaction_retains_previous_and_deletes_shadow_data(
+    tmp_path: Path,
+) -> None:
+    client = _Client()
+    for index_name, uuid in (
+        (EXTRA_ONE, "extra-one-uuid"),
+        (EXTRA_TWO, "extra-two-uuid"),
+    ):
+        client.indexes[index_name] = copy.deepcopy(client.indexes[OLD])
+        client.indexes[index_name]["settings"]["index"]["uuid"] = uuid
+    store = _EventStore(client.events)
+    archived = _archive(
+        client,
+        store,
+        tmp_path,
+        additional_archive_indices=(EXTRA_ONE, EXTRA_TWO),
+    )
+    source_ref = ObjectRef.model_validate(archived["archiveReceipt"])
+    replacement_uri = (tmp_path / "archive-previous-only.json").as_uri()
+    result_uri = (tmp_path / "snapshot-gc.json").as_uri()
+
+    result = compact_snapshot_archive(
+        client,
+        store,
+        operation_id="compact-legacy-958",
+        source_archive_receipt=source_ref,
+        replacement_snapshot="legacy-958-previous-only",
+        replacement_archive_receipt_uri=replacement_uri,
+        snapshot_gc_result_uri=result_uri,
+        completed_at=NOW,
+        execute=True,
+        snapshot_poll_seconds=0.01,
+        sleep=lambda _seconds: None,
+    )
+
+    assert result["status"] == "COMPACTED"
+    assert client.snapshot.clone_calls == 1
+    assert client.snapshot.snapshot_delete_calls == 1
+    assert client.snapshot.record is None
+    assert client.snapshot.cloned_records["legacy-958-previous-only"]["indices"] == [
+        OLD
+    ]
+    replacement = GoldIndexArchiveReceipt.model_validate_json(
+        Path(replacement_uri.removeprefix("file://")).read_bytes()
+    )
+    receipt = GoldIndexSnapshotGcReceipt.model_validate_json(
+        Path(result_uri.removeprefix("file://")).read_bytes()
+    )
+    assert replacement.snapshot_indices == (OLD,)
+    assert receipt.deleted_snapshot_indices == tuple(
+        sorted((OLD, EXTRA_ONE, EXTRA_TWO))
+    )
+    assert receipt.retained_snapshot_indices == (OLD,)
+    assert client.events[-3:] == [
+        f"publish:{GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE}",
+        "delete_snapshot",
+        f"publish:{GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE}",
+    ]
+
+    repeated = compact_snapshot_archive(
+        client,
+        store,
+        operation_id="compact-legacy-958",
+        source_archive_receipt=source_ref,
+        replacement_snapshot="legacy-958-previous-only",
+        replacement_archive_receipt_uri=replacement_uri,
+        snapshot_gc_result_uri=result_uri,
+        completed_at="2026-10-14T00:00:00Z",
+        execute=True,
+    )
+    assert repeated["reused"] is True
+    assert client.snapshot.clone_calls == 1
+    assert client.snapshot.snapshot_delete_calls == 1
 
 
 def test_gc_is_idempotent_and_reuses_snapshot_after_restore(

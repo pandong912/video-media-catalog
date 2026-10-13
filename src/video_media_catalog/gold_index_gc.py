@@ -50,6 +50,9 @@ GOLD_INDEX_GC_RESULT_MEDIA_TYPE = (
 GOLD_INDEX_RESTORE_RECEIPT_MEDIA_TYPE = (
     "application/vnd.video-media-catalog.gold-index-restore.v2+json"
 )
+GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.gold-index-snapshot-gc.v2+json"
+)
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,254}$")
 _SAFE_OPERATION_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -318,6 +321,84 @@ class GoldIndexRestoreReceipt(V2ContractModel):
             or self.alias_indices_after != expected
         ):
             raise ValueError("restore drill must preserve the active-only read alias")
+        return self
+
+
+class GoldIndexSnapshotGcReceipt(V2ContractModel):
+    """Immutable evidence that a superseded multi-index snapshot was deleted."""
+
+    schema_version: Literal["2.1"] = "2.1"
+    status: Literal["COMPACTED"] = "COMPACTED"
+    operation_id: str
+    source_archive_receipt: ObjectRef
+    replacement_archive_receipt: ObjectRef
+    repository: str
+    deleted_snapshot: str
+    deleted_snapshot_uuid: str = Field(min_length=1, max_length=512)
+    retained_snapshot: str
+    retained_snapshot_uuid: str = Field(min_length=1, max_length=512)
+    deleted_snapshot_indices: tuple[str, ...]
+    retained_snapshot_indices: tuple[str, ...]
+    old_index: str
+    active_index: str
+    read_alias: Literal["media-catalog-research-read"] = RESEARCH_READ_ALIAS
+    deleted_at: str
+
+    @field_validator("operation_id")
+    @classmethod
+    def validate_operation_id(cls, value: str) -> str:
+        return _operation_id(value)
+
+    @field_validator("repository", "deleted_snapshot", "retained_snapshot")
+    @classmethod
+    def validate_repository_name(cls, value: str) -> str:
+        return _safe_name(value, label="snapshot repository/name")
+
+    @field_validator("old_index", "active_index")
+    @classmethod
+    def validate_index(cls, value: str) -> str:
+        return _research_index(value, label="Research index")
+
+    @field_validator("deleted_snapshot_indices", "retained_snapshot_indices")
+    @classmethod
+    def validate_snapshot_indices(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for index_name in value:
+            _research_index(index_name, label="snapshot Research index")
+        if value != tuple(sorted(set(value))):
+            raise ValueError("snapshot indices must be sorted and unique")
+        return value
+
+    @field_validator("deleted_at")
+    @classmethod
+    def validate_deleted_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> GoldIndexSnapshotGcReceipt:
+        for reference, label in (
+            (self.source_archive_receipt, "source archive receipt"),
+            (self.replacement_archive_receipt, "replacement archive receipt"),
+        ):
+            _validate_control_ref(
+                reference,
+                media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+                label=label,
+            )
+        if (
+            self.old_index == self.active_index
+            or self.deleted_snapshot == self.retained_snapshot
+            or self.deleted_snapshot_uuid == self.retained_snapshot_uuid
+            or self.retained_snapshot_indices != (self.old_index,)
+            or self.active_index in self.deleted_snapshot_indices
+            or not set(self.retained_snapshot_indices).issubset(
+                self.deleted_snapshot_indices
+            )
+            or len(self.deleted_snapshot_indices) <= len(self.retained_snapshot_indices)
+        ):
+            raise ValueError(
+                "snapshot GC must replace a larger inactive set with exactly "
+                "the released previous index"
+            )
         return self
 
 
@@ -679,6 +760,99 @@ def _ensure_snapshot(
             raise RuntimeError(f"OpenSearch snapshot ended in state {state}")
         if monotonic() >= deadline:
             raise TimeoutError("OpenSearch snapshot did not finish before timeout")
+        sleep(poll_seconds)
+
+
+def _ensure_snapshot_clone(
+    client: Any,
+    *,
+    repository: str,
+    source_snapshot: str,
+    source_snapshot_indices: tuple[str, ...],
+    source_snapshot_uuid: str,
+    target_snapshot: str,
+    target_index: str,
+    timeout_seconds: float,
+    poll_seconds: float,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> Mapping[str, Any]:
+    assert_snapshot_success(
+        client,
+        repository=repository,
+        snapshot=source_snapshot,
+        snapshot_indices=source_snapshot_indices,
+        expected_uuid=source_snapshot_uuid,
+    )
+    record = _snapshot_record(
+        client,
+        repository=repository,
+        snapshot=target_snapshot,
+    )
+    if record is None:
+        client.snapshot.clone(
+            repository=repository,
+            snapshot=source_snapshot,
+            target_snapshot=target_snapshot,
+            body={"indices": target_index},
+        )
+    deadline = monotonic() + timeout_seconds
+    expected_indices = (target_index,)
+    while True:
+        record = _snapshot_record(
+            client,
+            repository=repository,
+            snapshot=target_snapshot,
+        )
+        if record is None:
+            raise RuntimeError("OpenSearch lost the requested snapshot clone")
+        indices = record.get("indices")
+        if (
+            not isinstance(indices, list)
+            or tuple(sorted(map(str, indices))) != expected_indices
+        ):
+            raise RuntimeError(
+                "existing OpenSearch snapshot clone has a different index set"
+            )
+        if record.get("include_global_state") is not False:
+            raise RuntimeError(
+                "OpenSearch snapshot clone includes global cluster state"
+            )
+        state = str(record.get("state", ""))
+        if state == "SUCCESS":
+            if _snapshot_failed_shards(record) != 0:
+                raise RuntimeError("OpenSearch snapshot clone contains failed shards")
+            return record
+        if state in {"FAILED", "PARTIAL", "INCOMPATIBLE"}:
+            raise RuntimeError(f"OpenSearch snapshot clone ended in state {state}")
+        if monotonic() >= deadline:
+            raise TimeoutError(
+                "OpenSearch snapshot clone did not finish before timeout"
+            )
+        sleep(poll_seconds)
+
+
+def _wait_for_snapshot_absent(
+    client: Any,
+    *,
+    repository: str,
+    snapshot: str,
+    timeout_seconds: float,
+    poll_seconds: float,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> None:
+    deadline = monotonic() + timeout_seconds
+    while (
+        _snapshot_record(
+            client,
+            repository=repository,
+            snapshot=snapshot,
+        )
+        is not None
+    ):
+        if monotonic() >= deadline:
+            raise TimeoutError("OpenSearch snapshot was not deleted before timeout")
         sleep(poll_seconds)
 
 
@@ -1552,6 +1726,370 @@ def validate_restore_result(
     )
     if aliases != receipt.alias_indices_after:
         raise RuntimeError("restore receipt alias evidence no longer matches")
+
+
+def _validate_snapshot_compaction_pair(
+    source: GoldIndexArchiveReceipt,
+    replacement: GoldIndexArchiveReceipt,
+    *,
+    replacement_snapshot: str,
+) -> None:
+    _validate_archive_identity(
+        replacement,
+        activation_receipt=source.activation_receipt,
+        repository=source.repository,
+        snapshot=replacement_snapshot,
+        old_index=source.old_index,
+        active_index=source.active_index,
+    )
+    if (
+        source.snapshot == replacement.snapshot
+        or source.snapshot_uuid == replacement.snapshot_uuid
+        or source.snapshot_indices == (source.old_index,)
+        or replacement.snapshot_indices != (source.old_index,)
+        or source.mapping_digest != replacement.mapping_digest
+        or source.settings_digest != replacement.settings_digest
+        or source.document_count != replacement.document_count
+        or not set(replacement.snapshot_indices).issubset(source.snapshot_indices)
+    ):
+        raise RuntimeError(
+            "replacement archive must retain only the released previous index"
+        )
+
+
+def _validate_snapshot_gc_identity(
+    receipt: GoldIndexSnapshotGcReceipt,
+    *,
+    operation_id: str,
+    source_archive_receipt: ObjectRef,
+    replacement_archive_receipt: ObjectRef,
+    source: GoldIndexArchiveReceipt,
+    replacement: GoldIndexArchiveReceipt,
+) -> None:
+    if (
+        receipt.operation_id != operation_id
+        or receipt.source_archive_receipt != source_archive_receipt
+        or receipt.replacement_archive_receipt != replacement_archive_receipt
+        or receipt.repository != source.repository
+        or receipt.deleted_snapshot != source.snapshot
+        or receipt.deleted_snapshot_uuid != source.snapshot_uuid
+        or receipt.retained_snapshot != replacement.snapshot
+        or receipt.retained_snapshot_uuid != replacement.snapshot_uuid
+        or receipt.deleted_snapshot_indices != source.snapshot_indices
+        or receipt.retained_snapshot_indices != replacement.snapshot_indices
+        or receipt.old_index != source.old_index
+        or receipt.active_index != source.active_index
+    ):
+        raise RuntimeError("snapshot GC receipt conflicts with this operation")
+
+
+def validate_snapshot_gc_result(
+    client: Any,
+    store: BoundedObjectStore,
+    receipt: GoldIndexSnapshotGcReceipt,
+) -> None:
+    """Independently verify replacement retention and source snapshot deletion."""
+
+    source = read_control_model(
+        store,
+        receipt.source_archive_receipt,
+        media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+        model=GoldIndexArchiveReceipt,
+    )
+    replacement = read_control_model(
+        store,
+        receipt.replacement_archive_receipt,
+        media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+        model=GoldIndexArchiveReceipt,
+    )
+    _validate_activation_receipt(
+        store,
+        source.activation_receipt,
+        active_index=source.active_index,
+        old_index=source.old_index,
+    )
+    _validate_snapshot_compaction_pair(
+        source,
+        replacement,
+        replacement_snapshot=receipt.retained_snapshot,
+    )
+    _validate_snapshot_gc_identity(
+        receipt,
+        operation_id=receipt.operation_id,
+        source_archive_receipt=receipt.source_archive_receipt,
+        replacement_archive_receipt=receipt.replacement_archive_receipt,
+        source=source,
+        replacement=replacement,
+    )
+    if (
+        _snapshot_record(
+            client,
+            repository=source.repository,
+            snapshot=source.snapshot,
+        )
+        is not None
+    ):
+        raise RuntimeError("superseded multi-index snapshot still exists")
+    assert_snapshot_success(
+        client,
+        repository=replacement.repository,
+        snapshot=replacement.snapshot,
+        snapshot_indices=replacement.snapshot_indices,
+        expected_uuid=replacement.snapshot_uuid,
+    )
+    _assert_post_delete_state(
+        client,
+        old_index=source.old_index,
+        active_index=source.active_index,
+        archive_indices=source.snapshot_indices,
+    )
+
+
+def compact_snapshot_archive(
+    client: Any,
+    store: BoundedObjectStore,
+    *,
+    operation_id: str,
+    source_archive_receipt: ObjectRef,
+    replacement_snapshot: str,
+    replacement_archive_receipt_uri: str,
+    snapshot_gc_result_uri: str,
+    completed_at: str,
+    execute: bool = False,
+    snapshot_timeout_seconds: float = 7200,
+    snapshot_poll_seconds: float = 15,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Clone only the released previous index, then retire a larger snapshot."""
+
+    operation_id = _operation_id(operation_id)
+    replacement_snapshot = _safe_name(
+        replacement_snapshot,
+        label="replacement snapshot",
+    )
+    completed_at = require_rfc3339(completed_at)
+    if snapshot_timeout_seconds <= 0 or snapshot_poll_seconds <= 0:
+        raise ValueError("snapshot timeout and poll interval must be positive")
+    source = read_control_model(
+        store,
+        source_archive_receipt,
+        media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+        model=GoldIndexArchiveReceipt,
+    )
+    _validate_activation_receipt(
+        store,
+        source.activation_receipt,
+        active_index=source.active_index,
+        old_index=source.old_index,
+    )
+    if source.snapshot_indices == (source.old_index,):
+        raise RuntimeError("source snapshot already contains only the previous index")
+    if replacement_snapshot == source.snapshot:
+        raise ValueError("replacement snapshot must differ from source snapshot")
+    _assert_post_delete_state(
+        client,
+        old_index=source.old_index,
+        active_index=source.active_index,
+        archive_indices=source.snapshot_indices,
+    )
+
+    existing_result_ref = discover_control_ref(
+        store,
+        uri=snapshot_gc_result_uri,
+        media_type=GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
+        required=False,
+    )
+    if existing_result_ref is not None:
+        existing_result = read_control_model(
+            store,
+            existing_result_ref,
+            media_type=GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
+            model=GoldIndexSnapshotGcReceipt,
+        )
+        validate_snapshot_gc_result(client, store, existing_result)
+        if (
+            existing_result.operation_id != operation_id
+            or existing_result.source_archive_receipt != source_archive_receipt
+            or existing_result.retained_snapshot != replacement_snapshot
+            or existing_result.replacement_archive_receipt.uri
+            != replacement_archive_receipt_uri
+        ):
+            raise RuntimeError("existing snapshot GC receipt conflicts with request")
+        return {
+            "status": "COMPACTED",
+            "reused": True,
+            "snapshotGcReceipt": _receipt_dump(existing_result_ref),
+            "sourceArchiveReceipt": _receipt_dump(source_archive_receipt),
+            "replacementArchiveReceipt": _receipt_dump(
+                existing_result.replacement_archive_receipt
+            ),
+        }
+
+    replacement_ref = discover_control_ref(
+        store,
+        uri=replacement_archive_receipt_uri,
+        media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+        required=False,
+    )
+    replacement: GoldIndexArchiveReceipt | None = None
+    if replacement_ref is not None:
+        replacement = read_control_model(
+            store,
+            replacement_ref,
+            media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+            model=GoldIndexArchiveReceipt,
+        )
+        _validate_snapshot_compaction_pair(
+            source,
+            replacement,
+            replacement_snapshot=replacement_snapshot,
+        )
+        assert_snapshot_success(
+            client,
+            repository=replacement.repository,
+            snapshot=replacement.snapshot,
+            snapshot_indices=replacement.snapshot_indices,
+            expected_uuid=replacement.snapshot_uuid,
+        )
+
+    source_record = _snapshot_record(
+        client,
+        repository=source.repository,
+        snapshot=source.snapshot,
+    )
+    if source_record is None and replacement is None:
+        raise RuntimeError(
+            "source snapshot is absent without a replacement archive receipt"
+        )
+    if source_record is not None:
+        assert_snapshot_success(
+            client,
+            repository=source.repository,
+            snapshot=source.snapshot,
+            snapshot_indices=source.snapshot_indices,
+            expected_uuid=source.snapshot_uuid,
+        )
+    if not execute:
+        return {
+            "status": "DRY_RUN",
+            "execute": False,
+            "sourceSnapshot": source.snapshot,
+            "sourceSnapshotIndices": list(source.snapshot_indices),
+            "replacementSnapshot": replacement_snapshot,
+            "replacementSnapshotReusable": replacement is not None,
+            "retainedSnapshotIndices": [source.old_index],
+            "sourceArchiveReceipt": _receipt_dump(source_archive_receipt),
+        }
+
+    if replacement is None:
+        if source_record is None:
+            raise RuntimeError("source snapshot disappeared before clone")
+        clone_record = _ensure_snapshot_clone(
+            client,
+            repository=source.repository,
+            source_snapshot=source.snapshot,
+            source_snapshot_indices=source.snapshot_indices,
+            source_snapshot_uuid=source.snapshot_uuid,
+            target_snapshot=replacement_snapshot,
+            target_index=source.old_index,
+            timeout_seconds=snapshot_timeout_seconds,
+            poll_seconds=snapshot_poll_seconds,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+        snapshot_uuid = clone_record.get("uuid")
+        if not isinstance(snapshot_uuid, str) or not snapshot_uuid:
+            raise RuntimeError("OpenSearch snapshot clone omitted its immutable UUID")
+        replacement = GoldIndexArchiveReceipt(
+            operation_id=operation_id,
+            activation_receipt=source.activation_receipt,
+            repository=source.repository,
+            snapshot=replacement_snapshot,
+            snapshot_uuid=snapshot_uuid,
+            old_index=source.old_index,
+            active_index=source.active_index,
+            mapping_digest=source.mapping_digest,
+            settings_digest=source.settings_digest,
+            document_count=source.document_count,
+            snapshot_indices=(source.old_index,),
+            failed_shards=0,
+            archived_at=completed_at,
+        )
+        replacement_ref = _publish_model(
+            store,
+            model=replacement,
+            destination_uri=replacement_archive_receipt_uri,
+            media_type=GOLD_INDEX_ARCHIVE_RECEIPT_MEDIA_TYPE,
+        )
+    if replacement_ref is None or replacement is None:
+        raise RuntimeError("replacement archive publication returned no reference")
+
+    assert_snapshot_success(
+        client,
+        repository=source.repository,
+        snapshot=replacement.snapshot,
+        snapshot_indices=replacement.snapshot_indices,
+        expected_uuid=replacement.snapshot_uuid,
+    )
+    source_record = _snapshot_record(
+        client,
+        repository=source.repository,
+        snapshot=source.snapshot,
+    )
+    if source_record is not None:
+        assert_snapshot_success(
+            client,
+            repository=source.repository,
+            snapshot=source.snapshot,
+            snapshot_indices=source.snapshot_indices,
+            expected_uuid=source.snapshot_uuid,
+        )
+        response = client.snapshot.delete(
+            repository=source.repository,
+            snapshot=source.snapshot,
+        )
+        if isinstance(response, Mapping) and response.get("acknowledged") is False:
+            raise RuntimeError("OpenSearch rejected source snapshot deletion")
+    _wait_for_snapshot_absent(
+        client,
+        repository=source.repository,
+        snapshot=source.snapshot,
+        timeout_seconds=snapshot_timeout_seconds,
+        poll_seconds=snapshot_poll_seconds,
+        monotonic=monotonic,
+        sleep=sleep,
+    )
+
+    receipt = GoldIndexSnapshotGcReceipt(
+        operation_id=operation_id,
+        source_archive_receipt=source_archive_receipt,
+        replacement_archive_receipt=replacement_ref,
+        repository=source.repository,
+        deleted_snapshot=source.snapshot,
+        deleted_snapshot_uuid=source.snapshot_uuid,
+        retained_snapshot=replacement.snapshot,
+        retained_snapshot_uuid=replacement.snapshot_uuid,
+        deleted_snapshot_indices=source.snapshot_indices,
+        retained_snapshot_indices=replacement.snapshot_indices,
+        old_index=source.old_index,
+        active_index=source.active_index,
+        deleted_at=completed_at,
+    )
+    validate_snapshot_gc_result(client, store, receipt)
+    receipt_ref = _publish_model(
+        store,
+        model=receipt,
+        destination_uri=snapshot_gc_result_uri,
+        media_type=GOLD_INDEX_SNAPSHOT_GC_RECEIPT_MEDIA_TYPE,
+    )
+    return {
+        "status": "COMPACTED",
+        "reused": source_record is None,
+        "snapshotGcReceipt": _receipt_dump(receipt_ref),
+        "sourceArchiveReceipt": _receipt_dump(source_archive_receipt),
+        "replacementArchiveReceipt": _receipt_dump(replacement_ref),
+    }
 
 
 def _repository_body(

@@ -116,6 +116,14 @@ class GoldIndexRestoreInput:
 
 
 @dataclass(frozen=True)
+class GoldIndexSnapshotGcInput:
+    operation_id: str
+    source_archive_receipt: ObjectRefPayload
+    replacement_snapshot: str
+    env: GoldIndexGcEnv
+
+
+@dataclass(frozen=True)
 class GoldIndexRuntimeJobResult:
     job_name: str
     receipt: ObjectRefPayload
@@ -133,3 +141,10 @@ class GoldIndexRestoreWorkflowResult:
     operation_id: str
     job_name: str
     restore_receipt: ObjectRefPayload
+
+
+@dataclass(frozen=True)
+class GoldIndexSnapshotGcWorkflowResult:
+    operation_id: str
+    job_name: str
+    snapshot_gc_receipt: ObjectRefPayload

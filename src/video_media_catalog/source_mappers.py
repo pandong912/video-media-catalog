@@ -380,6 +380,30 @@ def map_wikidata_record(
     return builder.build()
 
 
+def map_wikidata_research_record(
+    envelope: ConnectorRecordEnvelope,
+) -> MappedAssertions:
+    """Dispatch reviewed domain profiles while preserving the Film mapper."""
+
+    if envelope.payload_json is not None:
+        payload = json.loads(envelope.payload_json)
+        if isinstance(payload, dict):
+            entity_type = str(payload.get("entityTypeHint") or "").strip().upper()
+            if entity_type.startswith("SPORTS_"):
+                from video_media_catalog.sports_sources import (
+                    map_wikidata_sports_record,
+                )
+
+                return map_wikidata_sports_record(envelope)
+            if payload.get("researchDomain") == "ANIMATION":
+                from video_media_catalog.animation_sources import (
+                    map_wikidata_animation_record,
+                )
+
+                return map_wikidata_animation_record(envelope)
+    return map_wikidata_record(envelope)
+
+
 def map_eidr_record(envelope: ConnectorRecordEnvelope) -> MappedAssertions:
     """Map one normalized EIDR exact-lookup record."""
 

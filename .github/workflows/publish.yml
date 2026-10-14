@@ -234,3 +234,45 @@ jobs:
         with:
           name: ${{ matrix.artifact }}-image-reference
           path: image-reference-${{ matrix.artifact }}.txt
+
+  request-gitops-update:
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: video-media-catalog*-image-reference
+          path: image-references
+      - name: Request immutable GitOps digest update
+        env:
+          GH_TOKEN: ${{ secrets.VIDEO_WORLD_INFRA_DISPATCH_TOKEN }}
+        run: |
+          worker_reference="$(
+            cat image-references/video-media-catalog-image-reference/image-reference-video-media-catalog.txt
+          )"
+          emr_reference="$(
+            cat image-references/video-media-catalog-emr-image-reference/image-reference-video-media-catalog-emr.txt
+          )"
+          worker_digest="${worker_reference##*@}"
+          emr_digest="${emr_reference##*@}"
+          [[ "$worker_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$emr_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          jq -n \
+            --arg sourceRepository "$GITHUB_REPOSITORY" \
+            --arg sourceRevision "$GITHUB_SHA" \
+            --arg imageDigest "$worker_digest" \
+            --arg emrImageDigest "$emr_digest" \
+            '{
+              event_type: "media-catalog-research-image-published",
+              client_payload: {
+                sourceRepository: $sourceRepository,
+                sourceRevision: $sourceRevision,
+                imageDigest: $imageDigest,
+                emrImageDigest: $emrImageDigest
+              }
+            }' \
+            | gh api \
+                --method POST \
+                repos/pandong912/video-world-infra/dispatches \
+                --input -

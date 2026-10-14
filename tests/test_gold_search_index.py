@@ -86,14 +86,17 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     )
     assert digest.startswith("sha256:")
     assert digest == (
-        "sha256:e4967023acc4f3e3a5be3a1324fe2ce60bf586d75a6e27107dd2a8c5c4f5037e"
+        "sha256:7b4aab157c535bdce655f77551252fe7b942285fa34e130fb609ce4ad58fd35a"
     )
     assert name.startswith("media-catalog-research-")
     assert "sourceBadges" in INDEX_MAPPINGS["properties"]
     assert "winningAssertions" in INDEX_MAPPINGS["properties"]
     assert "rights" in INDEX_MAPPINGS["properties"]
     assert "conflicts" in INDEX_MAPPINGS["properties"]
-    assert INDEX_MAPPINGS["_meta"]["mappingVersion"] == "8"
+    assert INDEX_MAPPINGS["_meta"]["mappingVersion"] == "9"
+    assert INDEX_MAPPINGS["properties"]["domains"] == {"type": "keyword"}
+    assert INDEX_MAPPINGS["properties"]["currentResults"]["dynamic"] == "strict"
+    assert INDEX_MAPPINGS["properties"]["observationHistory"]["dynamic"] == "strict"
     assert INDEX_MAPPINGS["properties"]["sourcePolicyDigest"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["parentEntityKey"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["seriesEntityKey"] == {"type": "keyword"}

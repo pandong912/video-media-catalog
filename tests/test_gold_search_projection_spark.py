@@ -177,7 +177,10 @@ def test_distributed_projection_derives_transitive_episode_hierarchy(
             "object_entity_key": target,
             "qualifiers_json": "{}",
             "assertion_ids_json": '["sha256:' + f"{index + 30:064x}" + '"]',
-            "trace_json": "{}",
+            "trace_json": _trace(
+                "sha256:" + f"{index + 30:064x}",
+                f"/relations/{index}",
+            ),
         }
         for index, (subject, predicate, target) in enumerate(
             (

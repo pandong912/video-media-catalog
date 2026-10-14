@@ -1,0 +1,89 @@
+{
+  "id": "Q200000001",
+  "researchDomain": "ANIMATION",
+  "entityTypeHint": "MOVIE",
+  "labels": {
+    "ja": {
+      "language": "ja",
+      "value": "研究映画"
+    },
+    "en": {
+      "language": "en",
+      "value": "Research Animated Film"
+    }
+  },
+  "aliases": {
+    "en": [
+      {
+        "language": "en",
+        "value": "Research Film"
+      }
+    ]
+  },
+  "releaseForm": "THEATRICAL_FILM",
+  "animationTechniques": ["2D"],
+  "tradition": {
+    "value": "ANIME",
+    "evidence": "reviewed Wikidata class closure"
+  },
+  "claims": {
+    "P345": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": "tt1234567"
+          }
+        }
+      }
+    ],
+    "P144": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q200000002"
+            }
+          }
+        }
+      }
+    ],
+    "P674": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q200000003"
+            }
+          }
+        }
+      }
+    ],
+    "P725": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q200000004"
+            }
+          }
+        }
+      }
+    ],
+    "P57": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q200000005"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

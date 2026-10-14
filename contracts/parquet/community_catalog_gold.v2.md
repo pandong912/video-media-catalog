@@ -154,6 +154,21 @@ predicate and fixed reason described above; `trace_json` carries
 `namespaceId`, `normalizedValue`, `blockingReferentKind`, sorted
 `entityCandidates`, and full assertion lineage.
 
+### `community_gold_observation`
+
+Primary key: deterministic
+`(release_plan_id, entity_key, observation_key, assertion_id)`.
+
+- `row_key`, `release_plan_id`, `entity_key`, `observation_key`, `assertion_id`
+- `predicate`, `value_type`, `value_json`, `qualifiers_json`
+- `observed_at`, nullable `valid_from`, nullable `valid_to`
+- nullable `supersedes_assertion_id`, `is_winning`, `trace_json`
+
+This append-only table retains schedule, status, score, period/set score,
+placement, standings, and research-detail revisions. The current Gold field is
+selected by `source × predicate × valid-time`; superseded observations remain
+queryable and never use last-write-wins deletion.
+
 ### `community_gold_release_plan`
 
 Uniqueness key: `release_plan_id`.

@@ -37,6 +37,63 @@ MAX_CONFLICTS = 64
 MAX_CONFLICT_ASSERTIONS = 32
 MAX_CONFLICT_VALUES = 16
 MAX_HIERARCHY_RELATION_CANDIDATES = 16
+MAX_SPORTS_PARTICIPANTS = 64
+MAX_CURRENT_RESULTS = 64
+MAX_ANIMATION_RELATIONS = 128
+MAX_OBSERVATION_HISTORY = 128
+
+_SPORTS_FIELD_PREDICATES = frozenset(
+    {
+        "discipline",
+        "scheduled_start",
+        "event_date",
+        "round_number",
+        "event_status",
+        "score",
+        "period_score",
+        "set_score",
+        "placement",
+        "outcome",
+        "standing",
+        "match_statistics",
+        "lineup",
+        "freeze_frame",
+    }
+)
+_SPORTS_RESULT_PREDICATES = frozenset(
+    {
+        "score",
+        "period_score",
+        "set_score",
+        "placement",
+        "outcome",
+        "standing",
+    }
+)
+_SPORTS_RELATION_PREDICATES = frozenset(
+    {
+        "held_at",
+        "participant",
+        "part_of_competition",
+        "part_of_sports_season",
+        "part_of_stage",
+    }
+)
+_ANIMATION_FIELD_PREDICATES = frozenset(
+    {
+        "animation_technique",
+        "release_form",
+        "animation_tradition",
+    }
+)
+_ANIMATION_RELATION_PREDICATES = frozenset(
+    {
+        "adaptation_of",
+        "character_appearance",
+        "voice_performer",
+        "production_credit",
+    }
+)
 
 _PARENT_RELATION_PREDICATES = frozenset(
     {
@@ -172,6 +229,36 @@ def _duration_us(minutes: set[int]) -> int | None:
     if selected is None:
         return None
     return selected * 60_000_000
+
+
+def _unique_json_scalar(
+    values: list[dict[str, Any]],
+    *,
+    expected_type: type,
+) -> Any | None:
+    selected = {
+        item["valueJson"]: item["value"]
+        for item in values
+        if isinstance(item["value"], expected_type)
+        and not isinstance(item["value"], bool)
+    }
+    if len(selected) != 1:
+        return None
+    return next(iter(selected.values()))
+
+
+def _unique_key(values: set[str]) -> str | None:
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def _is_studio_relation(qualifiers: Mapping[str, Any]) -> bool:
+    if str(qualifiers.get("wikidataProperty") or "").upper() == "P272":
+        return True
+    role = " ".join(
+        str(qualifiers.get(key) or "").strip().casefold()
+        for key in ("role", "department")
+    )
+    return "studio" in role or "production company" in role
 
 
 def _content_type(value: Any) -> str | None:
@@ -319,6 +406,7 @@ def project_gold_entity(
     citation_overflow = 0
     match_ints: dict[str, set[int]] = {name: set() for name in _MATCH_INT_PREDICATES}
     premiered_years: set[int] = set()
+    selected_field_values: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     def register_lineage(items: tuple[GoldAssertionLineage, ...]) -> None:
         for item in items:
@@ -346,6 +434,17 @@ def project_gold_entity(
             raise ValueError("selected Gold value has incomplete assertion lineage")
         parsed = json.loads(field["value_json"])
         predicate = str(field["predicate"])
+        qualifiers = json.loads(field["qualifiers_json"])
+        if not isinstance(qualifiers, dict):
+            raise ValueError("Gold field qualifiers must be a JSON object")
+        selected_field_values[predicate].append(
+            {
+                "value": parsed,
+                "valueJson": str(field["value_json"]),
+                "qualifiersJson": str(field["qualifiers_json"]),
+                "resolutionStatus": str(field["resolution_status"]),
+            }
+        )
         for assertion_id in winner_ids:
             item = field_lineage_by_id[assertion_id]
             source = source_policy.source(item.source_product_id)
@@ -381,7 +480,6 @@ def project_gold_entity(
             )
             winning_ids.add(assertion_id)
         if predicate == "title" and isinstance(parsed, str):
-            qualifiers = json.loads(field["qualifiers_json"])
             titles.append(
                 {
                     "value": parsed,
@@ -525,6 +623,143 @@ def project_gold_entity(
     )
     relation_overflow = max(0, len(relation_summary) - MAX_RELATION_TYPES)
     relation_summary = relation_summary[:MAX_RELATION_TYPES]
+    relation_targets: dict[str, set[str]] = defaultdict(set)
+    studio_targets: set[str] = set()
+    for raw in value.get("relations") or []:
+        relation = _dict(raw)
+        predicate = str(relation.get("predicate") or "").strip().lower()
+        object_entity_key = _optional_entity_key(
+            relation.get("object_entity_key", relation.get("objectEntityKey")),
+            label="relation object_entity_key",
+        )
+        if not predicate or object_entity_key is None:
+            continue
+        relation_targets[predicate].add(object_entity_key)
+        qualifiers_raw = relation.get("qualifiers_json")
+        if isinstance(qualifiers_raw, str):
+            qualifiers = json.loads(qualifiers_raw)
+        else:
+            qualifiers = relation.get("qualifiers") or {}
+        if not isinstance(qualifiers, Mapping):
+            raise ValueError("Gold relation qualifiers must be a JSON object")
+        if predicate == "production_credit" and _is_studio_relation(qualifiers):
+            studio_targets.add(object_entity_key)
+        if not isinstance(relation.get("trace_json"), str):
+            continue
+        relation_lineage = _lineage(relation)
+        register_lineage(relation_lineage)
+        assertion_ids = _assertion_ids(relation)
+        relation_lineage_by_id = {item.assertion_id: item for item in relation_lineage}
+        if set(assertion_ids) - set(relation_lineage_by_id):
+            raise ValueError("Gold relation has incomplete assertion lineage")
+        relation_value_json = canonical_json({"objectEntityKey": object_entity_key})
+        qualifiers_json = canonical_json(dict(qualifiers))
+        for assertion_id in assertion_ids:
+            item = relation_lineage_by_id[assertion_id]
+            source = source_policy.source(item.source_product_id)
+            citations = list(item.citation_keys)
+            citation_overflow += max(0, len(citations) - MAX_CITATION_KEYS)
+            winning.append(
+                {
+                    "kind": "RELATIONSHIP",
+                    "assertionId": assertion_id,
+                    "predicate": predicate,
+                    "valueJson": relation_value_json,
+                    "qualifiersJson": qualifiers_json,
+                    "resolutionStatus": "SET",
+                    "sourceProductId": source.source_id,
+                    "sourceRecordId": item.source_record_id,
+                    "sourcePath": item.source_path,
+                    "observedAt": item.observed_at,
+                    "citationKeys": citations[:MAX_CITATION_KEYS],
+                    "citationOverflow": max(
+                        0,
+                        len(citations) - MAX_CITATION_KEYS,
+                    ),
+                }
+            )
+            winning_ids.add(assertion_id)
+
+    current_results = sorted(
+        (
+            {
+                "predicate": predicate,
+                "valueJson": item["valueJson"],
+                "qualifiersJson": item["qualifiersJson"],
+                "resolutionStatus": item["resolutionStatus"],
+            }
+            for predicate in sorted(_SPORTS_RESULT_PREDICATES)
+            for item in selected_field_values.get(predicate, ())
+        ),
+        key=lambda item: (
+            item["predicate"],
+            item["qualifiersJson"],
+            item["valueJson"],
+        ),
+    )
+    current_result_overflow = max(
+        0,
+        len(current_results) - MAX_CURRENT_RESULTS,
+    )
+    current_results = current_results[:MAX_CURRENT_RESULTS]
+
+    observation_history = []
+    for raw in value.get("observations") or []:
+        observation = _dict(raw)
+        observation_lineage = _lineage(observation)
+        register_lineage(observation_lineage)
+        assertion_id = require_sha256(
+            str(observation["assertion_id"]),
+            label="observation assertion_id",
+        )
+        lineage_by_assertion = {item.assertion_id: item for item in observation_lineage}
+        if assertion_id not in lineage_by_assertion:
+            raise ValueError("Gold observation has incomplete assertion lineage")
+        item = lineage_by_assertion[assertion_id]
+        citations = list(item.citation_keys)
+        citation_overflow += max(0, len(citations) - MAX_CITATION_KEYS)
+        is_winning = bool(observation.get("is_winning"))
+        if is_winning:
+            winning_ids.add(assertion_id)
+        observation_history.append(
+            {
+                "predicate": str(observation["predicate"]),
+                "observationKey": require_sha256(
+                    str(observation["observation_key"]),
+                    label="observation_key",
+                ),
+                "assertionId": assertion_id,
+                "valueJson": str(observation["value_json"]),
+                "qualifiersJson": str(observation["qualifiers_json"]),
+                "observedAt": str(observation["observed_at"]),
+                "validFrom": observation.get("valid_from"),
+                "validTo": observation.get("valid_to"),
+                "supersedesAssertionId": observation.get("supersedes_assertion_id"),
+                "isWinning": is_winning,
+                "sourceProductId": source_policy.canonical_source_id(
+                    item.source_product_id
+                ),
+                "citationKeys": citations[:MAX_CITATION_KEYS],
+                "citationOverflow": max(
+                    0,
+                    len(citations) - MAX_CITATION_KEYS,
+                ),
+            }
+        )
+    observation_history.sort(
+        key=lambda item: (
+            item["observedAt"],
+            item["predicate"],
+            item["assertionId"],
+        ),
+        reverse=True,
+    )
+    observation_overflow = max(
+        0,
+        len(observation_history) - MAX_OBSERVATION_HISTORY,
+    )
+    observation_history = observation_history[:MAX_OBSERVATION_HISTORY]
+
     conflict_documents = []
     for raw in value.get("conflicts") or []:
         conflict = _dict(raw)
@@ -637,10 +872,35 @@ def project_gold_entity(
         values = sorted(items)
         attribute_overflow[name] = max(0, len(values) - MAX_ATTRIBUTE_VALUES)
         normalized_attributes[name] = values[:MAX_ATTRIBUTE_VALUES]
+    entity_kind = str(value["entity_kind"]).strip().upper()
+    all_predicates = (
+        set(selected_field_values)
+        | set(relation_targets)
+        | {item["predicate"] for item in observation_history}
+    )
+    source_products = {item.source_product_id for item in lineage_by_id.values()}
+    domains: set[str] = set()
+    if entity_kind.startswith("SPORTS_") or all_predicates & (
+        _SPORTS_FIELD_PREDICATES | _SPORTS_RELATION_PREDICATES
+    ):
+        domains.add("SPORTS")
+    if (
+        all_predicates & (_ANIMATION_FIELD_PREDICATES | _ANIMATION_RELATION_PREDICATES)
+        or "madb-public-data" in source_products
+    ):
+        domains.add("ANIMATION")
+    if _content_type(entity_kind) is not None:
+        domains.add("FILM_TV")
+    if not domains:
+        domains.add("GENERAL")
+    participant_keys = sorted(relation_targets["participant"])
+    character_keys = sorted(relation_targets["character_appearance"])
+    studio_keys = sorted(studio_targets)
     return {
         "entityKey": canonical_id,
         "entityLevel": str(value["entity_level"]),
-        "entityKind": str(value["entity_kind"]),
+        "entityKind": entity_kind,
+        "domains": sorted(domains),
         "status": str(value["status"]),
         "releasePlanId": str(value["release_plan_id"]),
         "contextId": RESEARCH_CONTEXT_ID,
@@ -655,6 +915,41 @@ def project_gold_entity(
         "seasonNumber": _unique_int(match_ints["season_number"]),
         "episodeNumber": _unique_int(match_ints["episode_number"]),
         "durationUs": _duration_us(match_ints["runtime_minutes"]),
+        "discipline": _unique_json_scalar(
+            selected_field_values["discipline"],
+            expected_type=str,
+        ),
+        "competitionEntityKey": _unique_key(relation_targets["part_of_competition"]),
+        "sportsSeasonEntityKey": _unique_key(relation_targets["part_of_sports_season"]),
+        "stageEntityKey": _unique_key(relation_targets["part_of_stage"]),
+        "startAt": _unique_json_scalar(
+            selected_field_values["scheduled_start"],
+            expected_type=str,
+        ),
+        "sportsStatus": _unique_json_scalar(
+            selected_field_values["event_status"],
+            expected_type=str,
+        ),
+        "participantEntityKeys": participant_keys[:MAX_SPORTS_PARTICIPANTS],
+        "venueEntityKey": _unique_key(relation_targets["held_at"]),
+        "currentResults": current_results,
+        "releaseForm": _unique_json_scalar(
+            selected_field_values["release_form"],
+            expected_type=str,
+        ),
+        "animationTradition": _unique_json_scalar(
+            selected_field_values["animation_tradition"],
+            expected_type=str,
+        ),
+        "animationTechniques": sorted(
+            {
+                str(item["value"])
+                for item in selected_field_values["animation_technique"]
+                if isinstance(item["value"], str)
+            }
+        )[:MAX_ATTRIBUTE_VALUES],
+        "studioEntityKeys": studio_keys[:MAX_ANIMATION_RELATIONS],
+        "characterEntityKeys": character_keys[:MAX_ANIMATION_RELATIONS],
         "titles": titles,
         "attributes": normalized_attributes,
         "externalIdentifiers": identifier_documents,
@@ -665,6 +960,7 @@ def project_gold_entity(
         "conflictCount": reported_conflict_count,
         "conflictPredicates": conflict_predicates,
         "conflicts": conflict_documents[:MAX_CONFLICTS],
+        "observationHistory": observation_history,
         "sourceNodeCount": int(value.get("source_node_count") or 0),
         "overflow": {
             "titles": title_overflow,
@@ -679,6 +975,20 @@ def project_gold_entity(
             "rights": max(0, len(rights_documents) - MAX_RIGHTS_SUMMARIES),
             "conflicts": max(0, len(conflict_documents) - MAX_CONFLICTS),
             "hierarchyRelations": hierarchy_relation_overflow,
+            "sportsParticipants": max(
+                0,
+                len(participant_keys) - MAX_SPORTS_PARTICIPANTS,
+            ),
+            "currentResults": current_result_overflow,
+            "animationStudios": max(
+                0,
+                len(studio_keys) - MAX_ANIMATION_RELATIONS,
+            ),
+            "animationCharacters": max(
+                0,
+                len(character_keys) - MAX_ANIMATION_RELATIONS,
+            ),
+            "observationHistory": observation_overflow,
             **attribute_overflow,
         },
     }
@@ -701,6 +1011,7 @@ def projection_schema():
             StructField("entityKey", string, False),
             StructField("entityLevel", string, False),
             StructField("entityKind", string, False),
+            StructField("domains", ArrayType(string, False), False),
             StructField("status", string, False),
             StructField("releasePlanId", string, False),
             StructField("contextId", string, False),
@@ -715,6 +1026,50 @@ def projection_schema():
             StructField("seasonNumber", IntegerType(), True),
             StructField("episodeNumber", IntegerType(), True),
             StructField("durationUs", LongType(), True),
+            StructField("discipline", string, True),
+            StructField("competitionEntityKey", string, True),
+            StructField("sportsSeasonEntityKey", string, True),
+            StructField("stageEntityKey", string, True),
+            StructField("startAt", string, True),
+            StructField("sportsStatus", string, True),
+            StructField(
+                "participantEntityKeys",
+                ArrayType(string, False),
+                False,
+            ),
+            StructField("venueEntityKey", string, True),
+            StructField(
+                "currentResults",
+                ArrayType(
+                    StructType(
+                        [
+                            StructField("predicate", string, False),
+                            StructField("valueJson", string, False),
+                            StructField("qualifiersJson", string, False),
+                            StructField("resolutionStatus", string, False),
+                        ]
+                    ),
+                    False,
+                ),
+                False,
+            ),
+            StructField("releaseForm", string, True),
+            StructField("animationTradition", string, True),
+            StructField(
+                "animationTechniques",
+                ArrayType(string, False),
+                False,
+            ),
+            StructField(
+                "studioEntityKeys",
+                ArrayType(string, False),
+                False,
+            ),
+            StructField(
+                "characterEntityKeys",
+                ArrayType(string, False),
+                False,
+            ),
             StructField(
                 "titles",
                 ArrayType(
@@ -899,6 +1254,42 @@ def projection_schema():
                 ),
                 False,
             ),
+            StructField(
+                "observationHistory",
+                ArrayType(
+                    StructType(
+                        [
+                            StructField("predicate", string, False),
+                            StructField("observationKey", string, False),
+                            StructField("assertionId", string, False),
+                            StructField("valueJson", string, False),
+                            StructField("qualifiersJson", string, False),
+                            StructField("observedAt", string, False),
+                            StructField("validFrom", string, True),
+                            StructField("validTo", string, True),
+                            StructField(
+                                "supersedesAssertionId",
+                                string,
+                                True,
+                            ),
+                            StructField("isWinning", BooleanType(), False),
+                            StructField("sourceProductId", string, False),
+                            StructField(
+                                "citationKeys",
+                                ArrayType(string, False),
+                                False,
+                            ),
+                            StructField(
+                                "citationOverflow",
+                                IntegerType(),
+                                False,
+                            ),
+                        ]
+                    ),
+                    False,
+                ),
+                False,
+            ),
             StructField("sourceNodeCount", LongType(), False),
             StructField(
                 "overflow",
@@ -914,6 +1305,31 @@ def projection_schema():
                         StructField("conflicts", IntegerType(), False),
                         StructField(
                             "hierarchyRelations",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "sportsParticipants",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "currentResults",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "animationStudios",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "animationCharacters",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "observationHistory",
                             IntegerType(),
                             False,
                         ),
@@ -1200,6 +1616,23 @@ def build_gold_search_projection(
             )
         )
     )
+    relations = (
+        selected_relations.groupBy("subject_entity_key")
+        .agg(
+            F.sort_array(
+                F.collect_set(
+                    F.struct(
+                        "predicate",
+                        "object_entity_key",
+                        "qualifiers_json",
+                        "assertion_ids_json",
+                        "trace_json",
+                    )
+                )
+            ).alias("relations")
+        )
+        .withColumnRenamed("subject_entity_key", "_relation_subject_entity_key")
+    )
     hierarchy = _build_hierarchy_projection(
         entities=entities,
         release_entities=release_entities,
@@ -1230,6 +1663,34 @@ def build_gold_search_projection(
             ).alias("conflicts"),
         )
     )
+    observations = (
+        affected(
+            gold_tables["community_gold_observation"].where(
+                F.col("release_plan_id") == release_plan_id
+            ),
+            "entity_key",
+        )
+        .groupBy("entity_key")
+        .agg(
+            F.sort_array(
+                F.collect_set(
+                    F.struct(
+                        "observation_key",
+                        "assertion_id",
+                        "predicate",
+                        "value_json",
+                        "qualifiers_json",
+                        "observed_at",
+                        "valid_from",
+                        "valid_to",
+                        "supersedes_assertion_id",
+                        "is_winning",
+                        "trace_json",
+                    )
+                )
+            ).alias("observations")
+        )
+    )
     joined = (
         entities.join(fields, "entity_key", "left")
         .join(identifiers, "entity_key", "left")
@@ -1239,7 +1700,14 @@ def build_gold_search_projection(
             "left",
         )
         .drop("subject_entity_key")
+        .join(
+            relations,
+            entities.entity_key == relations._relation_subject_entity_key,
+            "left",
+        )
+        .drop("_relation_subject_entity_key")
         .join(conflicts, "entity_key", "left")
+        .join(observations, "entity_key", "left")
         .join(hierarchy, "entity_key", "left")
     )
     return spark.createDataFrame(

@@ -1,0 +1,30 @@
+{
+  "id": "Q100000021",
+  "entityTypeHint": "SPORTS_ENTRY",
+  "labels": {
+    "en": {
+      "language": "en",
+      "value": "Research Grand Prix — Driver A"
+    }
+  },
+  "claims": {
+    "P641": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q1968"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "parent": {
+    "id": "Q100000020",
+    "kind": "SPORTS_EVENT"
+  },
+  "placement": 1,
+  "outcome": "CLASSIFIED"
+}

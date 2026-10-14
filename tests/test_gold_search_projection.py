@@ -5,7 +5,10 @@ import pytest
 from video_media_catalog.canonical import canonical_json
 from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold_search_projection import (
+    MAX_ANIMATION_RELATIONS,
     MAX_HIERARCHY_RELATION_CANDIDATES,
+    MAX_OBSERVATION_HISTORY,
+    MAX_SPORTS_PARTICIPANTS,
     MAX_TITLES,
     project_gold_entity,
 )
@@ -522,3 +525,183 @@ def test_hierarchy_keys_are_unique_bounded_and_fail_closed() -> None:
     assert overflow_document["seriesEntityKey"] is None
     assert overflow_document["seasonEntityKey"] is None
     assert overflow_document["overflow"]["hierarchyRelations"] == 1
+
+
+def test_sports_projection_is_domain_specific_revisioned_and_bounded() -> None:
+    source = {
+        "source_product_id": "openfootball-git",
+        "source_name": "openfootball git datasets",
+        "policy_id": "openfootball-cc0",
+        "policy_zone": "open_cc0",
+        "license_id": "CC0-1.0",
+        "attribution_text": "openfootball datasets",
+        "source_url": "https://github.com/openfootball",
+    }
+
+    def field(index: int, predicate: str, value_json: str) -> dict[str, object]:
+        return {
+            "predicate": predicate,
+            "value_json": value_json,
+            "qualifiers_json": "{}",
+            "resolution_status": "SELECTED",
+            **_canonical_lineage_fields(
+                index,
+                source_path=f"/{predicate}",
+                **source,
+            ),
+        }
+
+    participant_keys = [
+        "sha256:" + f"{index + 1000:064x}"
+        for index in range(MAX_SPORTS_PARTICIPANTS + 2)
+    ]
+    observation_key = "sha256:" + ("e" * 64)
+    observations = []
+    for index in range(MAX_OBSERVATION_HISTORY + 2):
+        lineage = _canonical_lineage_fields(
+            index + 3000,
+            source_path="/score",
+            **source,
+        )
+        observations.append(
+            {
+                "observation_key": observation_key,
+                "assertion_id": lineage["selected_assertion_id"],
+                "predicate": "score",
+                "value_json": canonical_json({"home": index, "away": 0}),
+                "qualifiers_json": "{}",
+                "observed_at": "2026-09-19T00:00:00Z",
+                "valid_from": "2026-09-19T00:00:00Z",
+                "valid_to": None,
+                "supersedes_assertion_id": None,
+                "is_winning": index == MAX_OBSERVATION_HISTORY + 1,
+                "trace_json": lineage["trace_json"],
+            }
+        )
+    row = {
+        "entity_key": "sha256:" + ("a" * 64),
+        "entity_level": "SPORTS_EVENT",
+        "entity_kind": "SPORTS_EVENT",
+        "status": "ACTIVE",
+        "release_plan_id": "sha256:" + ("b" * 64),
+        "source_node_count": 1,
+        "fields": [
+            field(1, "discipline", '"football"'),
+            field(2, "scheduled_start", '"2026-10-15T19:00:00Z"'),
+            field(3, "event_status", '"FINISHED"'),
+            field(4, "score", '{"away":1,"home":2}'),
+        ],
+        "identifiers": [],
+        "relation_summary": [],
+        "relations": [
+            {
+                "predicate": "participant",
+                "object_entity_key": key,
+            }
+            for key in participant_keys
+        ]
+        + [
+            {
+                "predicate": "part_of_competition",
+                "object_entity_key": "sha256:" + ("c" * 64),
+            },
+            {
+                "predicate": "part_of_sports_season",
+                "object_entity_key": "sha256:" + ("d" * 64),
+            },
+            {
+                "predicate": "held_at",
+                "object_entity_key": "sha256:" + ("f" * 64),
+            },
+        ],
+        "observations": observations,
+        "conflict_count": 0,
+        "conflicts": [],
+    }
+
+    document = project_gold_entity(row)
+
+    assert document["domains"] == ["SPORTS"]
+    assert document["discipline"] == "football"
+    assert document["competitionEntityKey"] == "sha256:" + ("c" * 64)
+    assert document["sportsSeasonEntityKey"] == "sha256:" + ("d" * 64)
+    assert document["startAt"] == "2026-10-15T19:00:00Z"
+    assert document["sportsStatus"] == "FINISHED"
+    assert document["venueEntityKey"] == "sha256:" + ("f" * 64)
+    assert len(document["participantEntityKeys"]) == MAX_SPORTS_PARTICIPANTS
+    assert document["overflow"]["sportsParticipants"] == 2
+    assert document["currentResults"][0]["predicate"] == "score"
+    assert len(document["observationHistory"]) == MAX_OBSERVATION_HISTORY
+    assert document["overflow"]["observationHistory"] == 2
+
+
+def test_animation_projection_exposes_profile_and_bounded_relationships() -> None:
+    source = {
+        "source_product_id": "madb-public-data",
+        "source_name": "Media Arts Database public data",
+        "policy_id": "madb-public-data-attributed",
+        "policy_zone": "open_attributed",
+        "license_id": "MADB-Terms",
+        "attribution_text": "Media Arts Database",
+        "source_url": "https://mediaarts-db.artmuseums.go.jp/",
+    }
+
+    def field(index: int, predicate: str, value_json: str) -> dict[str, object]:
+        return {
+            "predicate": predicate,
+            "value_json": value_json,
+            "qualifiers_json": "{}",
+            "resolution_status": "SELECTED",
+            **_canonical_lineage_fields(
+                index,
+                source_path=f"/{predicate}",
+                **source,
+            ),
+        }
+
+    character_keys = [
+        "sha256:" + f"{index + 4000:064x}"
+        for index in range(MAX_ANIMATION_RELATIONS + 1)
+    ]
+    row = {
+        "entity_key": "sha256:" + ("1" * 64),
+        "entity_level": "WORK",
+        "entity_kind": "MOVIE",
+        "status": "ACTIVE",
+        "release_plan_id": "sha256:" + ("2" * 64),
+        "source_node_count": 1,
+        "fields": [
+            field(10, "release_form", '"THEATRICAL"'),
+            field(11, "animation_tradition", '"ANIME"'),
+            field(12, "animation_technique", '"2D"'),
+            field(13, "animation_technique", '"CEL"'),
+        ],
+        "identifiers": [],
+        "relation_summary": [],
+        "relations": [
+            {
+                "predicate": "character_appearance",
+                "object_entity_key": key,
+            }
+            for key in character_keys
+        ]
+        + [
+            {
+                "predicate": "production_credit",
+                "object_entity_key": "sha256:" + ("3" * 64),
+                "qualifiers": {"wikidataProperty": "P272"},
+            }
+        ],
+        "conflict_count": 0,
+        "conflicts": [],
+    }
+
+    document = project_gold_entity(row)
+
+    assert document["domains"] == ["ANIMATION", "FILM_TV"]
+    assert document["releaseForm"] == "THEATRICAL"
+    assert document["animationTradition"] == "ANIME"
+    assert document["animationTechniques"] == ["2D", "CEL"]
+    assert document["studioEntityKeys"] == ["sha256:" + ("3" * 64)]
+    assert len(document["characterEntityKeys"]) == MAX_ANIMATION_RELATIONS
+    assert document["overflow"]["animationCharacters"] == 1

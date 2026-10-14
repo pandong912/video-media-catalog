@@ -30,7 +30,9 @@ video-media-catalog-imdb-sync = "video_media_catalog.imdb_sync_cli:main"
 video-media-catalog-tmdb-sync = "video_media_catalog.tmdb_sync_cli:main"
 video-media-catalog-tmdb-capture = "video_media_catalog.tmdb_capture_cli:main"
 video-media-catalog-tmdb-temporal-worker = "video_media_catalog.temporal.worker:main"
+video-media-catalog-research-temporal-worker = "video_media_catalog.temporal.worker:main"
 video-media-catalog-tmdb-temporal-admin = "video_media_catalog.temporal.admin_cli:main"
+video-media-catalog-research-temporal-admin = "video_media_catalog.temporal.research_domain_admin_cli:main"
 video-media-catalog-golden-temporal-worker = "video_media_catalog.temporal.golden_worker:main"
 video-media-catalog-golden-temporal-admin = "video_media_catalog.temporal.golden_admin_cli:main"
 video-media-catalog-gold-index-temporal-worker = "video_media_catalog.temporal.gold_index_worker:main"
@@ -67,6 +69,7 @@ packages = ["src/video_media_catalog"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "contracts/catalog/catalog-source-policy.v1.json" = "video_media_catalog/contracts/catalog-source-policy.v1.json"
+"contracts/catalog/research-predicate-registry.v1.json" = "video_media_catalog/contracts/research-predicate-registry.v1.json"
 
 [tool.pytest.ini_options]
 addopts = "-ra"

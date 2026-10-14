@@ -117,6 +117,8 @@ def _assertion_provenance_columns(assertion) -> dict[str, str]:
     provenance = assertion.provenance
     return {
         "provenance_json": _model_json(provenance),
+        "observation_key": provenance.observation_key,
+        "supersedes_assertion_id": provenance.supersedes_assertion_id,
         "policy_id": provenance.policy_id,
         "policy_digest": provenance.policy_digest,
         "observed_at": provenance.observed_at,

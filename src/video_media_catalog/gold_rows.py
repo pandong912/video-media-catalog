@@ -11,6 +11,7 @@ from video_media_catalog.gold import (
     GoldEntity,
     GoldField,
     GoldIdentifier,
+    GoldObservation,
     GoldRelation,
     GoldReleasePlan,
 )
@@ -126,6 +127,26 @@ def gold_conflict_row(value: GoldConflict) -> dict[str, Any]:
     }
 
 
+def gold_observation_row(value: GoldObservation) -> dict[str, Any]:
+    return {
+        "row_key": value.row_key,
+        "release_plan_id": value.release_plan_id,
+        "entity_key": value.entity_key,
+        "observation_key": value.observation_key,
+        "assertion_id": value.assertion_id,
+        "predicate": value.predicate,
+        "value_type": value.value_type,
+        "value_json": value.value_json,
+        "qualifiers_json": value.qualifiers_json,
+        "observed_at": value.observed_at,
+        "valid_from": value.valid_from,
+        "valid_to": value.valid_to,
+        "supersedes_assertion_id": value.supersedes_assertion_id,
+        "is_winning": value.is_winning,
+        "trace_json": value.trace_json,
+    }
+
+
 def gold_rows(
     *,
     entities: Iterable[GoldEntity],
@@ -133,6 +154,7 @@ def gold_rows(
     identifiers: Iterable[GoldIdentifier],
     relations: Iterable[GoldRelation],
     conflicts: Iterable[GoldConflict],
+    observations: Iterable[GoldObservation] = (),
 ) -> dict[str, list[dict[str, Any]]]:
     return {
         "community_gold_entity": [gold_entity_row(value) for value in entities],
@@ -142,6 +164,9 @@ def gold_rows(
         ],
         "community_gold_relation": [gold_relation_row(value) for value in relations],
         "community_gold_conflict": [gold_conflict_row(value) for value in conflicts],
+        "community_gold_observation": [
+            gold_observation_row(value) for value in observations
+        ],
     }
 
 
@@ -149,9 +174,13 @@ def validate_gold_rows(
     plan: GoldReleasePlan,
     rows: Mapping[str, Iterable[dict[str, Any]]],
 ) -> dict[str, list[dict[str, Any]]]:
-    if set(rows) != set(GOLD_DATA_COLUMNS):
+    normalized_input = dict(rows)
+    normalized_input.setdefault("community_gold_observation", ())
+    if set(normalized_input) != set(GOLD_DATA_COLUMNS):
         raise ValueError("Gold rows must contain every Gold data table")
-    normalized = {table: list(table_rows) for table, table_rows in rows.items()}
+    normalized = {
+        table: list(table_rows) for table, table_rows in normalized_input.items()
+    }
     for table, table_rows in normalized.items():
         columns = set(GOLD_DATA_COLUMNS[table])
         key = GOLD_TABLE_KEYS[table]

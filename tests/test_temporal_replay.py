@@ -10,6 +10,11 @@ from video_media_catalog.temporal.workflows.gold_index_gc import (
     GoldIndexRestoreWorkflow,
 )
 from video_media_catalog.temporal.workflows.golden_build import GoldenBuildWorkflow
+from video_media_catalog.temporal.workflows.research_domain import (
+    ResearchCaptureWorkflow,
+    ResearchDomainWorkflow,
+    ResearchSilverWorkflow,
+)
 from video_media_catalog.temporal.workflows.tmdb_pipeline import (
     TmdbCaptureSilverWorkflow,
 )
@@ -22,6 +27,9 @@ def test_workflow_definition_is_replay_safe() -> None:
             TmdbCaptureSilverWorkflow,
             EidrPublicResearchWorkflow,
             GoldenBuildWorkflow,
+            ResearchCaptureWorkflow,
+            ResearchSilverWorkflow,
+            ResearchDomainWorkflow,
             GoldIndexGcWorkflow,
             GoldIndexRestoreWorkflow,
         ]

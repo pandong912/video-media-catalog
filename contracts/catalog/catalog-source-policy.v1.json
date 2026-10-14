@@ -1,6 +1,6 @@
 {
   "schemaVersion": "video.world.catalog-source-policy-registry.v1",
-  "registryVersion": "1.1.0",
+  "registryVersion": "1.2.0",
   "sources": [
     {
       "sourceId": "wikidata",
@@ -108,6 +108,67 @@
         {
           "namespace": "tmdb.tv",
           "aliases": ["tmdb-tv"],
+          "materializablePredicates": [
+            "identity.title",
+            "identity.alias",
+            "hierarchy.parent",
+            "hierarchy.series",
+            "hierarchy.season"
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": "openfootball",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "CC0-1.0",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "openfootball contributors",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
+      "namespaces": [
+        {
+          "namespace": "openfootball.competition",
+          "aliases": ["openfootball-competition"],
+          "materializablePredicates": ["identity.title", "identity.alias"]
+        },
+        {
+          "namespace": "openfootball.event",
+          "aliases": ["openfootball-event"],
+          "materializablePredicates": ["identity.title", "identity.alias", "hierarchy.parent"]
+        },
+        {
+          "namespace": "openfootball.team",
+          "aliases": ["openfootball-team"],
+          "materializablePredicates": ["identity.title", "identity.alias"]
+        }
+      ]
+    },
+    {
+      "sourceId": "statsbomb",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "StatsBomb-Open-Data-Terms",
+      "licenseUri": "https://github.com/hudl/open-data",
+      "attribution": "StatsBomb Open Data",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
+      "namespaces": [
+        {
+          "namespace": "statsbomb.match",
+          "aliases": ["statsbomb-match"],
+          "materializablePredicates": ["identity.title", "identity.alias", "hierarchy.parent"]
+        }
+      ]
+    },
+    {
+      "sourceId": "madb",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "MADB-Terms",
+      "licenseUri": "https://mediaarts-db.artmuseums.go.jp/user_terms",
+      "attribution": "Media Arts Database, Agency for Cultural Affairs, Japan",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
+      "namespaces": [
+        {
+          "namespace": "madb.work",
+          "aliases": ["madb-work"],
           "materializablePredicates": [
             "identity.title",
             "identity.alias",

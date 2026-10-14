@@ -17,11 +17,12 @@ from pydantic import (
 from video_media_catalog.canonical import canonical_json, deterministic_key
 from video_media_catalog.community_release import ReleasePolicyContext
 from video_media_catalog.europeana import EUROPEANA_SOURCE_PRODUCT_ID
-from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
+from video_media_catalog.gold_tables import normalize_gold_table_counts
 from video_media_catalog.rights import PolicyZone, UsageAction
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     digest_identity,
+    parse_rfc3339,
     require_https_url,
     require_rfc3339,
     require_sha256,
@@ -194,11 +195,17 @@ def research_policy() -> GoldResolutionPolicy:
         "imdb-non-commercial-datasets",
         "tmdb-research",
         "tvmaze-public-api",
+        "openfootball-git",
+        "statsbomb-open-data",
         "wikidata-json-dump",
         "eidr-public-registry",
+        "madb-public-data",
         EUROPEANA_SOURCE_PRODUCT_ID,
     )
     fact_priority = (
+        "openfootball-git",
+        "statsbomb-open-data",
+        "madb-public-data",
         "imdb-non-commercial-datasets",
         "tmdb-research",
         "wikidata-json-dump",
@@ -214,6 +221,22 @@ def research_policy() -> GoldResolutionPolicy:
         "imdb-company",
         "imdb-name",
         "imdb-title",
+        "madb-agent",
+        "madb-character",
+        "madb-work",
+        "openfootball-competition",
+        "openfootball-entry",
+        "openfootball-event",
+        "openfootball-season",
+        "openfootball-stage",
+        "openfootball-team",
+        "openfootball-venue",
+        "statsbomb-competition",
+        "statsbomb-match",
+        "statsbomb-player",
+        "statsbomb-season",
+        "statsbomb-team",
+        "statsbomb-venue",
         "thetvdb-series",
         "tmdb-movie",
         "tmdb-person",
@@ -237,6 +260,9 @@ def research_policy() -> GoldResolutionPolicy:
         "produced_by",
         "self",
         "voice_actor",
+        "voice_performer",
+        "production_credit",
+        "character_appearance",
         "worked_on",
         "written_by",
     )
@@ -245,10 +271,13 @@ def research_policy() -> GoldResolutionPolicy:
         "part_of_season",
         "part_of_series",
         "season",
+        "part_of_competition",
+        "part_of_sports_season",
+        "part_of_stage",
     )
     return GoldResolutionPolicy(
         policy_id="research-display-v2",
-        policy_version="2.0.0",
+        policy_version="2.1.0",
         requested_actions=(
             UsageAction.STORE,
             UsageAction.TRANSFORM,
@@ -351,6 +380,50 @@ def research_policy() -> GoldResolutionPolicy:
             *(
                 FieldPolicyRule(
                     predicate=predicate,
+                    operator=ResolutionOperator.KEEP_ALL,
+                    source_priority=fact_priority,
+                )
+                for predicate in (
+                    "event_date",
+                    "scheduled_start",
+                    "event_status",
+                    "score",
+                    "period_score",
+                    "set_score",
+                    "placement",
+                    "outcome",
+                    "standing",
+                    "match_statistics",
+                    "lineup",
+                    "freeze_frame",
+                )
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    operator=ResolutionOperator.SET_UNION,
+                    source_priority=fact_priority,
+                )
+                for predicate in (
+                    "discipline",
+                    "animation_technique",
+                )
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    operator=ResolutionOperator.SINGLE,
+                    source_priority=fact_priority,
+                )
+                for predicate in (
+                    "round_number",
+                    "release_form",
+                    "animation_tradition",
+                )
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
                     operator=ResolutionOperator.SET_UNION,
                     source_priority=fact_priority,
                 )
@@ -440,6 +513,33 @@ def research_policy() -> GoldResolutionPolicy:
                 )
                 for predicate in ("followed_by", "follows")
             ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    assertion_kind=PredicateKind.RELATIONSHIP,
+                    operator=ResolutionOperator.SET_UNION,
+                    scope_qualifiers=(
+                        "characterId",
+                        "department",
+                        "language",
+                        "relationship",
+                        "role",
+                        "sourceMedium",
+                        "wikidataProperty",
+                    ),
+                    source_priority=fact_priority,
+                )
+                for predicate in (
+                    "adaptation_of",
+                    "participant",
+                )
+            ),
+            FieldPolicyRule(
+                predicate="held_at",
+                assertion_kind=PredicateKind.RELATIONSHIP,
+                operator=ResolutionOperator.SINGLE,
+                source_priority=fact_priority,
+            ),
             FieldPolicyRule(
                 predicate="related_to",
                 assertion_kind=PredicateKind.RELATIONSHIP,
@@ -520,11 +620,7 @@ class GoldAssertionLineage(V2ContractModel):
 
 
 def _validate_counts(value: dict[str, int]) -> dict[str, int]:
-    if set(value) != set(GOLD_DATA_COLUMNS):
-        raise ValueError("Gold counts must contain every Gold data table")
-    if any(isinstance(count, bool) or count < 0 for count in value.values()):
-        raise ValueError("Gold counts must be non-negative integers")
-    return dict(sorted(value.items()))
+    return normalize_gold_table_counts(value, label="Gold counts")
 
 
 class GoldReleasePlan(V2ContractModel):
@@ -545,6 +641,8 @@ class GoldReleasePlan(V2ContractModel):
     config_digest: str
     expected_counts: dict[str, int]
     planned_at: str
+    domain_coverage: dict[str, int] = Field(default_factory=dict)
+    source_snapshot_digests: dict[str, str] = Field(default_factory=dict)
 
     @field_validator(
         "release_plan_id",
@@ -592,6 +690,32 @@ class GoldReleasePlan(V2ContractModel):
     @classmethod
     def validate_expected_counts(cls, value: dict[str, int]) -> dict[str, int]:
         return _validate_counts(value)
+
+    @field_validator("domain_coverage")
+    @classmethod
+    def validate_domain_coverage(cls, value: dict[str, int]) -> dict[str, int]:
+        allowed = {"FILM", "SPORTS", "ANIMATION"}
+        if not set(value) <= allowed:
+            raise ValueError("Gold domain coverage contains an unknown domain")
+        if any(isinstance(count, bool) or count < 0 for count in value.values()):
+            raise ValueError("Gold domain coverage must be non-negative")
+        return dict(sorted(value.items()))
+
+    @field_validator("source_snapshot_digests")
+    @classmethod
+    def validate_source_snapshot_digests(
+        cls,
+        value: dict[str, str],
+    ) -> dict[str, str]:
+        return dict(
+            sorted(
+                (
+                    require_slug(source, label="Gold source snapshot"),
+                    require_sha256(digest, label="Gold source snapshot digest"),
+                )
+                for source, digest in value.items()
+            )
+        )
 
     @field_validator("planned_at")
     @classmethod
@@ -645,6 +769,8 @@ def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
         "configDigest": plan.config_digest,
         "expectedCounts": plan.expected_counts,
         "plannedAt": plan.planned_at,
+        "domainCoverage": plan.domain_coverage,
+        "sourceSnapshotDigests": plan.source_snapshot_digests,
     }
     if plan.source_policy_digest is not None:
         identity["sourcePolicyDigest"] = plan.source_policy_digest
@@ -780,6 +906,120 @@ def assertion_lineage_from_trace(value: str) -> tuple[GoldAssertionLineage, ...]
     if len({item.assertion_id for item in normalized}) != len(normalized):
         raise ValueError("Gold trace contains duplicate assertion lineage")
     return normalized
+
+
+class GoldObservation(V2ContractModel):
+    row_key: str
+    release_plan_id: str
+    entity_key: str
+    observation_key: str
+    assertion_id: str
+    predicate: str
+    value_type: str
+    value_json: str
+    qualifiers_json: str
+    observed_at: str
+    valid_from: str | None = None
+    valid_to: str | None = None
+    supersedes_assertion_id: str | None = None
+    is_winning: bool
+    trace_json: str
+
+    @field_validator(
+        "row_key",
+        "release_plan_id",
+        "entity_key",
+        "observation_key",
+        "assertion_id",
+        "supersedes_assertion_id",
+    )
+    @classmethod
+    def validate_digest(cls, value: str | None) -> str | None:
+        return None if value is None else require_sha256(value)
+
+    @field_validator("predicate")
+    @classmethod
+    def validate_predicate(cls, value: str) -> str:
+        return require_slug(value, label="observation predicate")
+
+    @field_validator("value_type")
+    @classmethod
+    def validate_value_type(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized or len(normalized) > 128:
+            raise ValueError("observation value_type must be non-empty")
+        return normalized
+
+    @field_validator("observed_at", "valid_from", "valid_to")
+    @classmethod
+    def validate_timestamp(cls, value: str | None) -> str | None:
+        return None if value is None else require_rfc3339(value)
+
+    @model_validator(mode="after")
+    def validate_observation(self) -> Self:
+        _require_canonical_json(self.value_json, "value_json")
+        _require_canonical_json(self.qualifiers_json, "qualifiers_json")
+        _require_canonical_json(self.trace_json, "trace_json")
+        if (
+            self.valid_from is not None
+            and self.valid_to is not None
+            and parse_rfc3339(self.valid_to) < parse_rfc3339(self.valid_from)
+        ):
+            raise ValueError("observation valid_to must not precede valid_from")
+        expected = deterministic_key(
+            "community-gold-observation-v1",
+            {
+                "releasePlanId": self.release_plan_id,
+                "entityKey": self.entity_key,
+                "observationKey": self.observation_key,
+                "assertionId": self.assertion_id,
+            },
+        )
+        if self.row_key != expected:
+            raise ValueError("row_key does not match Gold observation identity")
+        return self
+
+
+def build_gold_observation(
+    *,
+    release_plan_id: str,
+    entity_key: str,
+    observation_key: str,
+    assertion_id: str,
+    predicate: str,
+    value_type: str,
+    value: Any,
+    qualifiers: dict[str, Any],
+    observed_at: str,
+    valid_from: str | None,
+    valid_to: str | None,
+    supersedes_assertion_id: str | None,
+    is_winning: bool,
+    trace: dict[str, Any],
+) -> GoldObservation:
+    identity = {
+        "releasePlanId": release_plan_id,
+        "entityKey": entity_key,
+        "observationKey": observation_key,
+        "assertionId": assertion_id,
+    }
+    return GoldObservation(
+        row_key=deterministic_key("community-gold-observation-v1", identity),
+        release_plan_id=release_plan_id,
+        entity_key=entity_key,
+        observation_key=observation_key,
+        assertion_id=assertion_id,
+        predicate=predicate,
+        value_type=value_type,
+        value_json=canonical_json(value),
+        qualifiers_json=canonical_json(qualifiers),
+        observed_at=observed_at,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        supersedes_assertion_id=supersedes_assertion_id,
+        is_winning=is_winning,
+        trace_json=canonical_json(trace),
+    )
 
 
 class GoldField(V2ContractModel):

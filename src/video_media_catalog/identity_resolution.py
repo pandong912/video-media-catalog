@@ -16,6 +16,7 @@ from video_media_catalog.identifier_blocking import (
     referent_kinds_compatible as _referent_kinds_compatible,
 )
 from video_media_catalog.identity_v2 import (
+    DecisionStatus,
     EntityLedgerEntry,
     EntityLevel,
     EntityMembership,
@@ -29,6 +30,7 @@ from video_media_catalog.identity_v2 import (
     build_accept_decision,
     build_entity_membership,
     build_identity_conflict,
+    build_identity_decision,
     build_identity_evidence,
     build_parent_constrained_evidence,
     build_reject_decision,
@@ -731,3 +733,56 @@ def resolve_parent_constrained_source_node(
         entities=entities,
         evidence=(evidence,),
     )
+
+
+def review_parent_constrained_source_node(
+    *,
+    source_node: SourceNodeRef,
+    candidate_entity_key: str,
+    parent_constraint: ParentConstraint,
+    assertion_keys: tuple[str, ...],
+    observed_at: str,
+    policy_id: str,
+    policy_digest: str,
+    decision_policy_version: str,
+    decided_by: str,
+) -> IdentityResolutionResult:
+    """Emit review evidence for non-exact sports hierarchy matching."""
+
+    if parent_constraint.child_level not in {
+        EntityLevel.SPORTS_SEASON,
+        EntityLevel.SPORTS_STAGE,
+        EntityLevel.SPORTS_EVENT,
+        EntityLevel.SPORTS_ENTRY,
+    }:
+        raise ValueError(
+            "review-only parent constraints are reserved for sports hierarchy"
+        )
+    entity_key = require_sha256(
+        candidate_entity_key,
+        label="parent-constrained candidate entity key",
+    )
+    evidence = build_parent_constrained_evidence(
+        source_node=source_node,
+        candidate_entity_key=entity_key,
+        parent_constraint=parent_constraint,
+        assertion_keys=assertion_keys,
+        observed_at=observed_at,
+        policy_id=policy_id,
+        policy_digest=policy_digest,
+        confidence=None,
+    )
+    decision = build_identity_decision(
+        status=DecisionStatus.UNCERTAIN,
+        source_node=source_node,
+        entity_key=entity_key,
+        evidence_keys=(evidence.evidence_key,),
+        policy_version=decision_policy_version,
+        decided_by=decided_by,
+        decided_at=observed_at,
+        reason="parent-constrained sports candidate requires human review",
+    )
+    return IdentityResolutionResult(
+        evidence=(evidence,),
+        decisions=(decision,),
+    ).require_consistent()

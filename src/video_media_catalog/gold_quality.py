@@ -16,7 +16,7 @@ from video_media_catalog.gold_freshness import (
     disabled_release_freshness_policy,
 )
 from video_media_catalog.gold_resolution import GoldResolutionDraft
-from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
+from video_media_catalog.gold_tables import normalize_gold_table_counts
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
     require_rfc3339,
@@ -53,6 +53,11 @@ class GoldQualityReport(V2ContractModel):
     orphan_episode_count: int = Field(default=0, ge=0)
     orphan_season_count: int = Field(default=0, ge=0)
     duplicate_external_id_count: int = Field(default=0, ge=0)
+    broken_parent_count: int = Field(default=0, ge=0)
+    exact_id_conflict_count: int = Field(default=0, ge=0)
+    missing_raw_citation_count: int = Field(default=0, ge=0)
+    missing_observation_key_count: int = Field(default=0, ge=0)
+    domain_coverage: dict[str, int] = Field(default_factory=dict)
     eligible_policy_counts: dict[str, int]
     attribution_counts: dict[str, int]
     violations: tuple[str, ...]
@@ -72,10 +77,13 @@ class GoldQualityReport(V2ContractModel):
     @field_validator("table_counts")
     @classmethod
     def validate_counts(cls, value: dict[str, int]) -> dict[str, int]:
-        if set(value) != set(GOLD_DATA_COLUMNS):
-            raise ValueError("quality counts must contain every Gold data table")
+        return normalize_gold_table_counts(value, label="quality counts")
+
+    @field_validator("domain_coverage")
+    @classmethod
+    def validate_domain_coverage(cls, value: dict[str, int]) -> dict[str, int]:
         if any(isinstance(count, bool) or count < 0 for count in value.values()):
-            raise ValueError("quality counts must be non-negative integers")
+            raise ValueError("quality domain coverage must be non-negative")
         return dict(sorted(value.items()))
 
     @field_validator("eligible_policy_counts", "attribution_counts")
@@ -147,6 +155,11 @@ def _report_identity(report: GoldQualityReport) -> dict[str, Any]:
         "orphanEpisodeCount": report.orphan_episode_count,
         "orphanSeasonCount": report.orphan_season_count,
         "duplicateExternalIdCount": report.duplicate_external_id_count,
+        "brokenParentCount": report.broken_parent_count,
+        "exactIdConflictCount": report.exact_id_conflict_count,
+        "missingRawCitationCount": report.missing_raw_citation_count,
+        "missingObservationKeyCount": report.missing_observation_key_count,
+        "domainCoverage": report.domain_coverage,
         "eligiblePolicyCounts": report.eligible_policy_counts,
         "attributionCounts": report.attribution_counts,
         "violations": report.violations,
@@ -203,6 +216,14 @@ def build_gold_quality_report(
         orphan_episode_count=draft.orphan_episode_count,
         orphan_season_count=draft.orphan_season_count,
         duplicate_external_id_count=draft.duplicate_external_id_count,
+        broken_parent_count=draft.broken_sports_parent_count,
+        exact_id_conflict_count=draft.duplicate_external_id_count,
+        missing_raw_citation_count=sum(
+            item.is_winning and not item.trace.get("citationKeys")
+            for item in draft.observations
+        ),
+        missing_observation_key_count=draft.missing_observation_key_count,
+        domain_coverage=plan.domain_coverage,
         release_freshness=release_freshness,
         build_mode=build_mode,
         created_at=created_at,
@@ -225,6 +246,11 @@ def build_gold_quality_report_from_metrics(
     orphan_episode_count: int = 0,
     orphan_season_count: int = 0,
     duplicate_external_id_count: int = 0,
+    broken_parent_count: int = 0,
+    exact_id_conflict_count: int = 0,
+    missing_raw_citation_count: int = 0,
+    missing_observation_key_count: int = 0,
+    domain_coverage: dict[str, int] | None = None,
     release_freshness: ReleaseFreshnessMatrix | None = None,
     build_mode: GoldBuildMode = GoldBuildMode.RELEASE,
     resolution_count: int | None = None,
@@ -242,6 +268,10 @@ def build_gold_quality_report_from_metrics(
             orphan_episode_count,
             orphan_season_count,
             duplicate_external_id_count,
+            broken_parent_count,
+            exact_id_conflict_count,
+            missing_raw_citation_count,
+            missing_observation_key_count,
             resolution_count if resolution_count is not None else 0,
         )
     ):
@@ -281,6 +311,16 @@ def build_gold_quality_report_from_metrics(
         violations.append(f"ORPHAN_SEASON_COUNT:{orphan_season_count}")
     if duplicate_external_id_count:
         violations.append(f"DUPLICATE_EXTERNAL_ID_COUNT:{duplicate_external_id_count}")
+    if broken_parent_count:
+        violations.append(f"BROKEN_PARENT_COUNT:{broken_parent_count}")
+    if exact_id_conflict_count:
+        violations.append(f"EXACT_ID_CONFLICT_COUNT:{exact_id_conflict_count}")
+    if missing_raw_citation_count:
+        violations.append(f"MISSING_RAW_CITATION_COUNT:{missing_raw_citation_count}")
+    if missing_observation_key_count:
+        violations.append(
+            f"MISSING_OBSERVATION_KEY_COUNT:{missing_observation_key_count}"
+        )
     normalized_attribution_counts = dict(
         sorted(
             (
@@ -316,6 +356,17 @@ def build_gold_quality_report_from_metrics(
         "orphan_episode_count": orphan_episode_count,
         "orphan_season_count": orphan_season_count,
         "duplicate_external_id_count": duplicate_external_id_count,
+        "broken_parent_count": broken_parent_count,
+        "exact_id_conflict_count": exact_id_conflict_count,
+        "missing_raw_citation_count": missing_raw_citation_count,
+        "missing_observation_key_count": missing_observation_key_count,
+        "domain_coverage": dict(
+            sorted(
+                (
+                    plan.domain_coverage if domain_coverage is None else domain_coverage
+                ).items()
+            )
+        ),
         "eligible_policy_counts": dict(sorted(eligible_policy_counts.items())),
         "attribution_counts": normalized_attribution_counts,
         "violations": tuple(violations),

@@ -71,6 +71,8 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "qualifiers_json",
         "status",
         "provenance_json",
+        "observation_key",
+        "supersedes_assertion_id",
         "policy_id",
         "policy_digest",
         "observed_at",
@@ -87,6 +89,8 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "referent_kind",
         "status",
         "provenance_json",
+        "observation_key",
+        "supersedes_assertion_id",
         "policy_id",
         "policy_digest",
         "observed_at",
@@ -104,6 +108,8 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "qualifiers_json",
         "status",
         "provenance_json",
+        "observation_key",
+        "supersedes_assertion_id",
         "policy_id",
         "policy_digest",
         "observed_at",
@@ -117,6 +123,8 @@ DATA_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "entity_type",
         "status",
         "provenance_json",
+        "observation_key",
+        "supersedes_assertion_id",
         "policy_id",
         "policy_digest",
         "observed_at",
@@ -388,10 +396,18 @@ NULLABLE_COLUMNS: dict[str, frozenset[str]] = {
             "payload_object_json",
         }
     ),
-    "community_field_assertion": frozenset(),
-    "community_identifier_assertion": frozenset(),
-    "community_relationship_assertion": frozenset(),
-    "community_entity_type_assertion": frozenset(),
+    "community_field_assertion": frozenset(
+        {"observation_key", "supersedes_assertion_id"}
+    ),
+    "community_identifier_assertion": frozenset(
+        {"observation_key", "supersedes_assertion_id"}
+    ),
+    "community_relationship_assertion": frozenset(
+        {"observation_key", "supersedes_assertion_id"}
+    ),
+    "community_entity_type_assertion": frozenset(
+        {"observation_key", "supersedes_assertion_id"}
+    ),
     "community_external_id_index": frozenset(),
     "community_entity_ledger": frozenset({"allocation_id", "first_release_id"}),
     "community_legacy_key_map": frozenset(),

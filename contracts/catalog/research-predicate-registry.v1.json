@@ -1,0 +1,205 @@
+{
+  "registryId": "research-predicates",
+  "schemaVersion": "1.0",
+  "predicates": [
+    {
+      "predicate": "discipline",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "scheduled_start",
+      "kind": "FIELD",
+      "valueType": "TIMESTAMP",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "event_date",
+      "kind": "FIELD",
+      "valueType": "DATE",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "round_number",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "event_status",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "score",
+      "kind": "FIELD",
+      "valueType": "JSON",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "period_score",
+      "kind": "FIELD",
+      "valueType": "JSON",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "set_score",
+      "kind": "FIELD",
+      "valueType": "JSON",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "placement",
+      "kind": "FIELD",
+      "valueType": "INTEGER",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "outcome",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "standing",
+      "kind": "FIELD",
+      "valueType": "JSON",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "match_statistics",
+      "kind": "FIELD",
+      "valueType": "JSON",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "lineup",
+      "kind": "FIELD",
+      "valueType": "JSON",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "freeze_frame",
+      "kind": "FIELD",
+      "valueType": "JSON",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "held_at",
+      "kind": "RELATIONSHIP",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "participant",
+      "kind": "RELATIONSHIP",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "part_of_competition",
+      "kind": "RELATIONSHIP",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "part_of_sports_season",
+      "kind": "RELATIONSHIP",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "part_of_stage",
+      "kind": "RELATIONSHIP",
+      "domains": ["SPORTS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "animation_technique",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["ANIMATION"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "release_form",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["ANIMATION"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "animation_tradition",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["ANIMATION"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "adaptation_of",
+      "kind": "RELATIONSHIP",
+      "domains": ["ANIMATION"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "character_appearance",
+      "kind": "RELATIONSHIP",
+      "domains": ["ANIMATION"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "voice_performer",
+      "kind": "RELATIONSHIP",
+      "domains": ["ANIMATION"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "production_credit",
+      "kind": "RELATIONSHIP",
+      "domains": ["ANIMATION"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    }
+  ]
+}

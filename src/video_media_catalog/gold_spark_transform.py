@@ -34,6 +34,7 @@ from video_media_catalog.gold import (
     build_gold_entity,
     build_gold_field,
     build_gold_identifier,
+    build_gold_observation,
     build_gold_relation,
     build_gold_release_plan,
     trace_with_assertion_lineage,
@@ -61,6 +62,7 @@ from video_media_catalog.gold_rows import (
     gold_entity_row,
     gold_field_row,
     gold_identifier_row,
+    gold_observation_row,
     gold_relation_row,
 )
 from video_media_catalog.gold_spark import gold_table_schema
@@ -71,13 +73,14 @@ from video_media_catalog.identifier_blocking import (
     identifier_display_value,
     referent_kinds_compatible,
 )
+from video_media_catalog.predicate_registry import load_research_predicate_registry
 from video_media_catalog.rights import RightsTerminationFence
 from video_media_catalog.source_lifecycle import (
     current_upsert_envelope_keys,
     select_effective_membership_versions,
 )
 from video_media_catalog.source_registry import SourceRegistrySnapshot
-from video_media_catalog.v2_contracts import parse_rfc3339
+from video_media_catalog.v2_contracts import digest_identity, parse_rfc3339
 
 
 def _validate_identity_source_policy_provenance(
@@ -660,6 +663,35 @@ def _lineage_json(row: Any) -> str:
             mode="json",
             by_alias=True,
             exclude_none=True,
+        )
+    )
+
+
+def _observation_row(row: Any, release_plan_id: str) -> dict[str, Any]:
+    provenance = json.loads(row["provenance_json"])
+    lineage = (_assertion_lineage(row),)
+    return gold_observation_row(
+        build_gold_observation(
+            release_plan_id=release_plan_id,
+            entity_key=row["resolved_entity_key"],
+            observation_key=row["observation_key"],
+            assertion_id=row["assertion_id"],
+            predicate=row["predicate"],
+            value_type=row["value_type"],
+            value=json.loads(row["value_json"]),
+            qualifiers=json.loads(row["qualifiers_json"]),
+            observed_at=row["observed_at"],
+            valid_from=provenance.get("validFrom"),
+            valid_to=provenance.get("validTo"),
+            supersedes_assertion_id=row["supersedes_assertion_id"],
+            is_winning=bool(row["is_winning"]),
+            trace=trace_with_assertion_lineage(
+                {
+                    "resolver": "source-predicate-valid-time-v1",
+                    "observationKey": row["observation_key"],
+                },
+                lineage,
+            ),
         )
     )
 
@@ -1515,6 +1547,7 @@ def build_distributed_gold(
     identifier_drafts = None
     identifier_conflict_drafts = None
     relation_drafts = None
+    observation_fields = None
     try:
         _validate_assertion_product_policies(
             committed_silver["community_entity_type_assertion"],
@@ -1531,6 +1564,50 @@ def build_distributed_gold(
             context=policy_context,
             requested_actions=field_policy.requested_actions,
             termination_fences=termination_fences,
+        )
+        temporal_predicates = tuple(
+            sorted(
+                definition.predicate
+                for definition in load_research_predicate_registry().predicates
+                if definition.temporal
+            )
+        )
+        all_source_envelope_keys = (
+            committed_silver["community_source_record"]
+            .select("envelope_key", "run_id")
+            .dropDuplicates()
+            .persist()
+        )
+        historical_fields, _, _ = _eligible_assertions(
+            committed_silver["community_field_assertion"],
+            source_records=committed_silver["community_source_record"],
+            current_source_envelope_keys=all_source_envelope_keys,
+            source_products=source_products,
+            memberships=memberships,
+            rights=rights,
+            context=policy_context,
+            requested_actions=field_policy.requested_actions,
+            termination_fences=termination_fences,
+        )
+        observation_missing_key_count = historical_fields.where(
+            F.col("predicate").isin(*temporal_predicates)
+            & F.col("observation_key").isNull()
+        ).count()
+        observation_fields = (
+            historical_fields.where(
+                F.col("predicate").isin(*temporal_predicates)
+                & F.col("observation_key").isNotNull()
+            )
+            .dropDuplicates(["resolved_entity_key", "assertion_id"])
+            .persist()
+        )
+        observation_count = observation_fields.count()
+        intermediates.extend(
+            (
+                all_source_envelope_keys,
+                historical_fields,
+                observation_fields,
+            )
         )
         resolved_identifiers, id_withheld, id_unresolved = _eligible_assertions(
             committed_silver["community_identifier_assertion"],
@@ -1870,6 +1947,61 @@ def build_distributed_gold(
             )
             .count()
         )
+        sports_parent_relations = parent_relations.where(
+            F.col("predicate").isin(
+                "part_of",
+                "part_of_competition",
+                "part_of_sports_season",
+                "part_of_stage",
+            )
+        ).select("entity_key")
+        broken_sports_parent_count = (
+            entity_summary.where(
+                F.col("entity_level").isin(
+                    "SPORTS_SEASON",
+                    "SPORTS_STAGE",
+                    "SPORTS_EVENT",
+                    "SPORTS_ENTRY",
+                )
+            )
+            .join(sports_parent_relations, "entity_key", "left_anti")
+            .count()
+        )
+        sports_entity_count = entity_summary.where(
+            F.col("entity_level").startswith("SPORTS_")
+        ).count()
+        animation_entity_count = (
+            resolvable_fields.where(
+                F.col("predicate").isin(
+                    "animation_technique",
+                    "animation_tradition",
+                    "release_form",
+                )
+            )
+            .select(F.col("resolved_entity_key").alias("entity_key"))
+            .dropDuplicates()
+            .count()
+        )
+        domain_coverage = {
+            key: count
+            for key, count in (
+                ("SPORTS", sports_entity_count),
+                ("ANIMATION", animation_entity_count),
+            )
+            if count
+        }
+        source_snapshot_digests = {
+            row["source_product_id"]: digest_identity(
+                {"inputIds": tuple(sorted(row["input_ids"]))}
+            )
+            for row in (
+                committed_silver["community_ingest_run"]
+                .where(F.col("run_kind") == IngestRunKind.SOURCE_ASSERTIONS.value)
+                .groupBy("source_product_id")
+                .agg(F.collect_set("input_id").alias("input_ids"))
+                .collect()
+            )
+        }
 
         conflict_count = (
             field_conflict_count + identifier_conflict_count + relation_conflict_count
@@ -1881,6 +2013,7 @@ def build_distributed_gold(
             "community_gold_identifier": identifier_count,
             "community_gold_relation": relation_count,
             "community_gold_conflict": conflict_count,
+            "community_gold_observation": observation_count,
         }
         _unpersist_blocking(memberships)
 
@@ -1899,6 +2032,13 @@ def build_distributed_gold(
             )
             .unionByName(
                 resolved_relations.select(
+                    "source_product_id",
+                    "policy_id",
+                    "assertion_id",
+                )
+            )
+            .unionByName(
+                observation_fields.select(
                     "source_product_id",
                     "policy_id",
                     "assertion_id",
@@ -1929,6 +2069,8 @@ def build_distributed_gold(
             config_digest=config_digest,
             expected_counts=table_counts,
             planned_at=planned_at,
+            domain_coverage=domain_coverage,
+            source_snapshot_digests=source_snapshot_digests,
         )
 
         entity_rows = entity_summary.rdd.map(
@@ -1969,6 +2111,28 @@ def build_distributed_gold(
                     ),
                 )
             )
+        )
+        winning_assertion_ids = spark.createDataFrame(
+            field_drafts.filter(lambda item: item[0] == "field").flatMap(
+                lambda item: (
+                    ((item[1].selected_assertion_id,),)
+                    if item[1].selected_assertion_id is not None
+                    else tuple((value,) for value in item[1].assertion_ids)
+                    if item[1].status == GoldResolutionStatus.SET
+                    else ()
+                )
+            ),
+            "assertion_id STRING",
+        ).dropDuplicates(["assertion_id"])
+        observation_rows = (
+            observation_fields.join(
+                winning_assertion_ids.withColumn("_winning", F.lit(True)),
+                "assertion_id",
+                "left",
+            )
+            .withColumn("is_winning", F.coalesce(F.col("_winning"), F.lit(False)))
+            .drop("_winning")
+            .rdd.map(lambda row: _observation_row(row, plan.release_plan_id))
         )
         conflict_rows = (
             field_drafts.filter(lambda item: item[0] == "conflict")
@@ -2079,6 +2243,7 @@ def build_distributed_gold(
             "community_gold_identifier": identifier_rows,
             "community_gold_relation": relation_rows,
             "community_gold_conflict": conflict_rows,
+            "community_gold_observation": observation_rows,
         }
         output_frames = {}
         try:
@@ -2185,6 +2350,7 @@ def build_distributed_gold(
                 + identifier_binding_withheld_count
                 + identifier_conflict_assertion_count
                 + relation_never_count
+                + observation_missing_key_count
             ),
             unresolved_identity_count=(
                 field_unresolved
@@ -2198,6 +2364,14 @@ def build_distributed_gold(
             orphan_episode_count=orphan_episode_count,
             orphan_season_count=orphan_season_count,
             duplicate_external_id_count=duplicate_external_id_count,
+            broken_parent_count=broken_sports_parent_count,
+            exact_id_conflict_count=duplicate_external_id_count,
+            missing_raw_citation_count=observation_fields.where(
+                (F.col("citation_keys_json").isNull())
+                | (F.col("citation_keys_json") == "[]")
+            ).count(),
+            missing_observation_key_count=observation_missing_key_count,
+            domain_coverage=domain_coverage,
             release_freshness=release_freshness,
             build_mode=build_mode,
             resolution_count=(

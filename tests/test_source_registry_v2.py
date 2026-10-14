@@ -34,6 +34,9 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "europeana-oai-edm",
         "identity-resolution-v2",
         "imdb-non-commercial-datasets",
+        "madb-public-data",
+        "openfootball-git",
+        "statsbomb-open-data",
         "tmdb-research",
         "tvmaze-public-api",
     }
@@ -56,6 +59,8 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     policies = {item.policy_id: item for item in first.rights_profiles}
     assert policies["imdb-research-noncommercial"].zone.value == "research_private"
     assert policies["tmdb-research-noncommercial"].zone.value == "research_private"
+    assert policies["statsbomb-open-data-research"].zone.value == "research_private"
+    assert policies["madb-public-data-attributed"].zone.value == "open_attributed"
 
 
 def test_registry_declares_every_source_product_connector() -> None:
@@ -138,6 +143,11 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         "tmdb-person",
         "eidr-content",
         "europeana-record",
+        "madb-work",
+        "openfootball-competition",
+        "openfootball-event",
+        "openfootball-team",
+        "statsbomb-match",
         "tvmaze-show",
     }.issubset(namespaces)
     assert "douban-subject" not in namespaces

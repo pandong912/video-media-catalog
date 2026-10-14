@@ -30,6 +30,7 @@ from video_media_catalog.gold import (
     build_gold_entity,
     build_gold_field,
     build_gold_identifier,
+    build_gold_observation,
     build_gold_relation,
     trace_with_assertion_lineage,
 )
@@ -41,6 +42,9 @@ from video_media_catalog.identifier_blocking import (
 )
 from video_media_catalog.identity_resolution import IdentityIndex
 from video_media_catalog.identity_v2 import EntityLevel
+from video_media_catalog.predicate_registry import (
+    load_research_predicate_registry,
+)
 from video_media_catalog.rights import RightsProfile, RightsTerminationFence
 from video_media_catalog.source_registry import SourceRegistrySnapshot
 from video_media_catalog.v2_contracts import parse_rfc3339
@@ -97,6 +101,23 @@ class ConflictDraft:
 
 
 @dataclass(frozen=True)
+class ObservationDraft:
+    entity_key: str
+    observation_key: str
+    assertion_id: str
+    predicate: str
+    value_type: str
+    value: Any
+    qualifiers: dict[str, Any]
+    observed_at: str
+    valid_from: str | None
+    valid_to: str | None
+    supersedes_assertion_id: str | None
+    is_winning: bool
+    trace: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class GoldResolutionDraft:
     entity_keys: tuple[str, ...]
     source_node_counts: dict[str, int]
@@ -109,8 +130,11 @@ class GoldResolutionDraft:
     unresolved_identity_count: int
     orphan_episode_count: int = 0
     orphan_season_count: int = 0
+    broken_sports_parent_count: int = 0
+    missing_observation_key_count: int = 0
     duplicate_external_id_count: int = 0
     attribution_counts: dict[str, int] = field(default_factory=dict)
+    observations: tuple[ObservationDraft, ...] = ()
 
     @property
     def expected_counts(self) -> dict[str, int]:
@@ -120,6 +144,7 @@ class GoldResolutionDraft:
             "community_gold_identifier": len(self.identifiers),
             "community_gold_relation": len(self.relations),
             "community_gold_conflict": len(self.conflicts),
+            "community_gold_observation": len(self.observations),
         }
 
     def validate_quality(self, policy: GoldResolutionPolicy) -> None:
@@ -144,6 +169,8 @@ class GoldResolutionDraft:
             raise ValueError("Gold contains orphan episodes")
         if self.orphan_season_count:
             raise ValueError("Gold contains orphan seasons")
+        if self.broken_sports_parent_count:
+            raise ValueError("Gold contains broken sports parent relationships")
         if self.duplicate_external_id_count:
             raise ValueError("Gold contains duplicate external identifiers")
         if self.attribution_counts != self.eligible_policy_counts:
@@ -225,12 +252,32 @@ class GoldResolutionDraft:
             )
             for item in self.conflicts
         )
+        observations = tuple(
+            build_gold_observation(
+                release_plan_id=plan.release_plan_id,
+                entity_key=item.entity_key,
+                observation_key=item.observation_key,
+                assertion_id=item.assertion_id,
+                predicate=item.predicate,
+                value_type=item.value_type,
+                value=item.value,
+                qualifiers=item.qualifiers,
+                observed_at=item.observed_at,
+                valid_from=item.valid_from,
+                valid_to=item.valid_to,
+                supersedes_assertion_id=item.supersedes_assertion_id,
+                is_winning=item.is_winning,
+                trace=item.trace,
+            )
+            for item in self.observations
+        )
         return {
             "community_gold_entity": tuple(entities),
             "community_gold_field": fields,
             "community_gold_identifier": identifiers,
             "community_gold_relation": relations,
             "community_gold_conflict": conflicts,
+            "community_gold_observation": observations,
         }
 
 
@@ -370,6 +417,14 @@ def resolve_gold_draft(
     )
     unresolved = 0
     field_groups: dict[tuple[str, str, str], list[FieldAssertion]] = defaultdict(list)
+    temporal_predicates = {
+        definition.predicate
+        for definition in load_research_predicate_registry().predicates
+        if definition.temporal
+    }
+    field_inputs: list[tuple[str, str, str, FieldAssertion]] = []
+    observation_inputs: list[tuple[str, FieldAssertion]] = []
+    missing_observation_key_count = 0
     used_entity_keys: set[str] = set()
 
     for assertion in field_assertions:
@@ -385,9 +440,51 @@ def resolve_gold_draft(
             continue
         scope = {key: assertion.qualifiers.get(key) for key in rule.scope_qualifiers}
         scope_json = canonical_json(scope)
-        field_groups[(entity_key, assertion.predicate, scope_json)].append(assertion)
+        if (
+            assertion.predicate in temporal_predicates
+            and assertion.provenance.observation_key is None
+        ):
+            eligibility.withheld += 1
+            missing_observation_key_count += 1
+            continue
+        field_inputs.append((entity_key, assertion.predicate, scope_json, assertion))
+        if assertion.predicate in temporal_predicates:
+            observation_inputs.append((entity_key, assertion))
         eligibility.record(assertion)
         used_entity_keys.add(entity_key)
+
+    temporal_groups: dict[
+        tuple[str, str, str, str],
+        list[FieldAssertion],
+    ] = defaultdict(list)
+    for entity_key, predicate, scope_json, assertion in field_inputs:
+        observation_key = assertion.provenance.observation_key
+        if predicate not in temporal_predicates or observation_key is None:
+            field_groups[(entity_key, predicate, scope_json)].append(assertion)
+            continue
+        temporal_groups[(entity_key, predicate, scope_json, observation_key)].append(
+            assertion
+        )
+    for (entity_key, predicate, scope_json, _), assertions in temporal_groups.items():
+        superseded_ids = {
+            assertion.provenance.supersedes_assertion_id
+            for assertion in assertions
+            if assertion.provenance.supersedes_assertion_id is not None
+        }
+        survivors = [
+            assertion
+            for assertion in assertions
+            if assertion.assertion_id not in superseded_ids
+        ]
+        candidates = survivors or assertions
+        latest = max(
+            parse_rfc3339(assertion.provenance.observed_at) for assertion in candidates
+        )
+        field_groups[(entity_key, predicate, scope_json)].extend(
+            assertion
+            for assertion in candidates
+            if parse_rfc3339(assertion.provenance.observed_at) == latest
+        )
 
     fields: list[FieldDraft] = []
     conflicts: list[ConflictDraft] = []
@@ -494,6 +591,57 @@ def resolve_gold_draft(
                         trace=trace,
                     )
                 )
+
+    winning_assertion_ids = {
+        assertion_id
+        for field in fields
+        for assertion_id in (
+            (field.selected_assertion_id,)
+            if field.selected_assertion_id is not None
+            else field.assertion_ids
+            if field.status == GoldResolutionStatus.SET
+            else ()
+        )
+    }
+    observations = tuple(
+        sorted(
+            (
+                ObservationDraft(
+                    entity_key=entity_key,
+                    observation_key=assertion.provenance.observation_key or "",
+                    assertion_id=assertion.assertion_id,
+                    predicate=assertion.predicate,
+                    value_type=assertion.value_type.value,
+                    value=json.loads(assertion.value_json),
+                    qualifiers=assertion.qualifiers,
+                    observed_at=assertion.provenance.observed_at,
+                    valid_from=assertion.provenance.valid_from,
+                    valid_to=assertion.provenance.valid_to,
+                    supersedes_assertion_id=(
+                        assertion.provenance.supersedes_assertion_id
+                    ),
+                    is_winning=assertion.assertion_id in winning_assertion_ids,
+                    trace={
+                        "envelopeKey": assertion.provenance.envelope_key,
+                        "sourcePath": assertion.provenance.source_path,
+                        "mapperId": assertion.provenance.mapper_id,
+                        "mapperVersion": assertion.provenance.mapper_version,
+                        "policyId": assertion.provenance.policy_id,
+                        "policyDigest": assertion.provenance.policy_digest,
+                        "citationKeys": assertion.provenance.citation_keys,
+                    },
+                )
+                for entity_key, assertion in observation_inputs
+            ),
+            key=lambda item: (
+                item.entity_key,
+                item.predicate,
+                item.observation_key,
+                item.observed_at,
+                item.assertion_id,
+            ),
+        )
+    )
 
     namespace_rows = exact_id_namespace_rows(
         registry,
@@ -783,6 +931,28 @@ def resolve_gold_draft(
         and entity_key not in season_parents
         for entity_key in used_entity_keys
     )
+    sports_parent_entities = {
+        relation.subject_entity_key
+        for relation in relations
+        if relation.predicate
+        in {
+            "part_of",
+            "part_of_competition",
+            "part_of_sports_season",
+            "part_of_stage",
+        }
+    }
+    broken_sports_parent_count = sum(
+        identity_index.entities[entity_key].entity_level
+        in {
+            EntityLevel.SPORTS_SEASON,
+            EntityLevel.SPORTS_STAGE,
+            EntityLevel.SPORTS_EVENT,
+            EntityLevel.SPORTS_ENTRY,
+        }
+        and entity_key not in sports_parent_entities
+        for entity_key in used_entity_keys
+    )
 
     source_counts: Counter[str] = Counter()
     for entity_key in identity_index.source_memberships.values():
@@ -823,6 +993,9 @@ def resolve_gold_draft(
         unresolved_identity_count=unresolved,
         orphan_episode_count=orphan_episode_count,
         orphan_season_count=orphan_season_count,
+        broken_sports_parent_count=broken_sports_parent_count,
+        missing_observation_key_count=missing_observation_key_count,
         duplicate_external_id_count=len(published_collisions),
         attribution_counts=dict(sorted(eligibility.policy_counts.items())),
+        observations=observations,
     )

@@ -36,6 +36,42 @@ _IDENTITY_ENTITY_TYPE_MAP = {
     "PERSON": (EntityLevel.AGENT, "PERSON", "AGENT"),
     "AGENT": (EntityLevel.AGENT, "AGENT", "AGENT"),
     "ORGANIZATION": (EntityLevel.AGENT, "ORGANIZATION", "ORGANIZATION"),
+    "SPORTS_COMPETITION": (
+        EntityLevel.SPORTS_COMPETITION,
+        "SPORTS_COMPETITION",
+        "SPORTS_COMPETITION",
+    ),
+    "SPORTS_SEASON": (
+        EntityLevel.SPORTS_SEASON,
+        "SPORTS_SEASON",
+        "SPORTS_SEASON",
+    ),
+    "SPORTS_STAGE": (
+        EntityLevel.SPORTS_STAGE,
+        "SPORTS_STAGE",
+        "SPORTS_STAGE",
+    ),
+    "SPORTS_EVENT": (
+        EntityLevel.SPORTS_EVENT,
+        "SPORTS_EVENT",
+        "SPORTS_EVENT",
+    ),
+    "SPORTS_PARTICIPANT": (
+        EntityLevel.SPORTS_PARTICIPANT,
+        "SPORTS_PARTICIPANT",
+        "SPORTS_PARTICIPANT",
+    ),
+    "SPORTS_ENTRY": (
+        EntityLevel.SPORTS_ENTRY,
+        "SPORTS_ENTRY",
+        "SPORTS_ENTRY",
+    ),
+    "SPORTS_VENUE": (
+        EntityLevel.SPORTS_VENUE,
+        "SPORTS_VENUE",
+        "SPORTS_VENUE",
+    ),
+    "CHARACTER": (EntityLevel.CHARACTER, "CHARACTER", "CHARACTER"),
 }
 
 _REFERENT_KIND_ALIASES = {
@@ -65,6 +101,14 @@ _ENTITY_LEVEL_BY_BLOCKING_KIND = {
     "MANIFESTATION": EntityLevel.MANIFESTATION,
     "AGENT": EntityLevel.AGENT,
     "ORGANIZATION": EntityLevel.AGENT,
+    "SPORTS_COMPETITION": EntityLevel.SPORTS_COMPETITION,
+    "SPORTS_SEASON": EntityLevel.SPORTS_SEASON,
+    "SPORTS_STAGE": EntityLevel.SPORTS_STAGE,
+    "SPORTS_EVENT": EntityLevel.SPORTS_EVENT,
+    "SPORTS_PARTICIPANT": EntityLevel.SPORTS_PARTICIPANT,
+    "SPORTS_ENTRY": EntityLevel.SPORTS_ENTRY,
+    "SPORTS_VENUE": EntityLevel.SPORTS_VENUE,
+    "CHARACTER": EntityLevel.CHARACTER,
 }
 
 _LOWERCASE_DISPLAY_NAMESPACES = frozenset(

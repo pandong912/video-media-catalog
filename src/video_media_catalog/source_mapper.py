@@ -19,6 +19,7 @@ from video_media_catalog.assertions import (
     build_identifier_assertion,
     build_relationship_assertion,
 )
+from video_media_catalog.canonical import deterministic_key
 from video_media_catalog.connector import ConnectorRecordEnvelope
 from video_media_catalog.v2_contracts import V2ContractModel
 
@@ -59,6 +60,7 @@ class AssertionBuilder:
         source_path: str,
         *,
         confidence: float | None = None,
+        supersedes_assertion_id: str | None = None,
     ) -> AssertionProvenance:
         return AssertionProvenance(
             envelope_key=self.envelope.envelope_key,
@@ -71,6 +73,18 @@ class AssertionBuilder:
             source_modified_at=self.envelope.source_modified_at,
             valid_from=self.envelope.valid_from,
             valid_to=self.envelope.valid_to,
+            observation_key=deterministic_key(
+                "silver-observation-v1",
+                {
+                    "sourceNode": self.source_node.model_dump(
+                        mode="json",
+                        by_alias=True,
+                    ),
+                    "sourcePath": source_path,
+                    "mapperId": self.mapper_id,
+                },
+            ),
+            supersedes_assertion_id=supersedes_assertion_id,
             citation_keys=self.envelope.citation_keys,
             confidence=confidence,
         )
@@ -82,6 +96,7 @@ class AssertionBuilder:
         value: Any,
         source_path: str,
         qualifiers: dict[str, Any] | None = None,
+        supersedes_assertion_id: str | None = None,
     ) -> None:
         if value is None or value == "":
             return
@@ -92,7 +107,10 @@ class AssertionBuilder:
                 value_type=value_type,
                 value=value,
                 qualifiers=qualifiers,
-                provenance=self.provenance(source_path),
+                provenance=self.provenance(
+                    source_path,
+                    supersedes_assertion_id=supersedes_assertion_id,
+                ),
             )
         )
 
@@ -103,6 +121,7 @@ class AssertionBuilder:
         issuer: str,
         referent_kind: str,
         source_path: str,
+        supersedes_assertion_id: str | None = None,
     ) -> None:
         if value is None or value == "":
             return
@@ -113,7 +132,10 @@ class AssertionBuilder:
                 value=str(value),
                 issuer=issuer,
                 referent_kind=referent_kind,
-                provenance=self.provenance(source_path),
+                provenance=self.provenance(
+                    source_path,
+                    supersedes_assertion_id=supersedes_assertion_id,
+                ),
             )
         )
 
@@ -123,6 +145,7 @@ class AssertionBuilder:
         object_node: SourceNodeRef,
         source_path: str,
         qualifiers: dict[str, Any] | None = None,
+        supersedes_assertion_id: str | None = None,
     ) -> None:
         self.relationships.append(
             build_relationship_assertion(
@@ -130,16 +153,28 @@ class AssertionBuilder:
                 predicate=predicate,
                 object=object_node,
                 qualifiers=qualifiers,
-                provenance=self.provenance(source_path),
+                provenance=self.provenance(
+                    source_path,
+                    supersedes_assertion_id=supersedes_assertion_id,
+                ),
             )
         )
 
-    def add_entity_type(self, entity_type: str, source_path: str) -> None:
+    def add_entity_type(
+        self,
+        entity_type: str,
+        source_path: str,
+        *,
+        supersedes_assertion_id: str | None = None,
+    ) -> None:
         self.entity_types.append(
             build_entity_type_assertion(
                 subject=self.source_node,
                 entity_type=entity_type,
-                provenance=self.provenance(source_path),
+                provenance=self.provenance(
+                    source_path,
+                    supersedes_assertion_id=supersedes_assertion_id,
+                ),
             )
         )
 

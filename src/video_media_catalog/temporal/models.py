@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-CaptureKind = Literal["inventory", "changes", "eidr"]
+CaptureKind = Literal["inventory", "changes", "eidr", "snapshot"]
 PipelineMode = Literal["bootstrap", "daily", "inventory-only"]
 
 _SHA256_CHECKSUM_ALGORITHMS = frozenset({"sha256", "CHECKSUM_ALGORITHM_SHA256"})

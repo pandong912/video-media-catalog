@@ -1,0 +1,64 @@
+{
+  "id": "Q100000001",
+  "entityTypeHint": "SPORTS_EVENT",
+  "labels": {
+    "en": {
+      "language": "en",
+      "value": "Research Open Final"
+    }
+  },
+  "claims": {
+    "P641": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q847"
+            }
+          }
+        }
+      }
+    ],
+    "P710": [
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q100000011"
+            }
+          }
+        }
+      },
+      {
+        "rank": "normal",
+        "mainsnak": {
+          "datavalue": {
+            "value": {
+              "id": "Q100000012"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "parent": {
+    "id": "Q100000000",
+    "kind": "SPORTS_COMPETITION"
+  },
+  "eventDate": "2026-10-15",
+  "status": "FINAL",
+  "setScores": [
+    {
+      "set": 1,
+      "sideA": 6,
+      "sideB": 4
+    },
+    {
+      "set": 2,
+      "sideA": 7,
+      "sideB": 5
+    }
+  ]
+}

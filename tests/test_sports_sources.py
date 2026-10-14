@@ -149,17 +149,19 @@ def test_openfootball_mapper_preserves_team_score_and_correction_history() -> No
         item for item in second.field_assertions if item.predicate == "score"
     )
 
-    assert len(
-        [
-            item
-            for item in first.relationship_assertions
-            if item.predicate == "participant"
-        ]
-    ) == 2
+    assert (
+        len(
+            [
+                item
+                for item in first.relationship_assertions
+                if item.predicate == "participant"
+            ]
+        )
+        == 2
+    )
     assert corrected_score.provenance.supersedes_assertion_id == score.assertion_id
     assert (
-        corrected_score.provenance.observation_key
-        == score.provenance.observation_key
+        corrected_score.provenance.observation_key == score.provenance.observation_key
     )
 
 
@@ -189,20 +191,20 @@ def test_wikidata_sports_mapper_covers_set_and_ranked_structures() -> None:
 
     assert set_event.source_node.referent_kind == "SPORTS_EVENT"
     assert any(item.predicate == "set_score" for item in set_event.field_assertions)
-    assert len(
-        [
-            item
-            for item in set_event.relationship_assertions
-            if item.predicate == "participant"
-        ]
-    ) == 2
-    assert ranked_entry.source_node.referent_kind == "SPORTS_ENTRY"
-    assert any(
-        item.predicate == "placement" for item in ranked_entry.field_assertions
+    assert (
+        len(
+            [
+                item
+                for item in set_event.relationship_assertions
+                if item.predicate == "participant"
+            ]
+        )
+        == 2
     )
+    assert ranked_entry.source_node.referent_kind == "SPORTS_ENTRY"
+    assert any(item.predicate == "placement" for item in ranked_entry.field_assertions)
     assert any(
-        item.predicate == "part_of"
-        for item in ranked_entry.relationship_assertions
+        item.predicate == "part_of" for item in ranked_entry.relationship_assertions
     )
 
 
@@ -222,9 +224,7 @@ def test_statsbomb_mapper_keeps_research_detail_outside_identity_fields() -> Non
     fields = {item.predicate for item in mapped.field_assertions}
 
     assert {"score", "match_statistics", "lineup", "freeze_frame"} <= fields
-    assert {
-        item.predicate for item in mapped.relationship_assertions
-    } >= {
+    assert {item.predicate for item in mapped.relationship_assertions} >= {
         "part_of_competition",
         "part_of_sports_season",
         "participant",

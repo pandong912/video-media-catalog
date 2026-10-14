@@ -145,8 +145,7 @@ def test_wikidata_animation_reuses_film_identifiers_and_typed_relations() -> Non
 
     assert mapped.source_node.referent_kind == "EDITORIAL_WORK"
     assert ("imdb-title", "tt1234567") in {
-        (item.namespace_id, item.value)
-        for item in mapped.identifier_assertions
+        (item.namespace_id, item.value) for item in mapped.identifier_assertions
     }
     assert {
         "adaptation_of",

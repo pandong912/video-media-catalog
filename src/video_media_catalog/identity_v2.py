@@ -200,9 +200,7 @@ class ParentConstraint(V2ContractModel):
                     "sports event evidence requires a competition, season, or stage"
                 )
             if not (
-                self.event_date
-                or self.round_number
-                or self.participant_source_nodes
+                self.event_date or self.round_number or self.participant_source_nodes
             ):
                 raise ValueError(
                     "sports event evidence requires a date, round, or participant"

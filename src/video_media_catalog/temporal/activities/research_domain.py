@@ -20,9 +20,7 @@ from video_media_catalog.temporal.research_domain_models import (
 )
 from video_media_catalog.v2_contracts import require_rfc3339, require_sha256
 
-RESEARCH_CAPTURE_MANIFEST_SCHEMA = (
-    "video.media-catalog.research-capture-manifest.v1"
-)
+RESEARCH_CAPTURE_MANIFEST_SCHEMA = "video.media-catalog.research-capture-manifest.v1"
 
 
 def _object_ref(reference: ObjectRefPayload) -> ObjectRef:
@@ -52,9 +50,8 @@ def _is_within_prefix(uri: str, prefix: str) -> bool:
     if candidate.scheme != "s3" or boundary.scheme != "s3":
         return False
     prefix_path = boundary.path.rstrip("/") + "/"
-    return (
-        candidate.netloc == boundary.netloc
-        and candidate.path.startswith(prefix_path)
+    return candidate.netloc == boundary.netloc and candidate.path.startswith(
+        prefix_path
     )
 
 
@@ -82,9 +79,7 @@ def _capture_result(
     if value.get("sourceProductId") != source_product_id:
         raise ValueError("research capture sourceProductId does not match its profile")
     batch_manifest = ObjectRefPayload.from_mapping(value["batchManifest"])
-    record_set_manifest = ObjectRefPayload.from_mapping(
-        value["recordSetManifest"]
-    )
+    record_set_manifest = ObjectRefPayload.from_mapping(value["recordSetManifest"])
     if not all(
         _is_within_prefix(reference.uri, destination_prefix)
         for reference in (batch_manifest, record_set_manifest)

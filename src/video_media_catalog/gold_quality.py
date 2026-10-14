@@ -316,9 +316,7 @@ def build_gold_quality_report_from_metrics(
     if exact_id_conflict_count:
         violations.append(f"EXACT_ID_CONFLICT_COUNT:{exact_id_conflict_count}")
     if missing_raw_citation_count:
-        violations.append(
-            f"MISSING_RAW_CITATION_COUNT:{missing_raw_citation_count}"
-        )
+        violations.append(f"MISSING_RAW_CITATION_COUNT:{missing_raw_citation_count}")
     if missing_observation_key_count:
         violations.append(
             f"MISSING_OBSERVATION_KEY_COUNT:{missing_observation_key_count}"
@@ -365,9 +363,7 @@ def build_gold_quality_report_from_metrics(
         "domain_coverage": dict(
             sorted(
                 (
-                    plan.domain_coverage
-                    if domain_coverage is None
-                    else domain_coverage
+                    plan.domain_coverage if domain_coverage is None else domain_coverage
                 ).items()
             )
         ),

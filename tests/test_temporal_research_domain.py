@@ -123,8 +123,7 @@ def _capture(profile: ResearchSourceProfile, marker: str) -> ResearchCaptureResu
             CaptureResult(
                 kind="snapshot",
                 batch_id="sha256:" + (marker * 64),
-                record_set_id="sha256:"
-                + ({"a": "c", "b": "d"}[marker] * 64),
+                record_set_id="sha256:" + ({"a": "c", "b": "d"}[marker] * 64),
                 record_count=1,
                 batch_manifest=ObjectRefPayload.from_mapping(
                     _object_mapping(

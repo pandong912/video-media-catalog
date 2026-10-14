@@ -54,9 +54,7 @@ class ResearchCaptureWorkflow:
         return await workflow.execute_activity(
             load_pinned_research_capture,
             profile,
-            start_to_close_timeout=timedelta(
-                minutes=profile.capture_timeout_minutes
-            ),
+            start_to_close_timeout=timedelta(minutes=profile.capture_timeout_minutes),
             heartbeat_timeout=timedelta(minutes=2),
             retry_policy=_retry_policy(profile),
         )
@@ -81,9 +79,7 @@ class ResearchSilverWorkflow:
             submit_source_silver_bundle,
             args=[capture.captures, profile.env, capture.acquired_at],
             task_queue=SILVER_TASK_QUEUE,
-            start_to_close_timeout=timedelta(
-                minutes=profile.silver_timeout_minutes
-            ),
+            start_to_close_timeout=timedelta(minutes=profile.silver_timeout_minutes),
             heartbeat_timeout=timedelta(minutes=5),
             retry_policy=_retry_policy(profile),
         )
@@ -103,18 +99,11 @@ def _golden_input(input_data: ResearchDomainInput):
     source_results = input_data.completed_sources
     supplemental = {
         *input_data.golden_build.supplemental_source_run_ids,
-        *(
-            silver.run_id
-            for source in source_results
-            for silver in source.silvers
-        ),
+        *(silver.run_id for source in source_results for silver in source.silvers),
     }
     watermarks = {
         **input_data.golden_build.source_watermarks,
-        **{
-            source.source_product_id: source.watermark
-            for source in source_results
-        },
+        **{source.source_product_id: source.watermark for source in source_results},
     }
     replacement_states = {
         source.source_product_id: GoldenSourceRunState(
@@ -148,8 +137,7 @@ def _golden_input(input_data: ResearchDomainInput):
         supplemental_source_run_ids=tuple(sorted(supplemental)),
         source_watermarks=watermarks,
         source_run_states=tuple(
-            states[source_product_id]
-            for source_product_id in sorted(states)
+            states[source_product_id] for source_product_id in sorted(states)
         ),
     )
 
@@ -167,10 +155,7 @@ class ResearchDomainWorkflow:
         processed_in_run = 0
         while index < len(input_data.sources):
             profile = input_data.sources[index]
-            child_prefix = (
-                f"{workflow.info().workflow_id}/"
-                f"{index}-{profile.profile_id}"
-            )
+            child_prefix = f"{workflow.info().workflow_id}/{index}-{profile.profile_id}"
             try:
                 capture = await workflow.execute_child_workflow(
                     ResearchCaptureWorkflow.run,

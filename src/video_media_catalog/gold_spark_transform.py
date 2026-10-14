@@ -2113,8 +2113,7 @@ def build_distributed_gold(
             )
         )
         winning_assertion_ids = spark.createDataFrame(
-            field_drafts.filter(lambda item: item[0] == "field")
-            .flatMap(
+            field_drafts.filter(lambda item: item[0] == "field").flatMap(
                 lambda item: (
                     ((item[1].selected_assertion_id,),)
                     if item[1].selected_assertion_id is not None

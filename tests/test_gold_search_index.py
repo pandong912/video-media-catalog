@@ -96,9 +96,7 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     assert INDEX_MAPPINGS["_meta"]["mappingVersion"] == "9"
     assert INDEX_MAPPINGS["properties"]["domains"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["currentResults"]["dynamic"] == "strict"
-    assert (
-        INDEX_MAPPINGS["properties"]["observationHistory"]["dynamic"] == "strict"
-    )
+    assert INDEX_MAPPINGS["properties"]["observationHistory"]["dynamic"] == "strict"
     assert INDEX_MAPPINGS["properties"]["sourcePolicyDigest"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["parentEntityKey"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["seriesEntityKey"] == {"type": "keyword"}

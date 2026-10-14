@@ -371,9 +371,7 @@ def map_wikidata_animation_record(
         ("P345", "imdb-title", normalize_imdb_id),
         ("P2704", "eidr-content", normalize_eidr_id),
     ):
-        for index, value in enumerate(
-            _wikidata_claim_values(payload, property_id)
-        ):
+        for index, value in enumerate(_wikidata_claim_values(payload, property_id)):
             if not isinstance(value, str):
                 continue
             try:
@@ -392,9 +390,7 @@ def map_wikidata_animation_record(
         ("P674", "character_appearance", "CHARACTER"),
         ("P725", "voice_performer", "AGENT"),
     ):
-        for index, target in enumerate(
-            _wikidata_claim_values(payload, property_id)
-        ):
+        for index, target in enumerate(_wikidata_claim_values(payload, property_id)):
             if isinstance(target, str):
                 builder.add_relationship(
                     predicate,
@@ -406,9 +402,7 @@ def map_wikidata_animation_record(
                     f"/claims/{property_id}/{index}",
                 )
     for property_id in ("P57", "P58", "P162", "P272"):
-        for index, target in enumerate(
-            _wikidata_claim_values(payload, property_id)
-        ):
+        for index, target in enumerate(_wikidata_claim_values(payload, property_id)):
             if isinstance(target, str):
                 builder.add_relationship(
                     "production_credit",

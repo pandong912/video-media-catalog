@@ -649,14 +649,10 @@ def project_gold_entity(
         relation_lineage = _lineage(relation)
         register_lineage(relation_lineage)
         assertion_ids = _assertion_ids(relation)
-        relation_lineage_by_id = {
-            item.assertion_id: item for item in relation_lineage
-        }
+        relation_lineage_by_id = {item.assertion_id: item for item in relation_lineage}
         if set(assertion_ids) - set(relation_lineage_by_id):
             raise ValueError("Gold relation has incomplete assertion lineage")
-        relation_value_json = canonical_json(
-            {"objectEntityKey": object_entity_key}
-        )
+        relation_value_json = canonical_json({"objectEntityKey": object_entity_key})
         qualifiers_json = canonical_json(dict(qualifiers))
         for assertion_id in assertion_ids:
             item = relation_lineage_by_id[assertion_id]
@@ -716,9 +712,7 @@ def project_gold_entity(
             str(observation["assertion_id"]),
             label="observation assertion_id",
         )
-        lineage_by_assertion = {
-            item.assertion_id: item for item in observation_lineage
-        }
+        lineage_by_assertion = {item.assertion_id: item for item in observation_lineage}
         if assertion_id not in lineage_by_assertion:
             raise ValueError("Gold observation has incomplete assertion lineage")
         item = lineage_by_assertion[assertion_id]
@@ -740,9 +734,7 @@ def project_gold_entity(
                 "observedAt": str(observation["observed_at"]),
                 "validFrom": observation.get("valid_from"),
                 "validTo": observation.get("valid_to"),
-                "supersedesAssertionId": observation.get(
-                    "supersedes_assertion_id"
-                ),
+                "supersedesAssertionId": observation.get("supersedes_assertion_id"),
                 "isWinning": is_winning,
                 "sourceProductId": source_policy.canonical_source_id(
                     item.source_product_id
@@ -886,17 +878,14 @@ def project_gold_entity(
         | set(relation_targets)
         | {item["predicate"] for item in observation_history}
     )
-    source_products = {
-        item.source_product_id for item in lineage_by_id.values()
-    }
+    source_products = {item.source_product_id for item in lineage_by_id.values()}
     domains: set[str] = set()
     if entity_kind.startswith("SPORTS_") or all_predicates & (
         _SPORTS_FIELD_PREDICATES | _SPORTS_RELATION_PREDICATES
     ):
         domains.add("SPORTS")
     if (
-        all_predicates
-        & (_ANIMATION_FIELD_PREDICATES | _ANIMATION_RELATION_PREDICATES)
+        all_predicates & (_ANIMATION_FIELD_PREDICATES | _ANIMATION_RELATION_PREDICATES)
         or "madb-public-data" in source_products
     ):
         domains.add("ANIMATION")
@@ -930,12 +919,8 @@ def project_gold_entity(
             selected_field_values["discipline"],
             expected_type=str,
         ),
-        "competitionEntityKey": _unique_key(
-            relation_targets["part_of_competition"]
-        ),
-        "sportsSeasonEntityKey": _unique_key(
-            relation_targets["part_of_sports_season"]
-        ),
+        "competitionEntityKey": _unique_key(relation_targets["part_of_competition"]),
+        "sportsSeasonEntityKey": _unique_key(relation_targets["part_of_sports_season"]),
         "stageEntityKey": _unique_key(relation_targets["part_of_stage"]),
         "startAt": _unique_json_scalar(
             selected_field_values["scheduled_start"],

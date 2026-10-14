@@ -229,9 +229,7 @@ def capture_pinned_records(
 ) -> CapturedSnapshot:
     """Normalize one immutable source pin without reading mutable source state."""
 
-    ordered = tuple(
-        sorted(records, key=lambda item: source_record_id(item))
-    )
+    ordered = tuple(sorted(records, key=lambda item: source_record_id(item)))
     record_ids = tuple(source_record_id(item) for item in ordered)
     if len(record_ids) != len(set(record_ids)):
         raise ValueError("pinned snapshot contains duplicate source record IDs")

@@ -155,12 +155,8 @@ def test_characters_do_not_merge_from_equal_names_without_exact_id() -> None:
     )
     exact_blocks = component_ids_for_exact_blocking_keys(
         {
-            "first": (
-                ExactBlockingKey("madb-character", "character-1", "CHARACTER"),
-            ),
-            "second": (
-                ExactBlockingKey("wikidata-item", "Q200000003", "CHARACTER"),
-            ),
+            "first": (ExactBlockingKey("madb-character", "character-1", "CHARACTER"),),
+            "second": (ExactBlockingKey("wikidata-item", "Q200000003", "CHARACTER"),),
         }
     )
 

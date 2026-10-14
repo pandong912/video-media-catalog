@@ -157,9 +157,7 @@ def test_temporal_gold_keeps_history_and_selects_superseding_value() -> None:
         "expected_counts": draft.expected_counts,
         "planned_at": TIMESTAMP,
         "domain_coverage": {"SPORTS": 1},
-        "source_snapshot_digests": {
-            "openfootball-git": "sha256:" + ("6" * 64)
-        },
+        "source_snapshot_digests": {"openfootball-git": "sha256:" + ("6" * 64)},
     }
     plan = build_gold_release_plan(**plan_values)
     replayed_plan = build_gold_release_plan(**plan_values)
@@ -205,6 +203,7 @@ def test_temporal_gold_keeps_history_and_selects_superseding_value() -> None:
 
     assert first_commit == second_commit
     assert first_commit.commit_key.startswith("sha256:")
-    assert json.loads(
-        materialized["community_gold_observation"][1].value_json
-    ) == {"away": 1, "home": 1}
+    assert json.loads(materialized["community_gold_observation"][1].value_json) == {
+        "away": 1,
+        "home": 1,
+    }

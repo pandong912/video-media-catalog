@@ -338,8 +338,7 @@ class SourceRegistrySnapshot(V2ContractModel):
             missing_schema_ids = set(product.schema_contract_ids) - known_schema_ids
             if missing_schema_ids:
                 raise ValueError(
-                    "unknown source schema contract: "
-                    f"{sorted(missing_schema_ids)[0]}"
+                    f"unknown source schema contract: {sorted(missing_schema_ids)[0]}"
                 )
         for namespace in self.source_namespaces:
             if namespace.source_product_id not in products:

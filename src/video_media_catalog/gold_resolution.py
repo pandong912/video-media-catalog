@@ -462,9 +462,9 @@ def resolve_gold_draft(
         if predicate not in temporal_predicates or observation_key is None:
             field_groups[(entity_key, predicate, scope_json)].append(assertion)
             continue
-        temporal_groups[
-            (entity_key, predicate, scope_json, observation_key)
-        ].append(assertion)
+        temporal_groups[(entity_key, predicate, scope_json, observation_key)].append(
+            assertion
+        )
     for (entity_key, predicate, scope_json, _), assertions in temporal_groups.items():
         superseded_ids = {
             assertion.provenance.supersedes_assertion_id
@@ -478,8 +478,7 @@ def resolve_gold_draft(
         ]
         candidates = survivors or assertions
         latest = max(
-            parse_rfc3339(assertion.provenance.observed_at)
-            for assertion in candidates
+            parse_rfc3339(assertion.provenance.observed_at) for assertion in candidates
         )
         field_groups[(entity_key, predicate, scope_json)].extend(
             assertion

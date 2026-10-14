@@ -48,9 +48,7 @@ from video_media_catalog.temporal.workflows.research_domain import (
 )
 from video_media_catalog.v2_contracts import require_sha256
 
-RESEARCH_DOMAIN_PROFILES_SCHEMA = (
-    "video.media-catalog.research-domain-profiles.v1"
-)
+RESEARCH_DOMAIN_PROFILES_SCHEMA = "video.media-catalog.research-domain-profiles.v1"
 _REQUIRED_DISABLED_GATES = frozenset(
     {
         "sportsPublicationAllowed",
@@ -65,8 +63,7 @@ _CATALOG_ROOT = "s3://ai-video-platform-dev-media-catalog-209479308066"
 _CAPTURE_PREFIX = f"{_CATALOG_ROOT}/landing/research/capture"
 _WAREHOUSE = f"{_CATALOG_ROOT}/warehouse"
 _EMR_RUNTIME_ROLE = (
-    "arn:aws:iam::209479308066:role/"
-    "ai-video-platform-dev-media-catalog-emr-runtime"
+    "arn:aws:iam::209479308066:role/ai-video-platform-dev-media-catalog-emr-runtime"
 )
 
 _SCHEDULE_COORDINATES = {
@@ -159,9 +156,7 @@ def _source_from_mapping(values: dict[str, Any]) -> ResearchSourceProfile:
         maximum_retry_seconds=int(values.get("maximumRetrySeconds", 600)),
         capture_timeout_minutes=int(values.get("captureTimeoutMinutes", 30)),
         silver_timeout_minutes=int(values.get("silverTimeoutMinutes", 720)),
-        max_manifest_bytes=int(
-            values.get("maxManifestBytes", 4 * 1024 * 1024)
-        ),
+        max_manifest_bytes=int(values.get("maxManifestBytes", 4 * 1024 * 1024)),
     )
     _validate_source_coordinates(profile)
     return profile
@@ -185,11 +180,7 @@ def _validate_pinned_object(
 ) -> None:
     if not any(_is_under(reference.uri, prefix) for prefix in prefixes):
         raise ValueError(f"{label} is outside its reviewed S3 prefixes")
-    if (
-        not reference.etag
-        or not reference.object_version
-        or reference.size_bytes <= 0
-    ):
+    if not reference.etag or not reference.object_version or reference.size_bytes <= 0:
         raise ValueError(f"{label} requires size, ETag and ObjectVersion")
     require_sha256(reference.checksum_digest(), label=f"{label} checksum")
 
@@ -200,9 +191,7 @@ def _validate_source_coordinates(profile: ResearchSourceProfile) -> None:
         "destination_prefix": _CAPTURE_PREFIX,
         "aws_region": "us-east-1",
         "warehouse_uri": _WAREHOUSE,
-        "record_staging_prefix": (
-            f"{_WAREHOUSE}/research/control/record-shards"
-        ),
+        "record_staging_prefix": (f"{_WAREHOUSE}/research/control/record-shards"),
         "silver_checkpoint_prefix": (
             f"{_WAREHOUSE}/research/control/source-silver-checkpoints"
         ),
@@ -213,20 +202,15 @@ def _validate_source_coordinates(profile: ResearchSourceProfile) -> None:
             "ai-video-platform-dev-media-catalog-wikidata-reference"
         ),
         "emr_execution_role_arn": _EMR_RUNTIME_ROLE,
-        "emr_log_uri": (
-            f"{_CATALOG_ROOT}/raw/wikidata/emr-serverless-logs/"
-        ),
+        "emr_log_uri": (f"{_CATALOG_ROOT}/raw/wikidata/emr-serverless-logs/"),
         "emr_entry_point": (
-            "local:///opt/video-media-catalog/src/"
-            "video_media_catalog/community_cli.py"
+            "local:///opt/video-media-catalog/src/video_media_catalog/community_cli.py"
         ),
         "catalog_type": "glue",
         "catalog_name": "media",
         "glue_namespace": "video_media_catalog",
     }
-    drift = [
-        name for name, value in expected.items() if getattr(env, name) != value
-    ]
+    drift = [name for name, value in expected.items() if getattr(env, name) != value]
     if drift:
         raise ValueError(
             "research source environment drifted: " + ", ".join(sorted(drift))
@@ -257,34 +241,25 @@ def _validate_golden_coordinates(input_data: ResearchDomainInput) -> None:
         "pipeline_summary_prefix": (
             f"{_WAREHOUSE}/research/control/golden-builds/summaries"
         ),
-        "emr_application_name": (
-            "ai-video-platform-dev-media-catalog-golden-release"
-        ),
+        "emr_application_name": ("ai-video-platform-dev-media-catalog-golden-release"),
         "gold_emr_application_name": (
             "ai-video-platform-dev-media-catalog-golden-release"
         ),
         "emr_execution_role_arn": _EMR_RUNTIME_ROLE,
-        "emr_log_uri": (
-            f"{_CATALOG_ROOT}/raw/wikidata/emr-serverless-logs/"
-        ),
-        "gold_emr_log_uri": (
-            f"{_CATALOG_ROOT}/raw/golden/emr-serverless-logs/"
-        ),
+        "emr_log_uri": (f"{_CATALOG_ROOT}/raw/wikidata/emr-serverless-logs/"),
+        "gold_emr_log_uri": (f"{_CATALOG_ROOT}/raw/golden/emr-serverless-logs/"),
         "research_silver_entry_point": (
             "local:///opt/video-media-catalog/src/"
             "video_media_catalog/research_silver_cli.py"
         ),
         "gold_entry_point": (
-            "local:///opt/video-media-catalog/src/"
-            "video_media_catalog/gold_cli.py"
+            "local:///opt/video-media-catalog/src/video_media_catalog/gold_cli.py"
         ),
         "catalog_type": "glue",
         "catalog_name": "media",
         "glue_namespace": "video_media_catalog",
     }
-    drift = [
-        name for name, value in expected.items() if getattr(env, name) != value
-    ]
+    drift = [name for name, value in expected.items() if getattr(env, name) != value]
     if drift:
         raise ValueError(
             "research Golden environment drifted: " + ", ".join(sorted(drift))
@@ -296,9 +271,7 @@ def _validate_golden_coordinates(input_data: ResearchDomainInput) -> None:
     )
     _validate_pinned_object(
         golden.tmdb_pipeline_summary,
-        prefixes=(
-            f"{_CATALOG_ROOT}/landing/research/pipeline-summaries/tmdb",
-        ),
+        prefixes=(f"{_CATALOG_ROOT}/landing/research/pipeline-summaries/tmdb",),
         label="TMDB pipeline summary",
     )
     if golden.identity_reuse is not None:
@@ -323,9 +296,7 @@ def _domain_input_from_mapping(values: dict[str, Any]) -> ResearchDomainInput:
         sources=sources,
         golden_build=_input_from_mapping(values["goldenBuild"]),
         golden_task_queue=str(values["goldenTaskQueue"]),
-        continue_as_new_after_sources=int(
-            values.get("continueAsNewAfterSources", 2)
-        ),
+        continue_as_new_after_sources=int(values.get("continueAsNewAfterSources", 2)),
         failure_budget=int(values.get("failureBudget", 1)),
     )
     _validate_golden_coordinates(input_data)
@@ -335,8 +306,7 @@ def _domain_input_from_mapping(values: dict[str, Any]) -> ResearchDomainInput:
 def _bind_emr_image_digest(value: Any, digest: str) -> Any:
     if isinstance(value, dict):
         return {
-            key: _bind_emr_image_digest(item, digest)
-            for key, item in value.items()
+            key: _bind_emr_image_digest(item, digest) for key, item in value.items()
         }
     if isinstance(value, list):
         return [_bind_emr_image_digest(item, digest) for item in value]
@@ -380,9 +350,7 @@ def _load_schedules(
     if set(schedules) != set(_SCHEDULE_COORDINATES):
         raise ValueError("research domain config must define all five schedules")
     for schedule_id, input_data in schedules.items():
-        expected_domain, expected_source, _spec = _SCHEDULE_COORDINATES[
-            schedule_id
-        ]
+        expected_domain, expected_source, _spec = _SCHEDULE_COORDINATES[schedule_id]
         if input_data.domain != expected_domain or len(input_data.sources) != 1:
             raise ValueError(f"{schedule_id} must contain one expected domain source")
         if input_data.sources[0].source_product_id != expected_source:
@@ -396,9 +364,7 @@ def _load_schedules(
             input_data.sources[0].env.image_digest != emr_image_digest
             or input_data.golden_build.env.image_digest != emr_image_digest
         ):
-            raise ValueError(
-                f"{schedule_id} does not use the GitOps-pinned EMR image"
-            )
+            raise ValueError(f"{schedule_id} does not use the GitOps-pinned EMR image")
     return schedules
 
 
@@ -445,9 +411,7 @@ async def _upsert_schedule(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="video-media-catalog-research-temporal-admin"
-    )
+    parser = argparse.ArgumentParser(prog="video-media-catalog-research-temporal-admin")
     parser.add_argument(
         "--temporal-address",
         default=os.environ.get(
@@ -502,9 +466,7 @@ async def ensure_runtime(parsed: argparse.Namespace) -> dict[str, Any]:
         input_data.golden_task_queue != parsed.golden_task_queue
         for input_data in schedules.values()
     ):
-        raise ValueError(
-            "research profile Golden task queue does not match runtime"
-        )
+        raise ValueError("research profile Golden task queue does not match runtime")
     client = await Client.connect(
         parsed.temporal_address,
         namespace=parsed.temporal_namespace,

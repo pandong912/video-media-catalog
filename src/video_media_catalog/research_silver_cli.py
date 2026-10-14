@@ -766,6 +766,48 @@ def _selected_silver_frames(
     )
 
 
+def _incremental_unprocessed_source_run_ids(
+    runs: Mapping[str, CommunityIngestRun],
+) -> tuple[str, ...]:
+    source_run_ids = {
+        run_id
+        for run_id, run in runs.items()
+        if run.run_kind == IngestRunKind.SOURCE_ASSERTIONS
+    }
+    represented_source_run_ids: set[str] = set()
+    identity_run_count = 0
+    for run in runs.values():
+        if run.run_kind != IngestRunKind.IDENTITY_RESOLUTION:
+            continue
+        identity_run_count += 1
+        pinned_inputs = run.input_manifest.get("pinnedInputs")
+        raw_source_run_ids = (
+            pinned_inputs.get("sourceRunIds")
+            if isinstance(pinned_inputs, Mapping)
+            else None
+        )
+        if not isinstance(raw_source_run_ids, list):
+            raise ValueError(
+                "baseline Identity run lacks pinned sourceRunIds"
+            )
+        represented_source_run_ids.update(
+            _normalize_run_ids(
+                raw_source_run_ids,
+                label="baseline Identity",
+            )
+        )
+    if identity_run_count == 0:
+        raise ValueError("incremental Identity requires a baseline Identity run")
+    unknown_run_ids = represented_source_run_ids - source_run_ids
+    if unknown_run_ids:
+        raise ValueError(
+            "baseline Identity references source runs absent from the pinned "
+            "Silver snapshot: "
+            + ", ".join(sorted(unknown_run_ids))
+        )
+    return tuple(sorted(source_run_ids - represented_source_run_ids))
+
+
 def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
     source_run_ids = _normalize_run_ids(
         parsed.source_run_ids,
@@ -889,6 +931,13 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
                 "resolve-identity accepts only committed SOURCE_ASSERTIONS runs: "
                 + ", ".join(wrong_kind)
             )
+        if identity_mode == "incremental":
+            expected_delta = _incremental_unprocessed_source_run_ids(runs)
+            if source_run_ids != expected_delta:
+                raise ValueError(
+                    "incremental Identity source runs differ from the unprocessed "
+                    "Silver delta"
+                )
         visible = _selected_silver_frames(
             tables=input_tables,
             snapshot=silver_snapshot,

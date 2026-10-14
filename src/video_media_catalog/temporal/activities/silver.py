@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, Sequence
+from typing import Any
 
 from temporalio import activity
 
@@ -285,7 +286,9 @@ def _publish_batch_plan(
     committed_at: str,
 ) -> tuple[str, list[str], list[str]]:
     if not captures:
-        raise NonRetryableSilverError("Source Silver bundle requires at least one batch")
+        raise NonRetryableSilverError(
+            "Source Silver bundle requires at least one batch"
+        )
     plan_batches = []
     batch_ids: list[str] = []
     for capture in captures:

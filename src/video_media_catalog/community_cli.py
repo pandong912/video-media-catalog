@@ -448,7 +448,12 @@ def _prevalidated_record_set_grant(
     )
 
 
-def _plan_object_ref(entry: dict[str, Any], *, label: str, media_type: str) -> ObjectRef:
+def _plan_object_ref(
+    entry: dict[str, Any],
+    *,
+    label: str,
+    media_type: str,
+) -> ObjectRef:
     if not isinstance(entry, dict):
         raise ValueError(f"{label} must be an object")
     uri = str(entry["uri"])
@@ -718,7 +723,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if has_batch_plan and (
         parsed.batch_manifest_uri or parsed.record_set_manifest_uri
     ):
-        raise ValueError("--batch-plan-* cannot be combined with single-batch manifests")
+        raise ValueError(
+            "--batch-plan-* cannot be combined with single-batch manifests"
+        )
     if has_batch_plan and _has_prevalidated_record_set_grant(parsed):
         raise ValueError("prevalidated grants are not supported with --batch-plan-*")
     if has_single_batch:
@@ -776,7 +783,10 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             *probe_batch.raw_objects,
             *probe_record_set.record_objects,
         )
-        if any(urlsplit(reference.uri).scheme == "s3" for reference in embedded_references):
+        if any(
+            urlsplit(reference.uri).scheme == "s3"
+            for reference in embedded_references
+        ):
             store = BoundedObjectStore(
                 region=parsed.aws_region,
                 endpoint_url=parsed.s3_endpoint,
@@ -809,7 +819,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         builder = builder.config("spark.jars.packages", parsed.spark_packages)
     spark = builder.getOrCreate()
     try:
-        with tempfile.TemporaryDirectory(prefix="community-catalog-scratch-") as scratch:
+        with tempfile.TemporaryDirectory(
+            prefix="community-catalog-scratch-"
+        ) as scratch:
             scratch_dir = Path(scratch)
             batch_results: list[dict[str, Any]] = []
             for index, (expected_batch_id, batch_ref, record_set_ref) in enumerate(

@@ -17,6 +17,7 @@ from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.research_silver_cli import (
     MAX_EXPLICIT_RUN_IDS,
     _control_object_ref,
+    _incremental_unprocessed_source_run_ids,
     _models_by_run,
     _normalize_run_ids,
     _optional_control_object_ref,
@@ -344,6 +345,50 @@ def test_full_selection_does_not_read_historical_identity_tables() -> None:
     )
 
     assert set(tables.selected_tables) == set(SOURCE_TABLES)
+
+
+def test_incremental_identity_selects_only_unrepresented_source_runs() -> None:
+    first = "sha256:" + ("a" * 64)
+    second = "sha256:" + ("b" * 64)
+    identity = "sha256:" + ("c" * 64)
+    runs = {
+        first: SimpleNamespace(
+            run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+            input_manifest={},
+        ),
+        second: SimpleNamespace(
+            run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+            input_manifest={},
+        ),
+        identity: SimpleNamespace(
+            run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+            input_manifest={
+                "pinnedInputs": {
+                    "sourceRunIds": [first],
+                }
+            },
+        ),
+    }
+
+    assert _incremental_unprocessed_source_run_ids(runs) == (second,)
+
+
+def test_incremental_identity_rejects_unpinned_baseline_identity() -> None:
+    source = "sha256:" + ("a" * 64)
+    identity = "sha256:" + ("b" * 64)
+    runs = {
+        source: SimpleNamespace(
+            run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+            input_manifest={},
+        ),
+        identity: SimpleNamespace(
+            run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+            input_manifest={},
+        ),
+    }
+
+    with pytest.raises(ValueError, match="lacks pinned sourceRunIds"):
+        _incremental_unprocessed_source_run_ids(runs)
 
 
 def test_generation_and_mode_participate_in_identity_run_id() -> None:

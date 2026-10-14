@@ -1,6 +1,6 @@
 {
   "schemaVersion": "video.world.catalog-source-policy-registry.v1",
-  "registryVersion": "1.0.0",
+  "registryVersion": "1.1.0",
   "sources": [
     {
       "sourceId": "wikidata",
@@ -34,57 +34,87 @@
         {
           "namespace": "eidr.content",
           "aliases": ["eidr", "eidr-content"],
-          "materializablePredicates": ["hierarchy.parent", "hierarchy.series", "hierarchy.season"]
+          "materializablePredicates": [
+            "identity.title",
+            "identity.alias",
+            "hierarchy.parent",
+            "hierarchy.series",
+            "hierarchy.season"
+          ]
         }
       ]
     },
     {
       "sourceId": "imdb",
-      "status": "PENDING_LEGAL_REVIEW",
-      "licenseId": "IMDB-COMMERCIAL",
-      "licenseUri": "https://developer.imdb.com",
-      "attribution": "",
-      "capabilities": ["RETRIEVAL", "RANKING"],
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "IMDb-Non-Commercial-Datasets",
+      "licenseUri": "https://help.imdb.com/article/imdb/general-information/can-i-use-imdb-data-in-my-software/G5JTRESSHJBBHTGX",
+      "attribution": "Information courtesy of IMDb (https://www.imdb.com). Used with permission.",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
       "namespaces": [
         {
           "namespace": "imdb.title",
           "aliases": ["imdb", "imdb-title"],
-          "materializablePredicates": []
+          "materializablePredicates": [
+            "identity.title",
+            "identity.alias",
+            "hierarchy.parent",
+            "hierarchy.series",
+            "hierarchy.season"
+          ]
         }
       ]
     },
     {
       "sourceId": "tvmaze",
-      "status": "PENDING_LEGAL_REVIEW",
-      "licenseId": "TVMAZE-API-TERMS",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "CC-BY-SA-version-unspecified",
       "licenseUri": "https://www.tvmaze.com/api",
-      "attribution": "",
-      "capabilities": ["RETRIEVAL", "RANKING"],
+      "attribution": "TV data provided by TVmaze (https://www.tvmaze.com).",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
       "namespaces": [
         {
           "namespace": "tvmaze.show",
           "aliases": ["tvmaze", "tvmaze-show"],
-          "materializablePredicates": []
+          "materializablePredicates": [
+            "identity.title",
+            "identity.alias",
+            "hierarchy.parent",
+            "hierarchy.series",
+            "hierarchy.season"
+          ]
         }
       ]
     },
     {
       "sourceId": "tmdb",
-      "status": "EXCLUDED_FROM_V1",
-      "licenseId": "TMDB-API-TERMS",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "TMDB-API-Terms-NonCommercial",
       "licenseUri": "https://www.themoviedb.org/api-terms-of-use",
-      "attribution": "",
-      "capabilities": ["RETRIEVAL", "RANKING"],
+      "attribution": "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
       "namespaces": [
         {
           "namespace": "tmdb.movie",
           "aliases": ["tmdb-movie"],
-          "materializablePredicates": []
+          "materializablePredicates": [
+            "identity.title",
+            "identity.alias",
+            "hierarchy.parent",
+            "hierarchy.series",
+            "hierarchy.season"
+          ]
         },
         {
           "namespace": "tmdb.tv",
           "aliases": ["tmdb-tv"],
-          "materializablePredicates": []
+          "materializablePredicates": [
+            "identity.title",
+            "identity.alias",
+            "hierarchy.parent",
+            "hierarchy.series",
+            "hierarchy.season"
+          ]
         }
       ]
     }

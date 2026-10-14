@@ -31,14 +31,13 @@ Silver / Gold / epoch 的内部契约版本回退或改名。
 Catalog Match 的来源 enablement 固定在
 `contracts/catalog/catalog-source-policy.v1.json`，其 canonical semantic
 digest 为
-`sha256:4da143ac61dd11a9aa59bd567b36af47fc57d9b4c0cb4f0cc09b1696a1a11277`。
-只有 Wikidata 与 EIDR 可进入 Identity/Gold；IMDb、TVmaze 与 TMDB
-只允许 retrieval/ranking，不能自动参与身份或物化。Catalog 的
+`sha256:d1631f6a65e86a6e613e53d0379672738f4ca768bd72155554bb80866c3fda61`。
+Wikidata、EIDR、IMDb、TVmaze 与 TMDB 均可进入 Identity/Gold。Catalog 的
 source-product、capture/freshness 与 projection 技术能力保存在独立实现映射，
 live 权限始终与 canonical policy 求交，不产生第二个授权 digest。Golden
 Build 必须使用显式 `sourceRunStates` 钉住 capture/run、freshness、watermark
-与用途；retrieval-only run 只被跟踪，不会被送入 snapshot、Identity 或
-Gold，且流程不会读取或伪造外部凭据。
+与用途；五个 canonical source run 都会被送入 snapshot、Identity 与 Gold，
+且流程不会读取或伪造外部凭据。
 
 ## Capture entrypoints
 

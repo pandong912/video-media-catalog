@@ -787,9 +787,7 @@ def _incremental_unprocessed_source_run_ids(
             else None
         )
         if not isinstance(raw_source_run_ids, list):
-            raise ValueError(
-                "baseline Identity run lacks pinned sourceRunIds"
-            )
+            raise ValueError("baseline Identity run lacks pinned sourceRunIds")
         represented_source_run_ids.update(
             _normalize_run_ids(
                 raw_source_run_ids,
@@ -802,8 +800,7 @@ def _incremental_unprocessed_source_run_ids(
     if unknown_run_ids:
         raise ValueError(
             "baseline Identity references source runs absent from the pinned "
-            "Silver snapshot: "
-            + ", ".join(sorted(unknown_run_ids))
+            "Silver snapshot: " + ", ".join(sorted(unknown_run_ids))
         )
     return tuple(sorted(source_run_ids - represented_source_run_ids))
 

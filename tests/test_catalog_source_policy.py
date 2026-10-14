@@ -103,9 +103,10 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         "tvmaze-show",
         "wikidata-item",
     }
-    assert set(
-        policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE)
-    ) == expected_namespaces
+    assert (
+        set(policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE))
+        == expected_namespaces
+    )
     identity_rows = exact_id_namespace_rows(
         build_community_registry(),
         allowed_namespace_ids=policy.enabled_namespace_ids(

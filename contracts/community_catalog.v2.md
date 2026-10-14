@@ -51,6 +51,16 @@ The source registry contains:
 Registry IDs are stable slugs. Provider and product names are display metadata
 and may change without changing those IDs.
 
+Catalog Match enablement is a separate versioned policy at
+`catalog/catalog-source-policy.v1.json`. The source registry describes what is
+known and technically implemented; it does not authorize Identity-spine or
+Gold materialization. The portable canonical policy is the sole authorization
+artifact; Catalog's explicit source-product and namespace implementation
+mapping describes technical support only. Live capabilities are their
+intersection. Pending/excluded sources cannot enable Identity or
+materialization, unknown/conflicting mappings fail closed, and policy
+enablement never bypasses the rights profile.
+
 The bootstrap registry includes:
 
 - Wikidata structured JSON under CC0, including Wikidata-observed external

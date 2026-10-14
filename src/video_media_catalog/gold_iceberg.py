@@ -239,6 +239,7 @@ class CommunityGoldTables:
             table_snapshot_ids=snapshots,
             quality_report=quality_report_ref,
             attribution_manifest=attribution_manifest_ref,
+            source_policy_digest=plan.source_policy_digest,
         )
         self.merge_insert_only(
             "community_gold_release_commit",

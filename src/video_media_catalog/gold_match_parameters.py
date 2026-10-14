@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, canonical_json_bytes
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.gold import RESEARCH_CONTEXT_ID
 from video_media_catalog.gold_search_index import (
     MAPPING_DIGEST,
@@ -62,7 +63,11 @@ def match_parameters_from_manifest(
     if manifest.index == manifest.alias or concrete is None:
         raise ValueError("concreteIndex must be a 24-hex research index, not an alias")
     if manifest.mapping_digest != MAPPING_DIGEST:
-        raise ValueError("index manifest mappingDigest does not match projection v7")
+        raise ValueError("index manifest mappingDigest does not match projection v8")
+    if manifest.source_policy_digest != load_catalog_source_policy().digest:
+        raise ValueError(
+            "index manifest sourcePolicyDigest does not match canonical policy"
+        )
     if not _SHA256.fullmatch(manifest.config_digest):
         raise ValueError("configDigest must be sha256")
     if not _SHA256.fullmatch(manifest.release_plan_id):

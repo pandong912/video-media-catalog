@@ -3,8 +3,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from video_media_catalog.temporal.models import ObjectRefPayload
+
+
+class GoldenSourceRunStatus(StrEnum):
+    COMMITTED = "COMMITTED"
+    PENDING = "PENDING"
+    FAILED = "FAILED"
+    EXCLUDED = "EXCLUDED"
+
+
+class GoldenSourceFreshnessStatus(StrEnum):
+    PASS = "PASS"
+    OVERRIDDEN = "OVERRIDDEN"
+    STALE = "STALE"
+    UNKNOWN = "UNKNOWN"
+    NOT_REQUIRED = "NOT_REQUIRED"
+
+
+@dataclass(frozen=True)
+class GoldenSourceRunState:
+    """Pinned capture/Silver state consumed by one Golden Build."""
+
+    source_product_id: str
+    run_ids: tuple[str, ...]
+    run_status: GoldenSourceRunStatus
+    freshness_status: GoldenSourceFreshnessStatus
+    watermark: str = ""
+    acquired_at: str | None = None
+    identity_spine: bool = False
+    materialization: bool = False
+    capture_reference: ObjectRefPayload | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +93,7 @@ class GoldenBuildInput:
     env: GoldenBuildEnv
     supplemental_source_run_ids: tuple[str, ...] = ()
     identity_reuse: ObjectRefPayload | None = None
+    source_run_states: tuple[GoldenSourceRunState, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -78,6 +110,8 @@ class GoldenPreflightResult:
     identity_config_digest: str
     identity_resolution_config_digest: str
     identity_bound_config_digest: str
+    source_policy_digest: str = ""
+    source_run_states: tuple[GoldenSourceRunState, ...] = ()
     reused_identity: GoldenIdentityResult | None = None
 
 

@@ -254,8 +254,12 @@ def test_golden_preflight_reuses_verified_identity_job(
 ) -> None:
     input_data = _input()
     source_build_id = "tmdb-multisource-20261009-r3"
+    source_policy_digest = golden_mod.load_catalog_source_policy().digest
     source_runtime, source_resolution, source_bound = (
-        golden_mod._identity_config_digests(source_build_id)
+        golden_mod._identity_config_digests(
+            source_build_id,
+            source_policy_digest=source_policy_digest,
+        )
     )
     preflight = GoldenPreflightResult(
         build_spec=_ref("s3://bucket/build-spec.json"),
@@ -278,6 +282,7 @@ def test_golden_preflight_reuses_verified_identity_job(
         identity_config_digest=_run(91),
         identity_resolution_config_digest=source_resolution,
         identity_bound_config_digest=_run(92),
+        source_policy_digest=source_policy_digest,
     )
     image_digest = _run(93)
     arguments = ["resolve-identity"]
@@ -293,6 +298,8 @@ def test_golden_preflight_reuses_verified_identity_job(
             image_digest,
             "--config-digest",
             source_runtime,
+            "--source-policy-digest",
+            source_policy_digest,
         ]
     )
     job_run_id = "00verifiedidentity"
@@ -328,6 +335,7 @@ def test_golden_preflight_reuses_verified_identity_job(
             "configDigest": source_bound,
             "identityResolutionConfigDigest": source_resolution,
             "registryDigest": golden_mod.build_community_registry().digest,
+            "sourcePolicyDigest": source_policy_digest,
             "identityGenerationId": input_data.identity_generation_id,
             "identityMode": "incremental",
             "sourceRunIds": list(preflight.tmdb_source_run_ids),
@@ -345,6 +353,84 @@ def test_golden_preflight_reuses_verified_identity_job(
     assert result.run_id == _run(94)
     assert result.job_run_id == job_run_id
     assert result.source_run_ids == preflight.tmdb_source_run_ids
+
+
+def test_golden_identity_rejects_mismatched_source_policy_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    source_policy_digest = golden_mod.load_catalog_source_policy().digest
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=tuple(
+            sorted(
+                (
+                    *input_data.baseline_source_run_ids,
+                    input_data.baseline_identity_run_id,
+                    *input_data.tmdb_source_run_ids,
+                )
+            )
+        ),
+        tmdb_source_run_ids=tuple(sorted(input_data.tmdb_source_run_ids)),
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(90),
+        identity_config_digest=_run(91),
+        identity_resolution_config_digest=_run(92),
+        identity_bound_config_digest=_run(93),
+        source_policy_digest=source_policy_digest,
+    )
+    required_keys: tuple[str, ...] = ()
+
+    def fake_stage(**kwargs: Any) -> tuple[dict[str, Any], str]:
+        nonlocal required_keys
+        required_keys = kwargs["required_keys"]
+        return (
+            {
+                "runId": _run(94),
+                "commitKey": _run(95),
+                "configDigest": preflight.identity_bound_config_digest,
+                "identityResolutionConfigDigest": (
+                    preflight.identity_resolution_config_digest
+                ),
+                "sourcePolicyDigest": _run(96),
+                "identityGenerationId": input_data.identity_generation_id,
+                "identityMode": "incremental",
+                "sourceRunIds": list(preflight.tmdb_source_run_ids),
+                "tableCounts": {"community_entity_ledger": 1},
+                "tableSnapshotIds": {"community_entity_ledger": 7},
+            },
+            "identity-job",
+        )
+
+    monkeypatch.setattr(golden_mod, "_run_emr_stage", fake_stage)
+    monkeypatch.setattr(
+        golden_mod.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_run_id="temporal-run-1"),
+    )
+    monkeypatch.setattr(
+        golden_mod,
+        "classify_golden_build_exception",
+        lambda exc: exc,
+    )
+
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="Identity summary differs",
+    ):
+        golden_mod.resolve_golden_identity(
+            input_data,
+            preflight,
+            SimpleNamespace(snapshot=_ref("s3://bucket/snapshot.json")),
+            "2026-10-09T00:00:00Z",
+            "2026-10-09T00:00:00Z",
+        )
+
+    assert "sourcePolicyDigest" in required_keys
 
 
 def test_epoch_requires_exact_pinned_runs_plus_identity(

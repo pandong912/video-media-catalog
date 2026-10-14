@@ -10,6 +10,10 @@ from pydantic import Field, field_validator
 
 from video_media_catalog.assertions import SourceNodeRef
 from video_media_catalog.canonical import deterministic_key
+from video_media_catalog.catalog_source_policy import (
+    CatalogSourceCapability,
+    CatalogSourcePolicy,
+)
 from video_media_catalog.community_ingest import (
     CommunityIngestRun,
     IngestRunKind,
@@ -1032,6 +1036,7 @@ def build_identity_resolution_dataframes(
     config_digest: str,
     started_at: str,
     registry: SourceRegistrySnapshot | None = None,
+    source_policy: CatalogSourcePolicy | None = None,
     pinned_inputs: Mapping[str, Any] | None = None,
     source_records: Any | None = None,
     ingest_runs: Any | None = None,
@@ -1070,6 +1075,8 @@ def build_identity_resolution_dataframes(
             ),
         }
     registry = registry or build_community_registry()
+    if source_policy is not None:
+        source_policy.validate_registry(registry)
     materialization_id = deterministic_key(
         "external-id-index-materialization-v2",
         {
@@ -1078,6 +1085,11 @@ def build_identity_resolution_dataframes(
             "configDigest": config_digest,
             "startedAt": started_at,
             "registryDigest": registry.digest,
+            **(
+                {"sourcePolicyDigest": source_policy.digest}
+                if source_policy is not None
+                else {}
+            ),
         },
     )
     required = {
@@ -1093,7 +1105,45 @@ def build_identity_resolution_dataframes(
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
 
-    namespace_rows = exact_id_namespace_rows(registry)
+    if source_policy is not None and ingest_runs is not None:
+        enabled_identity_sources = set(
+            source_policy.enabled_source_ids(CatalogSourceCapability.IDENTITY_SPINE)
+        ) & set(
+            source_policy.enabled_source_ids(CatalogSourceCapability.MATERIALIZATION)
+        )
+        allowed_sources = F.broadcast(
+            spark.createDataFrame(
+                [(value,) for value in sorted(enabled_identity_sources)],
+                "_allowed_source_product_id STRING",
+            )
+        )
+        disallowed_source_run = (
+            ingest_runs.where(
+                F.col("run_kind") == IngestRunKind.SOURCE_ASSERTIONS.value
+            )
+            .select("source_product_id")
+            .dropDuplicates()
+            .join(
+                allowed_sources,
+                F.col("source_product_id") == F.col("_allowed_source_product_id"),
+                "left_anti",
+            )
+            .limit(1)
+        )
+        if disallowed_source_run.count():
+            raise ValueError(
+                "Identity source run is not enabled by Catalog Match source policy"
+            )
+    namespace_rows = exact_id_namespace_rows(
+        registry,
+        allowed_namespace_ids=(
+            None
+            if source_policy is None
+            else source_policy.enabled_namespace_ids(
+                CatalogSourceCapability.IDENTITY_SPINE
+            )
+        ),
+    )
     namespace_schemes = spark.createDataFrame(
         [
             (
@@ -2493,6 +2543,11 @@ def build_identity_resolution_dataframes(
             input_manifest={
                 "inputId": input_id,
                 "registryDigest": registry.digest,
+                **(
+                    {"sourcePolicyDigest": source_policy.digest}
+                    if source_policy is not None
+                    else {}
+                ),
                 "resolver": "community-identity-spark-v2",
                 "runtimeConfigDigest": runtime_config_digest,
                 "identityResolutionConfigDigest": resolution_config.digest,

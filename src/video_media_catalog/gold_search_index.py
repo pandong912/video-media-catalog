@@ -50,7 +50,7 @@ from video_media_catalog.v2_contracts import (
 
 RESEARCH_READ_ALIAS = "media-catalog-research-read"
 RESEARCH_INDEX_PREFIX = "media-catalog-research"
-PROJECTION_VERSION = "7"
+PROJECTION_VERSION = "8"
 DEFAULT_GOLD_BULK_PARTITIONS = 32
 DEFAULT_GOLD_BULK_WORKERS = 2
 MAX_GOLD_BULK_PARTITIONS = 4096
@@ -86,12 +86,16 @@ _MAPPINGS: dict[str, Any] = {
         "status": {"type": "keyword"},
         "releasePlanId": {"type": "keyword"},
         "contextId": {"type": "keyword"},
+        "sourcePolicyDigest": {"type": "keyword"},
         "displayName": {
             "type": "text",
             "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
         },
         "displayLanguage": {"type": "keyword"},
         "contentType": {"type": "keyword"},
+        "parentEntityKey": {"type": "keyword"},
+        "seriesEntityKey": {"type": "keyword"},
+        "seasonEntityKey": {"type": "keyword"},
         "releaseYear": {"type": "integer"},
         "seasonNumber": {"type": "integer"},
         "episodeNumber": {"type": "integer"},
@@ -131,10 +135,13 @@ _MAPPINGS: dict[str, Any] = {
             "type": "nested",
             "dynamic": "strict",
             "properties": {
+                "sourceProductId": {"type": "keyword"},
                 "namespace": {"type": "keyword"},
                 "value": {"type": "keyword", "ignore_above": 1024},
                 "issuer": {"type": "keyword"},
                 "referentKind": {"type": "keyword"},
+                "assertionId": {"type": "keyword"},
+                "citationKeys": {"type": "keyword"},
                 "url": {"type": "keyword", "index": False},
             },
         },
@@ -225,6 +232,7 @@ _MAPPINGS: dict[str, Any] = {
                 "citationKeys": {"type": "integer"},
                 "rights": {"type": "integer"},
                 "conflicts": {"type": "integer"},
+                "hierarchyRelations": {"type": "integer"},
                 "formats": {"type": "integer"},
                 "languages": {"type": "integer"},
                 "statuses": {"type": "integer"},
@@ -255,7 +263,7 @@ def _safe_name(value: str, *, label: str) -> str:
 
 
 class GoldIndexConfigIdentity(V2ContractModel):
-    projection_version: Literal["7"] = PROJECTION_VERSION
+    projection_version: Literal["8"] = PROJECTION_VERSION
     mapping_digest: str = MAPPING_DIGEST
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     read_alias: str
@@ -1548,6 +1556,17 @@ def ensure_incremental_gold_baseline(
 ) -> tuple[GoldIndexPartitionReceipt, bool]:
     """Copy the immutable base index without mutating active cursor targets."""
 
+    raw_source_policy_digest = getattr(
+        release_commit,
+        "source_policy_digest",
+        None,
+    )
+    if raw_source_policy_digest is None:
+        raise ValueError("incremental Gold release lacks source-policy provenance")
+    source_policy_digest = require_sha256(
+        raw_source_policy_digest,
+        label="source_policy_digest",
+    )
     if (
         isinstance(task_timeout_seconds, bool)
         or not isinstance(task_timeout_seconds, int)
@@ -1574,6 +1593,7 @@ def ensure_incremental_gold_baseline(
                     "baseReleasePlanId": affected_manifest.base_release_plan_id,
                     "targetIndex": index_name,
                     "targetReleasePlanId": release_commit.release_plan_id,
+                    "targetSourcePolicyDigest": source_policy_digest,
                 }
             )
         ).hexdigest()
@@ -1617,6 +1637,7 @@ def ensure_incremental_gold_baseline(
                     index_name=affected_manifest.base_index,
                     release_plan_id=affected_manifest.base_release_plan_id,
                     expected_document_count=affected_manifest.base_document_count,
+                    source_policy_digest=source_policy_digest,
                 )
             return existing, True
     if current != [affected_manifest.base_index]:
@@ -1628,6 +1649,7 @@ def ensure_incremental_gold_baseline(
         index_name=affected_manifest.base_index,
         release_plan_id=affected_manifest.base_release_plan_id,
         expected_document_count=affected_manifest.base_document_count,
+        source_policy_digest=source_policy_digest,
     )
 
     reindex_submission = client.reindex(
@@ -1688,11 +1710,18 @@ def ensure_incremental_gold_baseline(
             "script": {
                 "lang": "painless",
                 "source": (
-                    "if (ctx._source.releasePlanId == params.releasePlanId) "
+                    "if (ctx._source.releasePlanId == params.releasePlanId "
+                    "&& ctx._source.sourcePolicyDigest "
+                    "== params.sourcePolicyDigest) "
                     "{ ctx.op = 'noop' } else "
-                    "{ ctx._source.releasePlanId = params.releasePlanId }"
+                    "{ ctx._source.releasePlanId = params.releasePlanId; "
+                    "ctx._source.sourcePolicyDigest = "
+                    "params.sourcePolicyDigest }"
                 ),
-                "params": {"releasePlanId": release_commit.release_plan_id},
+                "params": {
+                    "releasePlanId": release_commit.release_plan_id,
+                    "sourcePolicyDigest": source_policy_digest,
+                },
             },
         },
         conflicts="abort",
@@ -1717,6 +1746,7 @@ def ensure_incremental_gold_baseline(
         index_name=index_name,
         release_plan_id=release_commit.release_plan_id,
         expected_document_count=affected_manifest.base_document_count,
+        source_policy_digest=source_policy_digest,
     )
     return publisher.publish(receipt), False
 
@@ -1800,10 +1830,19 @@ def validate_gold_index_contents(
     index_name: str,
     release_plan_id: str,
     expected_document_count: int,
+    source_policy_digest: str | None = None,
 ) -> int:
     """Require one concrete index to contain only the expected research release."""
 
     release_plan = require_sha256(release_plan_id, label="release_plan_id")
+    policy_digest = (
+        None
+        if source_policy_digest is None
+        else require_sha256(
+            source_policy_digest,
+            label="source_policy_digest",
+        )
+    )
     total_count = validate_gold_index_document_count(
         client,
         index_name=index_name,
@@ -1817,6 +1856,11 @@ def validate_gold_index_contents(
                     "filter": [
                         {"term": {"releasePlanId": release_plan}},
                         {"term": {"contextId": RESEARCH_CONTEXT_ID}},
+                        *(
+                            [{"term": {"sourcePolicyDigest": policy_digest}}]
+                            if policy_digest is not None
+                            else []
+                        ),
                     ]
                 }
             }
@@ -1901,6 +1945,7 @@ class GoldIndexBuildManifest(V2ContractModel):
     affected_entity_manifest: ObjectRef | None = None
     table_snapshot_ids: dict[str, int | None]
     mapping_digest: str
+    source_policy_digest: str | None = None
     config_identity: GoldIndexConfigIdentity
     config_digest: str
     document_count: int = Field(ge=0)
@@ -1925,6 +1970,7 @@ class GoldIndexBuildManifest(V2ContractModel):
     @field_validator(
         "release_plan_id",
         "mapping_digest",
+        "source_policy_digest",
         "config_digest",
         "partition_receipt_digest",
     )

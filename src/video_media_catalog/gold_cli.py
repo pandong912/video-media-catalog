@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, sha256_digest
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_snapshot import (
     CONTROL_MAX_BYTES,
@@ -91,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shuffle-partitions", type=int)
     parser.add_argument("--spark-packages")
     parser.add_argument("--image-digest", required=True)
+    parser.add_argument("--source-policy-digest", default="")
     parser.add_argument("--territories", default="*")
     parser.add_argument("--max-conflict-ratio", type=float, default=0.05)
     parser.add_argument(
@@ -241,6 +243,14 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     ):
         raise ValueError("large Silver histories must use an epoch manifest")
     registry = build_community_registry()
+    source_policy = load_catalog_source_policy(registry=registry)
+    if (
+        parsed.source_policy_digest
+        and parsed.source_policy_digest.lower() != source_policy.digest
+    ):
+        raise ValueError(
+            "pinned source policy digest differs from the runtime contract"
+        )
     termination_fences = tuple(
         _read_termination_fence(path) for path in parsed.termination_fence_json
     )
@@ -322,6 +332,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         "warehouse": parsed.warehouse,
         "context": context.model_dump(mode="json", by_alias=True),
         "fieldPolicyDigest": policy.digest,
+        "sourcePolicyDigest": source_policy.digest,
         "releaseFreshnessPolicy": freshness_policy.model_dump(
             mode="json",
             by_alias=True,
@@ -468,6 +479,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             freshness_override=freshness_override,
             build_mode=build_mode,
             termination_fences=termination_fences,
+            source_policy=source_policy,
         )
         plan_prefix = join_uri(
             parsed.output_prefix,

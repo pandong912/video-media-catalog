@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGEST
 from video_media_catalog.gold_index_scale import (
     plan_gold_index_sizing,
     synthetic_gold_document,
@@ -37,8 +38,9 @@ def test_synthetic_million_scale_plans_do_not_materialize_target_volume() -> Non
 
 
 def test_sizing_planner_uses_action_and_byte_bounds() -> None:
+    documents = [synthetic_gold_document(1), synthetic_gold_document(2)]
     plan = plan_gold_index_sizing(
-        [synthetic_gold_document(1), synthetic_gold_document(2)],
+        documents,
         target_document_count=10,
         bulk_partitions=1,
         bulk_workers=1,
@@ -55,6 +57,9 @@ def test_sizing_planner_uses_action_and_byte_bounds() -> None:
     assert plan.estimated_bulk_duration_seconds == 5
     assert plan.average_bulk_action_bytes > plan.average_document_bytes
     assert plan.assumptions_digest.startswith("sha256:")
+    assert documents[0]["sourcePolicyDigest"] == CATALOG_SOURCE_POLICY_DIGEST
+    assert documents[0]["externalIdentifiers"][0]["sourceProductId"] == "imdb"
+    assert documents[0]["externalIdentifiers"][0]["assertionId"].startswith("sha256:")
 
 
 def test_sizing_planner_rejects_action_larger_than_bulk_limit() -> None:

@@ -17,6 +17,9 @@ from video_media_catalog.temporal.golden_models import (
     FreshnessOverrideInput,
     GoldenBuildEnv,
     GoldenBuildInput,
+    GoldenSourceFreshnessStatus,
+    GoldenSourceRunState,
+    GoldenSourceRunStatus,
 )
 from video_media_catalog.temporal.models import ObjectRefPayload
 from video_media_catalog.temporal.names import (
@@ -66,9 +69,48 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
     )
 
 
+def _state_bool(values: dict[str, Any], key: str, *, default: bool) -> bool:
+    value = values.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"sourceRunStates.{key} must be a boolean")
+    return value
+
+
 def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
     override = values["freshnessOverride"]
     identity_reuse = values.get("identityReuse")
+    source_run_states = []
+    for raw in values.get("sourceRunStates", ()):
+        capture_reference = raw.get("captureReference")
+        source_run_states.append(
+            GoldenSourceRunState(
+                source_product_id=str(raw["sourceProductId"]),
+                run_ids=tuple(str(value) for value in raw.get("runIds", ())),
+                run_status=GoldenSourceRunStatus(str(raw["runStatus"])),
+                freshness_status=GoldenSourceFreshnessStatus(
+                    str(raw["freshnessStatus"])
+                ),
+                watermark=str(raw.get("watermark", "")),
+                acquired_at=(
+                    None if raw.get("acquiredAt") is None else str(raw["acquiredAt"])
+                ),
+                identity_spine=_state_bool(
+                    raw,
+                    "identitySpine",
+                    default=False,
+                ),
+                materialization=_state_bool(
+                    raw,
+                    "materialization",
+                    default=False,
+                ),
+                capture_reference=(
+                    None
+                    if capture_reference is None
+                    else ObjectRefPayload.from_mapping(capture_reference)
+                ),
+            )
+        )
     return GoldenBuildInput(
         build_id=str(values["buildId"]),
         identity_generation_id=str(values["identityGenerationId"]),
@@ -99,6 +141,7 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
             if identity_reuse is None
             else ObjectRefPayload.from_mapping(identity_reuse)
         ),
+        source_run_states=tuple(source_run_states),
     )
 
 

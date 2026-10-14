@@ -6,9 +6,15 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import Any
 
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.catalog_source_policy import (
+    CatalogSourceCapability,
+    CatalogSourcePolicy,
+    load_catalog_source_policy,
+)
 from video_media_catalog.douban import douban_jump_url
 from video_media_catalog.eidr import normalize_eidr_id
 from video_media_catalog.gold import (
@@ -16,6 +22,7 @@ from video_media_catalog.gold import (
     GoldAssertionLineage,
     assertion_lineage_from_trace,
 )
+from video_media_catalog.v2_contracts import require_sha256
 
 DISPLAY_LANGUAGES = ("zh-hans", "zh-hant", "zh", "en", "und")
 MAX_TITLES = 64
@@ -29,6 +36,20 @@ MAX_RIGHTS_SUMMARIES = 32
 MAX_CONFLICTS = 64
 MAX_CONFLICT_ASSERTIONS = 32
 MAX_CONFLICT_VALUES = 16
+MAX_HIERARCHY_RELATION_CANDIDATES = 16
+
+_PARENT_RELATION_PREDICATES = frozenset(
+    {
+        "part_of",
+        "part_of_season",
+        "part_of_series",
+        "season",
+    }
+)
+_SERIES_RELATION_PREDICATES = frozenset({"part_of", "part_of_series"})
+_SEASON_RELATION_PREDICATES = frozenset({"part_of", "part_of_season", "season"})
+_EXPLICIT_SERIES_RELATION_PREDICATES = frozenset({"part_of_series"})
+_EXPLICIT_SEASON_RELATION_PREDICATES = frozenset({"part_of_season", "season"})
 
 _ATTRIBUTE_PREDICATES = {
     "format": "formats",
@@ -47,7 +68,16 @@ _MATCH_INT_PREDICATES = {
     "episode_number": (1, 2**31 - 1),
     "runtime_minutes": (1, 10_000),
 }
+_IDENTITY_FIELD_PREDICATES = {
+    "title": "identity.title",
+    "original_title": "identity.alias",
+}
 _PREMIERED_YEAR = re.compile(r"^(\d{4})(?:-\d{2}-\d{2})?$")
+
+
+@lru_cache(maxsize=1)
+def _projection_source_policy() -> CatalogSourcePolicy:
+    return load_catalog_source_policy()
 
 
 def _external_identifier_url(
@@ -151,8 +181,134 @@ def _content_type(value: Any) -> str | None:
     return None
 
 
-def project_gold_entity(row: Any) -> dict[str, Any]:
+def _optional_entity_key(value: Any, *, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a sha256 entity key or null")
+    return require_sha256(value, label=label)
+
+
+def _derive_hierarchy_keys(
+    value: dict[str, Any],
+) -> tuple[str | None, str | None, str | None, int]:
+    """Derive only unique hierarchy keys and fail closed on bounded overflow."""
+
+    precomputed = any(
+        key in value
+        for key in (
+            "parent_entity_key",
+            "series_entity_key",
+            "season_entity_key",
+            "hierarchy_relation_overflow",
+        )
+    )
+    if precomputed:
+        overflow = int(value.get("hierarchy_relation_overflow") or 0)
+        if overflow < 0:
+            raise ValueError("hierarchy relation overflow must be non-negative")
+        if overflow:
+            return None, None, None, overflow
+        return (
+            _optional_entity_key(
+                value.get("parent_entity_key"),
+                label="parent_entity_key",
+            ),
+            _optional_entity_key(
+                value.get("series_entity_key"),
+                label="series_entity_key",
+            ),
+            _optional_entity_key(
+                value.get("season_entity_key"),
+                label="season_entity_key",
+            ),
+            0,
+        )
+
+    series_candidates: set[str] = set()
+    season_candidates: set[str] = set()
+    parent_candidates: set[str] = set()
+    for raw in value.get("relations") or ():
+        relation = _dict(raw)
+        predicate = str(relation.get("predicate") or "").strip().lower()
+        if predicate not in _PARENT_RELATION_PREDICATES:
+            continue
+        object_key = _optional_entity_key(
+            relation.get("object_entity_key", relation.get("objectEntityKey")),
+            label="relation object_entity_key",
+        )
+        if object_key is None:
+            continue
+        parent_candidates.add(object_key)
+        object_level = (
+            str(
+                relation.get("object_entity_level")
+                or relation.get("objectEntityLevel")
+                or ""
+            )
+            .strip()
+            .upper()
+        )
+        if object_level == "SERIES" or (
+            not object_level and predicate in _EXPLICIT_SERIES_RELATION_PREDICATES
+        ):
+            series_candidates.add(object_key)
+        if object_level == "SEASON" or (
+            not object_level and predicate in _EXPLICIT_SEASON_RELATION_PREDICATES
+        ):
+            season_candidates.add(object_key)
+
+    candidate_count = len(parent_candidates)
+    overflow = max(0, candidate_count - MAX_HIERARCHY_RELATION_CANDIDATES)
+    if overflow:
+        return None, None, None, overflow
+
+    entity_level = str(value.get("entity_level") or "").strip().upper()
+    series_key = next(iter(series_candidates)) if len(series_candidates) == 1 else None
+    season_key = next(iter(season_candidates)) if len(season_candidates) == 1 else None
+    parent_key = None
+    if entity_level == "SEASON":
+        parent_key = (
+            series_key
+            if series_key is not None
+            else (
+                next(iter(parent_candidates)) if len(parent_candidates) == 1 else None
+            )
+        )
+        season_key = None
+    elif entity_level == "EPISODE":
+        if season_key is not None:
+            parent_key = season_key
+        elif not season_candidates and series_key is not None:
+            parent_key = series_key
+        elif not season_candidates and len(parent_candidates) == 1:
+            parent_key = next(iter(parent_candidates))
+    return parent_key, series_key, season_key, 0
+
+
+def project_gold_entity(
+    row: Any,
+    *,
+    source_policy_digest: str | None = None,
+) -> dict[str, Any]:
     value = _dict(row)
+    source_policy = _projection_source_policy()
+    policy_digest = require_sha256(
+        source_policy_digest
+        or value.get("source_policy_digest")
+        or source_policy.digest,
+        label="source_policy_digest",
+    )
+    if policy_digest != source_policy.digest:
+        raise ValueError(
+            "Gold projection source_policy_digest differs from canonical policy"
+        )
+    (
+        parent_entity_key,
+        series_entity_key,
+        season_entity_key,
+        hierarchy_relation_overflow,
+    ) = _derive_hierarchy_keys(value)
     titles = []
     attributes: dict[str, set[str]] = {
         name: set() for name in _ATTRIBUTE_PREDICATES.values()
@@ -192,6 +348,16 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         predicate = str(field["predicate"])
         for assertion_id in winner_ids:
             item = field_lineage_by_id[assertion_id]
+            source = source_policy.source(item.source_product_id)
+            if source.allows(CatalogSourceCapability.MATERIALIZATION):
+                canonical_predicate = _IDENTITY_FIELD_PREDICATES.get(predicate)
+                if canonical_predicate is None or not (
+                    source_policy.allows_materializable_predicate(
+                        item.source_product_id,
+                        canonical_predicate,
+                    )
+                ):
+                    continue
             citations = list(item.citation_keys)
             citation_overflow += max(0, len(citations) - MAX_CITATION_KEYS)
             winning.append(
@@ -202,7 +368,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
                     "valueJson": field["value_json"],
                     "qualifiersJson": field["qualifiers_json"],
                     "resolutionStatus": field["resolution_status"],
-                    "sourceProductId": item.source_product_id,
+                    "sourceProductId": source.source_id,
                     "sourceRecordId": item.source_record_id,
                     "sourcePath": item.source_path,
                     "observedAt": item.observed_at,
@@ -252,6 +418,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
     display_language = titles[0]["language"] if titles else "und"
 
     raw_identifiers = [_dict(item) for item in (value.get("identifiers") or [])]
+    identifier_candidates: list[dict[str, Any]] = []
     for identifier in raw_identifiers:
         identifier_lineage = _lineage(identifier)
         register_lineage(identifier_lineage)
@@ -270,6 +437,13 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         )
         for assertion_id in assertion_ids:
             item = identifier_lineage_by_id[assertion_id]
+            source = source_policy.source(item.source_product_id)
+            try:
+                namespace = source_policy.namespace(str(identifier["namespace_id"]))
+            except ValueError:
+                continue
+            if namespace.source.source_product_id != item.source_product_id:
+                continue
             citations = list(item.citation_keys)
             citation_overflow += max(0, len(citations) - MAX_CITATION_KEYS)
             winning.append(
@@ -280,7 +454,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
                     "valueJson": identifier_value,
                     "qualifiersJson": "{}",
                     "resolutionStatus": "ACCEPTED",
-                    "sourceProductId": item.source_product_id,
+                    "sourceProductId": source.source_id,
                     "sourceRecordId": item.source_record_id,
                     "sourcePath": item.source_path,
                     "observedAt": item.observed_at,
@@ -292,35 +466,53 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
                 }
             )
             winning_ids.add(assertion_id)
-
-    identifiers = sorted(
-        {
-            (
-                str(item["namespace_id"]),
-                str(item["value"]),
-                str(item["issuer"]),
-                str(item["referent_kind"]),
+            namespace_id = str(identifier["namespace_id"])
+            identifier_value_text = str(identifier["value"])
+            referent_kind = str(identifier["referent_kind"])
+            identifier_candidates.append(
+                {
+                    "sourceProductId": source.source_id,
+                    "namespace": namespace_id,
+                    "value": identifier_value_text,
+                    "issuer": str(identifier["issuer"]),
+                    "referentKind": referent_kind,
+                    "assertionId": assertion_id,
+                    "citationKeys": citations[:MAX_CITATION_KEYS],
+                    "url": _external_identifier_url(
+                        namespace_id,
+                        identifier_value_text,
+                        referent_kind,
+                    ),
+                }
             )
-            for item in raw_identifiers
-        }
-    )
-    identifier_overflow = max(0, len(identifiers) - MAX_IDENTIFIERS)
-    identifier_documents = [
-        {
-            "namespace": namespace,
-            "value": identifier,
-            "issuer": issuer,
-            "referentKind": referent_kind,
-            "url": _external_identifier_url(
-                namespace,
-                identifier,
-                referent_kind,
+
+    identifier_documents_by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for document in sorted(
+        identifier_candidates,
+        key=lambda item: (
+            item["namespace"],
+            item["value"],
+            item["issuer"],
+            item["referentKind"],
+            item["sourceProductId"],
+            item["assertionId"],
+        ),
+    ):
+        identifier_documents_by_key.setdefault(
+            (
+                document["namespace"],
+                document["value"],
+                document["issuer"],
+                document["referentKind"],
             ),
-        }
-        for namespace, identifier, issuer, referent_kind in identifiers[
-            :MAX_IDENTIFIERS
-        ]
-    ]
+            document,
+        )
+    all_identifier_documents = list(identifier_documents_by_key.values())
+    identifier_overflow = max(
+        0,
+        len(all_identifier_documents) - MAX_IDENTIFIERS,
+    )
+    identifier_documents = all_identifier_documents[:MAX_IDENTIFIERS]
     relation_summary = sorted(
         (
             {
@@ -362,7 +554,10 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
                     len(candidates) - MAX_CONFLICT_VALUES,
                 ),
                 "sourceProductIds": sorted(
-                    {item.source_product_id for item in conflict_lineage}
+                    {
+                        source_policy.canonical_source_id(item.source_product_id)
+                        for item in conflict_lineage
+                    }
                 ),
             }
         )
@@ -383,13 +578,14 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
     badge_identity: dict[str, tuple[str, str, set[str]]] = {}
     rights: dict[tuple[str, str], dict[str, Any]] = {}
     for assertion_id, item in lineage_by_id.items():
-        product_id = item.source_product_id
-        badge_counts[product_id].add(assertion_id)
+        source = source_policy.source(item.source_product_id)
+        source_id = source.source_id
+        badge_counts[source_id].add(assertion_id)
         if assertion_id in winning_ids:
-            winning_badge_counts[product_id].add(assertion_id)
-        badge = badge_identity.get(product_id)
+            winning_badge_counts[source_id].add(assertion_id)
+        badge = badge_identity.get(source_id)
         if badge is None:
-            badge_identity[product_id] = (
+            badge_identity[source_id] = (
                 item.source_name,
                 item.rights.source_url,
                 {item.rights.policy_zone.value},
@@ -398,14 +594,16 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
             if badge[:2] != (item.source_name, item.rights.source_url):
                 raise ValueError("source badge metadata changed within one entity")
             badge[2].add(item.rights.policy_zone.value)
-        rights_key = (product_id, item.rights.policy_id)
+        rights_key = (source_id, item.rights.policy_id)
         rights_document = {
-            "sourceProductId": product_id,
+            "sourceProductId": source_id,
             "policyId": item.rights.policy_id,
             "policyZone": item.rights.policy_zone.value,
             "licenseId": item.rights.license_id,
             "licenseUri": item.rights.license_uri,
-            "attributionText": item.rights.attribution_text,
+            "attributionText": (
+                source.canonical.attribution or item.rights.attribution_text
+            ),
             "sourceUrl": item.rights.source_url,
             "shareAlike": item.rights.share_alike,
         }
@@ -416,14 +614,14 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
 
     source_badges = [
         {
-            "sourceProductId": product_id,
-            "displayName": badge_identity[product_id][0],
-            "sourceUrl": badge_identity[product_id][1],
-            "policyZones": sorted(badge_identity[product_id][2]),
-            "assertionCount": len(badge_counts[product_id]),
-            "winningAssertionCount": len(winning_badge_counts[product_id]),
+            "sourceProductId": source_id,
+            "displayName": badge_identity[source_id][0],
+            "sourceUrl": badge_identity[source_id][1],
+            "policyZones": sorted(badge_identity[source_id][2]),
+            "assertionCount": len(badge_counts[source_id]),
+            "winningAssertionCount": len(winning_badge_counts[source_id]),
         }
-        for product_id in sorted(badge_identity)
+        for source_id in sorted(badge_identity)
     ]
     rights_documents = [rights[key] for key in sorted(rights)]
     winning.sort(
@@ -446,9 +644,13 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
         "status": str(value["status"]),
         "releasePlanId": str(value["release_plan_id"]),
         "contextId": RESEARCH_CONTEXT_ID,
+        "sourcePolicyDigest": policy_digest,
         "displayName": display,
         "displayLanguage": display_language,
         "contentType": _content_type(value.get("entity_kind")),
+        "parentEntityKey": parent_entity_key,
+        "seriesEntityKey": series_entity_key,
+        "seasonEntityKey": season_entity_key,
         "releaseYear": _release_year(match_ints["release_year"], premiered_years),
         "seasonNumber": _unique_int(match_ints["season_number"]),
         "episodeNumber": _unique_int(match_ints["episode_number"]),
@@ -476,6 +678,7 @@ def project_gold_entity(row: Any) -> dict[str, Any]:
             "citationKeys": citation_overflow,
             "rights": max(0, len(rights_documents) - MAX_RIGHTS_SUMMARIES),
             "conflicts": max(0, len(conflict_documents) - MAX_CONFLICTS),
+            "hierarchyRelations": hierarchy_relation_overflow,
             **attribute_overflow,
         },
     }
@@ -501,9 +704,13 @@ def projection_schema():
             StructField("status", string, False),
             StructField("releasePlanId", string, False),
             StructField("contextId", string, False),
+            StructField("sourcePolicyDigest", string, False),
             StructField("displayName", string, False),
             StructField("displayLanguage", string, False),
             StructField("contentType", string, True),
+            StructField("parentEntityKey", string, True),
+            StructField("seriesEntityKey", string, True),
+            StructField("seasonEntityKey", string, True),
             StructField("releaseYear", IntegerType(), True),
             StructField("seasonNumber", IntegerType(), True),
             StructField("episodeNumber", IntegerType(), True),
@@ -541,10 +748,17 @@ def projection_schema():
                 ArrayType(
                     StructType(
                         [
+                            StructField("sourceProductId", string, False),
                             StructField("namespace", string, False),
                             StructField("value", string, False),
                             StructField("issuer", string, False),
                             StructField("referentKind", string, False),
+                            StructField("assertionId", string, False),
+                            StructField(
+                                "citationKeys",
+                                ArrayType(string, False),
+                                False,
+                            ),
                             StructField("url", string, True),
                         ]
                     ),
@@ -698,6 +912,11 @@ def projection_schema():
                         StructField("citationKeys", IntegerType(), False),
                         StructField("rights", IntegerType(), False),
                         StructField("conflicts", IntegerType(), False),
+                        StructField(
+                            "hierarchyRelations",
+                            IntegerType(),
+                            False,
+                        ),
                         *[
                             StructField(name, IntegerType(), False)
                             for name in _ATTRIBUTE_PREDICATES.values()
@@ -710,14 +929,188 @@ def projection_schema():
     )
 
 
+def _build_hierarchy_projection(
+    *,
+    entities: Any,
+    release_entities: Any,
+    selected_relations: Any,
+    release_relations: Any,
+) -> Any:
+    """Resolve unique direct/transitive parents without collecting relation lists."""
+
+    from pyspark.sql import functions as F
+
+    entity_levels = release_entities.select(
+        F.col("entity_key").alias("_level_entity_key"),
+        F.upper(F.col("entity_level")).alias("_entity_level"),
+    ).dropDuplicates(["_level_entity_key"])
+
+    def parent_edges(relations: Any) -> Any:
+        return (
+            relations.where(
+                F.lower(F.col("predicate")).isin(*sorted(_PARENT_RELATION_PREDICATES))
+            )
+            .alias("r")
+            .join(
+                entity_levels.alias("o"),
+                F.col("r.object_entity_key") == F.col("o._level_entity_key"),
+                "inner",
+            )
+            .select(
+                F.col("r.subject_entity_key").alias("entity_key"),
+                F.col("r.object_entity_key").alias("object_entity_key"),
+                F.lower(F.col("r.predicate")).alias("predicate"),
+                F.col("o._entity_level").alias("object_entity_level"),
+            )
+            .dropDuplicates(
+                [
+                    "entity_key",
+                    "predicate",
+                    "object_entity_key",
+                    "object_entity_level",
+                ]
+            )
+        )
+
+    direct_edges = parent_edges(selected_relations)
+    all_edges = parent_edges(release_relations)
+    direct_series = direct_edges.where(
+        (F.col("object_entity_level") == "SERIES")
+        & F.col("predicate").isin(*sorted(_SERIES_RELATION_PREDICATES))
+    ).select(
+        "entity_key",
+        F.col("object_entity_key").alias("_series_candidate"),
+    )
+    direct_seasons = direct_edges.where(
+        (F.col("object_entity_level") == "SEASON")
+        & F.col("predicate").isin(*sorted(_SEASON_RELATION_PREDICATES))
+    ).select(
+        "entity_key",
+        F.col("object_entity_key").alias("_season_candidate"),
+    )
+    season_stats = direct_seasons.groupBy("entity_key").agg(
+        F.countDistinct("_season_candidate").alias("_season_candidate_count"),
+        F.min("_season_candidate").alias("_unique_season_entity_key"),
+    )
+    unique_direct_seasons = season_stats.where(
+        F.col("_season_candidate_count") == 1
+    ).select(
+        "entity_key",
+        F.col("_unique_season_entity_key").alias("_season_candidate"),
+    )
+
+    unique_season_series = (
+        all_edges.alias("e")
+        .join(
+            entity_levels.alias("s"),
+            F.col("e.entity_key") == F.col("s._level_entity_key"),
+            "inner",
+        )
+        .where(
+            (F.col("s._entity_level") == "SEASON")
+            & (F.col("e.object_entity_level") == "SERIES")
+            & F.col("e.predicate").isin(*sorted(_SERIES_RELATION_PREDICATES))
+        )
+        .groupBy(F.col("e.entity_key").alias("_season_entity_key"))
+        .agg(
+            F.countDistinct("e.object_entity_key").alias("_season_series_count"),
+            F.min("e.object_entity_key").alias("_season_series_candidate"),
+        )
+        .where(F.col("_season_series_count") == 1)
+    )
+    transitive_series = (
+        unique_direct_seasons.alias("d")
+        .join(
+            unique_season_series.alias("s"),
+            F.col("d._season_candidate") == F.col("s._season_entity_key"),
+            "inner",
+        )
+        .select(
+            F.col("d.entity_key").alias("entity_key"),
+            F.col("s._season_series_candidate").alias("_series_candidate"),
+        )
+    )
+    series_stats = (
+        direct_series.unionByName(transitive_series)
+        .dropDuplicates(["entity_key", "_series_candidate"])
+        .groupBy("entity_key")
+        .agg(
+            F.countDistinct("_series_candidate").alias("_series_candidate_count"),
+            F.min("_series_candidate").alias("_unique_series_entity_key"),
+        )
+    )
+    relation_stats = direct_edges.groupBy("entity_key").agg(
+        F.countDistinct("object_entity_key").alias(
+            "_hierarchy_relation_candidate_count"
+        )
+    )
+    projected = (
+        entities.select("entity_key", F.upper("entity_level").alias("_subject_level"))
+        .join(series_stats, "entity_key", "left")
+        .join(season_stats, "entity_key", "left")
+        .join(relation_stats, "entity_key", "left")
+        .fillna(
+            0,
+            subset=[
+                "_series_candidate_count",
+                "_season_candidate_count",
+                "_hierarchy_relation_candidate_count",
+            ],
+        )
+        .withColumn(
+            "hierarchy_relation_overflow",
+            F.greatest(
+                F.col("_hierarchy_relation_candidate_count")
+                - F.lit(MAX_HIERARCHY_RELATION_CANDIDATES),
+                F.lit(0),
+            ).cast("integer"),
+        )
+    )
+    safe = F.col("hierarchy_relation_overflow") == 0
+    unique_series = safe & (F.col("_series_candidate_count") == 1)
+    unique_season = safe & (F.col("_season_candidate_count") == 1)
+    no_season = F.col("_season_candidate_count") == 0
+    return projected.select(
+        "entity_key",
+        F.when(
+            (F.col("_subject_level") == "SEASON") & unique_series,
+            F.col("_unique_series_entity_key"),
+        )
+        .when(
+            (F.col("_subject_level") == "EPISODE") & unique_season,
+            F.col("_unique_season_entity_key"),
+        )
+        .when(
+            (F.col("_subject_level") == "EPISODE") & no_season & unique_series,
+            F.col("_unique_series_entity_key"),
+        )
+        .alias("parent_entity_key"),
+        F.when(
+            F.col("_subject_level").isin("SEASON", "EPISODE") & unique_series,
+            F.col("_unique_series_entity_key"),
+        ).alias("series_entity_key"),
+        F.when(
+            (F.col("_subject_level") == "EPISODE") & unique_season,
+            F.col("_unique_season_entity_key"),
+        ).alias("season_entity_key"),
+        "hierarchy_relation_overflow",
+    )
+
+
 def build_gold_search_projection(
     spark: Any,
     *,
     gold_tables: Mapping[str, Any],
     release_plan_id: str,
     affected_entity_keys: Any | None = None,
+    source_policy_digest: str | None = None,
 ):
     from pyspark.sql import functions as F
+
+    policy_digest = require_sha256(
+        source_policy_digest or load_catalog_source_policy().digest,
+        label="source_policy_digest",
+    )
 
     keys = (
         None
@@ -738,10 +1131,11 @@ def build_gold_search_projection(
             "inner",
         ).drop("_affected_entity_key")
 
+    release_entities = gold_tables["community_gold_entity"].where(
+        F.col("release_plan_id") == release_plan_id
+    )
     entities = affected(
-        gold_tables["community_gold_entity"].where(
-            F.col("release_plan_id") == release_plan_id
-        ),
+        release_entities,
         "entity_key",
     )
     fields = (
@@ -792,14 +1186,12 @@ def build_gold_search_projection(
             ).alias("identifiers")
         )
     )
+    release_relations = gold_tables["community_gold_relation"].where(
+        F.col("release_plan_id") == release_plan_id
+    )
+    selected_relations = affected(release_relations, "subject_entity_key")
     relation_summary = (
-        affected(
-            gold_tables["community_gold_relation"].where(
-                F.col("release_plan_id") == release_plan_id
-            ),
-            "subject_entity_key",
-        )
-        .groupBy("subject_entity_key", "predicate")
+        selected_relations.groupBy("subject_entity_key", "predicate")
         .count()
         .groupBy("subject_entity_key")
         .agg(
@@ -807,6 +1199,12 @@ def build_gold_search_projection(
                 "relation_summary"
             )
         )
+    )
+    hierarchy = _build_hierarchy_projection(
+        entities=entities,
+        release_entities=release_entities,
+        selected_relations=selected_relations,
+        release_relations=release_relations,
     )
     conflicts = (
         affected(
@@ -842,8 +1240,14 @@ def build_gold_search_projection(
         )
         .drop("subject_entity_key")
         .join(conflicts, "entity_key", "left")
+        .join(hierarchy, "entity_key", "left")
     )
     return spark.createDataFrame(
-        joined.rdd.map(project_gold_entity),
+        joined.rdd.map(
+            lambda row: project_gold_entity(
+                row,
+                source_policy_digest=policy_digest,
+            )
+        ),
         schema=projection_schema(),
     )

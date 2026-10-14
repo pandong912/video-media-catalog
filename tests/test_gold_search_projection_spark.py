@@ -108,7 +108,9 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
     assert documents[0].displayName == "Example"
     assert documents[0].contextId == "research"
     assert "ownerSubject" not in documents[0].asDict()
-    assert documents[0].sourceBadges[0].sourceProductId == "tvmaze-public-api"
+    assert documents[0].sourceBadges[0].sourceProductId == "tvmaze"
+    assert documents[0].externalIdentifiers[0].sourceProductId == "tvmaze"
+    assert documents[0].externalIdentifiers[0].assertionId == ("sha256:" + ("2" * 64))
 
     affected = spark.createDataFrame([(entity_key,)], "entity_key string")
     filtered = build_gold_search_projection(
@@ -132,3 +134,92 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
         ).count()
         == 0
     )
+
+
+@pytest.mark.spark
+def test_distributed_projection_derives_transitive_episode_hierarchy(
+    spark: SparkSession,
+) -> None:
+    plan_id = "sha256:" + ("a" * 64)
+    episode_key = "sha256:" + ("1" * 64)
+    season_key = "sha256:" + ("2" * 64)
+    series_key = "sha256:" + ("3" * 64)
+    ambiguous_episode_key = "sha256:" + ("4" * 64)
+    alternate_season_key = "sha256:" + ("5" * 64)
+    rows = {table: [] for table in GOLD_DATA_COLUMNS}
+    rows["community_gold_entity"] = [
+        {
+            "row_key": "sha256:" + f"{index + 10:064x}",
+            "release_plan_id": plan_id,
+            "entity_key": entity_key,
+            "entity_level": entity_level,
+            "entity_kind": entity_kind,
+            "status": "ACTIVE",
+            "source_node_count": 1,
+            "trace_json": "{}",
+        }
+        for index, (entity_key, entity_level, entity_kind) in enumerate(
+            (
+                (episode_key, "EPISODE", "TV_EPISODE"),
+                (season_key, "SEASON", "TV_SEASON"),
+                (series_key, "SERIES", "TV_SERIES"),
+                (ambiguous_episode_key, "EPISODE", "TV_EPISODE"),
+                (alternate_season_key, "SEASON", "TV_SEASON"),
+            )
+        )
+    ]
+    rows["community_gold_relation"] = [
+        {
+            "resolution_key": "sha256:" + f"{index + 20:064x}",
+            "release_plan_id": plan_id,
+            "subject_entity_key": subject,
+            "predicate": predicate,
+            "object_entity_key": target,
+            "qualifiers_json": "{}",
+            "assertion_ids_json": '["sha256:' + f"{index + 30:064x}" + '"]',
+            "trace_json": "{}",
+        }
+        for index, (subject, predicate, target) in enumerate(
+            (
+                (episode_key, "part_of_season", season_key),
+                (season_key, "part_of_series", series_key),
+                (
+                    ambiguous_episode_key,
+                    "part_of_season",
+                    season_key,
+                ),
+                (
+                    ambiguous_episode_key,
+                    "part_of_season",
+                    alternate_season_key,
+                ),
+                (
+                    alternate_season_key,
+                    "part_of_series",
+                    series_key,
+                ),
+            )
+        )
+    ]
+    frames = create_gold_dataframes(spark, rows)
+    documents = {
+        row.entityKey: row
+        for row in build_gold_search_projection(
+            spark,
+            gold_tables=frames,
+            release_plan_id=plan_id,
+        ).collect()
+    }
+
+    episode = documents[episode_key]
+    assert episode.parentEntityKey == season_key
+    assert episode.seasonEntityKey == season_key
+    assert episode.seriesEntityKey == series_key
+    season = documents[season_key]
+    assert season.parentEntityKey == series_key
+    assert season.seriesEntityKey == series_key
+    assert season.seasonEntityKey is None
+    ambiguous_episode = documents[ambiguous_episode_key]
+    assert ambiguous_episode.parentEntityKey is None
+    assert ambiguous_episode.seriesEntityKey is None
+    assert ambiguous_episode.seasonEntityKey is None

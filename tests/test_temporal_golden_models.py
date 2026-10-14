@@ -4,16 +4,24 @@ from dataclasses import asdict, replace
 
 import pytest
 
-from video_media_catalog.gold_freshness import research_release_freshness_policy
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
+from video_media_catalog.gold_freshness import (
+    research_release_freshness_policy,
+    scope_release_freshness_policy,
+)
 from video_media_catalog.temporal.activities.golden import (
     _incremental_identity_source_run_ids,
     _validate_preflight_documents,
 )
 from video_media_catalog.temporal.errors import NonRetryableGoldenBuildError
+from video_media_catalog.temporal.golden_admin_cli import _state_bool
 from video_media_catalog.temporal.golden_models import (
     FreshnessOverrideInput,
     GoldenBuildEnv,
     GoldenBuildInput,
+    GoldenSourceFreshnessStatus,
+    GoldenSourceRunState,
+    GoldenSourceRunStatus,
 )
 from video_media_catalog.temporal.models import ObjectRefPayload
 
@@ -33,6 +41,13 @@ def _ref(uri: str) -> ObjectRefPayload:
 
 def _run(index: int) -> str:
     return "sha256:" + f"{index:064x}"
+
+
+def test_source_state_boolean_config_is_strict() -> None:
+    assert not _state_bool({"identitySpine": False}, "identitySpine", default=True)
+    assert not _state_bool({}, "identitySpine", default=False)
+    with pytest.raises(ValueError, match="must be a boolean"):
+        _state_bool({"identitySpine": "false"}, "identitySpine", default=True)
 
 
 def _input() -> GoldenBuildInput:
@@ -98,10 +113,66 @@ def _documents(
     return baseline, tmdb
 
 
-def test_preflight_pins_nineteen_runs_and_minimum_freshness_slos() -> None:
+def _with_source_states(input_data: GoldenBuildInput) -> GoldenBuildInput:
+    return replace(
+        input_data,
+        source_run_states=(
+            GoldenSourceRunState(
+                source_product_id="imdb-non-commercial-datasets",
+                run_ids=(input_data.baseline_source_run_ids[0],),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.OVERRIDDEN,
+                watermark=input_data.source_watermarks["imdb-non-commercial-datasets"],
+                acquired_at=input_data.freshness_override.imdb_acquired_at,
+            ),
+            GoldenSourceRunState(
+                source_product_id="tvmaze-public-api",
+                run_ids=(input_data.baseline_source_run_ids[1],),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.OVERRIDDEN,
+                watermark=input_data.source_watermarks["tvmaze-public-api"],
+                acquired_at=input_data.freshness_override.tvmaze_acquired_at,
+            ),
+            GoldenSourceRunState(
+                source_product_id="wikidata-json-dump",
+                run_ids=(input_data.baseline_source_run_ids[2],),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.PASS,
+                watermark=input_data.source_watermarks["wikidata-json-dump"],
+                identity_spine=True,
+                materialization=True,
+            ),
+            GoldenSourceRunState(
+                source_product_id="tmdb-research",
+                run_ids=input_data.tmdb_source_run_ids,
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.PASS,
+                watermark=input_data.source_watermarks["tmdb-research"],
+            ),
+        ),
+    )
+
+
+def test_preflight_rejects_legacy_source_routing_without_explicit_states() -> None:
     input_data = _input()
     baseline, tmdb = _documents(input_data)
 
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="requires explicit sourceRunStates",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_pins_explicit_source_run_and_freshness_states() -> None:
+    input_data = _with_source_states(_input())
+    baseline, tmdb = _documents(input_data)
+
     result = _validate_preflight_documents(
         input_data,
         baseline=baseline,
@@ -109,18 +180,159 @@ def test_preflight_pins_nineteen_runs_and_minimum_freshness_slos() -> None:
         planned_at="2026-10-09T00:00:00Z",
     )
 
-    assert len(result.all_snapshot_run_ids) == 19
-    assert result.imdb_slo_hours == 434
-    assert result.tvmaze_slo_hours == 318
-    assert result.imdb_age_hours <= result.imdb_slo_hours
-    assert result.tvmaze_age_hours <= result.tvmaze_slo_hours
+    assert result.source_policy_digest == load_catalog_source_policy().digest
+    assert {
+        item.source_product_id: item.freshness_status
+        for item in result.source_run_states
+    } == {
+        "imdb-non-commercial-datasets": GoldenSourceFreshnessStatus.OVERRIDDEN,
+        "tmdb-research": GoldenSourceFreshnessStatus.PASS,
+        "tvmaze-public-api": GoldenSourceFreshnessStatus.OVERRIDDEN,
+        "wikidata-json-dump": GoldenSourceFreshnessStatus.PASS,
+    }
+    assert result.all_snapshot_run_ids == (
+        input_data.baseline_source_run_ids[2],
+        input_data.baseline_identity_run_id,
+    )
+    assert _incremental_identity_source_run_ids(input_data, result) == (
+        input_data.baseline_source_run_ids[2],
+    )
+
+
+def test_preflight_rejects_retrieval_only_source_identity_intent() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        source_run_states=tuple(
+            replace(state, identity_spine=True, materialization=True)
+            if state.source_product_id == "imdb-non-commercial-datasets"
+            else state
+            for state in base.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match=r"imdb-non-commercial-datasets.*not enabled for identity_spine",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_rejects_pending_source_run_materialization() -> None:
+    base = _with_source_states(_input())
+    eidr_run = _run(90)
+    input_data = replace(
+        base,
+        supplemental_source_run_ids=(eidr_run,),
+        source_run_states=(
+            *base.source_run_states,
+            GoldenSourceRunState(
+                source_product_id="eidr-public-registry",
+                run_ids=(eidr_run,),
+                run_status=GoldenSourceRunStatus.PENDING,
+                freshness_status=GoldenSourceFreshnessStatus.UNKNOWN,
+                identity_spine=True,
+                materialization=True,
+            ),
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="pending, failed, or excluded",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_rejects_stale_optional_source_materialization() -> None:
+    base = _with_source_states(_input())
+    eidr_run = _run(90)
+    input_data = replace(
+        base,
+        supplemental_source_run_ids=(eidr_run,),
+        source_run_states=(
+            *base.source_run_states,
+            GoldenSourceRunState(
+                source_product_id="eidr-public-registry",
+                run_ids=(eidr_run,),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.STALE,
+                identity_spine=True,
+                materialization=True,
+            ),
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="not fresh enough for materialization",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_rejects_source_state_that_disagrees_with_override() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        source_run_states=tuple(
+            replace(
+                state,
+                freshness_status=GoldenSourceFreshnessStatus.PASS,
+            )
+            if state.source_product_id == "imdb-non-commercial-datasets"
+            else state
+            for state in base.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="override states must match IMDb and TVmaze",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
 
 
 def test_preflight_includes_supplemental_runs_in_snapshot_and_identity() -> None:
-    base = _input()
+    base = _with_source_states(_input())
+    eidr_run = _run(30)
     input_data = replace(
         base,
-        supplemental_source_run_ids=(_run(30), _run(31)),
+        supplemental_source_run_ids=(eidr_run,),
+        source_run_states=(
+            *base.source_run_states,
+            GoldenSourceRunState(
+                source_product_id="eidr-public-registry",
+                run_ids=(eidr_run,),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.NOT_REQUIRED,
+                identity_spine=True,
+                materialization=True,
+            ),
+        ),
     )
     baseline, tmdb = _documents(input_data)
 
@@ -131,21 +343,19 @@ def test_preflight_includes_supplemental_runs_in_snapshot_and_identity() -> None
         planned_at="2026-10-09T00:00:00Z",
     )
 
-    assert set(input_data.supplemental_source_run_ids) <= set(
-        result.all_snapshot_run_ids
-    )
+    assert eidr_run in result.all_snapshot_run_ids
     assert _incremental_identity_source_run_ids(input_data, result) == tuple(
         sorted(
             (
-                *input_data.tmdb_source_run_ids,
-                *input_data.supplemental_source_run_ids,
+                input_data.baseline_source_run_ids[2],
+                eidr_run,
             )
         )
     )
 
 
 def test_preflight_applies_audited_temporary_quality_thresholds() -> None:
-    base = _input()
+    base = _with_source_states(_input())
     input_data = replace(
         base,
         env=replace(
@@ -166,11 +376,14 @@ def test_preflight_applies_audited_temporary_quality_thresholds() -> None:
 
     assert (
         result.freshness_policy_digest
-        == research_release_freshness_policy(
-            tmdb_slo_hours=72,
-            tvmaze_slo_hours=result.tvmaze_slo_hours,
-            imdb_slo_hours=result.imdb_slo_hours,
-            wikidata_slo_hours=45 * 24,
+        == scope_release_freshness_policy(
+            research_release_freshness_policy(
+                tmdb_slo_hours=72,
+                tvmaze_slo_hours=result.tvmaze_slo_hours,
+                imdb_slo_hours=result.imdb_slo_hours,
+                wikidata_slo_hours=45 * 24,
+            ),
+            selected_source_product_ids={"wikidata-json-dump"},
         ).digest
     )
 
@@ -219,17 +432,19 @@ def test_preflight_rejects_a_different_tmdb_run_set() -> None:
 
 
 def test_preflight_uses_next_hour_when_source_age_is_exact() -> None:
-    input_data = _input()
-    baseline, tmdb = _documents(input_data)
-    override = input_data.freshness_override
-    input_data = replace(
-        input_data,
-        freshness_override=FreshnessOverrideInput(
-            reason=override.reason,
-            imdb_acquired_at="2026-10-08T23:00:00Z",
-            tvmaze_acquired_at="2026-10-08T22:00:00Z",
-            max_slo_hours=720,
-        ),
+    base = _input()
+    baseline, tmdb = _documents(base)
+    override = base.freshness_override
+    input_data = _with_source_states(
+        replace(
+            base,
+            freshness_override=FreshnessOverrideInput(
+                reason=override.reason,
+                imdb_acquired_at="2026-10-08T23:00:00Z",
+                tvmaze_acquired_at="2026-10-08T22:00:00Z",
+                max_slo_hours=720,
+            ),
+        )
     )
 
     result = _validate_preflight_documents(

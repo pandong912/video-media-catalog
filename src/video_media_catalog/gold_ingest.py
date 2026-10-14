@@ -57,11 +57,12 @@ class GoldReleaseCommit(V2ContractModel):
     table_snapshot_ids: dict[str, int | None]
     quality_report: ObjectRef
     attribution_manifest: ObjectRef
+    source_policy_digest: str | None = None
 
-    @field_validator("commit_key", "release_plan_id")
+    @field_validator("commit_key", "release_plan_id", "source_policy_digest")
     @classmethod
-    def validate_digest(cls, value: str) -> str:
-        return require_sha256(value)
+    def validate_digest(cls, value: str | None) -> str | None:
+        return None if value is None else require_sha256(value)
 
     @field_validator("committed_at")
     @classmethod
@@ -115,7 +116,7 @@ class GoldReleaseCommit(V2ContractModel):
 
 
 def _commit_identity(commit: GoldReleaseCommit) -> dict[str, Any]:
-    return {
+    identity = {
         "schemaVersion": commit.schema_version,
         "releasePlanId": commit.release_plan_id,
         "contextId": commit.context_id,
@@ -129,6 +130,9 @@ def _commit_identity(commit: GoldReleaseCommit) -> dict[str, Any]:
             mode="json", by_alias=True, exclude_none=True
         ),
     }
+    if commit.source_policy_digest is not None:
+        identity["sourcePolicyDigest"] = commit.source_policy_digest
+    return identity
 
 
 def build_gold_release_commit(**values: Any) -> GoldReleaseCommit:

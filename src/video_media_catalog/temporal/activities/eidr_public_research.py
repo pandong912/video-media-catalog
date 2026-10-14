@@ -435,6 +435,8 @@ def _lookup_arguments(
         "--aws-region",
         input_data.env.aws_region,
     ]
+    if input_data.lookup_watermark is not None:
+        arguments.extend(_object_args("watermark", input_data.lookup_watermark))
     if input_data.env.s3_endpoint:
         arguments.extend(["--s3-endpoint", input_data.env.s3_endpoint])
     if input_data.env.s3_path_style_access:

@@ -100,6 +100,10 @@ def _eidr_input_from_mapping(values: dict[str, Any]) -> EidrPublicResearchInput:
     ):
         if json_name in values:
             optional[field_name] = values[json_name]
+    if values.get("lookupWatermark") is not None:
+        optional["lookup_watermark"] = ObjectRefPayload.from_mapping(
+            values["lookupWatermark"]
+        )
     return EidrPublicResearchInput(
         env=_env_from_mapping(values["env"]),
         silver_snapshot=ObjectRefPayload.from_mapping(values["silverSnapshot"]),

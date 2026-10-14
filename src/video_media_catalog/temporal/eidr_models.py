@@ -14,6 +14,7 @@ from video_media_catalog.community_snapshot import (
     SILVER_SNAPSHOT_MEDIA_TYPE,
 )
 from video_media_catalog.eidr_backfill import (
+    BACKFILL_WATERMARK_MEDIA_TYPE,
     DEFAULT_DISCOVERED_PAGE_IDS,
     MAX_DISCOVERED_PAGE_IDS,
 )
@@ -156,6 +157,7 @@ class EidrPublicResearchInput:
         PUBLIC_RESEARCH_MINIMUM_REQUEST_INTERVAL_SECONDS
     )
     discovery_page_size: int = DEFAULT_DISCOVERED_PAGE_IDS
+    lookup_watermark: ObjectRefPayload | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -176,6 +178,16 @@ class EidrPublicResearchInput:
                 media_type=EIDR_AUTHORIZATION_EVIDENCE_MEDIA_TYPE,
             ),
         )
+        if self.lookup_watermark is not None:
+            object.__setattr__(
+                self,
+                "lookup_watermark",
+                normalize_pinned_s3_object(
+                    self.lookup_watermark,
+                    label="lookup_watermark",
+                    media_type=BACKFILL_WATERMARK_MEDIA_TYPE,
+                ),
+            )
         object.__setattr__(
             self,
             "source_release_id",

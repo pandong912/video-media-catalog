@@ -12,9 +12,9 @@ actions.
 
 The portable canonical Catalog source policy is the sole source enablement
 artifact. Catalog-local implementation capabilities are intersected with it.
-The current policy allows Wikidata and EIDR to drive Identity/Gold; IMDb,
-TVmaze, and TMDB are retrieval/ranking-only and their ingest runs are rejected
-from Gold materialization.
+The current personal-research policy allows Wikidata, EIDR, IMDb, TVmaze and
+TMDB to drive Identity/Gold. Their ingest runs remain subject to independent
+rights, attribution, freshness and termination gates.
 
 ## Release plan
 
@@ -235,17 +235,16 @@ report identity.
 Temporal Golden inputs must pin `sourceRunStates`. The explicit state combines
 source product, exact Silver run IDs, terminal run status,
 freshness status, watermark, optional acquisition time and immutable capture
-reference, plus Identity/materialization intent. IMDb, TVmaze, Wikidata, and
-TMDB must all be committed and fresh (or carry the
+reference, plus Identity/materialization intent. All five canonical sources
+must be committed and fresh (or carry the
 existing bounded override evidence), and the union of state run IDs must equal
 the legacy pinned run fields exactly. This is orchestration evidence only: it
 does not call a provider, provide credentials, or replace the Gold freshness
 matrix computed from committed ingest manifests. For the current Golden
-release path, IMDb and TVmaze states must be `OVERRIDDEN`, while TMDB and
-Wikidata are `PASS`; release validation reconciles those states with the
-quality report's override evidence. Only materialized sources are required to
-pass the scoped Gold freshness policy; tracked retrieval-only sources remain
-non-required and cannot enter the epoch. Legacy payloads remain parseable, but
+release path, IMDb and TVmaze states must be `OVERRIDDEN`, TMDB and Wikidata
+are `PASS`, and EIDR is `NOT_REQUIRED`; release validation reconciles those
+states with the quality report's override evidence. All five states enter the
+epoch, Identity and Gold inputs. Legacy payloads remain parseable, but
 preflight without explicit states fails closed.
 
 ## Source termination and removal

@@ -35,7 +35,7 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
     policy = load_catalog_source_policy(registry=build_community_registry())
 
     assert sha256_digest(canonical_json_bytes(payload)) == (
-        "sha256:4da143ac61dd11a9aa59bd567b36af47fc57d9b4c0cb4f0cc09b1696a1a11277"
+        "sha256:d1631f6a65e86a6e613e53d0379672738f4ca768bd72155554bb80866c3fda61"
     )
     assert policy.digest == CATALOG_SOURCE_POLICY_DIGEST
     assert {
@@ -52,43 +52,41 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
 def test_live_permissions_are_intersected_with_technical_support() -> None:
     policy = load_catalog_source_policy()
 
-    assert set(policy.enabled_source_ids(CatalogSourceCapability.IDENTITY_SPINE)) == {
+    expected_sources = {
         "eidr-public-registry",
+        "imdb-non-commercial-datasets",
+        "tmdb-research",
+        "tvmaze-public-api",
         "wikidata-json-dump",
     }
-    assert set(policy.enabled_source_ids(CatalogSourceCapability.MATERIALIZATION)) == {
-        "eidr-public-registry",
-        "wikidata-json-dump",
-    }
-    assert set(policy.enabled_source_ids(CatalogSourceCapability.GOLD_PROJECTION)) == {
-        "eidr-public-registry",
-        "wikidata-json-dump",
-    }
-
-    for source_product_id, activation in (
-        ("imdb-non-commercial-datasets", CatalogSourceActivation.PENDING),
-        ("tvmaze-public-api", CatalogSourceActivation.PENDING),
-        ("tmdb-research", CatalogSourceActivation.EXCLUDED),
+    for capability in (
+        CatalogSourceCapability.IDENTITY_SPINE,
+        CatalogSourceCapability.MATERIALIZATION,
+        CatalogSourceCapability.GOLD_PROJECTION,
     ):
+        assert set(policy.enabled_source_ids(capability)) == expected_sources
+
+    for source_product_id in expected_sources:
         source = policy.source(source_product_id)
-        assert source.activation == activation
+        assert source.activation == CatalogSourceActivation.ENABLED
         assert set(source.canonical.capabilities) == {
             CatalogCanonicalCapability.RETRIEVAL,
             CatalogCanonicalCapability.RANKING,
+            CatalogCanonicalCapability.IDENTITY,
+            CatalogCanonicalCapability.MATERIALIZATION,
+            CatalogCanonicalCapability.DISPLAY,
         }
         assert CatalogSourceCapability.IDENTITY_SPINE in (source.supported_capabilities)
-        assert CatalogSourceCapability.IDENTITY_SPINE not in (
-            source.enabled_capabilities
-        )
+        assert CatalogSourceCapability.IDENTITY_SPINE in source.enabled_capabilities
         assert policy.allows_source(
             source_product_id,
             CatalogSourceCapability.CAPTURE,
         )
-        assert not policy.allows_source(
+        assert policy.allows_source(
             source_product_id,
             CatalogSourceCapability.MATERIALIZATION,
         )
-        assert not policy.allows_source(
+        assert policy.allows_source(
             source_product_id,
             CatalogSourceCapability.GOLD_PROJECTION,
         )
@@ -97,9 +95,17 @@ def test_live_permissions_are_intersected_with_technical_support() -> None:
 def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
     policy = load_catalog_source_policy()
 
-    assert policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE) == (
+    expected_namespaces = {
         "eidr-content",
+        "imdb-title",
+        "tmdb-movie",
+        "tmdb-tv",
+        "tvmaze-show",
         "wikidata-item",
+    }
+    assert (
+        set(policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE))
+        == expected_namespaces
     )
     identity_rows = exact_id_namespace_rows(
         build_community_registry(),
@@ -107,18 +113,12 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
             CatalogSourceCapability.IDENTITY_SPINE
         ),
     )
-    assert {str(row["namespace_id"]) for row in identity_rows} == {
-        "eidr-content",
-        "wikidata-item",
-    }
+    assert {str(row["namespace_id"]) for row in identity_rows} == expected_namespaces
     for namespace_id in (
         "douban-work",
         "eidr-alternate",
         "imdb-name",
-        "imdb-title",
         "thetvdb-series",
-        "tmdb-movie",
-        "tvmaze-show",
     ):
         assert namespace_id not in policy.enabled_namespace_ids(
             CatalogSourceCapability.IDENTITY_SPINE
@@ -140,13 +140,21 @@ def test_materializable_predicates_are_enforced_per_canonical_source() -> None:
         "eidr-public-registry",
         "hierarchy.series",
     )
-    assert not policy.allows_materializable_predicate(
+    assert policy.allows_materializable_predicate(
         "eidr-public-registry",
         "identity.title",
     )
-    assert not policy.allows_materializable_predicate(
+    assert policy.allows_materializable_predicate(
         "imdb-non-commercial-datasets",
         "identity.title",
+    )
+    assert policy.allows_materializable_predicate(
+        "tvmaze-public-api",
+        "hierarchy.series",
+    )
+    assert policy.allows_materializable_predicate(
+        "tmdb-research",
+        "identity.alias",
     )
     assert not policy.allows_materializable_predicate(
         "unknown-source",
@@ -228,7 +236,7 @@ def test_pending_source_cannot_gain_identity_capability(tmp_path: Path) -> None:
     payload = json.loads(default_catalog_source_policy_path().read_text())
     mutated = copy.deepcopy(payload)
     imdb = next(source for source in mutated["sources"] if source["sourceId"] == "imdb")
-    imdb["capabilities"].append("IDENTITY")
+    imdb["status"] = "PENDING_LEGAL_REVIEW"
     path = tmp_path / "policy.json"
     path.write_text(json.dumps(mutated))
 

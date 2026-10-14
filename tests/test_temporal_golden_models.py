@@ -199,7 +199,7 @@ def test_preflight_pins_explicit_source_run_and_freshness_states() -> None:
     )
 
 
-def test_preflight_rejects_retrieval_only_source_identity_intent() -> None:
+def test_preflight_accepts_enabled_source_identity_intent() -> None:
     base = _with_source_states(_input())
     input_data = replace(
         base,
@@ -212,16 +212,18 @@ def test_preflight_rejects_retrieval_only_source_identity_intent() -> None:
     )
     baseline, tmdb = _documents(input_data)
 
-    with pytest.raises(
-        NonRetryableGoldenBuildError,
-        match=r"imdb-non-commercial-datasets.*not enabled for identity_spine",
-    ):
-        _validate_preflight_documents(
-            input_data,
-            baseline=baseline,
-            tmdb_summary=tmdb,
-            planned_at="2026-10-09T00:00:00Z",
-        )
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert result.all_snapshot_run_ids == (_run(1), _run(3), _run(4))
+    assert _incremental_identity_source_run_ids(input_data, result) == (
+        _run(1),
+        _run(3),
+    )
 
 
 def test_preflight_rejects_pending_source_run_materialization() -> None:

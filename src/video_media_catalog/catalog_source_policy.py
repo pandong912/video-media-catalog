@@ -18,7 +18,7 @@ from video_media_catalog.v2_contracts import V2ContractModel, require_slug
 
 CATALOG_SOURCE_POLICY_SCHEMA_VERSION = "video.world.catalog-source-policy-registry.v1"
 CATALOG_SOURCE_POLICY_DIGEST = (
-    "sha256:4da143ac61dd11a9aa59bd567b36af47fc57d9b4c0cb4f0cc09b1696a1a11277"
+    "sha256:d1631f6a65e86a6e613e53d0379672738f4ca768bd72155554bb80866c3fda61"
 )
 _REQUIRED_CANONICAL_SOURCE_IDS = frozenset(
     {"wikidata", "eidr", "imdb", "tvmaze", "tmdb"}

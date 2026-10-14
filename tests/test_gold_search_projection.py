@@ -364,7 +364,7 @@ def test_materialization_evidence_intersects_canonical_predicates() -> None:
     assert [
         (item["sourceProductId"], item["predicate"])
         for item in document["winningAssertions"]
-    ] == [("wikidata", "title")]
+    ] == [("eidr", "title"), ("wikidata", "title")]
     assert document["externalIdentifiers"] == []
 
 

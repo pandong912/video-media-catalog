@@ -60,6 +60,13 @@ RECORD_SET_MEDIA_TYPE = "application/vnd.video-media-catalog.record-set.v2+json"
 SHARDED_RECORD_SET_MEDIA_TYPE = (
     "application/vnd.video-media-catalog.sharded-record-set.v2.1+json"
 )
+CONNECTOR_BATCH_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.connector-batch.v2+json"
+)
+SOURCE_SILVER_BATCH_PLAN_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.source-silver-batch-plan.v1+json"
+)
+MAX_SOURCE_SILVER_BATCH_PLAN_BATCHES = 4_096
 _PREVALIDATED_GRANT_ARGUMENTS = (
     "prevalidated_record_set_id",
     "prevalidated_batch_id",
@@ -100,11 +107,21 @@ def _materialize_workers(value: str) -> int:
     return parsed
 
 
-def _add_object_args(parser: argparse.ArgumentParser, prefix: str) -> None:
+def _add_object_args(
+    parser: argparse.ArgumentParser,
+    prefix: str,
+    *,
+    required: bool = True,
+) -> None:
     dashed = prefix.replace("_", "-")
-    parser.add_argument(f"--{dashed}-uri", required=True)
-    parser.add_argument(f"--{dashed}-hash", required=True)
-    parser.add_argument(f"--{dashed}-size", required=True, type=int)
+    parser.add_argument(f"--{dashed}-uri", required=required, default=None)
+    parser.add_argument(f"--{dashed}-hash", required=required, default=None)
+    parser.add_argument(
+        f"--{dashed}-size",
+        required=required,
+        default=None,
+        type=int,
+    )
     parser.add_argument(f"--{dashed}-version", default="")
     parser.add_argument(f"--{dashed}-etag", default="")
 
@@ -114,8 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="video-media-catalog-community-spark",
         description="Commit a verified community connector record set to Silver v2.",
     )
-    _add_object_args(parser, "batch_manifest")
-    _add_object_args(parser, "record_set_manifest")
+    _add_object_args(parser, "batch_manifest", required=False)
+    _add_object_args(parser, "record_set_manifest", required=False)
+    _add_object_args(parser, "batch_plan", required=False)
     parser.add_argument("--committed-at", required=True)
     parser.add_argument("--catalog-name", default="media")
     parser.add_argument("--namespace", default="video_media_catalog")
@@ -430,7 +448,83 @@ def _prevalidated_record_set_grant(
     )
 
 
-def run(parsed: argparse.Namespace) -> dict[str, Any]:
+def _plan_object_ref(
+    entry: dict[str, Any],
+    *,
+    label: str,
+    media_type: str,
+) -> ObjectRef:
+    if not isinstance(entry, dict):
+        raise ValueError(f"{label} must be an object")
+    uri = str(entry["uri"])
+    match = re.fullmatch(
+        r"(?:sha256:hex:|sha256:)?([0-9a-fA-F]{64})",
+        str(entry["hash"]),
+    )
+    if match is None:
+        raise ValueError(f"{label} hash must contain 64 SHA-256 hex digits")
+    size = int(entry["size"])
+    if not 0 < size <= CONTROL_MAX_BYTES:
+        raise ValueError(f"{label} size must be between 1 byte and 16 MiB")
+    version = str(entry.get("version") or "").strip() or None
+    etag = str(entry.get("etag") or "").strip().strip('"') or None
+    scheme = urlsplit(uri).scheme
+    if scheme not in {"file", "s3"}:
+        raise ValueError(f"{label} URI must use file:// or s3://")
+    if scheme == "s3" and (version is None or etag is None):
+        raise ValueError(f"{label} S3 object requires version and ETag")
+    return ObjectRef(
+        uri=uri,
+        format="OBJECT_FORMAT_JSON",
+        media_type=media_type,
+        checksum=Checksum(value=match.group(1).lower()),
+        size_bytes=size,
+        etag=etag,
+        object_version=version,
+    )
+
+
+def _read_batch_plan(
+    store: RuntimeObjectStore,
+    plan_ref: ObjectRef,
+) -> list[tuple[str, ObjectRef, ObjectRef]]:
+    payload = json.loads(_read_control_payload(store, plan_ref).decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("batch plan must be a JSON object")
+    if int(payload.get("schemaVersion", -1)) != 1:
+        raise ValueError("batch plan schemaVersion must be 1")
+    batches = payload.get("batches")
+    if not isinstance(batches, list) or not batches:
+        raise ValueError("batch plan batches must be a non-empty list")
+    if len(batches) > MAX_SOURCE_SILVER_BATCH_PLAN_BATCHES:
+        raise ValueError("batch plan exceeds the reviewed batch bound")
+    planned: list[tuple[str, ObjectRef, ObjectRef]] = []
+    seen_batch_ids: set[str] = set()
+    for index, entry in enumerate(batches):
+        if not isinstance(entry, dict):
+            raise ValueError(f"batch plan batches[{index}] must be an object")
+        batch_id = require_sha256(
+            str(entry["batchId"]),
+            label=f"batch plan batches[{index}].batchId",
+        )
+        if batch_id in seen_batch_ids:
+            raise ValueError(f"batch plan repeats batchId {batch_id}")
+        seen_batch_ids.add(batch_id)
+        batch_ref = _plan_object_ref(
+            entry["batchManifest"],
+            label=f"batch plan batches[{index}].batchManifest",
+            media_type=CONNECTOR_BATCH_MEDIA_TYPE,
+        )
+        record_set_ref = _plan_object_ref(
+            entry["recordSetManifest"],
+            label=f"batch plan batches[{index}].recordSetManifest",
+            media_type=RECORD_SET_MEDIA_TYPE,
+        )
+        planned.append((batch_id, batch_ref, record_set_ref))
+    return planned
+
+
+def _validate_common_run_args(parsed: argparse.Namespace) -> None:
     if min(parsed.max_record_object_bytes, parsed.max_raw_object_bytes) < 1:
         raise ValueError("raw and record object byte limits must be positive")
     if parsed.max_record_object_bytes > MAX_RECORD_OBJECT_MAX_BYTES:
@@ -449,40 +543,23 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "checkpoint-group-size is outside the reviewed bound "
             f"of 1..{MAX_SOURCE_SILVER_CHECKPOINT_GROUP_SIZE}"
         )
-    _has_prevalidated_record_set_grant(parsed)
     if parsed.shuffle_partitions is not None and parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
-    batch_ref = _object_ref(
-        parsed,
-        "batch_manifest",
-        media_type="application/vnd.video-media-catalog.connector-batch.v2+json",
-    )
-    record_set_ref = _object_ref(
-        parsed,
-        "record_set_manifest",
-        media_type=RECORD_SET_MEDIA_TYPE,
-    )
-    local_inputs = all(
-        urlsplit(reference.uri).scheme == "file"
-        for reference in (batch_ref, record_set_ref)
-    )
-    store = BoundedObjectStore(
-        region=parsed.aws_region,
-        endpoint_url=parsed.s3_endpoint,
-        path_style_access=parsed.s3_path_style_access,
-        client=object() if local_inputs else None,
-    )
+
+
+def _commit_one_batch(
+    *,
+    spark: Any,
+    config: CatalogConfig,
+    store: BoundedObjectStore,
+    parsed: argparse.Namespace,
+    batch_ref: ObjectRef,
+    record_set_ref: ObjectRef,
+    scratch_dir: Path,
+    allow_prevalidated_grant: bool,
+) -> dict[str, Any]:
     batch = _read_model(store, batch_ref, ConnectorBatchManifest)
     record_set_ref, record_set = _read_record_set(store, record_set_ref)
-    embedded_references = (*batch.raw_objects, *record_set.record_objects)
-    if local_inputs and any(
-        urlsplit(reference.uri).scheme == "s3" for reference in embedded_references
-    ):
-        store = BoundedObjectStore(
-            region=parsed.aws_region,
-            endpoint_url=parsed.s3_endpoint,
-            path_style_access=parsed.s3_path_style_access,
-        )
     staging_prefix = resolve_record_staging_prefix(
         parsed.record_staging_prefix,
         warehouse=parsed.warehouse,
@@ -492,12 +569,14 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         parsed.silver_checkpoint_prefix,
         warehouse=parsed.warehouse,
     )
-    prevalidated_grant = _prevalidated_record_set_grant(
-        parsed,
-        batch_manifest_ref=batch_ref,
-        record_set_manifest_ref=record_set_ref,
-        staging_prefix=staging_prefix,
-    )
+    prevalidated_grant = None
+    if allow_prevalidated_grant:
+        prevalidated_grant = _prevalidated_record_set_grant(
+            parsed,
+            batch_manifest_ref=batch_ref,
+            record_set_manifest_ref=record_set_ref,
+            staging_prefix=staging_prefix,
+        )
     prevalidated_reuse = False
     if prevalidated_grant is not None:
         prevalidated_reuse = prevalidated_grant_applies(
@@ -509,6 +588,208 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             staging_prefix=staging_prefix,
         )
     mapper_for_product(batch.source_product_id)
+    frames = None
+    checkpoint_counts = {"MATERIALIZED": 0, "REUSED": 0}
+
+    def materialization_progress(
+        event: RecordShardMaterializationProgress,
+    ) -> None:
+        if (
+            event.completed_shards == 1
+            or event.completed_shards == event.total_shards
+            or event.completed_shards % 25 == 0
+        ):
+            print(
+                canonical_json(
+                    {
+                        "batchId": batch.batch_id,
+                        "completedShards": event.completed_shards,
+                        "event": "record-shard-materialization-progress",
+                        "shardIndex": event.shard_index,
+                        "status": event.status,
+                        "totalShards": event.total_shards,
+                    }
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+
+    def checkpoint_progress(event: SourceSilverCheckpointProgress) -> None:
+        checkpoint_counts[event.status] += 1
+        print(
+            canonical_json(
+                {
+                    "batchId": batch.batch_id,
+                    "checkpointId": event.checkpoint_id,
+                    "completedGroups": event.completed_groups,
+                    "event": "source-silver-checkpoint-progress",
+                    "groupId": event.group_id,
+                    "groupIndex": event.group_index,
+                    "status": event.status,
+                    "totalGroups": event.total_groups,
+                }
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+
+    for reference in batch.raw_objects:
+        store.verify(reference, max_bytes=parsed.max_raw_object_bytes)
+    if not prevalidated_reuse:
+        for reference in record_set.record_objects:
+            store.verify(
+                reference,
+                max_bytes=parsed.max_record_object_bytes,
+            )
+    materialized_shards = materialize_record_shards(
+        store,
+        record_set.record_objects,
+        staging_prefix=staging_prefix,
+        scratch_dir=scratch_dir,
+        max_bytes=parsed.max_record_object_bytes,
+        max_shards=parsed.max_record_shards,
+        workers=parsed.materialize_workers,
+        prevalidated_grant=prevalidated_grant,
+        batch=batch,
+        record_set=record_set,
+        batch_manifest_ref=batch_ref,
+        record_set_manifest_ref=record_set_ref,
+        progress_callback=materialization_progress,
+    )
+    try:
+        ingest_run, frames = build_source_silver_dataframes(
+            spark,
+            registry=build_community_registry(),
+            batch=batch,
+            record_set=record_set,
+            materialized_shards=materialized_shards,
+            checkpoint_config=(
+                None
+                if checkpoint_prefix is None
+                else SourceSilverCheckpointConfig(
+                    aws_region=parsed.aws_region,
+                    s3_endpoint=parsed.s3_endpoint,
+                    s3_path_style_access=parsed.s3_path_style_access,
+                )
+            ),
+            checkpoint_prefix=checkpoint_prefix,
+            checkpoint_group_size=parsed.checkpoint_group_size,
+            checkpoint_progress=(
+                checkpoint_progress if checkpoint_prefix is not None else None
+            ),
+        )
+        commit = CommunityCatalogTables(spark, config).stage_and_commit(
+            run=ingest_run,
+            dataframes=frames,
+            committed_at=parsed.committed_at,
+        )
+        result = {
+            "batchId": batch.batch_id,
+            "runId": ingest_run.run_id,
+            "commitKey": commit.commit_key,
+            "sourceProductId": ingest_run.source_product_id,
+            "tableCounts": commit.table_counts,
+            "tableSnapshotIds": commit.table_snapshot_ids,
+            "recordShardMaterialization": {
+                "reuseCount": sum(
+                    shard.prevalidated_reuse for shard in materialized_shards
+                ),
+                "fullCount": sum(
+                    not shard.prevalidated_reuse for shard in materialized_shards
+                ),
+            },
+        }
+        if checkpoint_prefix is not None:
+            result["sourceSilverCheckpoint"] = {
+                "materializedGroupCount": checkpoint_counts["MATERIALIZED"],
+                "reusedGroupCount": checkpoint_counts["REUSED"],
+                "totalGroupCount": sum(checkpoint_counts.values()),
+            }
+        return result
+    finally:
+        unpersist_source_silver_frames(frames)
+
+
+def run(parsed: argparse.Namespace) -> dict[str, Any]:
+    _validate_common_run_args(parsed)
+    has_batch_plan = bool(parsed.batch_plan_uri)
+    has_single_batch = bool(parsed.batch_manifest_uri)
+    if has_batch_plan == has_single_batch:
+        raise ValueError(
+            "provide exactly one of --batch-plan-* or --batch-manifest-* inputs"
+        )
+    if has_single_batch and not parsed.record_set_manifest_uri:
+        raise ValueError("--record-set-manifest-* is required with --batch-manifest-*")
+    if has_batch_plan and (parsed.batch_manifest_uri or parsed.record_set_manifest_uri):
+        raise ValueError(
+            "--batch-plan-* cannot be combined with single-batch manifests"
+        )
+    if has_batch_plan and _has_prevalidated_record_set_grant(parsed):
+        raise ValueError("prevalidated grants are not supported with --batch-plan-*")
+    if has_single_batch:
+        _has_prevalidated_record_set_grant(parsed)
+
+    if has_batch_plan:
+        plan_ref = _object_ref(
+            parsed,
+            "batch_plan",
+            media_type=SOURCE_SILVER_BATCH_PLAN_MEDIA_TYPE,
+        )
+        planned_inputs: list[tuple[str, ObjectRef, ObjectRef]] | None = None
+        bootstrap_refs = (plan_ref,)
+    else:
+        plan_ref = None
+        batch_ref = _object_ref(
+            parsed,
+            "batch_manifest",
+            media_type=CONNECTOR_BATCH_MEDIA_TYPE,
+        )
+        record_set_ref = _object_ref(
+            parsed,
+            "record_set_manifest",
+            media_type=RECORD_SET_MEDIA_TYPE,
+        )
+        planned_inputs = [("single", batch_ref, record_set_ref)]
+        bootstrap_refs = (batch_ref, record_set_ref)
+
+    local_inputs = all(
+        urlsplit(reference.uri).scheme == "file" for reference in bootstrap_refs
+    )
+    store = BoundedObjectStore(
+        region=parsed.aws_region,
+        endpoint_url=parsed.s3_endpoint,
+        path_style_access=parsed.s3_path_style_access,
+        client=object() if local_inputs else None,
+    )
+    if has_batch_plan:
+        assert plan_ref is not None
+        planned_inputs = _read_batch_plan(store, plan_ref)
+    assert planned_inputs is not None
+
+    # Upgrade from a local-only bootstrap client once embedded S3 refs appear.
+    if local_inputs:
+        probe_batch = _read_model(
+            store,
+            planned_inputs[0][1],
+            ConnectorBatchManifest,
+        )
+        probe_record_ref, probe_record_set = _read_record_set(
+            store,
+            planned_inputs[0][2],
+        )
+        embedded_references = (
+            *probe_batch.raw_objects,
+            *probe_record_set.record_objects,
+        )
+        if any(
+            urlsplit(reference.uri).scheme == "s3" for reference in embedded_references
+        ):
+            store = BoundedObjectStore(
+                region=parsed.aws_region,
+                endpoint_url=parsed.s3_endpoint,
+                path_style_access=parsed.s3_path_style_access,
+            )
+        _ = probe_record_ref
 
     config = CatalogConfig(
         catalog_name=parsed.catalog_name,
@@ -534,126 +815,55 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
     if parsed.spark_packages:
         builder = builder.config("spark.jars.packages", parsed.spark_packages)
     spark = builder.getOrCreate()
-    frames = None
-    checkpoint_counts = {"MATERIALIZED": 0, "REUSED": 0}
-
-    def materialization_progress(
-        event: RecordShardMaterializationProgress,
-    ) -> None:
-        if (
-            event.completed_shards == 1
-            or event.completed_shards == event.total_shards
-            or event.completed_shards % 25 == 0
-        ):
-            print(
-                canonical_json(
-                    {
-                        "completedShards": event.completed_shards,
-                        "event": "record-shard-materialization-progress",
-                        "shardIndex": event.shard_index,
-                        "status": event.status,
-                        "totalShards": event.total_shards,
-                    }
-                ),
-                file=sys.stderr,
-                flush=True,
-            )
-
-    def checkpoint_progress(event: SourceSilverCheckpointProgress) -> None:
-        checkpoint_counts[event.status] += 1
-        print(
-            canonical_json(
-                {
-                    "checkpointId": event.checkpoint_id,
-                    "completedGroups": event.completed_groups,
-                    "event": "source-silver-checkpoint-progress",
-                    "groupId": event.group_id,
-                    "groupIndex": event.group_index,
-                    "status": event.status,
-                    "totalGroups": event.total_groups,
-                }
-            ),
-            file=sys.stderr,
-            flush=True,
-        )
-
-    with tempfile.TemporaryDirectory(prefix="community-catalog-scratch-") as scratch:
-        scratch_dir = Path(scratch)
-        for reference in batch.raw_objects:
-            store.verify(reference, max_bytes=parsed.max_raw_object_bytes)
-        if not prevalidated_reuse:
-            for reference in record_set.record_objects:
-                store.verify(
-                    reference,
-                    max_bytes=parsed.max_record_object_bytes,
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="community-catalog-scratch-"
+        ) as scratch:
+            scratch_dir = Path(scratch)
+            batch_results: list[dict[str, Any]] = []
+            for index, (expected_batch_id, batch_ref, record_set_ref) in enumerate(
+                planned_inputs
+            ):
+                print(
+                    canonical_json(
+                        {
+                            "batchId": expected_batch_id,
+                            "batchIndex": index,
+                            "event": "source-silver-batch-started",
+                            "totalBatches": len(planned_inputs),
+                        }
+                    ),
+                    file=sys.stderr,
+                    flush=True,
                 )
-        materialized_shards = materialize_record_shards(
-            store,
-            record_set.record_objects,
-            staging_prefix=staging_prefix,
-            scratch_dir=scratch_dir,
-            max_bytes=parsed.max_record_object_bytes,
-            max_shards=parsed.max_record_shards,
-            workers=parsed.materialize_workers,
-            prevalidated_grant=prevalidated_grant,
-            batch=batch,
-            record_set=record_set,
-            batch_manifest_ref=batch_ref,
-            record_set_manifest_ref=record_set_ref,
-            progress_callback=materialization_progress,
-        )
-        try:
-            ingest_run, frames = build_source_silver_dataframes(
-                spark,
-                registry=build_community_registry(),
-                batch=batch,
-                record_set=record_set,
-                materialized_shards=materialized_shards,
-                checkpoint_config=(
-                    None
-                    if checkpoint_prefix is None
-                    else SourceSilverCheckpointConfig(
-                        aws_region=parsed.aws_region,
-                        s3_endpoint=parsed.s3_endpoint,
-                        s3_path_style_access=parsed.s3_path_style_access,
+                result = _commit_one_batch(
+                    spark=spark,
+                    config=config,
+                    store=store,
+                    parsed=parsed,
+                    batch_ref=batch_ref,
+                    record_set_ref=record_set_ref,
+                    scratch_dir=scratch_dir / f"batch-{index}",
+                    allow_prevalidated_grant=has_single_batch,
+                )
+                if has_batch_plan and result["batchId"] != expected_batch_id:
+                    raise ValueError(
+                        "batch plan batchId does not match connector batch "
+                        f"{expected_batch_id}"
                     )
-                ),
-                checkpoint_prefix=checkpoint_prefix,
-                checkpoint_group_size=parsed.checkpoint_group_size,
-                checkpoint_progress=(
-                    checkpoint_progress if checkpoint_prefix is not None else None
-                ),
-            )
-            commit = CommunityCatalogTables(spark, config).stage_and_commit(
-                run=ingest_run,
-                dataframes=frames,
-                committed_at=parsed.committed_at,
-            )
-            result = {
-                "runId": ingest_run.run_id,
-                "commitKey": commit.commit_key,
-                "sourceProductId": ingest_run.source_product_id,
-                "tableCounts": commit.table_counts,
-                "tableSnapshotIds": commit.table_snapshot_ids,
-                "recordShardMaterialization": {
-                    "reuseCount": sum(
-                        shard.prevalidated_reuse for shard in materialized_shards
-                    ),
-                    "fullCount": sum(
-                        not shard.prevalidated_reuse for shard in materialized_shards
-                    ),
-                },
+                batch_results.append(result)
+            if has_single_batch:
+                single = dict(batch_results[0])
+                single.pop("batchId", None)
+                return single
+            return {
+                "batchCount": len(batch_results),
+                "batches": batch_results,
+                "commitKey": batch_results[-1]["commitKey"],
+                "runId": batch_results[-1]["runId"],
             }
-            if checkpoint_prefix is not None:
-                result["sourceSilverCheckpoint"] = {
-                    "materializedGroupCount": checkpoint_counts["MATERIALIZED"],
-                    "reusedGroupCount": checkpoint_counts["REUSED"],
-                    "totalGroupCount": sum(checkpoint_counts.values()),
-                }
-            return result
-        finally:
-            unpersist_source_silver_frames(frames)
-            spark.stop()
+    finally:
+        spark.stop()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

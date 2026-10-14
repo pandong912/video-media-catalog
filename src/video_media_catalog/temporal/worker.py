@@ -19,7 +19,10 @@ from video_media_catalog.temporal.activities.eidr_public_research import (
     lookup_eidr_public_research,
     write_eidr_public_research_summary,
 )
-from video_media_catalog.temporal.activities.silver import submit_source_silver
+from video_media_catalog.temporal.activities.silver import (
+    submit_source_silver,
+    submit_source_silver_bundle,
+)
 from video_media_catalog.temporal.activities.summary import write_pipeline_summary
 from video_media_catalog.temporal.names import (
     SILVER_TASK_QUEUE,
@@ -107,7 +110,7 @@ async def run_workers(parsed: argparse.Namespace) -> None:
     silver = Worker(
         client,
         task_queue=parsed.silver_task_queue,
-        activities=[submit_source_silver],
+        activities=[submit_source_silver, submit_source_silver_bundle],
         activity_executor=executor,
         max_concurrent_activities=parsed.max_silver_activities,
     )

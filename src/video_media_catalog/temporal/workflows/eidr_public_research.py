@@ -1,4 +1,4 @@
-"""One-shot EIDR discovery, public lookup, and sequential Source Silver."""
+"""One-shot EIDR discovery, public lookup, and bundled Source Silver."""
 
 from __future__ import annotations
 
@@ -13,12 +13,13 @@ with workflow.unsafe.imports_passed_through():
         lookup_eidr_public_research,
         write_eidr_public_research_summary,
     )
-    from video_media_catalog.temporal.activities.silver import submit_source_silver
+    from video_media_catalog.temporal.activities.silver import (
+        submit_source_silver_bundle,
+    )
     from video_media_catalog.temporal.eidr_models import (
         EidrPublicResearchInput,
         EidrPublicResearchResult,
     )
-    from video_media_catalog.temporal.models import SilverResult
     from video_media_catalog.temporal.names import SILVER_TASK_QUEUE
 
 
@@ -54,24 +55,27 @@ class EidrPublicResearchWorkflow:
         lookup = await workflow.execute_activity(
             lookup_eidr_public_research,
             args=[input_data, discovery],
-            start_to_close_timeout=timedelta(hours=3),
+            start_to_close_timeout=timedelta(days=5),
             heartbeat_timeout=timedelta(minutes=2),
             retry_policy=_ONE_ATTEMPT,
         )
 
-        silvers: list[SilverResult] = []
-        for capture in lookup.source_silver_inputs:
-            silvers.append(
+        silver_results = ()
+        if lookup.source_silver_inputs:
+            silver_results = tuple(
                 await workflow.execute_activity(
-                    submit_source_silver,
-                    args=[capture, input_data.env, input_data.acquired_at],
+                    submit_source_silver_bundle,
+                    args=[
+                        lookup.source_silver_inputs,
+                        input_data.env,
+                        input_data.acquired_at,
+                    ],
                     task_queue=SILVER_TASK_QUEUE,
-                    start_to_close_timeout=timedelta(hours=12),
+                    start_to_close_timeout=timedelta(days=3),
                     heartbeat_timeout=timedelta(minutes=5),
                     retry_policy=_SILVER_RETRY,
                 )
             )
-        silver_results = tuple(silvers)
         summary = await workflow.execute_activity(
             write_eidr_public_research_summary,
             args=[input_data, discovery, lookup, silver_results],

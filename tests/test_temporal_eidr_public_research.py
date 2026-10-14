@@ -415,8 +415,7 @@ async def _workflow_case() -> None:
     assert calls == [
         "discovery",
         "lookup",
-        "silver-bundle:"
-        + ",".join(capture.batch_id for capture in captures),
+        "silver-bundle:" + ",".join(capture.batch_id for capture in captures),
         "summary:2",
     ]
     assert result.supplemental_source_run_ids == (

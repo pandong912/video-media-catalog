@@ -720,9 +720,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         )
     if has_single_batch and not parsed.record_set_manifest_uri:
         raise ValueError("--record-set-manifest-* is required with --batch-manifest-*")
-    if has_batch_plan and (
-        parsed.batch_manifest_uri or parsed.record_set_manifest_uri
-    ):
+    if has_batch_plan and (parsed.batch_manifest_uri or parsed.record_set_manifest_uri):
         raise ValueError(
             "--batch-plan-* cannot be combined with single-batch manifests"
         )
@@ -784,8 +782,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             *probe_record_set.record_objects,
         )
         if any(
-            urlsplit(reference.uri).scheme == "s3"
-            for reference in embedded_references
+            urlsplit(reference.uri).scheme == "s3" for reference in embedded_references
         ):
             store = BoundedObjectStore(
                 region=parsed.aws_region,

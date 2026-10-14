@@ -345,28 +345,22 @@ async def _workflow_case() -> None:
         calls.append("lookup")
         return lookup_result
 
-    @activity.defn(name="SubmitSourceSilverBundle")
-    async def silver_bundle(
-        captures: tuple[CaptureResult, ...] | list[CaptureResult],
+    @activity.defn(name="SubmitSourceSilver")
+    async def silver(
+        capture: CaptureResult,
         _env: PipelineEnv,
         _committed_at: str | None = None,
-    ) -> list[SilverResult]:
-        calls.append(
-            "silver-bundle:" + ",".join(capture.batch_id for capture in captures)
+    ) -> SilverResult:
+        calls.append(f"silver:{capture.batch_id}")
+        index = len([call for call in calls if call.startswith("silver:")])
+        return SilverResult(
+            batch_id=capture.batch_id,
+            run_id="sha256:" + (str(index + 6) * 64),
+            commit_key="sha256:" + (str(index + 7) * 64),
+            job_run_id=f"job-silver-{index}",
+            table_counts={"source_record": capture.record_count},
+            table_snapshot_ids={"source_record": index},
         )
-        results: list[SilverResult] = []
-        for index, capture in enumerate(captures, start=1):
-            results.append(
-                SilverResult(
-                    batch_id=capture.batch_id,
-                    run_id="sha256:" + (str(index + 6) * 64),
-                    commit_key="sha256:" + (str(index + 7) * 64),
-                    job_run_id="job-silver-bundle",
-                    table_counts={"source_record": capture.record_count},
-                    table_snapshot_ids={"source_record": index},
-                )
-            )
-        return results
 
     @activity.defn(name="WriteEidrPublicResearchSummary")
     async def summary(
@@ -401,7 +395,7 @@ async def _workflow_case() -> None:
         Worker(
             temporal.client,
             task_queue=SILVER_TASK_QUEUE,
-            activities=[silver_bundle],
+            activities=[silver],
         ),
     ):
         result = await temporal.client.execute_workflow(
@@ -415,7 +409,8 @@ async def _workflow_case() -> None:
     assert calls == [
         "discovery",
         "lookup",
-        "silver-bundle:" + ",".join(capture.batch_id for capture in captures),
+        f"silver:{captures[0].batch_id}",
+        f"silver:{captures[1].batch_id}",
         "summary:2",
     ]
     assert result.supplemental_source_run_ids == (

@@ -68,13 +68,20 @@ class AssertionProvenance(V2ContractModel):
     source_modified_at: str | None = None
     valid_from: str | None = None
     valid_to: str | None = None
+    observation_key: str | None = None
+    supersedes_assertion_id: str | None = None
     citation_keys: tuple[str, ...] = ()
     confidence: float | None = Field(default=None, ge=0, le=1)
 
-    @field_validator("envelope_key", "policy_digest")
+    @field_validator(
+        "envelope_key",
+        "policy_digest",
+        "observation_key",
+        "supersedes_assertion_id",
+    )
     @classmethod
-    def validate_digest(cls, value: str) -> str:
-        return require_sha256(value)
+    def validate_digest(cls, value: str | None) -> str | None:
+        return None if value is None else require_sha256(value)
 
     @field_validator("mapper_id", "policy_id")
     @classmethod

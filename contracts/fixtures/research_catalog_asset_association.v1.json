@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "contractId": "video-world.research-catalog.asset-association.v1",
+  "pipelineStages": [
+    "RAW",
+    "SILVER_ASSERTIONS",
+    "IDENTITY",
+    "GOLD",
+    "CONCRETE_INDEX",
+    "EXACT_CANDIDATE",
+    "CANONICAL_IDENTITY",
+    "CONFIRMED_ASSET_LINK",
+    "QUERY_API",
+    "RESEARCH_CONSOLE"
+  ],
+  "requiredGates": {
+    "validatedConcreteIndex": true,
+    "uniqueExactExternalId": true,
+    "score": 1000,
+    "confidence": 1.0,
+    "goldConflictCount": 0,
+    "materializationAllowed": true,
+    "existingConfirmedLink": false
+  },
+  "closedGates": {
+    "sportsDomainPublication": false,
+    "animationDomainPublication": false,
+    "openSearchAliasActivation": false,
+    "cutoverAllowed": false,
+    "liveCutoverClaimed": false,
+    "reverseDualWriteAllowed": false
+  },
+  "domains": [
+    {
+      "domain": "SPORTS",
+      "sourceFixture": "openfootball-team-event.v1.json",
+      "entityKey": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "exactIdentifier": {
+        "namespace": "openfootball-event",
+        "value": "eng.1/2025-26/2026-10-15-ars-che"
+      },
+      "canonicalEntityKind": "EVENT",
+      "assetRelationKind": "BROADCAST_OF",
+      "queryRoute": "/api/v1/global-catalog/sports/events/{entityKey}",
+      "consoleSurface": "GlobalCatalogPane:SPORTS"
+    },
+    {
+      "domain": "ANIMATION",
+      "sourceFixture": "wikidata-animation-work.v1.json",
+      "entityKey": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "exactIdentifier": {
+        "namespace": "wikidata-item",
+        "value": "Q200000001"
+      },
+      "canonicalEntityKind": "WORK",
+      "assetRelationKind": "PRESENTATION_OF",
+      "queryRoute": "/api/v1/global-catalog/animation/works/{entityKey}",
+      "consoleSurface": "GlobalCatalogPane:ANIMATION"
+    }
+  ],
+  "reviewOnlyCases": [
+    "PARENT_CONSTRAINED",
+    "MULTIPLE_EXACT_CANDIDATES",
+    "GOLD_CONFLICT",
+    "EXISTING_CONFIRMED_LINK"
+  ]
+}

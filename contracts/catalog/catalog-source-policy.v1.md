@@ -6,7 +6,7 @@
 artifact shared with Platform and Compute. Its normalized JSON semantic digest
 is:
 
-`sha256:d1631f6a65e86a6e613e53d0379672738f4ca768bd72155554bb80866c3fda61`
+`sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859`
 
 Source entries define canonical `sourceId`, lifecycle status and granted
 capabilities. Namespace entries define canonical namespace ownership and
@@ -24,10 +24,14 @@ namespace IDs, aliases, unknown mappings and conflicting ownership fail closed.
 
 ## Current enablement
 
-- Wikidata, EIDR, IMDb, TVmaze and TMDB are enabled for retrieval, display,
-  Identity and materialization.
+- Wikidata, EIDR, IMDb, TVmaze, TMDB, OpenFootball, StatsBomb and MADB are
+  enabled for retrieval, display, Identity and selective materialization.
 - Their canonical title namespaces can all drive exact Identity blocking and
   Gold identifier projection for the personal-research catalog.
+- Research Gold requires canonical `IDENTITY + DISPLAY`. `MATERIALIZATION` is
+  independently enforced for the stable identity namespaces and predicates
+  listed by each source; sports results, in-game statistics, Animation
+  profiles, characters and credits are not materializable predicates.
 
 Europeana, Douban, alternate EIDR IDs and other local integrations have no
 canonical v1 mapping and fail closed.
@@ -43,6 +47,9 @@ The explicit implementation mapping is:
 - `imdb-non-commercial-datasets` → `imdb`
 - `tvmaze-public-api` → `tvmaze`
 - `tmdb-research` → `tmdb`
+- `openfootball-git` → `openfootball`
+- `statsbomb-open-data` → `statsbomb`
+- `madb-public-data` → `madb`
 
 The loader validates this mapping, local namespace ownership and rights-policy
 bindings against `SourceRegistrySnapshot`. Production Identity and Gold
@@ -50,7 +57,7 @@ entrypoints pin `sourcePolicyDigest`, filter exact-blocking namespaces through
 the live intersection, and reject selected source runs that are not authorized
 for Identity/materialization. Gold also rejects an Identity resolution run
 whose input manifest does not bind the current canonical digest. Temporal
-`sourceRunStates` are mandatory for new Golden preflights. All five canonical
+`sourceRunStates` are mandatory for new Golden preflights. All eight canonical
 source runs are selected for snapshot, Identity and Gold inputs.
 
 Gold serving documents retain the compatibility field name `sourceProductId`
@@ -58,7 +65,7 @@ but write the canonical `sourceId` value. External identifiers additionally
 bind one assertion ID and bounded citation keys, and are emitted only when
 assertion source and canonical namespace ownership agree. Materialization
 evidence is intersected with each namespace's `materializablePredicates`;
-identity titles, aliases and hierarchy from all five canonical sources are
+identity titles, aliases and hierarchy from all eight canonical sources are
 permitted.
 
 This policy never grants a license. Existing rights profiles, termination

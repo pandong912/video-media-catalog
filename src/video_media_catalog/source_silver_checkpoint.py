@@ -109,8 +109,20 @@ _DEFAULT_MAPPER_IDENTITIES = {
         mapper_id="imdb-official-tsv-mapper",
         mapper_version="1.0.2",
     ),
+    "madb-public-data": SourceSilverMapperIdentity(
+        mapper_id="madb-animation-source-mapper",
+        mapper_version="1.0.0",
+    ),
     "tmdb-research": SourceSilverMapperIdentity(
         mapper_id="tmdb-research-mapper",
+        mapper_version="1.0.0",
+    ),
+    "openfootball-git": SourceSilverMapperIdentity(
+        mapper_id="openfootball-source-mapper",
+        mapper_version="1.0.0",
+    ),
+    "statsbomb-open-data": SourceSilverMapperIdentity(
+        mapper_id="statsbomb-source-mapper",
         mapper_version="1.0.0",
     ),
     "tvmaze-public-api": SourceSilverMapperIdentity(
@@ -118,8 +130,8 @@ _DEFAULT_MAPPER_IDENTITIES = {
         mapper_version="1.0.0",
     ),
     "wikidata-json-dump": SourceSilverMapperIdentity(
-        mapper_id="wikidata-v2-mapper",
-        mapper_version="1.1.0",
+        mapper_id="wikidata-research-dispatcher",
+        mapper_version="2.0.0",
     ),
 }
 

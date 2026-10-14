@@ -25,14 +25,17 @@ capture -> Silver -> Identity -> Gold -> OpenSearch build
    versioned OpenSearch index，并在完整计数核对后原子切换
    `media-catalog-research-read`。
 
-Gold OpenSearch mapping 固定使用 projectionVersion `8`。删除旧流水线不会把
+Gold OpenSearch mapping 固定使用 projectionVersion `9`。该 strict projection
+增加 Sports/Animation domain 字段、当前赛果、作品关系和有界 revision 摘要；
+完整 observation 历史仍以 Gold release 为准。删除旧流水线不会把
 Silver / Gold / epoch 的内部契约版本回退或改名。
 
 Catalog Match 的来源 enablement 固定在
 `contracts/catalog/catalog-source-policy.v1.json`，其 canonical semantic
 digest 为
-`sha256:d1631f6a65e86a6e613e53d0379672738f4ca768bd72155554bb80866c3fda61`。
-Wikidata、EIDR、IMDb、TVmaze 与 TMDB 均可进入 Identity/Gold。Catalog 的
+`sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859`。
+Wikidata、EIDR、IMDb、TVmaze、TMDB、OpenFootball、StatsBomb 与 MADB
+均可进入 Identity/Gold。Catalog 的
 source-product、capture/freshness 与 projection 技术能力保存在独立实现映射，
 live 权限始终与 canonical policy 求交，不产生第二个授权 digest。Golden
 Build 必须使用显式 `sourceRunStates` 钉住 capture/run、freshness、watermark
@@ -137,6 +140,40 @@ EMR Source Silver。Token 经 Secrets Manager + External Secrets 注入 Worker�
 `s3://ai-video-platform-dev-media-catalog-209479308066/landing/research/capture/tmdb/`。
 不运行 Identity、Gold、OpenSearch rebuild 或 alias 切换。完整运行边界见
 `docs/sources/tmdb.md`。
+
+### 体育与动画领域调度
+
+`video-media-catalog-research-temporal-worker` 在既有
+`vw-media-catalog-research` Temporal namespace 上注册
+`ResearchCaptureWorkflow`、`ResearchSilverWorkflow` 与
+`ResearchDomainWorkflow`。其中 Capture 步骤只接收已经归档到 S3、同时绑定
+SHA-256、大小、ETag 与 ObjectVersion 的 connector manifest；它不会在执行时
+读取 mutable branch、latest dump 或未归档的 HTTP 响应。
+
+`video-media-catalog-research-temporal-admin ensure-runtime` 从
+`RESEARCH_DOMAIN_PROFILES_FILE` 幂等协调五个生产 Schedule：
+
+- Wikidata Sports / Animation：每月；
+- OpenFootball：每日；
+- StatsBomb / MADB：每周。
+
+每个 Schedule 固定一个领域和来源 profile，执行 Capture → Source Silver →
+Golden Build；来源失败受有限重试及 failure budget 约束，长历史通过
+continue-as-new 截断。profile Secret 由 GitOps ExternalSecret 从
+`ai-video-platform/dev/media-catalog/research-domain-profiles` 注入，必须先由
+采集发布方写入新的 immutable capture pin，Schedule 才会处理新快照。
+
+该链路只发布 Research Gold release。它不会写
+`world_sports_publication` / `world_animation_publication`，也不会执行
+OpenSearch alias activation；资产身份关联仍由 Platform 的 release-pinned
+Catalog Match 通道完成。
+
+镜像发布在 `main` 上同时产出 worker 与 EMR digest，并通过仓库 Secret
+`VIDEO_WORLD_INFRA_DISPATCH_TOKEN` 向 `video-world-infra` 发出
+`media-catalog-research-image-published` 事件；Infra 端只生成 reviewable
+GitOps digest PR，不直接部署。新的 profile 先作为带 ObjectVersion 的 S3
+candidate 归档，再由 `Publish research-domain profiles` 工作流完成语义校验并
+写入单一 Secrets Manager 容器。
 
 ### EIDR exact lookup
 

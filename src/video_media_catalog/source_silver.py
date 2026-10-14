@@ -60,6 +60,7 @@ def _spark_input_uri(uri: str) -> str:
 def mapper_for_product(source_product_id: str) -> Mapper:
     """Resolve only reviewed, explicitly registered source products."""
 
+    from video_media_catalog.animation_sources import map_madb_animation_record
     from video_media_catalog.europeana import (
         EUROPEANA_SOURCE_PRODUCT_ID,
         map_europeana_record,
@@ -72,7 +73,11 @@ def mapper_for_product(source_product_id: str) -> Mapper:
         EIDR_SOURCE_PRODUCT_ID,
         WIKIDATA_SOURCE_PRODUCT_ID,
         map_eidr_record,
-        map_wikidata_record,
+        map_wikidata_research_record,
+    )
+    from video_media_catalog.sports_sources import (
+        map_openfootball_record,
+        map_statsbomb_match_record,
     )
     from video_media_catalog.tmdb import (
         TMDB_SOURCE_PRODUCT_ID,
@@ -85,11 +90,14 @@ def mapper_for_product(source_product_id: str) -> Mapper:
 
     registry: dict[str, Mapper] = {
         TVMAZE_SOURCE_PRODUCT_ID: map_tvmaze_show,
-        WIKIDATA_SOURCE_PRODUCT_ID: map_wikidata_record,
+        WIKIDATA_SOURCE_PRODUCT_ID: map_wikidata_research_record,
         EIDR_SOURCE_PRODUCT_ID: map_eidr_record,
         IMDB_SOURCE_PRODUCT_ID: map_imdb_record,
         TMDB_SOURCE_PRODUCT_ID: map_tmdb_record,
         EUROPEANA_SOURCE_PRODUCT_ID: map_europeana_record,
+        "madb-public-data": map_madb_animation_record,
+        "openfootball-git": map_openfootball_record,
+        "statsbomb-open-data": map_statsbomb_match_record,
     }
     try:
         return registry[source_product_id]

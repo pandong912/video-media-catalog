@@ -1,0 +1,104 @@
+name: Publish research-domain profiles
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_uri:
+        description: Versioned S3 candidate URI
+        required: true
+        type: string
+      candidate_version_id:
+        description: Exact S3 ObjectVersion
+        required: true
+        type: string
+      candidate_sha256:
+        description: Lowercase SHA-256 of the profile JSON
+        required: true
+        type: string
+      emr_image_digest:
+        description: GitOps-pinned EMR image digest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: research-domain-profiles
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  PROFILE_SECRET_ID: ai-video-platform/dev/media-catalog/research-domain-profiles
+  GOLDEN_TASK_QUEUE: vw-media-catalog-golden-r16-v1
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: media-catalog-research
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.7"
+          enable-cache: true
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::209479308066:role/ai-video-platform-dev-media-catalog-research-profile-publisher
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: research-domain-profile-publish
+      - run: uv sync --frozen
+      - name: Download exact immutable candidate
+        env:
+          CANDIDATE_URI: ${{ inputs.candidate_uri }}
+          CANDIDATE_VERSION_ID: ${{ inputs.candidate_version_id }}
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+        run: |
+          [[ "$CANDIDATE_URI" =~ ^s3://ai-video-platform-dev-media-catalog-209479308066/landing/research/capture/profile-candidates/[^?]+\.json$ ]]
+          [[ "$CANDIDATE_VERSION_ID" =~ ^[A-Za-z0-9._+=/-]{1,1024}$ ]]
+          [[ "$CANDIDATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          bucket="${CANDIDATE_URI#s3://}"
+          bucket="${bucket%%/*}"
+          prefix="s3://${bucket}/"
+          key="${CANDIDATE_URI#"$prefix"}"
+          aws s3api get-object \
+            --bucket "$bucket" \
+            --key "$key" \
+            --version-id "$CANDIDATE_VERSION_ID" \
+            /tmp/research-domain-profiles.json >/tmp/profile-object.json
+          printf '%s  %s\n' \
+            "$CANDIDATE_SHA256" \
+            /tmp/research-domain-profiles.json \
+            | sha256sum --check --strict
+      - name: Validate fail-closed profile contract
+        env:
+          EMR_IMAGE_DIGEST: ${{ inputs.emr_image_digest }}
+        run: |
+          [[ "$EMR_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          uv run video-media-catalog-research-temporal-admin \
+            --profiles-file /tmp/research-domain-profiles.json \
+            --golden-task-queue "$GOLDEN_TASK_QUEUE" \
+            --emr-image-digest "$EMR_IMAGE_DIGEST" \
+            validate-profiles
+      - name: Publish one versioned Secrets Manager value
+        env:
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+        run: |
+          jq -Rs '{profilesJson: .}' \
+            </tmp/research-domain-profiles.json \
+            >/tmp/research-domain-secret.json
+          aws secretsmanager put-secret-value \
+            --secret-id "$PROFILE_SECRET_ID" \
+            --secret-string file:///tmp/research-domain-secret.json \
+            --client-request-token "$CANDIDATE_SHA256" \
+            >/tmp/profile-secret-version.json
+          jq '{
+            ARN,
+            Name,
+            VersionId,
+            VersionStages
+          }' /tmp/profile-secret-version.json >>"$GITHUB_STEP_SUMMARY"

@@ -38,6 +38,14 @@ class EntityLevel(StrEnum):
     PLATFORM_ACCOUNT = "PLATFORM_ACCOUNT"
     REGULATORY_RECORD = "REGULATORY_RECORD"
     MEDIA_ASSET = "MEDIA_ASSET"
+    SPORTS_COMPETITION = "SPORTS_COMPETITION"
+    SPORTS_SEASON = "SPORTS_SEASON"
+    SPORTS_STAGE = "SPORTS_STAGE"
+    SPORTS_EVENT = "SPORTS_EVENT"
+    SPORTS_PARTICIPANT = "SPORTS_PARTICIPANT"
+    SPORTS_ENTRY = "SPORTS_ENTRY"
+    SPORTS_VENUE = "SPORTS_VENUE"
+    CHARACTER = "CHARACTER"
 
 
 class EntityStatus(StrEnum):
@@ -73,6 +81,14 @@ _HIERARCHY_REFERENT_KINDS = {
     EntityLevel.SERIES: {"EDITORIAL_WORK", "SERIES", "TV_SERIES"},
     EntityLevel.SEASON: {"EDITORIAL_WORK", "SEASON", "TV_SEASON"},
     EntityLevel.EPISODE: {"EDITORIAL_WORK", "EPISODE", "TV_EPISODE"},
+    EntityLevel.SPORTS_COMPETITION: {"SPORTS_COMPETITION"},
+    EntityLevel.SPORTS_SEASON: {"SPORTS_SEASON"},
+    EntityLevel.SPORTS_STAGE: {"SPORTS_STAGE"},
+    EntityLevel.SPORTS_EVENT: {"SPORTS_EVENT"},
+    EntityLevel.SPORTS_PARTICIPANT: {"SPORTS_PARTICIPANT"},
+    EntityLevel.SPORTS_ENTRY: {"SPORTS_ENTRY"},
+    EntityLevel.SPORTS_VENUE: {"SPORTS_VENUE"},
+    EntityLevel.CHARACTER: {"CHARACTER"},
 }
 
 
@@ -95,6 +111,9 @@ class ParentConstraint(V2ContractModel):
     ordinal_assertion_keys: tuple[str, ...]
     season_number: str | None = None
     episode_number: str | None = None
+    event_date: str | None = None
+    round_number: str | None = None
+    participant_source_nodes: tuple[SourceNodeRef, ...] = ()
 
     @field_validator(
         "parent_entity_key",
@@ -120,7 +139,12 @@ class ParentConstraint(V2ContractModel):
             raise ValueError("parent constraint requires ordinal assertion keys")
         return normalized
 
-    @field_validator("season_number", "episode_number")
+    @field_validator(
+        "season_number",
+        "episode_number",
+        "event_date",
+        "round_number",
+    )
     @classmethod
     def normalize_number(cls, value: str | None) -> str | None:
         if value is None:
@@ -148,8 +172,64 @@ class ParentConstraint(V2ContractModel):
                 raise ValueError(
                     "series-constrained episode evidence requires a season number"
                 )
+        elif self.child_level == EntityLevel.SPORTS_SEASON:
+            if (
+                self.parent_level != EntityLevel.SPORTS_COMPETITION
+                or self.season_number is None
+            ):
+                raise ValueError(
+                    "sports season evidence requires a competition and season number"
+                )
+        elif self.child_level == EntityLevel.SPORTS_STAGE:
+            if self.parent_level not in {
+                EntityLevel.SPORTS_COMPETITION,
+                EntityLevel.SPORTS_SEASON,
+            }:
+                raise ValueError(
+                    "sports stage evidence requires a competition or season parent"
+                )
+            if self.round_number is None:
+                raise ValueError("sports stage evidence requires a round number")
+        elif self.child_level == EntityLevel.SPORTS_EVENT:
+            if self.parent_level not in {
+                EntityLevel.SPORTS_COMPETITION,
+                EntityLevel.SPORTS_SEASON,
+                EntityLevel.SPORTS_STAGE,
+            }:
+                raise ValueError(
+                    "sports event evidence requires a competition, season, or stage"
+                )
+            if not (
+                self.event_date
+                or self.round_number
+                or self.participant_source_nodes
+            ):
+                raise ValueError(
+                    "sports event evidence requires a date, round, or participant"
+                )
+            if any(
+                not _node_matches_level(node, EntityLevel.SPORTS_PARTICIPANT)
+                for node in self.participant_source_nodes
+            ):
+                raise ValueError(
+                    "sports event participants require SPORTS_PARTICIPANT nodes"
+                )
+        elif self.child_level == EntityLevel.SPORTS_ENTRY:
+            if self.parent_level != EntityLevel.SPORTS_EVENT:
+                raise ValueError("sports entry evidence requires a sports event parent")
+            if not self.participant_source_nodes:
+                raise ValueError("sports entry evidence requires a participant")
+            if any(
+                not _node_matches_level(node, EntityLevel.SPORTS_PARTICIPANT)
+                for node in self.participant_source_nodes
+            ):
+                raise ValueError(
+                    "sports entry participants require SPORTS_PARTICIPANT nodes"
+                )
         else:
-            raise ValueError("parent constraints apply only to seasons and episodes")
+            raise ValueError(
+                "parent constraints apply only to editorial or sports hierarchy nodes"
+            )
         return self
 
 

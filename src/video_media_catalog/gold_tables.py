@@ -84,6 +84,23 @@ GOLD_DATA_COLUMNS: dict[str, tuple[str, ...]] = {
         "candidate_values_json",
         "trace_json",
     ),
+    "community_gold_observation": (
+        "row_key",
+        "release_plan_id",
+        "entity_key",
+        "observation_key",
+        "assertion_id",
+        "predicate",
+        "value_type",
+        "value_json",
+        "qualifiers_json",
+        "observed_at",
+        "valid_from",
+        "valid_to",
+        "supersedes_assertion_id",
+        "is_winning",
+        "trace_json",
+    ),
 }
 
 GOLD_TABLE_COLUMNS = {**GOLD_CONTROL_COLUMNS, **GOLD_DATA_COLUMNS}
@@ -96,13 +113,32 @@ GOLD_TABLE_KEYS = {
     "community_gold_identifier": "resolution_key",
     "community_gold_relation": "resolution_key",
     "community_gold_conflict": "conflict_key",
+    "community_gold_observation": "row_key",
 }
 
 GOLD_NULLABLE_COLUMNS = {
     table: frozenset(
         {"value_json", "selected_assertion_id"}
         if table == "community_gold_field"
+        else {"valid_from", "valid_to", "supersedes_assertion_id"}
+        if table == "community_gold_observation"
         else set()
     )
     for table in GOLD_TABLE_COLUMNS
 }
+
+
+def normalize_gold_table_counts(
+    value: dict[str, int],
+    *,
+    label: str,
+) -> dict[str, int]:
+    """Normalize the pre-observation v2 shape to an explicit zero count."""
+
+    normalized = dict(value)
+    normalized.setdefault("community_gold_observation", 0)
+    if set(normalized) != set(GOLD_DATA_COLUMNS):
+        raise ValueError(f"{label} must contain every Gold data table")
+    if any(isinstance(count, bool) or count < 0 for count in normalized.values()):
+        raise ValueError(f"{label} must be non-negative integers")
+    return dict(sorted(normalized.items()))

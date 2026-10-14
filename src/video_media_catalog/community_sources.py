@@ -23,6 +23,8 @@ from video_media_catalog.imdb import (
 from video_media_catalog.rights import PolicyZone, RightsProfile, UsageAction
 from video_media_catalog.source_mappers import WIKIDATA_FULL_MEDIA_CONNECTOR_ID
 from video_media_catalog.source_registry import (
+    SchemaCompatibility,
+    SchemaContract,
     SourceNamespace,
     SourceProduct,
     SourceProductKind,
@@ -37,8 +39,71 @@ from video_media_catalog.tvmaze import (
     tvmaze_registry_entries,
     tvmaze_rights_profile,
 )
+from video_media_catalog.v2_contracts import digest_identity
 
 EIDR_EXACT_LOOKUP_CONNECTOR_ID = "eidr-discovered-id-exact-lookup"
+OPENFOOTBALL_SNAPSHOT_CONNECTOR_ID = "openfootball-git-snapshot"
+STATSBOMB_SNAPSHOT_CONNECTOR_ID = "statsbomb-open-data-snapshot"
+MADB_SNAPSHOT_CONNECTOR_ID = "madb-public-data-snapshot"
+
+
+def research_source_schema_contracts() -> tuple[SchemaContract, ...]:
+    """Schema identities pinned by sports and animation capture manifests."""
+
+    definitions = (
+        (
+            "wikidata-research-entity",
+            "application/x-ndjson",
+            SchemaCompatibility.ADDITIVE,
+            {
+                "required": ["id", "claims"],
+                "profiles": ["sports", "animation"],
+            },
+        ),
+        (
+            "openfootball-event",
+            "application/json",
+            SchemaCompatibility.VERSIONED,
+            {
+                "required": ["competition", "season", "events"],
+                "snapshot": "git-commit",
+            },
+        ),
+        (
+            "statsbomb-open-data",
+            "application/json",
+            SchemaCompatibility.VERSIONED,
+            {
+                "required": ["competitionId", "seasonId", "matchId"],
+                "snapshot": "git-commit",
+            },
+        ),
+        (
+            "madb-animation-record",
+            "application/json",
+            SchemaCompatibility.ADDITIVE,
+            {
+                "required": ["id", "title"],
+                "profiles": ["animation"],
+            },
+        ),
+    )
+    return tuple(
+        SchemaContract(
+            schema_id=schema_id,
+            schema_version="1.0",
+            media_type=media_type,
+            compatibility=compatibility,
+            schema_digest=digest_identity(
+                {
+                    "schemaId": schema_id,
+                    "schemaVersion": "1.0",
+                    **shape,
+                }
+            ),
+        )
+        for schema_id, media_type, compatibility, shape in definitions
+    )
 
 
 def _open_actions() -> tuple[UsageAction, ...]:
@@ -110,6 +175,69 @@ def internal_key_continuity_profile() -> RightsProfile:
     )
 
 
+def openfootball_rights_profile() -> RightsProfile:
+    return RightsProfile(
+        policy_id="openfootball-cc0",
+        policy_version="2026-10-15",
+        zone=PolicyZone.OPEN_CC0,
+        license_id="CC0-1.0",
+        license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        terms_url="https://github.com/openfootball",
+        permissions=_open_actions(),
+        audiences=("*",),
+        territories=("*",),
+        attribution_text="openfootball contributors",
+        notes="Pinned Git snapshots only; provenance retains repository and commit.",
+    )
+
+
+def statsbomb_research_rights_profile() -> RightsProfile:
+    return RightsProfile(
+        policy_id="statsbomb-open-data-research",
+        policy_version="2026-10-15",
+        zone=PolicyZone.RESEARCH_PRIVATE,
+        license_id="StatsBomb-Open-Data-Terms",
+        terms_url="https://github.com/hudl/open-data",
+        permissions=(
+            UsageAction.STORE,
+            UsageAction.TRANSFORM,
+            UsageAction.DISPLAY,
+            UsageAction.SEARCH,
+            UsageAction.DERIVE,
+            UsageAction.ML_TRAIN,
+            UsageAction.ML_EVALUATE,
+        ),
+        audiences=("internal",),
+        territories=("*",),
+        attribution_text="StatsBomb Open Data",
+        notes=(
+            "Private research use. Match identity may drive exact asset association; "
+            "event detail is not a World publication fact."
+        ),
+    )
+
+
+def madb_rights_profile() -> RightsProfile:
+    return RightsProfile(
+        policy_id="madb-public-data-attributed",
+        policy_version="2026-10-15",
+        zone=PolicyZone.OPEN_ATTRIBUTED,
+        license_id="MADB-Terms",
+        terms_url="https://mediaarts-db.artmuseums.go.jp/user_terms",
+        permissions=_open_actions(),
+        audiences=("*",),
+        territories=("*",),
+        attribution_text=(
+            "Media Arts Database, Agency for Cultural Affairs, Japan; modified by "
+            "Video World research processing"
+        ),
+        notes=(
+            "Only metadata returned by the reviewed public data interface is in scope; "
+            "linked third-party media and rights statements remain excluded."
+        ),
+    )
+
+
 def build_community_registry() -> SourceRegistrySnapshot:
     tvmaze_system, tvmaze_product, tvmaze_namespace = tvmaze_registry_entries()
     imdb_system, imdb_product, imdb_namespaces = imdb_registry_entries()
@@ -159,6 +287,24 @@ def build_community_registry() -> SourceRegistrySnapshot:
         operator="video-media-catalog project",
         homepage="https://github.com/pandong912/video-media-catalog",
     )
+    openfootball_system = SourceSystem(
+        source_system_id="openfootball",
+        name="openfootball",
+        operator="openfootball contributors",
+        homepage="https://github.com/openfootball",
+    )
+    statsbomb_system = SourceSystem(
+        source_system_id="statsbomb",
+        name="StatsBomb Open Data",
+        operator="StatsBomb",
+        homepage="https://github.com/hudl/open-data",
+    )
+    madb_system = SourceSystem(
+        source_system_id="madb",
+        name="Media Arts Database",
+        operator="Agency for Cultural Affairs, Japan",
+        homepage="https://mediaarts-db.artmuseums.go.jp/",
+    )
     wikidata_product = SourceProduct(
         source_product_id="wikidata-json-dump",
         source_system_id="wikidata",
@@ -166,6 +312,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         kind=SourceProductKind.KNOWLEDGE_GRAPH,
         policy_id="wikidata-structured-data-cc0",
         connector_ids=(WIKIDATA_FULL_MEDIA_CONNECTOR_ID,),
+        schema_contract_ids=("wikidata-research-entity",),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
     eidr_product = SourceProduct(
@@ -186,6 +333,36 @@ def build_community_registry() -> SourceRegistrySnapshot:
         connector_ids=("community-identity-spark-v2",),
         documentation_url=("https://github.com/pandong912/video-media-catalog"),
     )
+    openfootball_product = SourceProduct(
+        source_product_id="openfootball-git",
+        source_system_id="openfootball",
+        name="openfootball pinned repository snapshots",
+        kind=SourceProductKind.COMMUNITY_DATABASE,
+        policy_id="openfootball-cc0",
+        connector_ids=(OPENFOOTBALL_SNAPSHOT_CONNECTOR_ID,),
+        schema_contract_ids=("openfootball-event",),
+        documentation_url="https://github.com/openfootball",
+    )
+    statsbomb_product = SourceProduct(
+        source_product_id="statsbomb-open-data",
+        source_system_id="statsbomb",
+        name="StatsBomb Open Data pinned snapshots",
+        kind=SourceProductKind.COMMUNITY_DATABASE,
+        policy_id="statsbomb-open-data-research",
+        connector_ids=(STATSBOMB_SNAPSHOT_CONNECTOR_ID,),
+        schema_contract_ids=("statsbomb-open-data",),
+        documentation_url="https://github.com/hudl/open-data",
+    )
+    madb_product = SourceProduct(
+        source_product_id="madb-public-data",
+        source_system_id="madb",
+        name="Media Arts Database public metadata snapshots",
+        kind=SourceProductKind.GOVERNMENT_DATA,
+        policy_id="madb-public-data-attributed",
+        connector_ids=(MADB_SNAPSHOT_CONNECTOR_ID,),
+        schema_contract_ids=("madb-animation-record",),
+        documentation_url="https://mediaarts-db.artmuseums.go.jp/",
+    )
     return SourceRegistrySnapshot(
         registry_id="community-catalog-bootstrap",
         source_systems=(
@@ -196,6 +373,9 @@ def build_community_registry() -> SourceRegistrySnapshot:
             imdb_system,
             tmdb_system,
             europeana_system,
+            openfootball_system,
+            statsbomb_system,
+            madb_system,
         ),
         source_products=(
             wikidata_product,
@@ -205,6 +385,9 @@ def build_community_registry() -> SourceRegistrySnapshot:
             imdb_product,
             tmdb_product,
             europeana_product,
+            openfootball_product,
+            statsbomb_product,
+            madb_product,
         ),
         source_namespaces=(
             SourceNamespace(
@@ -218,6 +401,14 @@ def build_community_registry() -> SourceRegistrySnapshot:
                     "EPISODE",
                     "AGENT",
                     "ORGANIZATION",
+                    "SPORTS_COMPETITION",
+                    "SPORTS_SEASON",
+                    "SPORTS_STAGE",
+                    "SPORTS_EVENT",
+                    "SPORTS_PARTICIPANT",
+                    "SPORTS_ENTRY",
+                    "SPORTS_VENUE",
+                    "CHARACTER",
                 ),
                 scheme_aliases=("wikidata",),
                 identifier_pattern=r"Q[1-9][0-9]*",
@@ -296,8 +487,93 @@ def build_community_registry() -> SourceRegistrySnapshot:
             *imdb_namespaces,
             *tmdb_namespaces,
             europeana_namespace,
+            SourceNamespace(
+                namespace_id="openfootball-competition",
+                source_product_id="openfootball-git",
+                issuer="openfootball",
+                referent_kinds=("SPORTS_COMPETITION",),
+                identifier_pattern=r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}",
+            ),
+            SourceNamespace(
+                namespace_id="openfootball-event",
+                source_product_id="openfootball-git",
+                issuer="openfootball",
+                referent_kinds=("SPORTS_EVENT",),
+                identifier_pattern=r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}",
+            ),
+            SourceNamespace(
+                namespace_id="openfootball-team",
+                source_product_id="openfootball-git",
+                issuer="openfootball",
+                referent_kinds=("SPORTS_PARTICIPANT",),
+                identifier_pattern=r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}",
+            ),
+            *(
+                SourceNamespace(
+                    namespace_id=f"openfootball-{suffix}",
+                    source_product_id="openfootball-git",
+                    issuer="openfootball",
+                    referent_kinds=(referent_kind,),
+                    identifier_pattern=r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}",
+                )
+                for suffix, referent_kind in (
+                    ("season", "SPORTS_SEASON"),
+                    ("stage", "SPORTS_STAGE"),
+                    ("entry", "SPORTS_ENTRY"),
+                    ("venue", "SPORTS_VENUE"),
+                )
+            ),
+            SourceNamespace(
+                namespace_id="statsbomb-match",
+                source_product_id="statsbomb-open-data",
+                issuer="StatsBomb",
+                referent_kinds=("SPORTS_EVENT",),
+                identifier_pattern=r"[1-9][0-9]*",
+            ),
+            *(
+                SourceNamespace(
+                    namespace_id=f"statsbomb-{suffix}",
+                    source_product_id="statsbomb-open-data",
+                    issuer="StatsBomb",
+                    referent_kinds=(referent_kind,),
+                    identifier_pattern=r"[1-9][0-9]*",
+                )
+                for suffix, referent_kind in (
+                    ("competition", "SPORTS_COMPETITION"),
+                    ("season", "SPORTS_SEASON"),
+                    ("team", "SPORTS_PARTICIPANT"),
+                    ("player", "SPORTS_PARTICIPANT"),
+                    ("venue", "SPORTS_VENUE"),
+                )
+            ),
+            SourceNamespace(
+                namespace_id="madb-work",
+                source_product_id="madb-public-data",
+                issuer="Media Arts Database",
+                referent_kinds=(
+                    "EDITORIAL_WORK",
+                    "SERIES",
+                    "SEASON",
+                    "EPISODE",
+                ),
+                identifier_pattern=r"\S{1,256}",
+            ),
+            SourceNamespace(
+                namespace_id="madb-character",
+                source_product_id="madb-public-data",
+                issuer="Media Arts Database",
+                referent_kinds=("CHARACTER",),
+                identifier_pattern=r"\S{1,256}",
+            ),
+            SourceNamespace(
+                namespace_id="madb-agent",
+                source_product_id="madb-public-data",
+                issuer="Media Arts Database",
+                referent_kinds=("AGENT", "ORGANIZATION"),
+                identifier_pattern=r"\S{1,256}",
+            ),
         ),
-        schema_contracts=(),
+        schema_contracts=research_source_schema_contracts(),
         rights_profiles=(
             wikidata_rights_profile(),
             eidr_rights_profile(),
@@ -306,5 +582,8 @@ def build_community_registry() -> SourceRegistrySnapshot:
             imdb_rights_profile(),
             tmdb_rights_profile(),
             europeana_metadata_rights_profile(),
+            openfootball_rights_profile(),
+            statsbomb_research_rights_profile(),
+            madb_rights_profile(),
         ),
     )

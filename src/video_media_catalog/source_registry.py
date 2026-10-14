@@ -74,6 +74,7 @@ class SourceProduct(V2ContractModel):
     kind: SourceProductKind
     policy_id: str
     connector_ids: tuple[str, ...]
+    schema_contract_ids: tuple[str, ...] = ()
     documentation_url: str
     status: RegistryStatus = RegistryStatus.ACTIVE
 
@@ -115,6 +116,18 @@ class SourceProduct(V2ContractModel):
         if not normalized:
             raise ValueError("source product requires at least one connector")
         return normalized
+
+    @field_validator("schema_contract_ids")
+    @classmethod
+    def normalize_schema_contract_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    require_slug(item, label="source product schema contract")
+                    for item in value
+                }
+            )
+        )
 
     @field_validator("name")
     @classmethod
@@ -309,11 +322,12 @@ class SourceRegistrySnapshot(V2ContractModel):
             lambda item: item.namespace_id,
             "namespace_id",
         )
-        _unique_map(
+        schemas = _unique_map(
             self.schema_contracts,
             lambda item: f"{item.schema_id}@{item.schema_version}",
             "schema contract",
         )
+        known_schema_ids = {item.schema_id for item in schemas.values()}
         for product in self.source_products:
             if product.source_system_id not in systems:
                 raise ValueError(
@@ -321,6 +335,12 @@ class SourceRegistrySnapshot(V2ContractModel):
                 )
             if product.policy_id not in policies:
                 raise ValueError(f"unknown policy_id: {product.policy_id}")
+            missing_schema_ids = set(product.schema_contract_ids) - known_schema_ids
+            if missing_schema_ids:
+                raise ValueError(
+                    "unknown source schema contract: "
+                    f"{sorted(missing_schema_ids)[0]}"
+                )
         for namespace in self.source_namespaces:
             if namespace.source_product_id not in products:
                 raise ValueError(

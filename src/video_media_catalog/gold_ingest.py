@@ -8,7 +8,10 @@ from urllib.parse import urlsplit
 from pydantic import ValidationInfo, field_validator, model_validator
 
 from video_media_catalog.canonical import deterministic_key
-from video_media_catalog.gold_tables import GOLD_DATA_COLUMNS
+from video_media_catalog.gold_tables import (
+    GOLD_DATA_COLUMNS,
+    normalize_gold_table_counts,
+)
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.v2_contracts import (
     V2ContractModel,
@@ -72,23 +75,21 @@ class GoldReleaseCommit(V2ContractModel):
     @field_validator("table_counts")
     @classmethod
     def validate_counts(cls, value: dict[str, int]) -> dict[str, int]:
-        if set(value) != set(GOLD_DATA_COLUMNS):
-            raise ValueError("Gold commit counts must contain every data table")
-        if any(isinstance(count, bool) or count < 0 for count in value.values()):
-            raise ValueError("Gold commit counts must be non-negative integers")
-        return dict(sorted(value.items()))
+        return normalize_gold_table_counts(value, label="Gold commit counts")
 
     @field_validator("table_snapshot_ids")
     @classmethod
     def validate_snapshots(cls, value: dict[str, int | None]) -> dict[str, int | None]:
-        if set(value) != set(GOLD_DATA_COLUMNS):
+        normalized = dict(value)
+        normalized.setdefault("community_gold_observation", None)
+        if set(normalized) != set(GOLD_DATA_COLUMNS):
             raise ValueError("Gold snapshots must contain every data table")
         if any(
             snapshot is not None and (isinstance(snapshot, bool) or snapshot <= 0)
-            for snapshot in value.values()
+            for snapshot in normalized.values()
         ):
             raise ValueError("Gold snapshot IDs must be positive when present")
-        return dict(sorted(value.items()))
+        return dict(sorted(normalized.items()))
 
     @model_validator(mode="after")
     def validate_commit(self, info: ValidationInfo) -> Self:

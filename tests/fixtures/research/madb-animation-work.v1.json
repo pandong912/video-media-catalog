@@ -1,0 +1,48 @@
+{
+  "type": "work",
+  "id": "MADB-ANIME-0001",
+  "entityType": "TV_SERIES",
+  "titles": {
+    "ja": "研究アニメ",
+    "en": "Research Animation"
+  },
+  "releaseForm": "TV_SERIES",
+  "techniques": ["2D", "CEL"],
+  "tradition": {
+    "value": "ANIME",
+    "evidence": "MADB category: アニメーション"
+  },
+  "adaptations": [
+    {
+      "id": "MADB-MANGA-0001",
+      "sourceMedium": "MANGA",
+      "relationship": "BASED_ON"
+    }
+  ],
+  "characters": [
+    {
+      "id": "MADB-CHAR-0001",
+      "name": "Research Hero",
+      "role": "MAIN",
+      "voicePerformers": [
+        {
+          "id": "MADB-AGENT-0001",
+          "language": "ja"
+        }
+      ]
+    }
+  ],
+  "credits": [
+    {
+      "agentId": "MADB-AGENT-0002",
+      "role": "DIRECTOR",
+      "department": "DIRECTION"
+    },
+    {
+      "agentId": "MADB-STUDIO-0001",
+      "referentKind": "ORGANIZATION",
+      "role": "ANIMATION_STUDIO",
+      "department": "PRODUCTION"
+    }
+  ]
+}

@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.world/contracts/temporal/research-domain-profiles.v1.schema.json",
+  "title": "Sports and Animation research Temporal profiles",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "publicationGates", "schedules"],
+  "properties": {
+    "schemaVersion": {
+      "const": "video.media-catalog.research-domain-profiles.v1"
+    },
+    "publicationGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sportsPublicationAllowed",
+        "animationPublicationAllowed",
+        "openSearchAliasActivationAllowed",
+        "cutoverAllowed",
+        "liveCutoverClaimed",
+        "reverseDualWriteAllowed"
+      ],
+      "properties": {
+        "sportsPublicationAllowed": {"const": false},
+        "animationPublicationAllowed": {"const": false},
+        "openSearchAliasActivationAllowed": {"const": false},
+        "cutoverAllowed": {"const": false},
+        "liveCutoverClaimed": {"const": false},
+        "reverseDualWriteAllowed": {"const": false}
+      }
+    },
+    "schedules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "research-wikidata-sports-monthly-v1",
+        "research-wikidata-animation-monthly-v1",
+        "research-openfootball-daily-v1",
+        "research-statsbomb-weekly-v1",
+        "research-madb-weekly-v1"
+      ],
+      "properties": {
+        "research-wikidata-sports-monthly-v1": {
+          "$ref": "#/$defs/wikidataSports"
+        },
+        "research-wikidata-animation-monthly-v1": {
+          "$ref": "#/$defs/wikidataAnimation"
+        },
+        "research-openfootball-daily-v1": {
+          "$ref": "#/$defs/openFootball"
+        },
+        "research-statsbomb-weekly-v1": {
+          "$ref": "#/$defs/statsBomb"
+        },
+        "research-madb-weekly-v1": {
+          "$ref": "#/$defs/madb"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "objectRef": {
+      "type": "object",
+      "required": [
+        "uri",
+        "format",
+        "mediaType",
+        "checksum",
+        "sizeBytes",
+        "etag",
+        "objectVersion"
+      ],
+      "properties": {
+        "uri": {"type": "string", "pattern": "^s3://[^/]+/.+"},
+        "format": {"type": "string", "minLength": 1},
+        "mediaType": {"type": "string", "minLength": 1},
+        "checksum": {
+          "type": "object",
+          "required": ["algorithm", "value"],
+          "properties": {
+            "algorithm": {
+              "enum": ["sha256", "CHECKSUM_ALGORITHM_SHA256"]
+            },
+            "value": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        },
+        "sizeBytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
+        "etag": {"type": "string", "minLength": 1},
+        "objectVersion": {"type": "string", "minLength": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "profileId",
+        "domain",
+        "sourceProductId",
+        "captureManifest",
+        "env",
+        "watermark"
+      ],
+      "properties": {
+        "profileId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "domain": {"enum": ["SPORTS", "ANIMATION"]},
+        "sourceProductId": {
+          "enum": [
+            "wikidata-json-dump",
+            "openfootball-git",
+            "statsbomb-open-data",
+            "madb-public-data"
+          ]
+        },
+        "captureManifest": {"$ref": "#/$defs/objectRef"},
+        "env": {
+          "type": "object",
+          "required": [
+            "destinationPrefix",
+            "imageDigest",
+            "userAgent",
+            "awsRegion",
+            "warehouseUri",
+            "recordStagingPrefix",
+            "silverCheckpointPrefix",
+            "pipelineSummaryPrefix",
+            "emrApplicationName",
+            "emrExecutionRoleArn",
+            "emrLogUri",
+            "emrEntryPoint"
+          ]
+        },
+        "watermark": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "identitySpine": {"type": "boolean"},
+        "materialization": {"type": "boolean"},
+        "maximumAttempts": {"type": "integer", "minimum": 1, "maximum": 5},
+        "initialRetrySeconds": {"type": "integer", "minimum": 1},
+        "maximumRetrySeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "captureTimeoutMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 180
+        },
+        "silverTimeoutMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "maxManifestBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "sources", "goldenBuild", "goldenTaskQueue"],
+      "properties": {
+        "domain": {"enum": ["SPORTS", "ANIMATION"]},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/source"}
+        },
+        "goldenBuild": {
+          "type": "object",
+          "required": [
+            "buildId",
+            "identityGenerationId",
+            "baselineSnapshot",
+            "tmdbPipelineSummary",
+            "baselineSourceRunIds",
+            "baselineIdentityRunId",
+            "tmdbSourceRunIds",
+            "sourceWatermarks",
+            "freshnessOverride",
+            "env"
+          ]
+        },
+        "goldenTaskQueue": {
+          "const": "vw-media-catalog-golden-r16-v1"
+        },
+        "continueAsNewAfterSources": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "failureBudget": {"const": 1}
+      }
+    },
+    "wikidataSports": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "SPORTS"},
+            "sources": {
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "SPORTS"},
+                        "sourceProductId": {"const": "wikidata-json-dump"}
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "wikidataAnimation": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "ANIMATION"},
+            "sources": {
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "ANIMATION"},
+                        "sourceProductId": {"const": "wikidata-json-dump"}
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "openFootball": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "SPORTS"},
+            "sources": {
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "SPORTS"},
+                        "sourceProductId": {"const": "openfootball-git"}
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "statsBomb": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "SPORTS"},
+            "sources": {
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "SPORTS"},
+                        "sourceProductId": {"const": "statsbomb-open-data"}
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "madb": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "ANIMATION"},
+            "sources": {
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "ANIMATION"},
+                        "sourceProductId": {"const": "madb-public-data"}
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

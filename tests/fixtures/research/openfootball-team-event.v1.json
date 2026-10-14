@@ -1,0 +1,45 @@
+{
+  "type": "event",
+  "id": "eng.1/2025-26/2026-10-15-ars-che",
+  "name": "Arsenal vs Chelsea",
+  "discipline": "football",
+  "competitionId": "eng.1",
+  "seasonId": "eng.1/2025-26",
+  "stageId": "eng.1/2025-26/round-8",
+  "eventDate": "2026-10-15",
+  "scheduledStart": "2026-10-15T19:45:00Z",
+  "status": "FINAL",
+  "round": "8",
+  "participants": [
+    {
+      "id": "arsenal",
+      "name": "Arsenal",
+      "role": "HOME",
+      "score": 2,
+      "outcome": "WIN"
+    },
+    {
+      "id": "chelsea",
+      "name": "Chelsea",
+      "role": "AWAY",
+      "score": 1,
+      "outcome": "LOSS"
+    }
+  ],
+  "score": {
+    "home": 2,
+    "away": 1
+  },
+  "periodScores": [
+    {
+      "period": "FIRST_HALF",
+      "home": 1,
+      "away": 1
+    },
+    {
+      "period": "SECOND_HALF",
+      "home": 1,
+      "away": 0
+    }
+  ]
+}

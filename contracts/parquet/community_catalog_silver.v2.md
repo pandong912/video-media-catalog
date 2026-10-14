@@ -11,7 +11,8 @@ the repository's canonical UTF-8 JSON encoding. Digests and logical keys use
 
 The shared Spark mapper registry accepts committed record sets for
 `wikidata-json-dump`, `eidr-public-registry`, `tvmaze-public-api`,
-`imdb-non-commercial-datasets`, and `tmdb-research`. Mapping is
+`imdb-non-commercial-datasets`, `tmdb-research`, `openfootball-git`,
+`statsbomb-open-data`, and `madb-public-data`. Mapping is
 source-owned and deterministic. Spark executors read only immutable record
 objects and never call source APIs or receive source credentials.
 
@@ -251,7 +252,8 @@ Primary key: `assertion_id`.
 - `assertion_id`, `run_id`
 - subject namespace/source ID/referent kind
 - `predicate`, `value_type`, `value_json`, `qualifiers_json`, `status`
-- `provenance_json`, `policy_id`, `policy_digest`, `observed_at`
+- `provenance_json`, nullable `observation_key`, nullable
+  `supersedes_assertion_id`, `policy_id`, `policy_digest`, `observed_at`
 
 ### `community_identifier_assertion`
 
@@ -260,7 +262,8 @@ Primary key: `assertion_id`.
 - `assertion_id`, `run_id`
 - subject namespace/source ID/referent kind
 - identifier `namespace_id`, `value`, `issuer`, `referent_kind`
-- `status`, `provenance_json`, `policy_id`, `policy_digest`, `observed_at`
+- `status`, `provenance_json`, nullable `observation_key`, nullable
+  `supersedes_assertion_id`, `policy_id`, `policy_digest`, `observed_at`
 
 ### `community_relationship_assertion`
 
@@ -270,7 +273,8 @@ Primary key: `assertion_id`.
 - subject namespace/source ID/referent kind
 - `predicate`
 - object namespace/source ID/referent kind
-- `qualifiers_json`, `status`, `provenance_json`
+- `qualifiers_json`, `status`, `provenance_json`, nullable `observation_key`,
+  nullable `supersedes_assertion_id`
 - `policy_id`, `policy_digest`, `observed_at`
 
 ### `community_entity_type_assertion`
@@ -279,7 +283,8 @@ Primary key: `assertion_id`.
 
 - `assertion_id`, `run_id`
 - subject namespace/source ID/referent kind
-- `entity_type`, `status`, `provenance_json`
+- `entity_type`, `status`, `provenance_json`, nullable `observation_key`,
+  nullable `supersedes_assertion_id`
 - `policy_id`, `policy_digest`, `observed_at`
 
 Assertion IDs do not include a canonical entity key.

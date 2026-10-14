@@ -18,10 +18,19 @@ from video_media_catalog.v2_contracts import V2ContractModel, require_slug
 
 CATALOG_SOURCE_POLICY_SCHEMA_VERSION = "video.world.catalog-source-policy-registry.v1"
 CATALOG_SOURCE_POLICY_DIGEST = (
-    "sha256:d1631f6a65e86a6e613e53d0379672738f4ca768bd72155554bb80866c3fda61"
+    "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
 )
 _REQUIRED_CANONICAL_SOURCE_IDS = frozenset(
-    {"wikidata", "eidr", "imdb", "tvmaze", "tmdb"}
+    {
+        "wikidata",
+        "eidr",
+        "imdb",
+        "tvmaze",
+        "tmdb",
+        "openfootball",
+        "statsbomb",
+        "madb",
+    }
 )
 _EXPECTED_IMPLEMENTATION_SOURCE_MAP = {
     "wikidata-json-dump": "wikidata",
@@ -29,6 +38,9 @@ _EXPECTED_IMPLEMENTATION_SOURCE_MAP = {
     "imdb-non-commercial-datasets": "imdb",
     "tvmaze-public-api": "tvmaze",
     "tmdb-research": "tmdb",
+    "openfootball-git": "openfootball",
+    "statsbomb-open-data": "statsbomb",
+    "madb-public-data": "madb",
 }
 _TOKEN = re.compile(r"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$")
 _SEMVER = re.compile(r"^[1-9][0-9]*\.[0-9]+\.[0-9]+$")
@@ -77,7 +89,7 @@ _CANONICAL_REQUIREMENTS = {
     ),
     CatalogSourceCapability.GOLD_PROJECTION: frozenset(
         {
-            CatalogCanonicalCapability.MATERIALIZATION,
+            CatalogCanonicalCapability.IDENTITY,
             CatalogCanonicalCapability.DISPLAY,
         }
     ),
@@ -271,7 +283,7 @@ class CatalogCanonicalPolicyRegistry(V2ContractModel):
             raise ValueError("Catalog source-policy source IDs are duplicated")
         if set(source_ids) != _REQUIRED_CANONICAL_SOURCE_IDS:
             raise ValueError(
-                "Catalog source-policy must contain exactly the five v1 sources"
+                "Catalog source-policy must contain exactly the required v1 sources"
             )
         return value
 
@@ -444,6 +456,50 @@ CATALOG_SOURCE_IMPLEMENTATIONS = (
             ),
         ),
     ),
+    CatalogSourceImplementation(
+        source_product_id="openfootball-git",
+        source_id="openfootball",
+        rights_policy_id="openfootball-cc0",
+        supported_capabilities=_ALL_TECHNICAL_CAPABILITIES,
+        namespaces=(
+            CatalogNamespaceImplementation(
+                namespace_id="openfootball-competition",
+                canonical_namespace="openfootball-competition",
+            ),
+            CatalogNamespaceImplementation(
+                namespace_id="openfootball-event",
+                canonical_namespace="openfootball-event",
+            ),
+            CatalogNamespaceImplementation(
+                namespace_id="openfootball-team",
+                canonical_namespace="openfootball-team",
+            ),
+        ),
+    ),
+    CatalogSourceImplementation(
+        source_product_id="statsbomb-open-data",
+        source_id="statsbomb",
+        rights_policy_id="statsbomb-open-data-research",
+        supported_capabilities=_ALL_TECHNICAL_CAPABILITIES,
+        namespaces=(
+            CatalogNamespaceImplementation(
+                namespace_id="statsbomb-match",
+                canonical_namespace="statsbomb-match",
+            ),
+        ),
+    ),
+    CatalogSourceImplementation(
+        source_product_id="madb-public-data",
+        source_id="madb",
+        rights_policy_id="madb-public-data-attributed",
+        supported_capabilities=_ALL_TECHNICAL_CAPABILITIES,
+        namespaces=(
+            CatalogNamespaceImplementation(
+                namespace_id="madb-work",
+                canonical_namespace="madb-work",
+            ),
+        ),
+    ),
 )
 
 
@@ -547,8 +603,8 @@ class CatalogSourcePolicy:
             raise ValueError("canonical Catalog source mapping is conflicting")
         if set(source_ids) != _REQUIRED_CANONICAL_SOURCE_IDS:
             raise ValueError(
-                "Catalog implementation mapping must cover exactly the canonical "
-                "five sources"
+                "Catalog implementation mapping must cover exactly the required "
+                "canonical sources"
             )
         if dict(zip(products, source_ids, strict=True)) != (
             _EXPECTED_IMPLEMENTATION_SOURCE_MAP

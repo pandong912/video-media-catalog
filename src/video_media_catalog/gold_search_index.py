@@ -50,7 +50,7 @@ from video_media_catalog.v2_contracts import (
 
 RESEARCH_READ_ALIAS = "media-catalog-research-read"
 RESEARCH_INDEX_PREFIX = "media-catalog-research"
-PROJECTION_VERSION = "8"
+PROJECTION_VERSION = "9"
 DEFAULT_GOLD_BULK_PARTITIONS = 32
 DEFAULT_GOLD_BULK_WORKERS = 2
 MAX_GOLD_BULK_PARTITIONS = 4096
@@ -83,6 +83,7 @@ _MAPPINGS: dict[str, Any] = {
         "entityKey": {"type": "keyword"},
         "entityLevel": {"type": "keyword"},
         "entityKind": {"type": "keyword"},
+        "domains": {"type": "keyword"},
         "status": {"type": "keyword"},
         "releasePlanId": {"type": "keyword"},
         "contextId": {"type": "keyword"},
@@ -100,6 +101,29 @@ _MAPPINGS: dict[str, Any] = {
         "seasonNumber": {"type": "integer"},
         "episodeNumber": {"type": "integer"},
         "durationUs": {"type": "long"},
+        "discipline": {"type": "keyword"},
+        "competitionEntityKey": {"type": "keyword"},
+        "sportsSeasonEntityKey": {"type": "keyword"},
+        "stageEntityKey": {"type": "keyword"},
+        "startAt": {"type": "date", "format": "strict_date_time"},
+        "sportsStatus": {"type": "keyword"},
+        "participantEntityKeys": {"type": "keyword"},
+        "venueEntityKey": {"type": "keyword"},
+        "currentResults": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "predicate": {"type": "keyword"},
+                "valueJson": {"type": "keyword", "ignore_above": 4096},
+                "qualifiersJson": {"type": "keyword", "ignore_above": 4096},
+                "resolutionStatus": {"type": "keyword"},
+            },
+        },
+        "releaseForm": {"type": "keyword"},
+        "animationTradition": {"type": "keyword"},
+        "animationTechniques": {"type": "keyword"},
+        "studioEntityKeys": {"type": "keyword"},
+        "characterEntityKeys": {"type": "keyword"},
         "titles": {
             "type": "nested",
             "dynamic": "strict",
@@ -219,6 +243,25 @@ _MAPPINGS: dict[str, Any] = {
                 "sourceProductIds": {"type": "keyword"},
             },
         },
+        "observationHistory": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "predicate": {"type": "keyword"},
+                "observationKey": {"type": "keyword"},
+                "assertionId": {"type": "keyword"},
+                "valueJson": {"type": "keyword", "ignore_above": 4096},
+                "qualifiersJson": {"type": "keyword", "ignore_above": 4096},
+                "observedAt": {"type": "date", "format": "strict_date_time"},
+                "validFrom": {"type": "date", "format": "strict_date_time"},
+                "validTo": {"type": "date", "format": "strict_date_time"},
+                "supersedesAssertionId": {"type": "keyword"},
+                "isWinning": {"type": "boolean"},
+                "sourceProductId": {"type": "keyword"},
+                "citationKeys": {"type": "keyword"},
+                "citationOverflow": {"type": "integer"},
+            },
+        },
         "sourceNodeCount": {"type": "long"},
         "overflow": {
             "type": "object",
@@ -233,6 +276,11 @@ _MAPPINGS: dict[str, Any] = {
                 "rights": {"type": "integer"},
                 "conflicts": {"type": "integer"},
                 "hierarchyRelations": {"type": "integer"},
+                "sportsParticipants": {"type": "integer"},
+                "currentResults": {"type": "integer"},
+                "animationStudios": {"type": "integer"},
+                "animationCharacters": {"type": "integer"},
+                "observationHistory": {"type": "integer"},
                 "formats": {"type": "integer"},
                 "languages": {"type": "integer"},
                 "statuses": {"type": "integer"},
@@ -263,7 +311,7 @@ def _safe_name(value: str, *, label: str) -> str:
 
 
 class GoldIndexConfigIdentity(V2ContractModel):
-    projection_version: Literal["8"] = PROJECTION_VERSION
+    projection_version: Literal["9"] = PROJECTION_VERSION
     mapping_digest: str = MAPPING_DIGEST
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     read_alias: str

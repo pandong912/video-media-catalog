@@ -136,14 +136,19 @@ The batch indexer builds only the research family:
 
 - prefix `media-catalog-research`;
 - read alias `media-catalog-research-read`;
-- strict mapping with projectionVersion `8`;
+- strict mapping with projectionVersion `9`;
 - mapping digest
-  `sha256:944610eb9fadf4feab55d2a68e693b07ad020cbb7a34467e8f6480f4c8452721`;
+  `sha256:eda3602a4d8cb774a30ab9623c62b74704b6fa27c41931b60f9ad2ac65ebb93b`;
 - deterministic build identity bound to one Gold release commit;
 - partition receipts, count reconciliation, and atomic alias update.
 
-Projection v8 adds nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
-`seasonEntityKey`. They are derived only from rights-filtered Gold relations.
+Projection v9 retains nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
+`seasonEntityKey`. It also adds `domains`; bounded Sports competition, season,
+stage, participant, venue and current-result fields; bounded Animation profile,
+studio and character fields; and bounded `observationHistory`. Every bounded
+collection has an explicit overflow counter, while complete revision history
+remains in `community_gold_observation`. Hierarchy keys are derived only from
+rights-filtered Gold relations.
 Ambiguous, missing, malformed, or over-bound parent candidates produce null;
 episode-to-season-to-series traversal requires a unique season and a unique
 season-to-series edge. Every document also carries the pinned

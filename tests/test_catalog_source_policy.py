@@ -35,7 +35,7 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
     policy = load_catalog_source_policy(registry=build_community_registry())
 
     assert sha256_digest(canonical_json_bytes(payload)) == (
-        "sha256:d1631f6a65e86a6e613e53d0379672738f4ca768bd72155554bb80866c3fda61"
+        "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
     )
     assert policy.digest == CATALOG_SOURCE_POLICY_DIGEST
     assert {
@@ -43,6 +43,9 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
     } == {
         "eidr-public-registry": "eidr",
         "imdb-non-commercial-datasets": "imdb",
+        "madb-public-data": "madb",
+        "openfootball-git": "openfootball",
+        "statsbomb-open-data": "statsbomb",
         "tmdb-research": "tmdb",
         "tvmaze-public-api": "tvmaze",
         "wikidata-json-dump": "wikidata",
@@ -55,6 +58,9 @@ def test_live_permissions_are_intersected_with_technical_support() -> None:
     expected_sources = {
         "eidr-public-registry",
         "imdb-non-commercial-datasets",
+        "madb-public-data",
+        "openfootball-git",
+        "statsbomb-open-data",
         "tmdb-research",
         "tvmaze-public-api",
         "wikidata-json-dump",
@@ -98,6 +104,11 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
     expected_namespaces = {
         "eidr-content",
         "imdb-title",
+        "madb-work",
+        "openfootball-competition",
+        "openfootball-event",
+        "openfootball-team",
+        "statsbomb-match",
         "tmdb-movie",
         "tmdb-tv",
         "tvmaze-show",
@@ -155,6 +166,18 @@ def test_materializable_predicates_are_enforced_per_canonical_source() -> None:
     assert policy.allows_materializable_predicate(
         "tmdb-research",
         "identity.alias",
+    )
+    assert policy.allows_materializable_predicate(
+        "openfootball-git",
+        "hierarchy.parent",
+    )
+    assert policy.allows_materializable_predicate(
+        "madb-public-data",
+        "identity.title",
+    )
+    assert not policy.allows_materializable_predicate(
+        "statsbomb-open-data",
+        "sports.event.in-game-stats",
     )
     assert not policy.allows_materializable_predicate(
         "unknown-source",

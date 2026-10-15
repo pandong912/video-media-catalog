@@ -293,6 +293,53 @@ def test_preflight_rejects_gold_only_nonbaseline_runs() -> None:
         )
 
 
+def test_preflight_allows_reused_identity_tmdb_materialization_without_spine() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        identity_reuse=_ref("s3://bucket/identity-reuse.json"),
+        source_run_states=tuple(
+            replace(
+                state,
+                identity_spine=False,
+                materialization=True,
+                gold_contribution=True,
+            )
+            if state.source_product_id == "tmdb-research"
+            else replace(state, identity_spine=True, gold_contribution=True)
+            for state in base.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert set(result.all_snapshot_run_ids) == {
+        *input_data.baseline_source_run_ids,
+        input_data.baseline_identity_run_id,
+        *input_data.tmdb_source_run_ids,
+    }
+    assert "tmdb-research" not in {
+        state.source_product_id
+        for state in result.source_run_states
+        if state.identity_spine
+    }
+    assert _incremental_identity_source_run_ids(input_data, result) == tuple(
+        sorted(
+            (
+                input_data.baseline_source_run_ids[0],
+                input_data.baseline_source_run_ids[1],
+                input_data.baseline_source_run_ids[2],
+            )
+        )
+    )
+
+
 def test_preflight_rejects_pending_source_gold_contribution() -> None:
     base = _with_source_states(_input())
     eidr_run = _run(90)

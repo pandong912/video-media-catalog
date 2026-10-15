@@ -55,6 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--executor-instances", type=int, default=4)
     parser.add_argument("--shuffle-partitions", type=int, default=96)
     parser.add_argument(
+        "--failure-policy",
+        choices=("resilient", "fail-fast"),
+        default="resilient",
+        help=(
+            "use bounded Spark retries for deterministic jobs, or retain the "
+            "resilient policy for transient shared-capacity failures"
+        ),
+    )
+    parser.add_argument(
         "--enable-speculation",
         action="store_true",
         help="relaunch bounded stragglers after most tasks in a stage complete",
@@ -87,6 +96,11 @@ def _validate(parsed: argparse.Namespace) -> None:
             raise ValueError(f"{name.replace('_', '-')} must be positive")
     if parsed.shuffle_partitions < 1:
         raise ValueError("shuffle-partitions must be positive")
+    if getattr(parsed, "failure_policy", "resilient") not in {
+        "resilient",
+        "fail-fast",
+    }:
+        raise ValueError("failure-policy must be 'resilient' or 'fail-fast'")
     if not _entry_point_arguments(parsed):
         raise ValueError("at least one entry-point argument is required after --")
 
@@ -127,6 +141,7 @@ def _application_id(client: Any, name: str) -> str:
 def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
     python = "/opt/video-media-catalog/.venv/bin/python"
     speculation_enabled = bool(getattr(parsed, "enable_speculation", False))
+    fail_fast = getattr(parsed, "failure_policy", "resilient") == "fail-fast"
     properties = {
         "spark.driver.cores": str(parsed.driver_cores),
         "spark.driver.memory": parsed.driver_memory,
@@ -154,14 +169,14 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         # immediately so EMR replaces it instead of re-admitting it after the
         # default one-hour exclusion timeout.
         "spark.excludeOnFailure.killExcludedExecutors": "true",
-        "spark.excludeOnFailure.timeout": "24h",
-        "spark.task.maxFailures": "8",
+        "spark.excludeOnFailure.timeout": "15m" if fail_fast else "24h",
+        "spark.task.maxFailures": "4" if fail_fast else "8",
         # Gold field groupByKey can lose shuffle map outputs when an executor
-        # GC/stalls past the heartbeat window; allow more stage retries while
-        # network timeout absorbs the stall.
-        "spark.stage.maxConsecutiveAttempts": "20",
-        "spark.shuffle.io.maxRetries": "16",
-        "spark.shuffle.io.retryWait": "15s",
+        # is lost. Deterministic release jobs fail after bounded replacement
+        # attempts instead of spending hours retrying a systemic disk fault.
+        "spark.stage.maxConsecutiveAttempts": "4" if fail_fast else "20",
+        "spark.shuffle.io.maxRetries": "3" if fail_fast else "16",
+        "spark.shuffle.io.retryWait": "5s" if fail_fast else "15s",
         # Preserve cached RDD and shuffle blocks during graceful executor
         # retirement. Abrupt executor loss is covered by replicated Gold RDDs.
         "spark.decommission.enabled": "true",

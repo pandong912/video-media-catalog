@@ -1244,9 +1244,10 @@ def _emr_namespace(
         ),
         aws_region=env.aws_region,
         poll_seconds=15,
-        # Gold field-resolution shuffle can exceed 12h when FetchFailed retries
-        # dominate; keep headroom above the single clean pass (~4-8h).
-        execution_timeout_minutes=900,
+        # A clean Gold release takes roughly 4-8h. Bound the deterministic
+        # release to 12h so systemic worker failures cannot remain RUNNING
+        # indefinitely; retain the existing control-stage ceiling.
+        execution_timeout_minutes=720 if gold_release else 900,
         max_attempts=1,
         driver_cores=_GOLD_DRIVER_CORES,
         driver_memory=_GOLD_DRIVER_MEMORY,
@@ -1276,7 +1277,10 @@ def _emr_namespace(
                 else env.build_shuffle_partitions
             )
         ),
-        enable_speculation=gold_release,
+        # Speculation duplicates shuffle writes and amplifies local-disk
+        # pressure. The release has fixed capacity and deterministic retries.
+        enable_speculation=False,
+        failure_policy="fail-fast" if gold_release else "resilient",
         entry_point_arguments=entry_args,
     )
 

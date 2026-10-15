@@ -53,6 +53,7 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     assert parsed.driver_memory == "16g"
     assert parsed.driver_disk == "50G"
     assert parsed.enable_speculation is False
+    assert parsed.failure_policy == "resilient"
     assert parsed.execution_timeout_minutes == 900
     assert parsed.client_token == golden_mod._stage_token(
         build_id=input_data.build_id,
@@ -90,7 +91,9 @@ def test_golden_release_uses_dedicated_capacity_with_replacement_headroom() -> N
     assert parsed.executor_disk == "185G"
     assert parsed.shuffle_partitions == 1152
     assert parsed.driver_memory_overhead == "4g"
-    assert parsed.enable_speculation is True
+    assert parsed.enable_speculation is False
+    assert parsed.failure_policy == "fail-fast"
+    assert parsed.execution_timeout_minutes == 720
 
 
 def test_golden_release_rejects_capacity_without_replacement_headroom() -> None:

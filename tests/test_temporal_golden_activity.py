@@ -468,7 +468,7 @@ def test_golden_preflight_reuses_pre_policy_identity_job(
 ) -> None:
     input_data = _input()
     source_build_id = "tmdb-multisource-20261009-r3"
-    source_runtime, source_resolution, source_bound = (
+    _source_runtime, source_resolution, source_bound = (
         golden_mod._identity_config_digests(
             source_build_id,
             source_policy_digest="sha256:" + ("c" * 64),

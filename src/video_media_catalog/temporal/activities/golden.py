@@ -1585,6 +1585,8 @@ def publish_golden_epoch(
             required_keys=(
                 "epochId",
                 "silverEpoch",
+                "requestedDeltaRunIds",
+                "identityLineageRunIds",
                 "deltaRunIds",
                 "committedRunCount",
                 "committedRunDigest",
@@ -1603,11 +1605,29 @@ def publish_golden_epoch(
             media_type=SILVER_EPOCH_MEDIA_TYPE,
         )
         committed_count = int(summary.get("committedRunCount") or 0)
-        if tuple(
-            sorted(summary.get("deltaRunIds") or ())
-        ) != expected_runs or committed_count != len(expected_runs):
+        requested_runs = tuple(sorted(summary.get("requestedDeltaRunIds") or ()))
+        lineage_runs = tuple(
+            sorted(
+                _require_sha256(str(run_id), label="Identity lineage run ID")
+                for run_id in (summary.get("identityLineageRunIds") or ())
+            )
+        )
+        actual_runs = tuple(
+            sorted(
+                _require_sha256(str(run_id), label="epoch delta run ID")
+                for run_id in (summary.get("deltaRunIds") or ())
+            )
+        )
+        if (
+            requested_runs != expected_runs
+            or len(lineage_runs) != len(set(lineage_runs))
+            or len(actual_runs) != len(set(actual_runs))
+            or set(requested_runs).intersection(lineage_runs)
+            or actual_runs != tuple(sorted({*requested_runs, *lineage_runs}))
+            or committed_count != len(actual_runs)
+        ):
             raise NonRetryableGoldenBuildError(
-                "epoch does not exactly contain the pinned runs and Identity commit"
+                "epoch does not contain the pinned runs and Identity lineage closure"
             )
         snapshots = summary.get("dataSnapshotIds")
         if not isinstance(snapshots, dict) or not snapshots:

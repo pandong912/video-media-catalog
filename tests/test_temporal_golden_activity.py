@@ -756,7 +756,7 @@ def test_golden_identity_rejects_mismatched_source_policy_digest(
 
 
 @pytest.mark.parametrize("reuse_identity", [False, True])
-def test_epoch_requires_unique_exact_pinned_runs_plus_identity(
+def test_epoch_accepts_verified_identity_lineage_closure(
     monkeypatch: pytest.MonkeyPatch,
     reuse_identity: bool,
 ) -> None:
@@ -792,6 +792,8 @@ def test_epoch_requires_unique_exact_pinned_runs_plus_identity(
         job_run_id="identity-job",
     )
     expected = tuple(sorted({*preflight.all_snapshot_run_ids, identity.run_id}))
+    lineage = (_run(104),)
+    committed = tuple(sorted({*expected, *lineage}))
     epoch_ref = ObjectRefPayload(
         uri="s3://bucket/epoch.json",
         format="OBJECT_FORMAT_JSON",
@@ -811,8 +813,10 @@ def test_epoch_requires_unique_exact_pinned_runs_plus_identity(
                 "epochId": _run(102),
                 "identityGenerationId": input_data.identity_generation_id,
                 "silverEpoch": _mapping(epoch_ref),
-                "deltaRunIds": expected,
-                "committedRunCount": len(expected),
+                "requestedDeltaRunIds": expected,
+                "identityLineageRunIds": lineage,
+                "deltaRunIds": committed,
+                "committedRunCount": len(committed),
                 "committedRunDigest": _run(103),
                 "dataSnapshotIds": {"community_ingest_run": 99},
             },
@@ -840,4 +844,4 @@ def test_epoch_requires_unique_exact_pinned_runs_plus_identity(
     ]
     assert tuple(delta_values) == expected
     assert len(delta_values) == len(set(delta_values))
-    assert result.committed_run_count == len(expected)
+    assert result.committed_run_count == len(committed)

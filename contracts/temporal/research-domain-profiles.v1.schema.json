@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://video.world/contracts/temporal/research-domain-profiles.v1.schema.json",
-  "title": "Sports and Animation research Temporal profiles",
+  "title": "Global-reference research Temporal profiles",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "publicationGates", "schedules"],
@@ -18,7 +18,10 @@
         "openSearchAliasActivationAllowed",
         "cutoverAllowed",
         "liveCutoverClaimed",
-        "reverseDualWriteAllowed"
+        "reverseDualWriteAllowed",
+        "referenceWorldMaterializationAllowed",
+        "referenceWorldPublicationAllowed",
+        "tenantCanonicalWriteAllowed"
       ],
       "properties": {
         "sportsPublicationAllowed": {"const": false},
@@ -26,7 +29,10 @@
         "openSearchAliasActivationAllowed": {"const": false},
         "cutoverAllowed": {"const": false},
         "liveCutoverClaimed": {"const": false},
-        "reverseDualWriteAllowed": {"const": false}
+        "reverseDualWriteAllowed": {"const": false},
+        "referenceWorldMaterializationAllowed": {"const": false},
+        "referenceWorldPublicationAllowed": {"const": false},
+        "tenantCanonicalWriteAllowed": {"const": false}
       }
     },
     "schedules": {
@@ -35,6 +41,8 @@
       "required": [
         "research-wikidata-sports-monthly-v1",
         "research-wikidata-animation-monthly-v1",
+        "research-wikidata-news-monthly-v1",
+        "research-wikidata-learning-monthly-v1",
         "research-openfootball-daily-v1",
         "research-statsbomb-weekly-v1",
         "research-madb-weekly-v1"
@@ -45,6 +53,12 @@
         },
         "research-wikidata-animation-monthly-v1": {
           "$ref": "#/$defs/wikidataAnimation"
+        },
+        "research-wikidata-news-monthly-v1": {
+          "$ref": "#/$defs/wikidataNews"
+        },
+        "research-wikidata-learning-monthly-v1": {
+          "$ref": "#/$defs/wikidataLearning"
         },
         "research-openfootball-daily-v1": {
           "$ref": "#/$defs/openFootball"
@@ -101,7 +115,16 @@
       ],
       "properties": {
         "profileId": {"type": "string", "minLength": 1, "maxLength": 128},
-        "domain": {"enum": ["SPORTS", "ANIMATION"]},
+        "domain": {
+          "enum": [
+            "SPORTS",
+            "ANIMATION",
+            "NEWS",
+            "JOURNALISM",
+            "LEARNING",
+            "INSTRUCTION"
+          ]
+        },
         "sourceProductId": {
           "enum": [
             "wikidata-json-dump",
@@ -131,6 +154,7 @@
         "watermark": {"type": "string", "minLength": 1, "maxLength": 1024},
         "identitySpine": {"type": "boolean"},
         "materialization": {"type": "boolean"},
+        "goldContribution": {"type": "boolean"},
         "maximumAttempts": {"type": "integer", "minimum": 1, "maximum": 5},
         "initialRetrySeconds": {"type": "integer", "minimum": 1},
         "maximumRetrySeconds": {
@@ -160,7 +184,16 @@
       "additionalProperties": false,
       "required": ["domain", "sources", "goldenBuild", "goldenTaskQueue"],
       "properties": {
-        "domain": {"enum": ["SPORTS", "ANIMATION"]},
+        "domain": {
+          "enum": [
+            "SPORTS",
+            "ANIMATION",
+            "NEWS",
+            "JOURNALISM",
+            "LEARNING",
+            "INSTRUCTION"
+          ]
+        },
         "sources": {
           "type": "array",
           "minItems": 1,
@@ -234,6 +267,72 @@
                         "domain": {"const": "ANIMATION"},
                         "sourceProductId": {"const": "wikidata-json-dump"}
                       }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "wikidataNews": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "NEWS"},
+            "sources": {
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "NEWS"},
+                        "sourceProductId": {"const": "wikidata-json-dump"},
+                        "identitySpine": {"const": true},
+                        "materialization": {"const": false},
+                        "goldContribution": {"const": true}
+                      },
+                      "required": [
+                        "identitySpine",
+                        "materialization",
+                        "goldContribution"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "wikidataLearning": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "LEARNING"},
+            "sources": {
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "LEARNING"},
+                        "sourceProductId": {"const": "wikidata-json-dump"},
+                        "identitySpine": {"const": true},
+                        "materialization": {"const": false},
+                        "goldContribution": {"const": true}
+                      },
+                      "required": [
+                        "identitySpine",
+                        "materialization",
+                        "goldContribution"
+                      ]
                     }
                   ]
                 }

@@ -625,6 +625,7 @@ def test_distributed_silver_identity_and_gold_pipeline(
     spark: SparkSession,
     tmp_path: Path,
 ) -> None:
+    source_snapshot_pin_id = "sha256:" + ("9" * 64)
     show = {
         "id": 1,
         "name": "Example",
@@ -657,7 +658,11 @@ def test_distributed_silver_identity_and_gold_pipeline(
         change_semantics=ChangeSemantics.FULL_SNAPSHOT,
         completeness=Completeness.COMPLETE,
         delete_coverage=DeleteCoverage.SNAPSHOT_DIFF,
-        coverage_scope={"endpoint": "/shows"},
+        coverage_scope={
+            "endpoint": "/shows",
+            "pinId": source_snapshot_pin_id,
+            "schemaId": "tvmaze-show-v1",
+        },
         raw_objects=(raw_object,),
         acquired_at="2026-09-19T00:00:00Z",
         record_count=1,
@@ -747,6 +752,9 @@ def test_distributed_silver_identity_and_gold_pipeline(
         assert gold_build.dataframes["community_gold_field"].count() >= 4
         assert gold_build.dataframes["community_gold_identifier"].count() == 1
         assert gold_build.attribution_manifest.entries[0].claim_count >= 5
+        assert gold_build.plan.source_snapshot_pin_ids == {
+            TVMAZE_SOURCE_PRODUCT_ID: (source_snapshot_pin_id,),
+        }
     finally:
         if gold_build is not None:
             gold_build.unpersist()

@@ -277,6 +277,9 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
     assert identifiers["eidr-content"]["sourceProductId"] == "eidr"
     assert document["conflictPredicates"] == ["status"]
     assert document["contextId"] == "research"
+    assert "tvmaze" not in {
+        item["sourceProductId"] for item in document["referenceCandidates"]
+    }
     assert document["sourcePolicyDigest"] == load_catalog_source_policy().digest
     assert document["parentEntityKey"] is None
     assert document["seriesEntityKey"] is None

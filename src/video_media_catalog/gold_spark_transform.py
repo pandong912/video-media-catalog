@@ -74,6 +74,7 @@ from video_media_catalog.identifier_blocking import (
     referent_kinds_compatible,
 )
 from video_media_catalog.predicate_registry import load_research_predicate_registry
+from video_media_catalog.reference_ontology import load_global_reference_ontology
 from video_media_catalog.rights import RightsTerminationFence
 from video_media_catalog.source_lifecycle import (
     current_upsert_envelope_keys,
@@ -488,6 +489,7 @@ def _eligible_assertions(
     context: ReleasePolicyContext,
     requested_actions: tuple[Any, ...] = (),
     termination_fences: tuple[RightsTerminationFence, ...] = (),
+    enforce_valid_time: bool = True,
 ):
     from pyspark.sql import functions as F
 
@@ -584,21 +586,18 @@ def _eligible_assertions(
     valid_from = F.to_timestamp(F.get_json_object("a.provenance_json", "$.validFrom"))
     valid_to = F.to_timestamp(F.get_json_object("a.provenance_json", "$.validTo"))
     observed_epoch = F.unix_timestamp("a.observed_at")
-    rights_eligible = (
-        known.where(F.col("p.statically_allowed"))
-        .where(
+    rights_eligible = known.where(F.col("p.statically_allowed"))
+    if enforce_valid_time:
+        rights_eligible = rights_eligible.where(
             valid_from.isNull() | (valid_from <= F.to_timestamp(F.lit(context.as_of)))
+        ).where(valid_to.isNull() | (valid_to > F.to_timestamp(F.lit(context.as_of))))
+    rights_eligible = rights_eligible.where(
+        F.col("p.max_cache_age_days").isNull()
+        | (
+            observed_epoch + F.col("p.max_cache_age_days") * F.lit(86_400)
+            > F.lit(as_of_epoch)
         )
-        .where(valid_to.isNull() | (valid_to > F.to_timestamp(F.lit(context.as_of))))
-        .where(
-            F.col("p.max_cache_age_days").isNull()
-            | (
-                observed_epoch + F.col("p.max_cache_age_days") * F.lit(86_400)
-                > F.lit(as_of_epoch)
-            )
-        )
-        .persist()
-    )
+    ).persist()
     current_join = ["envelope_key"]
     if "run_id" in current_source_envelope_keys.columns:
         current_join.append("run_id")
@@ -1435,14 +1434,12 @@ def build_distributed_gold(
     from pyspark.sql import functions as F
 
     if source_policy is not None:
-        enabled_materialization_sources = set(
-            source_policy.enabled_source_ids(CatalogSourceCapability.MATERIALIZATION)
-        ) & set(
+        enabled_gold_sources = set(
             source_policy.enabled_source_ids(CatalogSourceCapability.GOLD_PROJECTION)
         )
         allowed_sources = F.broadcast(
             spark.createDataFrame(
-                [(value,) for value in sorted(enabled_materialization_sources)],
+                [(value,) for value in sorted(enabled_gold_sources)],
                 "_allowed_source_product_id STRING",
             )
         )
@@ -1588,6 +1585,7 @@ def build_distributed_gold(
             context=policy_context,
             requested_actions=field_policy.requested_actions,
             termination_fences=termination_fences,
+            enforce_valid_time=False,
         )
         observation_missing_key_count = historical_fields.where(
             F.col("predicate").isin(*temporal_predicates)
@@ -1982,11 +1980,38 @@ def build_distributed_gold(
             .dropDuplicates()
             .count()
         )
+        news_entity_count = entity_summary.where(
+            F.col("entity_level").isin(
+                "NEWS_PROGRAM",
+                "NEWS_EDITION",
+                "NEWS_STORY",
+                "REPORTED_EVENT",
+                "INFORMATION_SOURCE",
+                "CLAIM",
+                "CORRECTION",
+            )
+        ).count()
+        learning_entity_count = entity_summary.where(
+            F.col("entity_level").isin(
+                "COURSE",
+                "MODULE",
+                "LESSON",
+                "LEARNING_CONCEPT",
+                "LEARNING_OBJECTIVE",
+                "PREREQUISITE",
+                "PROCEDURE_STEP",
+                "DEMONSTRATION",
+            )
+        ).count()
         domain_coverage = {
             key: count
             for key, count in (
                 ("SPORTS", sports_entity_count),
                 ("ANIMATION", animation_entity_count),
+                ("NEWS", news_entity_count),
+                ("JOURNALISM", news_entity_count),
+                ("LEARNING", learning_entity_count),
+                ("INSTRUCTION", learning_entity_count),
             )
             if count
         }
@@ -2002,6 +2027,26 @@ def build_distributed_gold(
                 .collect()
             )
         }
+        source_snapshot_pin_ids = {
+            row["source_product_id"]: tuple(sorted(row["pin_ids"]))
+            for row in (
+                committed_silver["community_ingest_run"]
+                .where(F.col("run_kind") == IngestRunKind.SOURCE_ASSERTIONS.value)
+                .select(
+                    "source_product_id",
+                    F.get_json_object(
+                        "manifest_json",
+                        "$.inputManifest.sourceSnapshotPinId",
+                    ).alias("source_snapshot_pin_id"),
+                )
+                .where(F.col("source_snapshot_pin_id").isNotNull())
+                .groupBy("source_product_id")
+                .agg(F.collect_set("source_snapshot_pin_id").alias("pin_ids"))
+                .collect()
+            )
+        }
+        reference_ontology = load_global_reference_ontology()
+        reference_predicates = load_research_predicate_registry()
 
         conflict_count = (
             field_conflict_count + identifier_conflict_count + relation_conflict_count
@@ -2071,6 +2116,9 @@ def build_distributed_gold(
             planned_at=planned_at,
             domain_coverage=domain_coverage,
             source_snapshot_digests=source_snapshot_digests,
+            source_snapshot_pin_ids=source_snapshot_pin_ids,
+            reference_ontology_digest=reference_ontology.digest,
+            reference_predicate_registry_digest=reference_predicates.digest,
         )
 
         entity_rows = entity_summary.rdd.map(

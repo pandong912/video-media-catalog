@@ -140,7 +140,8 @@ def _with_source_states(input_data: GoldenBuildInput) -> GoldenBuildInput:
                 freshness_status=GoldenSourceFreshnessStatus.PASS,
                 watermark=input_data.source_watermarks["wikidata-json-dump"],
                 identity_spine=True,
-                materialization=True,
+                materialization=False,
+                gold_contribution=True,
             ),
             GoldenSourceRunState(
                 source_product_id="tmdb-research",
@@ -204,7 +205,12 @@ def test_preflight_accepts_enabled_source_identity_intent() -> None:
     input_data = replace(
         base,
         source_run_states=tuple(
-            replace(state, identity_spine=True, materialization=True)
+            replace(
+                state,
+                identity_spine=True,
+                materialization=True,
+                gold_contribution=True,
+            )
             if state.source_product_id == "imdb-non-commercial-datasets"
             else state
             for state in base.source_run_states
@@ -226,7 +232,7 @@ def test_preflight_accepts_enabled_source_identity_intent() -> None:
     )
 
 
-def test_preflight_rejects_pending_source_run_materialization() -> None:
+def test_preflight_rejects_pending_source_gold_contribution() -> None:
     base = _with_source_states(_input())
     eidr_run = _run(90)
     input_data = replace(
@@ -240,7 +246,8 @@ def test_preflight_rejects_pending_source_run_materialization() -> None:
                 run_status=GoldenSourceRunStatus.PENDING,
                 freshness_status=GoldenSourceFreshnessStatus.UNKNOWN,
                 identity_spine=True,
-                materialization=True,
+                materialization=False,
+                gold_contribution=True,
             ),
         ),
     )
@@ -258,7 +265,7 @@ def test_preflight_rejects_pending_source_run_materialization() -> None:
         )
 
 
-def test_preflight_rejects_stale_optional_source_materialization() -> None:
+def test_preflight_rejects_stale_optional_source_gold_contribution() -> None:
     base = _with_source_states(_input())
     eidr_run = _run(90)
     input_data = replace(
@@ -272,7 +279,8 @@ def test_preflight_rejects_stale_optional_source_materialization() -> None:
                 run_status=GoldenSourceRunStatus.COMMITTED,
                 freshness_status=GoldenSourceFreshnessStatus.STALE,
                 identity_spine=True,
-                materialization=True,
+                materialization=False,
+                gold_contribution=True,
             ),
         ),
     )
@@ -280,7 +288,7 @@ def test_preflight_rejects_stale_optional_source_materialization() -> None:
 
     with pytest.raises(
         NonRetryableGoldenBuildError,
-        match="not fresh enough for materialization",
+        match="not fresh enough for Gold contribution",
     ):
         _validate_preflight_documents(
             input_data,

@@ -29,6 +29,12 @@ Before Gold rows are written, the builder publishes an immutable release plan:
 - rights registry, Catalog Match source policy, field policy, resolver, image,
   and config digests;
 - the source freshness/coverage policy inside the config digest;
+- source snapshot digests and, when present, content-addressed snapshot pin IDs
+  grouped by source product;
+- paired Global Reference ontology and predicate-registry digests whenever
+  snapshot pins are present;
+- per-domain coverage counts, including News/Journalism and
+  Learning/Instruction;
 - expected row counts for every Gold table.
 
 Every Gold row contains `release_plan_id`. A final release commit is visible
@@ -289,9 +295,9 @@ The active research index family is:
 - versioned indexes: `media-catalog-research-<build-id>`;
 - read alias: `media-catalog-research-read`;
 - document ID: internal `entityKey`;
-- mapping: strict, projectionVersion `8`, and digest bound;
+- mapping: strict, projectionVersion `10`, and digest bound;
 - mapping digest:
-  `sha256:944610eb9fadf4feab55d2a68e693b07ad020cbb7a34467e8f6480f4c8452721`;
+  `sha256:dc7e8382ee3a43731a2fc9242639d7c001d29c04d2498b2a1d6ec3cfd247ec16`;
 - source: one immutable Gold release commit and its exact table snapshots.
 
 The default and authoritative publication path is a full rebuild into a new
@@ -327,6 +333,13 @@ from rights-filtered Gold relation rows. A missing, ambiguous, malformed, or
 over-bound hierarchy remains null. Episode-to-series traversal requires both a
 unique episode-to-season edge and a unique season-to-series edge.
 
+Projection v10 also carries `canonicalSubjectRoot`, versioned `typeConcepts`,
+`referenceSlices`, `authorityScope`, and the exact reference capabilities.
+Bounded `referenceCandidates` retain assertion/source/citation/observed and
+valid-time provenance, while bounded `referenceRelations` retain relation
+targets and citations. Candidate string values are searchable; no candidate
+becomes a tenant canonical fact through this projection.
+
 All serving `sourceProductId` values are canonical source IDs (`wikidata`,
 `eidr`, `imdb`, `tvmaze`, or `tmdb`), even though the field name is retained
 for consumer compatibility. Local Catalog product IDs remain internal lineage.
@@ -361,11 +374,11 @@ live Douban identifier until a reviewed canonical policy grants it.
 Release commit, index config digest, and index build manifest bind the exact
 research release identity, including `sourcePolicyDigest`. Whole-index
 validation requires every document to carry that release and policy digest.
-Legacy release/manifests without the field remain parseable, but projection v8
+Legacy release/manifests without the field remain parseable, but projection v10
 refuses to build, validate, or promote them; they cannot be relabeled with the
 current policy digest. A release must be rebuilt under the current canonical
 policy. Catalog Gold match-parameter publication likewise requires both the
-current projection-v8 mapping digest and the canonical `sourcePolicyDigest`;
+current projection-v10 mapping digest and the canonical `sourcePolicyDigest`;
 missing or stale manifests cannot publish parameters.
 The batch indexer publishes only the fixed `media-catalog-research-read` alias.
 HTTP serving is outside this repository.

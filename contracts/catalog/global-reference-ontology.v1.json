@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0",
+  "registryId": "global-reference-ontology",
+  "registryVersion": "1.0.0",
+  "authority": "GLOBAL_REFERENCE_ONLY",
+  "tenantWorldIdentityAuthority": false,
+  "predicateRegistryId": "research-predicates",
+  "predicateRegistryVersion": "1.1.0",
+  "rootTypes": [
+    "AGENT",
+    "PLACE",
+    "PHYSICAL_ENTITY",
+    "EVENT",
+    "WORK",
+    "CONCEPT",
+    "FICTIONAL_ENTITY"
+  ],
+  "typeConcepts": [
+    {"typeConceptId": "AGENT", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["GENERAL"]},
+    {"typeConceptId": "PERSON", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["GENERAL"]},
+    {"typeConceptId": "ORGANIZATION", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["GENERAL"]},
+    {"typeConceptId": "PLATFORM_ACCOUNT", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["GENERAL"]},
+    {"typeConceptId": "INFORMATION_SOURCE", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["NEWS", "JOURNALISM"]},
+    {"typeConceptId": "SPORTS_PARTICIPANT", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["SPORTS"]},
+
+    {"typeConceptId": "PLACE", "conceptVersion": "1.0.0", "canonicalRoot": "PLACE", "domains": ["GENERAL"]},
+    {"typeConceptId": "SPORTS_VENUE", "conceptVersion": "1.0.0", "canonicalRoot": "PLACE", "domains": ["SPORTS"]},
+
+    {"typeConceptId": "PHYSICAL_ENTITY", "conceptVersion": "1.0.0", "canonicalRoot": "PHYSICAL_ENTITY", "domains": ["GENERAL"]},
+    {"typeConceptId": "MEDIA_ASSET", "conceptVersion": "1.0.0", "canonicalRoot": "PHYSICAL_ENTITY", "domains": ["FILM_TV", "GENERAL"]},
+
+    {"typeConceptId": "EVENT", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["GENERAL"]},
+    {"typeConceptId": "RELEASE_EVENT", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["FILM_TV"]},
+    {"typeConceptId": "BROADCAST_EVENT", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["FILM_TV"]},
+    {"typeConceptId": "SPORTS_COMPETITION", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["SPORTS"]},
+    {"typeConceptId": "SPORTS_SEASON", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["SPORTS"]},
+    {"typeConceptId": "SPORTS_STAGE", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["SPORTS"]},
+    {"typeConceptId": "SPORTS_EVENT", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["SPORTS"]},
+    {"typeConceptId": "SPORTS_ENTRY", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["SPORTS"]},
+    {"typeConceptId": "REPORTED_EVENT", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["NEWS", "JOURNALISM"]},
+    {"typeConceptId": "DEMONSTRATION", "conceptVersion": "1.0.0", "canonicalRoot": "EVENT", "domains": ["LEARNING", "INSTRUCTION"]},
+
+    {"typeConceptId": "WORK", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["GENERAL"]},
+    {"typeConceptId": "EDITORIAL_WORK", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["FILM_TV"]},
+    {"typeConceptId": "MOVIE", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["FILM_TV"]},
+    {"typeConceptId": "TV_SERIES", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["FILM_TV"]},
+    {"typeConceptId": "TV_SEASON", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["FILM_TV"]},
+    {"typeConceptId": "TV_EPISODE", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["FILM_TV"]},
+    {"typeConceptId": "EDIT", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["FILM_TV"]},
+    {"typeConceptId": "MANIFESTATION", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["FILM_TV"]},
+    {"typeConceptId": "ONLINE_PUBLICATION", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["GENERAL"]},
+    {"typeConceptId": "REGULATORY_RECORD", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["GENERAL"]},
+    {"typeConceptId": "NEWS_PROGRAM", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["NEWS", "JOURNALISM"]},
+    {"typeConceptId": "NEWS_EDITION", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["NEWS", "JOURNALISM"]},
+    {"typeConceptId": "NEWS_STORY", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["NEWS", "JOURNALISM"]},
+    {"typeConceptId": "CORRECTION", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["NEWS", "JOURNALISM"]},
+    {"typeConceptId": "COURSE", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["LEARNING", "INSTRUCTION"]},
+    {"typeConceptId": "MODULE", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["LEARNING", "INSTRUCTION"]},
+    {"typeConceptId": "LESSON", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["LEARNING", "INSTRUCTION"]},
+    {"typeConceptId": "PROCEDURE_STEP", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["LEARNING", "INSTRUCTION"]},
+
+    {"typeConceptId": "CONCEPT", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["GENERAL"]},
+    {"typeConceptId": "AVAILABILITY_OFFER", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["FILM_TV"]},
+    {"typeConceptId": "CLAIM", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["NEWS", "JOURNALISM"]},
+    {"typeConceptId": "LEARNING_CONCEPT", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["LEARNING", "INSTRUCTION"]},
+    {"typeConceptId": "LEARNING_OBJECTIVE", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["LEARNING", "INSTRUCTION"]},
+    {"typeConceptId": "PREREQUISITE", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["LEARNING", "INSTRUCTION"]},
+
+    {"typeConceptId": "FICTIONAL_ENTITY", "conceptVersion": "1.0.0", "canonicalRoot": "FICTIONAL_ENTITY", "domains": ["GENERAL"]},
+    {"typeConceptId": "CHARACTER", "conceptVersion": "1.0.0", "canonicalRoot": "FICTIONAL_ENTITY", "domains": ["ANIMATION", "FILM_TV"]}
+  ]
+}

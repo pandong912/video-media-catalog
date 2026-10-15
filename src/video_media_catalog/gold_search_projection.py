@@ -22,6 +22,11 @@ from video_media_catalog.gold import (
     GoldAssertionLineage,
     assertion_lineage_from_trace,
 )
+from video_media_catalog.reference_ontology import (
+    ReferenceDomain,
+    ReferenceTypeConcept,
+    load_global_reference_ontology,
+)
 from video_media_catalog.v2_contracts import require_sha256
 
 DISPLAY_LANGUAGES = ("zh-hans", "zh-hant", "zh", "en", "und")
@@ -41,6 +46,14 @@ MAX_SPORTS_PARTICIPANTS = 64
 MAX_CURRENT_RESULTS = 64
 MAX_ANIMATION_RELATIONS = 128
 MAX_OBSERVATION_HISTORY = 128
+MAX_REFERENCE_CANDIDATES = 128
+MAX_REFERENCE_RELATIONS = 128
+
+_REFERENCE_CAPABILITIES = ("DISPLAY", "IDENTITY", "RESEARCH")
+_NEWS_REFERENCE_DOMAINS = frozenset({ReferenceDomain.NEWS, ReferenceDomain.JOURNALISM})
+_LEARNING_REFERENCE_DOMAINS = frozenset(
+    {ReferenceDomain.LEARNING, ReferenceDomain.INSTRUCTION}
+)
 
 _SPORTS_FIELD_PREDICATES = frozenset(
     {
@@ -135,6 +148,28 @@ _PREMIERED_YEAR = re.compile(r"^(\d{4})(?:-\d{2}-\d{2})?$")
 @lru_cache(maxsize=1)
 def _projection_source_policy() -> CatalogSourcePolicy:
     return load_catalog_source_policy()
+
+
+@lru_cache(maxsize=1)
+def _reference_concepts() -> dict[str, ReferenceTypeConcept]:
+    ontology = load_global_reference_ontology()
+    return {item.type_concept_id: item for item in ontology.type_concepts}
+
+
+def _reference_type_concept(entity_kind: str) -> ReferenceTypeConcept | None:
+    return _reference_concepts().get(entity_kind.strip().upper())
+
+
+def _reference_slices(concept: ReferenceTypeConcept | None) -> list[str]:
+    if concept is None:
+        return []
+    domains = set(concept.domains)
+    slices = []
+    if domains & _NEWS_REFERENCE_DOMAINS:
+        slices.append("NEWS/JOURNALISM")
+    if domains & _LEARNING_REFERENCE_DOMAINS:
+        slices.append("LEARNING/INSTRUCTION")
+    return slices
 
 
 def _external_identifier_url(
@@ -407,6 +442,7 @@ def project_gold_entity(
     match_ints: dict[str, set[int]] = {name: set() for name in _MATCH_INT_PREDICATES}
     premiered_years: set[int] = set()
     selected_field_values: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    reference_candidate_context: dict[str, dict[str, Any]] = {}
 
     def register_lineage(items: tuple[GoldAssertionLineage, ...]) -> None:
         for item in items:
@@ -415,13 +451,63 @@ def project_gold_entity(
                 raise ValueError("assertion lineage changed within one Gold entity")
             lineage_by_id[item.assertion_id] = item
 
+    def register_reference_candidate(
+        assertion_ids: tuple[str, ...],
+        *,
+        kind: str,
+        predicate: str,
+        value_json: str | None,
+        value_text: str | None,
+        qualifiers_json: str | None,
+        resolution_status: str,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+    ) -> None:
+        for assertion_id in assertion_ids:
+            candidate = {
+                "kind": kind,
+                "predicate": predicate,
+                "valueJson": value_json,
+                "valueText": value_text,
+                "qualifiersJson": qualifiers_json,
+                "resolutionStatus": resolution_status,
+                "validFrom": valid_from,
+                "validTo": valid_to,
+            }
+            existing = reference_candidate_context.get(assertion_id)
+            if existing is None:
+                reference_candidate_context[assertion_id] = candidate
+                continue
+            for key, item in candidate.items():
+                prior = existing.get(key)
+                if prior is not None and item is not None and prior != item:
+                    raise ValueError(
+                        "assertion candidate changed within one Gold entity"
+                    )
+                if prior is None and item is not None:
+                    existing[key] = item
+
     for raw in value.get("fields") or []:
         field = _dict(raw)
         field_lineage = _lineage(field)
         register_lineage(field_lineage)
+        assertion_ids = _assertion_ids(field)
+        parsed = json.loads(field["value_json"])
+        predicate = str(field["predicate"])
+        qualifiers = json.loads(field["qualifiers_json"])
+        if not isinstance(qualifiers, dict):
+            raise ValueError("Gold field qualifiers must be a JSON object")
+        register_reference_candidate(
+            assertion_ids,
+            kind="FIELD",
+            predicate=predicate,
+            value_json=str(field["value_json"]),
+            value_text=parsed if isinstance(parsed, str) else None,
+            qualifiers_json=str(field["qualifiers_json"]),
+            resolution_status=str(field["resolution_status"]),
+        )
         if field.get("resolution_status") not in {"SELECTED", "SET"}:
             continue
-        assertion_ids = _assertion_ids(field)
         selected = field.get("selected_assertion_id")
         winner_ids = (
             (selected,) if field["resolution_status"] == "SELECTED" else assertion_ids
@@ -432,11 +518,6 @@ def project_gold_entity(
         missing = set(winner_ids) - set(field_lineage_by_id)
         if missing:
             raise ValueError("selected Gold value has incomplete assertion lineage")
-        parsed = json.loads(field["value_json"])
-        predicate = str(field["predicate"])
-        qualifiers = json.loads(field["qualifiers_json"])
-        if not isinstance(qualifiers, dict):
-            raise ValueError("Gold field qualifiers must be a JSON object")
         selected_field_values[predicate].append(
             {
                 "value": parsed,
@@ -533,6 +614,15 @@ def project_gold_entity(
                 "value": identifier["value"],
             }
         )
+        register_reference_candidate(
+            assertion_ids,
+            kind="IDENTIFIER",
+            predicate=str(identifier["namespace_id"]),
+            value_json=identifier_value,
+            value_text=str(identifier["value"]),
+            qualifiers_json="{}",
+            resolution_status="ACCEPTED",
+        )
         for assertion_id in assertion_ids:
             item = identifier_lineage_by_id[assertion_id]
             source = source_policy.source(item.source_product_id)
@@ -625,6 +715,7 @@ def project_gold_entity(
     relation_summary = relation_summary[:MAX_RELATION_TYPES]
     relation_targets: dict[str, set[str]] = defaultdict(set)
     studio_targets: set[str] = set()
+    reference_relation_candidates: list[dict[str, Any]] = []
     for raw in value.get("relations") or []:
         relation = _dict(raw)
         predicate = str(relation.get("predicate") or "").strip().lower()
@@ -654,6 +745,15 @@ def project_gold_entity(
             raise ValueError("Gold relation has incomplete assertion lineage")
         relation_value_json = canonical_json({"objectEntityKey": object_entity_key})
         qualifiers_json = canonical_json(dict(qualifiers))
+        register_reference_candidate(
+            assertion_ids,
+            kind="RELATIONSHIP",
+            predicate=predicate,
+            value_json=relation_value_json,
+            value_text=None,
+            qualifiers_json=qualifiers_json,
+            resolution_status="SET",
+        )
         for assertion_id in assertion_ids:
             item = relation_lineage_by_id[assertion_id]
             source = source_policy.source(item.source_product_id)
@@ -679,6 +779,23 @@ def project_gold_entity(
                 }
             )
             winning_ids.add(assertion_id)
+            if item.source_product_id == "wikidata-json-dump" and source.allows(
+                CatalogSourceCapability.GOLD_PROJECTION
+            ):
+                reference_relation_candidates.append(
+                    {
+                        "predicate": predicate,
+                        "objectEntityKey": object_entity_key,
+                        "assertionId": assertion_id,
+                        "sourceProductId": source.source_id,
+                        "observedAt": item.observed_at,
+                        "citationKeys": citations[:MAX_CITATION_KEYS],
+                        "citationOverflow": max(
+                            0,
+                            len(citations) - MAX_CITATION_KEYS,
+                        ),
+                    }
+                )
 
     current_results = sorted(
         (
@@ -721,6 +838,26 @@ def project_gold_entity(
         is_winning = bool(observation.get("is_winning"))
         if is_winning:
             winning_ids.add(assertion_id)
+        observation_value_json = str(observation["value_json"])
+        observation_value = json.loads(observation_value_json)
+        register_reference_candidate(
+            (assertion_id,),
+            kind="FIELD",
+            predicate=str(observation["predicate"]),
+            value_json=observation_value_json,
+            value_text=(
+                observation_value if isinstance(observation_value, str) else None
+            ),
+            qualifiers_json=str(observation["qualifiers_json"]),
+            resolution_status=str(
+                reference_candidate_context.get(assertion_id, {}).get(
+                    "resolutionStatus",
+                    "OBSERVED",
+                )
+            ),
+            valid_from=observation.get("valid_from"),
+            valid_to=observation.get("valid_to"),
+        )
         observation_history.append(
             {
                 "predicate": str(observation["predicate"]),
@@ -729,7 +866,7 @@ def project_gold_entity(
                     label="observation_key",
                 ),
                 "assertionId": assertion_id,
-                "valueJson": str(observation["value_json"]),
+                "valueJson": observation_value_json,
                 "qualifiersJson": str(observation["qualifiers_json"]),
                 "observedAt": str(observation["observed_at"]),
                 "validFrom": observation.get("valid_from"),
@@ -771,6 +908,17 @@ def project_gold_entity(
         candidates = json.loads(conflict["candidate_values_json"])
         if not isinstance(candidates, list):
             raise ValueError("Gold conflict candidates must be a list")
+        for assertion_id in assertion_ids:
+            if assertion_id not in reference_candidate_context:
+                register_reference_candidate(
+                    (assertion_id,),
+                    kind="FIELD",
+                    predicate=str(conflict["predicate"]),
+                    value_json=None,
+                    value_text=None,
+                    qualifiers_json=None,
+                    resolution_status="CONFLICT",
+                )
         conflict_documents.append(
             {
                 "predicate": str(conflict["predicate"]),
@@ -873,12 +1021,15 @@ def project_gold_entity(
         attribute_overflow[name] = max(0, len(values) - MAX_ATTRIBUTE_VALUES)
         normalized_attributes[name] = values[:MAX_ATTRIBUTE_VALUES]
     entity_kind = str(value["entity_kind"]).strip().upper()
+    reference_concept = _reference_type_concept(entity_kind)
     all_predicates = (
         set(selected_field_values)
         | set(relation_targets)
         | {item["predicate"] for item in observation_history}
     )
     source_products = {item.source_product_id for item in lineage_by_id.values()}
+    reference_slices = _reference_slices(reference_concept)
+    contributes_reference_slice = bool(reference_slices)
     domains: set[str] = set()
     if entity_kind.startswith("SPORTS_") or all_predicates & (
         _SPORTS_FIELD_PREDICATES | _SPORTS_RELATION_PREDICATES
@@ -891,8 +1042,64 @@ def project_gold_entity(
         domains.add("ANIMATION")
     if _content_type(entity_kind) is not None:
         domains.add("FILM_TV")
+    if reference_concept is not None:
+        domains.update(
+            domain.value
+            for domain in reference_concept.domains
+            if domain != ReferenceDomain.GENERAL
+        )
     if not domains:
         domains.add("GENERAL")
+    reference_candidates = []
+    if reference_concept is not None and contributes_reference_slice:
+        for assertion_id in sorted(reference_candidate_context):
+            item = lineage_by_id[assertion_id]
+            context = reference_candidate_context[assertion_id]
+            source = source_policy.source(item.source_product_id)
+            if item.source_product_id != "wikidata-json-dump" or not source.allows(
+                CatalogSourceCapability.GOLD_PROJECTION
+            ):
+                continue
+            citations = list(item.citation_keys)
+            reference_candidates.append(
+                {
+                    "kind": context["kind"],
+                    "assertionId": assertion_id,
+                    "predicate": context["predicate"],
+                    "valueJson": context.get("valueJson"),
+                    "valueText": context.get("valueText"),
+                    "qualifiersJson": context.get("qualifiersJson"),
+                    "resolutionStatus": context["resolutionStatus"],
+                    "sourceProductId": source.source_id,
+                    "sourceRecordId": item.source_record_id,
+                    "sourcePath": item.source_path,
+                    "observedAt": item.observed_at,
+                    "validFrom": context.get("validFrom"),
+                    "validTo": context.get("validTo"),
+                    "citationKeys": citations[:MAX_CITATION_KEYS],
+                    "citationOverflow": max(
+                        0,
+                        len(citations) - MAX_CITATION_KEYS,
+                    ),
+                }
+            )
+    reference_relation_candidates.sort(
+        key=lambda item: (
+            item["predicate"],
+            item["objectEntityKey"],
+            item["assertionId"],
+        )
+    )
+    if not contributes_reference_slice:
+        reference_relation_candidates = []
+    reference_candidate_overflow = max(
+        0,
+        len(reference_candidates) - MAX_REFERENCE_CANDIDATES,
+    )
+    reference_relation_overflow = max(
+        0,
+        len(reference_relation_candidates) - MAX_REFERENCE_RELATIONS,
+    )
     participant_keys = sorted(relation_targets["participant"])
     character_keys = sorted(relation_targets["character_appearance"])
     studio_keys = sorted(studio_targets)
@@ -905,6 +1112,31 @@ def project_gold_entity(
         "releasePlanId": str(value["release_plan_id"]),
         "contextId": RESEARCH_CONTEXT_ID,
         "sourcePolicyDigest": policy_digest,
+        "canonicalSubjectRoot": (
+            None
+            if reference_concept is None
+            else reference_concept.canonical_root.value
+        ),
+        "typeConcepts": (
+            []
+            if reference_concept is None
+            else [
+                {
+                    "typeConceptId": reference_concept.type_concept_id,
+                    "conceptVersion": reference_concept.concept_version,
+                    "canonicalRoot": reference_concept.canonical_root.value,
+                }
+            ]
+        ),
+        "referenceSlices": reference_slices,
+        "authorityScope": (
+            None if reference_concept is None else "GLOBAL_REFERENCE_ONLY"
+        ),
+        "referenceCapabilities": (
+            [] if reference_concept is None else list(_REFERENCE_CAPABILITIES)
+        ),
+        "referenceCandidates": reference_candidates[:MAX_REFERENCE_CANDIDATES],
+        "referenceRelations": reference_relation_candidates[:MAX_REFERENCE_RELATIONS],
         "displayName": display,
         "displayLanguage": display_language,
         "contentType": _content_type(value.get("entity_kind")),
@@ -989,6 +1221,8 @@ def project_gold_entity(
                 len(character_keys) - MAX_ANIMATION_RELATIONS,
             ),
             "observationHistory": observation_overflow,
+            "referenceCandidates": reference_candidate_overflow,
+            "referenceRelations": reference_relation_overflow,
             **attribute_overflow,
         },
     }
@@ -1016,6 +1250,88 @@ def projection_schema():
             StructField("releasePlanId", string, False),
             StructField("contextId", string, False),
             StructField("sourcePolicyDigest", string, False),
+            StructField("canonicalSubjectRoot", string, True),
+            StructField(
+                "typeConcepts",
+                ArrayType(
+                    StructType(
+                        [
+                            StructField("typeConceptId", string, False),
+                            StructField("conceptVersion", string, False),
+                            StructField("canonicalRoot", string, False),
+                        ]
+                    ),
+                    False,
+                ),
+                False,
+            ),
+            StructField("referenceSlices", ArrayType(string, False), False),
+            StructField("authorityScope", string, True),
+            StructField(
+                "referenceCapabilities",
+                ArrayType(string, False),
+                False,
+            ),
+            StructField(
+                "referenceCandidates",
+                ArrayType(
+                    StructType(
+                        [
+                            StructField("kind", string, False),
+                            StructField("assertionId", string, False),
+                            StructField("predicate", string, False),
+                            StructField("valueJson", string, True),
+                            StructField("valueText", string, True),
+                            StructField("qualifiersJson", string, True),
+                            StructField("resolutionStatus", string, False),
+                            StructField("sourceProductId", string, False),
+                            StructField("sourceRecordId", string, False),
+                            StructField("sourcePath", string, False),
+                            StructField("observedAt", string, False),
+                            StructField("validFrom", string, True),
+                            StructField("validTo", string, True),
+                            StructField(
+                                "citationKeys",
+                                ArrayType(string, False),
+                                False,
+                            ),
+                            StructField(
+                                "citationOverflow",
+                                IntegerType(),
+                                False,
+                            ),
+                        ]
+                    ),
+                    False,
+                ),
+                False,
+            ),
+            StructField(
+                "referenceRelations",
+                ArrayType(
+                    StructType(
+                        [
+                            StructField("predicate", string, False),
+                            StructField("objectEntityKey", string, False),
+                            StructField("assertionId", string, False),
+                            StructField("sourceProductId", string, False),
+                            StructField("observedAt", string, False),
+                            StructField(
+                                "citationKeys",
+                                ArrayType(string, False),
+                                False,
+                            ),
+                            StructField(
+                                "citationOverflow",
+                                IntegerType(),
+                                False,
+                            ),
+                        ]
+                    ),
+                    False,
+                ),
+                False,
+            ),
             StructField("displayName", string, False),
             StructField("displayLanguage", string, False),
             StructField("contentType", string, True),
@@ -1330,6 +1646,16 @@ def projection_schema():
                         ),
                         StructField(
                             "observationHistory",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "referenceCandidates",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "referenceRelations",
                             IntegerType(),
                             False,
                         ),

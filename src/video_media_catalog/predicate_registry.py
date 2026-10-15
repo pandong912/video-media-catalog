@@ -1,8 +1,9 @@
-"""Versioned predicate contracts for sports and animation research assertions."""
+"""Versioned predicate contracts for global-reference assertions."""
 
 from __future__ import annotations
 
 import json
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Self
@@ -20,6 +21,10 @@ from video_media_catalog.v2_contracts import (
 class ResearchDomain(StrEnum):
     SPORTS = "SPORTS"
     ANIMATION = "ANIMATION"
+    NEWS = "NEWS"
+    JOURNALISM = "JOURNALISM"
+    LEARNING = "LEARNING"
+    INSTRUCTION = "INSTRUCTION"
 
 
 class PredicateKind(StrEnum):
@@ -35,6 +40,7 @@ class PredicateResolutionOperator(StrEnum):
 
 class PredicateDefinition(V2ContractModel):
     predicate: str
+    predicate_version: str = "1.0.0"
     kind: PredicateKind
     value_type: ValueType | None = None
     domains: tuple[ResearchDomain, ...]
@@ -45,6 +51,14 @@ class PredicateDefinition(V2ContractModel):
     @classmethod
     def validate_predicate(cls, value: str) -> str:
         return require_slug(value, label="research predicate")
+
+    @field_validator("predicate_version")
+    @classmethod
+    def validate_predicate_version(cls, value: str) -> str:
+        normalized = value.strip()
+        if re.fullmatch(r"[1-9][0-9]*\.[0-9]+\.[0-9]+", normalized) is None:
+            raise ValueError("research predicate version must be semantic")
+        return normalized
 
     @field_validator("domains")
     @classmethod
@@ -74,6 +88,7 @@ class PredicateDefinition(V2ContractModel):
 class PredicateRegistry(V2ContractModel):
     schema_version: str
     registry_id: str
+    registry_version: str
     predicates: tuple[PredicateDefinition, ...]
 
     @field_validator("schema_version")
@@ -87,6 +102,14 @@ class PredicateRegistry(V2ContractModel):
     @classmethod
     def validate_registry_id(cls, value: str) -> str:
         return require_slug(value, label="predicate registry_id")
+
+    @field_validator("registry_version")
+    @classmethod
+    def validate_registry_version(cls, value: str) -> str:
+        normalized = value.strip()
+        if re.fullmatch(r"[1-9][0-9]*\.[0-9]+\.[0-9]+", normalized) is None:
+            raise ValueError("predicate registry version must be semantic")
+        return normalized
 
     @field_validator("predicates")
     @classmethod

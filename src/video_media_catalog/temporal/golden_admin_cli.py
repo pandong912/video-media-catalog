@@ -82,6 +82,11 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
     source_run_states = []
     for raw in values.get("sourceRunStates", ()):
         capture_reference = raw.get("captureReference")
+        materialization = _state_bool(
+            raw,
+            "materialization",
+            default=False,
+        )
         source_run_states.append(
             GoldenSourceRunState(
                 source_product_id=str(raw["sourceProductId"]),
@@ -99,10 +104,11 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
                     "identitySpine",
                     default=False,
                 ),
-                materialization=_state_bool(
+                materialization=materialization,
+                gold_contribution=_state_bool(
                     raw,
-                    "materialization",
-                    default=False,
+                    "goldContribution",
+                    default=materialization,
                 ),
                 capture_reference=(
                     None

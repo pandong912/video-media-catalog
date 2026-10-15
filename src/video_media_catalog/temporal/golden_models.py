@@ -35,7 +35,18 @@ class GoldenSourceRunState:
     acquired_at: str | None = None
     identity_spine: bool = False
     materialization: bool = False
+    gold_contribution: bool | None = None
     capture_reference: ObjectRefPayload | None = None
+
+    def __post_init__(self) -> None:
+        contribution = (
+            self.materialization
+            if self.gold_contribution is None
+            else self.gold_contribution
+        )
+        if not isinstance(contribution, bool):
+            raise ValueError("gold_contribution must be a boolean")
+        object.__setattr__(self, "gold_contribution", contribution)
 
 
 @dataclass(frozen=True)
@@ -146,6 +157,7 @@ class GoldenEpochResult:
 class GoldenReleaseResult:
     release_plan_id: str
     commit_key: str
+    release_plan: ObjectRefPayload
     quality_report: ObjectRefPayload
     attribution_manifest: ObjectRefPayload
     release_commit: ObjectRefPayload

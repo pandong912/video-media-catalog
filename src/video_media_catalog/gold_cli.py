@@ -27,6 +27,7 @@ from video_media_catalog.community_snapshot import (
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.gold import (
+    GOLD_RELEASE_PLAN_MEDIA_TYPE,
     research_context,
     research_policy,
 )
@@ -486,6 +487,13 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "gold-plans",
             build.plan.release_plan_id.removeprefix("sha256:"),
         )
+        plan_ref = store.upload_bytes(
+            build.plan.json_bytes(),
+            join_uri(plan_prefix, "release-plan.json"),
+            media_type=GOLD_RELEASE_PLAN_MEDIA_TYPE,
+            object_format="OBJECT_FORMAT_JSON",
+            max_bytes=CONTROL_MAX_BYTES,
+        ).object_ref
         quality_ref = store.upload_bytes(
             build.quality_report.json_bytes(),
             join_uri(plan_prefix, "quality-report.json"),
@@ -502,6 +510,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                     "releasePlanId": build.plan.release_plan_id,
                     "buildMode": build_mode.value,
                     "qualityStatus": build.quality_report.status.value,
+                    "releasePlan": plan_ref.model_dump(
+                        mode="json",
+                        by_alias=True,
+                        exclude_none=True,
+                    ),
                     "qualityReport": quality_ref.model_dump(
                         mode="json",
                         by_alias=True,
@@ -540,6 +553,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "qualityStatus": build.quality_report.status.value,
             "committed": True,
             "commitKey": commit.commit_key,
+            "releasePlan": plan_ref.model_dump(
+                mode="json", by_alias=True, exclude_none=True
+            ),
             "qualityReport": quality_ref.model_dump(
                 mode="json", by_alias=True, exclude_none=True
             ),

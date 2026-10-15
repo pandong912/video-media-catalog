@@ -42,6 +42,7 @@ def _capture(
     policy_digest: str | None = None,
     source_namespace_id: str = "tvmaze-show",
     connector_id: str = TVMAZE_CONNECTOR_ID,
+    coverage_scope: dict[str, object] | None = None,
 ):
     policy = tvmaze_rights_profile()
     raw_object = _object()
@@ -59,7 +60,7 @@ def _capture(
         change_semantics=ChangeSemantics.DELTA,
         completeness=Completeness.COMPLETE,
         delete_coverage=DeleteCoverage.EXPLICIT,
-        coverage_scope={"endpoint": "/shows"},
+        coverage_scope=coverage_scope or {"endpoint": "/shows"},
         raw_objects=(raw_object,),
         acquired_at="2026-09-20T00:00:00Z",
         record_count=1,
@@ -158,3 +159,36 @@ def test_source_silver_pins_registry_and_batch_metadata() -> None:
     assert run.input_manifest["registryDigest"] == registry.digest
     assert run.input_manifest["batchManifest"]["batchId"] == batch.batch_id
     assert rows["community_source_record"][0]["envelope_key"] == envelope.envelope_key
+
+
+def test_source_silver_propagates_source_snapshot_pin() -> None:
+    pin_id = "sha256:" + ("d" * 64)
+    batch, record_set, envelope = _capture(
+        coverage_scope={
+            "pinId": pin_id,
+            "schemaId": "tvmaze-show-v1",
+        }
+    )
+
+    run, _rows = build_source_silver_rows(
+        registry=build_community_registry(),
+        batch=batch,
+        record_set=record_set,
+        envelopes=(envelope,),
+    )
+
+    assert run.input_manifest["sourceSnapshotPinId"] == pin_id
+
+
+def test_source_silver_rejects_unpinned_global_reference_batch() -> None:
+    batch, record_set, envelope = _capture(
+        coverage_scope={"schemaId": "wikidata-global-reference-entity"}
+    )
+
+    with pytest.raises(ValueError, match="require a source snapshot pin"):
+        build_source_silver_rows(
+            registry=build_community_registry(),
+            batch=batch,
+            record_set=record_set,
+            envelopes=(envelope,),
+        )

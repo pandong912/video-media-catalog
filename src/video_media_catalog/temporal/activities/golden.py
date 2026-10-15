@@ -852,15 +852,22 @@ def _validated_reused_identity(
         )
 
     resolution = IdentityResolutionConfig()
+    summary_source_run_ids = tuple(sorted(summary.get("sourceRunIds") or ()))
+    # Require a concrete historical registry digest, but do not pin it to the
+    # current process registry. Reuse extends an already-committed Identity
+    # ledger head; later materialization may run under a newer registry.
+    _require_sha256(
+        str(summary.get("registryDigest") or ""),
+        label="reused Identity registryDigest",
+    )
     if (
         summary.get("context") != "research"
         or summary.get("stage") != "identity-resolution"
         or summary.get("identityGenerationId") != input_data.identity_generation_id
         or summary.get("identityMode") != "incremental"
-        or tuple(sorted(summary.get("sourceRunIds") or ())) != identity_source_run_ids
+        or summary_source_run_ids != identity_source_run_ids
         or summary.get("identityResolutionConfigDigest") != resolution.digest
         or resolution.digest != preflight.identity_resolution_config_digest
-        or summary.get("registryDigest") != build_community_registry().digest
     ):
         raise NonRetryableGoldenBuildError(
             "reused Identity summary differs from pinned incremental inputs"
@@ -1079,7 +1086,10 @@ def prepare_golden_build(
         )
         return replace(preflight, build_spec=build_spec)
     except Exception as exc:
-        raise classify_golden_build_exception(exc) from exc
+        classified = classify_golden_build_exception(exc)
+        if classified is exc:
+            raise
+        raise classified from exc
 
 
 def _object_args(prefix: str, reference: ObjectRefPayload) -> list[str]:
@@ -1436,7 +1446,10 @@ def publish_golden_snapshot(
             job_run_id=job_run_id,
         )
     except Exception as exc:
-        raise classify_golden_build_exception(exc) from exc
+        classified = classify_golden_build_exception(exc)
+        if classified is exc:
+            raise
+        raise classified from exc
 
 
 @activity.defn(name="ResolveGoldenIdentity")
@@ -1527,7 +1540,10 @@ def resolve_golden_identity(
             job_run_id=job_run_id,
         )
     except Exception as exc:
-        raise classify_golden_build_exception(exc) from exc
+        classified = classify_golden_build_exception(exc)
+        if classified is exc:
+            raise
+        raise classified from exc
 
 
 @activity.defn(name="PublishGoldenEpoch")
@@ -1611,7 +1627,10 @@ def publish_golden_epoch(
             job_run_id=job_run_id,
         )
     except Exception as exc:
-        raise classify_golden_build_exception(exc) from exc
+        classified = classify_golden_build_exception(exc)
+        if classified is exc:
+            raise
+        raise classified from exc
 
 
 def _validate_release_documents(
@@ -2010,7 +2029,10 @@ def submit_golden_release(
             job_run_id=job_run_id,
         )
     except Exception as exc:
-        raise classify_golden_build_exception(exc) from exc
+        classified = classify_golden_build_exception(exc)
+        if classified is exc:
+            raise
+        raise classified from exc
 
 
 @activity.defn(name="WriteGoldenBuildSummary")
@@ -2074,4 +2096,7 @@ def write_golden_build_summary(
         activity.heartbeat({"phase": "summary-written", "uri": uri})
         return uri
     except Exception as exc:
-        raise classify_golden_build_exception(exc) from exc
+        classified = classify_golden_build_exception(exc)
+        if classified is exc:
+            raise
+        raise classified from exc

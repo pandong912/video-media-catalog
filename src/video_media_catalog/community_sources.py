@@ -48,7 +48,7 @@ MADB_SNAPSHOT_CONNECTOR_ID = "madb-public-data-snapshot"
 
 
 def research_source_schema_contracts() -> tuple[SchemaContract, ...]:
-    """Schema identities pinned by sports and animation capture manifests."""
+    """Schema identities pinned by global-reference capture manifests."""
 
     definitions = (
         (
@@ -58,6 +58,15 @@ def research_source_schema_contracts() -> tuple[SchemaContract, ...]:
             {
                 "required": ["id", "claims"],
                 "profiles": ["sports", "animation"],
+            },
+        ),
+        (
+            "wikidata-global-reference-entity",
+            "application/x-ndjson",
+            SchemaCompatibility.ADDITIVE,
+            {
+                "required": ["id", "researchDomain", "entityTypeHint"],
+                "profiles": ["news-journalism", "learning-instruction"],
             },
         ),
         (
@@ -312,7 +321,10 @@ def build_community_registry() -> SourceRegistrySnapshot:
         kind=SourceProductKind.KNOWLEDGE_GRAPH,
         policy_id="wikidata-structured-data-cc0",
         connector_ids=(WIKIDATA_FULL_MEDIA_CONNECTOR_ID,),
-        schema_contract_ids=("wikidata-research-entity",),
+        schema_contract_ids=(
+            "wikidata-research-entity",
+            "wikidata-global-reference-entity",
+        ),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
     eidr_product = SourceProduct(
@@ -409,6 +421,21 @@ def build_community_registry() -> SourceRegistrySnapshot:
                     "SPORTS_ENTRY",
                     "SPORTS_VENUE",
                     "CHARACTER",
+                    "NEWS_PROGRAM",
+                    "NEWS_EDITION",
+                    "NEWS_STORY",
+                    "REPORTED_EVENT",
+                    "INFORMATION_SOURCE",
+                    "CLAIM",
+                    "CORRECTION",
+                    "COURSE",
+                    "MODULE",
+                    "LESSON",
+                    "LEARNING_CONCEPT",
+                    "LEARNING_OBJECTIVE",
+                    "PREREQUISITE",
+                    "PROCEDURE_STEP",
+                    "DEMONSTRATION",
                 ),
                 scheme_aliases=("wikidata",),
                 identifier_pattern=r"Q[1-9][0-9]*",

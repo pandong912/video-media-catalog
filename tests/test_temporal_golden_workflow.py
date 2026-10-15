@@ -133,6 +133,7 @@ async def _golden_workflow_case(*, reuse_identity: bool) -> None:
         return GoldenReleaseResult(
             release_plan_id=_run(36),
             commit_key=_run(37),
+            release_plan=_ref("s3://bucket/release-plan.json"),
             quality_report=_ref("s3://bucket/quality.json"),
             attribution_manifest=_ref("s3://bucket/attribution.json"),
             release_commit=_ref("s3://bucket/release.json"),

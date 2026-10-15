@@ -1,0 +1,207 @@
+{
+  "schemaVersion": "video.media-catalog.reference-fixture.v1",
+  "fixtureId": "wikidata-news-reference-v1",
+  "domain": "NEWS",
+  "sourceRevision": "wikidata-20261001-all.json.bz2",
+  "capturedAt": "2026-10-15T00:00:00Z",
+  "rawObject": {
+    "uri": "file:///tests/fixtures/research/wikidata-news-reference.v1.jsonl",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/x-ndjson",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    },
+    "sizeBytes": 2141
+  },
+  "imageDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "configDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "citations": [
+    {
+      "citationId": "pbs-news-hour",
+      "sourceRecordId": "Q7118447",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q7118447",
+      "title": "PBS News Hour",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    },
+    {
+      "citationId": "pbs-news-weekend",
+      "sourceRecordId": "Q106512704",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q106512704",
+      "title": "PBS News Weekend",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    },
+    {
+      "citationId": "pbs-media-story",
+      "sourceRecordId": "Q135249048",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q135249048",
+      "title": "A look at the legal tactics Trump is using against media outlets",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    },
+    {
+      "citationId": "solar-eclipse-2024",
+      "sourceRecordId": "Q2620078",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q2620078",
+      "title": "solar eclipse of April 8, 2024",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    },
+    {
+      "citationId": "reuters",
+      "sourceRecordId": "Q130879",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q130879",
+      "title": "Reuters",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    },
+    {
+      "citationId": "wikidata-claim-model",
+      "sourceRecordId": "Q135249048/claim/1",
+      "sourceUrl": "https://www.wikidata.org/wiki/Help:Statements",
+      "title": "Wikidata statements and claims",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    },
+    {
+      "citationId": "erratum",
+      "sourceRecordId": "Q1348305",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q1348305",
+      "title": "erratum",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:c46899905e2ac9ed39061d3c2360010d2278b3ef761933afad68f38acdaf4a4d"
+    }
+  ],
+  "records": [
+    {
+      "payload": {
+        "id": "Q7118447",
+        "researchDomain": "NEWS",
+        "entityTypeHint": "NEWS_PROGRAM",
+        "labels": {"en": {"value": "PBS News Hour"}},
+        "descriptions": {"en": {"value": "daily public television news program in the United States"}},
+        "relations": [
+          {"predicate": "has_edition", "targetId": "Q106512704", "targetType": "NEWS_EDITION"}
+        ]
+      },
+      "citationIds": ["pbs-news-hour"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "1975-10-20T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q106512704",
+        "researchDomain": "NEWS",
+        "entityTypeHint": "NEWS_EDITION",
+        "labels": {"en": {"value": "PBS News Weekend"}},
+        "publicationTime": "2024-12-21T00:00:00Z",
+        "relations": [
+          {"predicate": "contains_story", "targetId": "Q135249048", "targetType": "NEWS_STORY"}
+        ]
+      },
+      "citationIds": ["pbs-news-weekend"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "2024-12-21T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q135249048",
+        "researchDomain": "NEWS",
+        "entityTypeHint": "NEWS_STORY",
+        "labels": {"en": {"value": "A look at the legal tactics Trump is using against media outlets"}},
+        "publicationTime": "2024-12-19T00:00:00Z",
+        "storySection": "media",
+        "reportingStatus": "PUBLISHED",
+        "relations": [
+          {"predicate": "reports_event", "targetId": "Q2620078", "targetType": "REPORTED_EVENT"},
+          {"predicate": "reported_by_source", "targetId": "Q130879", "targetType": "INFORMATION_SOURCE"},
+          {"predicate": "makes_claim", "targetId": "Q135249048/claim/1", "targetType": "CLAIM"}
+        ]
+      },
+      "citationIds": ["pbs-media-story"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "2024-12-19T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q2620078",
+        "researchDomain": "NEWS",
+        "entityTypeHint": "REPORTED_EVENT",
+        "labels": {"en": {"value": "solar eclipse of April 8, 2024"}},
+        "publicationTime": "2024-04-08T18:00:00Z"
+      },
+      "citationIds": ["solar-eclipse-2024"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "2024-04-08T15:42:00Z",
+      "validTo": "2024-04-08T20:52:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q130879",
+        "researchDomain": "NEWS",
+        "entityTypeHint": "INFORMATION_SOURCE",
+        "labels": {"en": {"value": "Reuters"}},
+        "sourceKind": "NEWS_AGENCY"
+      },
+      "citationIds": ["reuters"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q135249048/claim/1",
+        "researchDomain": "NEWS",
+        "entityTypeHint": "CLAIM",
+        "labels": {"en": {"value": "reported media-law claim"}},
+        "claimText": "The interview discusses legal tactics used against media outlets.",
+        "claimStatus": "REPORTED",
+        "relations": [
+          {"predicate": "reported_by_source", "targetId": "Q130879", "targetType": "INFORMATION_SOURCE"}
+        ]
+      },
+      "citationIds": ["wikidata-claim-model", "pbs-media-story"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "2024-12-19T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q1348305",
+        "researchDomain": "NEWS",
+        "entityTypeHint": "CORRECTION",
+        "labels": {"en": {"value": "erratum"}},
+        "publicationTime": "2024-12-20T00:00:00Z",
+        "correctionReason": "Published correction to a previous publication.",
+        "relations": [
+          {"predicate": "corrects_claim", "targetId": "Q135249048/claim/1", "targetType": "CLAIM"},
+          {"predicate": "corrects_story", "targetId": "Q135249048", "targetType": "NEWS_STORY"}
+        ]
+      },
+      "citationIds": ["erratum"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "2024-12-20T00:00:00Z"
+    }
+  ]
+}

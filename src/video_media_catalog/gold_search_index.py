@@ -50,7 +50,7 @@ from video_media_catalog.v2_contracts import (
 
 RESEARCH_READ_ALIAS = "media-catalog-research-read"
 RESEARCH_INDEX_PREFIX = "media-catalog-research"
-PROJECTION_VERSION = "9"
+PROJECTION_VERSION = "10"
 DEFAULT_GOLD_BULK_PARTITIONS = 32
 DEFAULT_GOLD_BULK_WORKERS = 2
 MAX_GOLD_BULK_PARTITIONS = 4096
@@ -88,6 +88,61 @@ _MAPPINGS: dict[str, Any] = {
         "releasePlanId": {"type": "keyword"},
         "contextId": {"type": "keyword"},
         "sourcePolicyDigest": {"type": "keyword"},
+        "canonicalSubjectRoot": {"type": "keyword"},
+        "typeConcepts": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "typeConceptId": {"type": "keyword"},
+                "conceptVersion": {"type": "keyword"},
+                "canonicalRoot": {"type": "keyword"},
+            },
+        },
+        "referenceSlices": {"type": "keyword"},
+        "authorityScope": {"type": "keyword"},
+        "referenceCapabilities": {"type": "keyword"},
+        "referenceCandidates": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "kind": {"type": "keyword"},
+                "assertionId": {"type": "keyword"},
+                "predicate": {"type": "keyword"},
+                "valueJson": {"type": "keyword", "ignore_above": 4096},
+                "valueText": {
+                    "type": "text",
+                    "fields": {
+                        "keyword": {
+                            "type": "keyword",
+                            "ignore_above": 1024,
+                        }
+                    },
+                },
+                "qualifiersJson": {"type": "keyword", "ignore_above": 4096},
+                "resolutionStatus": {"type": "keyword"},
+                "sourceProductId": {"type": "keyword"},
+                "sourceRecordId": {"type": "keyword", "ignore_above": 2048},
+                "sourcePath": {"type": "keyword", "ignore_above": 2048},
+                "observedAt": {"type": "date", "format": "strict_date_time"},
+                "validFrom": {"type": "date", "format": "strict_date_time"},
+                "validTo": {"type": "date", "format": "strict_date_time"},
+                "citationKeys": {"type": "keyword"},
+                "citationOverflow": {"type": "integer"},
+            },
+        },
+        "referenceRelations": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "predicate": {"type": "keyword"},
+                "objectEntityKey": {"type": "keyword"},
+                "assertionId": {"type": "keyword"},
+                "sourceProductId": {"type": "keyword"},
+                "observedAt": {"type": "date", "format": "strict_date_time"},
+                "citationKeys": {"type": "keyword"},
+                "citationOverflow": {"type": "integer"},
+            },
+        },
         "displayName": {
             "type": "text",
             "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
@@ -281,6 +336,8 @@ _MAPPINGS: dict[str, Any] = {
                 "animationStudios": {"type": "integer"},
                 "animationCharacters": {"type": "integer"},
                 "observationHistory": {"type": "integer"},
+                "referenceCandidates": {"type": "integer"},
+                "referenceRelations": {"type": "integer"},
                 "formats": {"type": "integer"},
                 "languages": {"type": "integer"},
                 "statuses": {"type": "integer"},
@@ -311,7 +368,7 @@ def _safe_name(value: str, *, label: str) -> str:
 
 
 class GoldIndexConfigIdentity(V2ContractModel):
-    projection_version: Literal["9"] = PROJECTION_VERSION
+    projection_version: Literal["10"] = PROJECTION_VERSION
     mapping_digest: str = MAPPING_DIGEST
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     read_alias: str

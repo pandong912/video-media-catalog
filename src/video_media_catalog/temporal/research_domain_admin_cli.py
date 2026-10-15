@@ -1,4 +1,4 @@
-"""Idempotent schedule management for Sports and Animation research domains."""
+"""Idempotent schedule management for global-reference research domains."""
 
 from __future__ import annotations
 
@@ -35,6 +35,8 @@ from video_media_catalog.temporal.names import (
     SCHEDULE_OPENFOOTBALL_DAILY,
     SCHEDULE_STATSBOMB_WEEKLY,
     SCHEDULE_WIKIDATA_ANIMATION_MONTHLY,
+    SCHEDULE_WIKIDATA_LEARNING_MONTHLY,
+    SCHEDULE_WIKIDATA_NEWS_MONTHLY,
     SCHEDULE_WIKIDATA_SPORTS_MONTHLY,
     TEMPORAL_NAMESPACE,
     WORKFLOW_TASK_QUEUE,
@@ -57,6 +59,9 @@ _REQUIRED_DISABLED_GATES = frozenset(
         "cutoverAllowed",
         "liveCutoverClaimed",
         "reverseDualWriteAllowed",
+        "referenceWorldMaterializationAllowed",
+        "referenceWorldPublicationAllowed",
+        "tenantCanonicalWriteAllowed",
     }
 )
 _CATALOG_ROOT = "s3://ai-video-platform-dev-media-catalog-209479308066"
@@ -87,6 +92,32 @@ _SCHEDULE_COORDINATES = {
             calendars=[
                 ScheduleCalendarSpec(
                     day_of_month=(ScheduleRange(3),),
+                    hour=(ScheduleRange(3),),
+                    minute=(ScheduleRange(10),),
+                )
+            ]
+        ),
+    ),
+    SCHEDULE_WIKIDATA_NEWS_MONTHLY: (
+        "NEWS",
+        "wikidata-json-dump",
+        ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    day_of_month=(ScheduleRange(4),),
+                    hour=(ScheduleRange(1),),
+                    minute=(ScheduleRange(10),),
+                )
+            ]
+        ),
+    ),
+    SCHEDULE_WIKIDATA_LEARNING_MONTHLY: (
+        "LEARNING",
+        "wikidata-json-dump",
+        ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    day_of_month=(ScheduleRange(4),),
                     hour=(ScheduleRange(3),),
                     minute=(ScheduleRange(10),),
                 )
@@ -142,6 +173,7 @@ def _boolean(values: dict[str, Any], name: str, *, default: bool) -> bool:
 
 
 def _source_from_mapping(values: dict[str, Any]) -> ResearchSourceProfile:
+    materialization = _boolean(values, "materialization", default=False)
     profile = ResearchSourceProfile(
         profile_id=str(values["profileId"]),
         domain=str(values["domain"]),  # type: ignore[arg-type]
@@ -150,7 +182,12 @@ def _source_from_mapping(values: dict[str, Any]) -> ResearchSourceProfile:
         env=_env_from_mapping(values["env"]),
         watermark=str(values["watermark"]),
         identity_spine=_boolean(values, "identitySpine", default=False),
-        materialization=_boolean(values, "materialization", default=False),
+        materialization=materialization,
+        gold_contribution=_boolean(
+            values,
+            "goldContribution",
+            default=materialization,
+        ),
         maximum_attempts=int(values.get("maximumAttempts", 3)),
         initial_retry_seconds=int(values.get("initialRetrySeconds", 30)),
         maximum_retry_seconds=int(values.get("maximumRetrySeconds", 600)),
@@ -348,13 +385,21 @@ def _load_schedules(
         for schedule_id, value in payload["schedules"].items()
     }
     if set(schedules) != set(_SCHEDULE_COORDINATES):
-        raise ValueError("research domain config must define all five schedules")
+        raise ValueError("research domain config must define all seven schedules")
     for schedule_id, input_data in schedules.items():
         expected_domain, expected_source, _spec = _SCHEDULE_COORDINATES[schedule_id]
         if input_data.domain != expected_domain or len(input_data.sources) != 1:
             raise ValueError(f"{schedule_id} must contain one expected domain source")
         if input_data.sources[0].source_product_id != expected_source:
             raise ValueError(f"{schedule_id} source product mismatch")
+        if expected_domain in {"NEWS", "LEARNING"} and (
+            not input_data.sources[0].identity_spine
+            or input_data.sources[0].materialization
+            or not input_data.sources[0].gold_contribution
+        ):
+            raise ValueError(
+                f"{schedule_id} must contribute reference-only Gold candidates"
+            )
         if "${EMR_IMAGE_DIGEST}" in {
             input_data.sources[0].env.image_digest,
             input_data.golden_build.env.image_digest,

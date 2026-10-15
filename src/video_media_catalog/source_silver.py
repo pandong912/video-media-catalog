@@ -47,8 +47,10 @@ from video_media_catalog.source_silver_checkpoint import (
     build_source_silver_checkpoint_frames,
 )
 from video_media_catalog.storage import local_path
+from video_media_catalog.v2_contracts import require_sha256
 
 Mapper = Callable[[ConnectorRecordEnvelope], MappedAssertions]
+_GLOBAL_REFERENCE_SCHEMA_ID = "wikidata-global-reference-entity"
 
 
 def _spark_input_uri(uri: str) -> str:
@@ -174,6 +176,13 @@ def _validate_envelope_registry(
         raise ValueError(
             "record envelope rights policy is absent or changed in the pinned registry"
         )
+    if envelope.payload_schema == _GLOBAL_REFERENCE_SCHEMA_ID and (
+        batch.coverage_scope.get("schemaId") != _GLOBAL_REFERENCE_SCHEMA_ID
+        or batch.coverage_scope.get("pinId") is None
+    ):
+        raise ValueError(
+            "global reference envelopes require a pin-bound reference batch"
+        )
     return envelope
 
 
@@ -227,6 +236,19 @@ def _build_run(
     record_set: ConnectorRecordSetManifest,
     expected_counts: dict[str, int],
 ) -> CommunityIngestRun:
+    source_snapshot_pin_id = batch.coverage_scope.get("pinId")
+    if (
+        batch.coverage_scope.get("schemaId") == _GLOBAL_REFERENCE_SCHEMA_ID
+        and source_snapshot_pin_id is None
+    ):
+        raise ValueError("global reference batches require a source snapshot pin ID")
+    if source_snapshot_pin_id is not None:
+        if not isinstance(source_snapshot_pin_id, str):
+            raise ValueError("source snapshot pin ID must be a string")
+        source_snapshot_pin_id = require_sha256(
+            source_snapshot_pin_id,
+            label="source snapshot pin ID",
+        )
     return build_community_ingest_run(
         run_kind=IngestRunKind.SOURCE_ASSERTIONS,
         source_product_id=batch.source_product_id,
@@ -266,6 +288,11 @@ def _build_run(
             },
             "recordSetId": record_set.record_set_id,
             "registryDigest": registry.digest,
+            **(
+                {"sourceSnapshotPinId": source_snapshot_pin_id}
+                if source_snapshot_pin_id is not None
+                else {}
+            ),
         },
     )
 

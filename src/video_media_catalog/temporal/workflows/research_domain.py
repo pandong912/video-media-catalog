@@ -1,4 +1,4 @@
-"""Domain-profile orchestration for Sports and Animation research releases."""
+"""Domain-profile orchestration for global-reference research releases."""
 
 from __future__ import annotations
 
@@ -120,6 +120,11 @@ def _golden_input(input_data: ResearchDomainInput):
             ),
             materialization=next(
                 profile.materialization
+                for profile in input_data.sources
+                if profile.profile_id == source.profile_id
+            ),
+            gold_contribution=next(
+                profile.gold_contribution
                 for profile in input_data.sources
                 if profile.profile_id == source.profile_id
             ),

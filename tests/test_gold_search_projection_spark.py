@@ -38,6 +38,35 @@ def _trace(assertion_id: str, source_path: str) -> str:
     )
 
 
+def _wikidata_trace(assertion_id: str, source_path: str) -> str:
+    return canonical_json(
+        {
+            "assertions": [
+                {
+                    "assertionId": assertion_id,
+                    "sourceProductId": "wikidata-json-dump",
+                    "sourceName": "Wikidata JSON entity dump",
+                    "sourceRecordId": "Q135249048",
+                    "sourcePath": source_path,
+                    "observedAt": "2026-10-15T00:00:00Z",
+                    "citationKeys": ["sha256:" + ("8" * 64)],
+                    "rights": {
+                        "policyId": "wikidata-structured-data-cc0",
+                        "policyZone": "open_cc0",
+                        "licenseId": "CC0-1.0",
+                        "licenseUri": (
+                            "https://creativecommons.org/publicdomain/zero/1.0/"
+                        ),
+                        "attributionText": "Wikidata structured data (CC0).",
+                        "sourceUrl": "https://www.wikidata.org/",
+                        "shareAlike": False,
+                    },
+                }
+            ]
+        }
+    )
+
+
 @pytest.fixture(scope="module")
 def spark():
     session = (
@@ -226,3 +255,80 @@ def test_distributed_projection_derives_transitive_episode_hierarchy(
     assert ambiguous_episode.parentEntityKey is None
     assert ambiguous_episode.seriesEntityKey is None
     assert ambiguous_episode.seasonEntityKey is None
+
+
+@pytest.mark.spark
+def test_distributed_news_reference_search_contribution(
+    spark: SparkSession,
+) -> None:
+    plan_id = "sha256:" + ("a" * 64)
+    entity_key = "sha256:" + ("b" * 64)
+    title_id = "sha256:" + ("c" * 64)
+    claim_id = "sha256:" + ("d" * 64)
+    rows = {table: [] for table in GOLD_DATA_COLUMNS}
+    rows["community_gold_entity"] = [
+        {
+            "row_key": "sha256:" + ("e" * 64),
+            "release_plan_id": plan_id,
+            "entity_key": entity_key,
+            "entity_level": "NEWS_STORY",
+            "entity_kind": "NEWS_STORY",
+            "status": "ACTIVE",
+            "source_node_count": 1,
+            "trace_json": "{}",
+        }
+    ]
+    rows["community_gold_field"] = [
+        {
+            "resolution_key": "sha256:" + f"{index + 10:064x}",
+            "release_plan_id": plan_id,
+            "entity_key": entity_key,
+            "predicate": predicate,
+            "scope_hash": "sha256:" + f"{index + 20:064x}",
+            "value_type": "STRING",
+            "value_json": canonical_json(text),
+            "qualifiers_json": qualifiers,
+            "resolution_status": "SELECTED",
+            "selected_assertion_id": assertion_id,
+            "assertion_ids_json": canonical_json([assertion_id]),
+            "trace_json": _wikidata_trace(assertion_id, source_path),
+        }
+        for index, (
+            predicate,
+            text,
+            qualifiers,
+            assertion_id,
+            source_path,
+        ) in enumerate(
+            (
+                (
+                    "title",
+                    "A cited story",
+                    '{"language":"en","titleRole":"PRIMARY"}',
+                    title_id,
+                    "/labels/en",
+                ),
+                (
+                    "claim_text",
+                    "A searchable reference claim.",
+                    "{}",
+                    claim_id,
+                    "/claimText",
+                ),
+            )
+        )
+    ]
+
+    document = build_gold_search_projection(
+        spark,
+        gold_tables=create_gold_dataframes(spark, rows),
+        release_plan_id=plan_id,
+    ).collect()[0]
+
+    assert document.canonicalSubjectRoot == "WORK"
+    assert document.referenceSlices == ["NEWS/JOURNALISM"]
+    assert document.authorityScope == "GLOBAL_REFERENCE_ONLY"
+    assert document.referenceCapabilities == ["DISPLAY", "IDENTITY", "RESEARCH"]
+    assert {item.predicate: item.valueText for item in document.referenceCandidates}[
+        "claim_text"
+    ] == "A searchable reference claim."

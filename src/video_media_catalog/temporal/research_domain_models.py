@@ -1,4 +1,4 @@
-"""Temporal contracts for Sports and Animation research-domain releases."""
+"""Temporal contracts for global-reference research-domain releases."""
 
 from __future__ import annotations
 
@@ -17,7 +17,14 @@ from video_media_catalog.temporal.models import (
 )
 from video_media_catalog.temporal.names import GOLDEN_WORKFLOW_TASK_QUEUE
 
-ResearchDomain = Literal["SPORTS", "ANIMATION"]
+ResearchDomain = Literal[
+    "SPORTS",
+    "ANIMATION",
+    "NEWS",
+    "JOURNALISM",
+    "LEARNING",
+    "INSTRUCTION",
+]
 
 _DOMAIN_SOURCES = {
     "SPORTS": frozenset(
@@ -33,7 +40,12 @@ _DOMAIN_SOURCES = {
             "madb-public-data",
         }
     ),
+    "NEWS": frozenset({"wikidata-json-dump"}),
+    "JOURNALISM": frozenset({"wikidata-json-dump"}),
+    "LEARNING": frozenset({"wikidata-json-dump"}),
+    "INSTRUCTION": frozenset({"wikidata-json-dump"}),
 }
+_REFERENCE_ONLY_DOMAINS = frozenset({"NEWS", "JOURNALISM", "LEARNING", "INSTRUCTION"})
 
 
 @dataclass(frozen=True)
@@ -48,6 +60,7 @@ class ResearchSourceProfile:
     watermark: str
     identity_spine: bool = False
     materialization: bool = False
+    gold_contribution: bool | None = None
     maximum_attempts: int = 3
     initial_retry_seconds: int = 30
     maximum_retry_seconds: int = 600
@@ -56,9 +69,26 @@ class ResearchSourceProfile:
     max_manifest_bytes: int = 4 * 1024 * 1024
 
     def __post_init__(self) -> None:
+        contribution = (
+            self.materialization
+            if self.gold_contribution is None
+            else self.gold_contribution
+        )
+        if not isinstance(contribution, bool):
+            raise ValueError("research source gold_contribution must be a boolean")
+        object.__setattr__(self, "gold_contribution", contribution)
         if self.source_product_id not in _DOMAIN_SOURCES[self.domain]:
             raise ValueError(
                 f"{self.source_product_id} is not registered for {self.domain}"
+            )
+        if self.domain in _REFERENCE_ONLY_DOMAINS and (
+            self.materialization
+            or not self.identity_spine
+            or not self.gold_contribution
+        ):
+            raise ValueError(
+                f"{self.domain} profiles must enable identity and Gold contribution "
+                "while remaining reference-only"
             )
         if not self.profile_id or len(self.profile_id) > 128:
             raise ValueError("research source profile_id must be non-empty and bounded")

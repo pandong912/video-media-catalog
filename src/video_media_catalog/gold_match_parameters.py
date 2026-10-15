@@ -63,7 +63,7 @@ def match_parameters_from_manifest(
     if manifest.index == manifest.alias or concrete is None:
         raise ValueError("concreteIndex must be a 24-hex research index, not an alias")
     if manifest.mapping_digest != MAPPING_DIGEST:
-        raise ValueError("index manifest mappingDigest does not match projection v8")
+        raise ValueError("index manifest mappingDigest does not match projection v10")
     if manifest.source_policy_digest != load_catalog_source_policy().digest:
         raise ValueError(
             "index manifest sourcePolicyDigest does not match canonical policy"

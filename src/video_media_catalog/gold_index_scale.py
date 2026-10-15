@@ -70,6 +70,19 @@ def synthetic_gold_document(sequence: int) -> dict[str, Any]:
         "releasePlanId": "sha256:" + ("a" * 64),
         "contextId": "research",
         "sourcePolicyDigest": CATALOG_SOURCE_POLICY_DIGEST,
+        "canonicalSubjectRoot": "WORK",
+        "typeConcepts": [
+            {
+                "typeConceptId": "MOVIE" if sequence % 2 == 0 else "TV_SERIES",
+                "conceptVersion": "1.0.0",
+                "canonicalRoot": "WORK",
+            }
+        ],
+        "referenceSlices": [],
+        "authorityScope": "GLOBAL_REFERENCE_ONLY",
+        "referenceCapabilities": ["DISPLAY", "IDENTITY", "RESEARCH"],
+        "referenceCandidates": [],
+        "referenceRelations": [],
         "displayName": title,
         "displayLanguage": "en",
         "contentType": "MOVIE" if sequence % 2 == 0 else "TV_SERIES",
@@ -133,6 +146,8 @@ def synthetic_gold_document(sequence: int) -> dict[str, Any]:
             "rights": 0,
             "conflicts": 0,
             "hierarchyRelations": 0,
+            "referenceCandidates": 0,
+            "referenceRelations": 0,
             "formats": 0,
             "languages": 0,
             "statuses": 0,

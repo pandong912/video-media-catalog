@@ -383,7 +383,7 @@ def map_wikidata_record(
 def map_wikidata_research_record(
     envelope: ConnectorRecordEnvelope,
 ) -> MappedAssertions:
-    """Dispatch reviewed domain profiles while preserving the Film mapper."""
+    """Dispatch reviewed reference-domain profiles while preserving Film."""
 
     if envelope.payload_json is not None:
         payload = json.loads(envelope.payload_json)
@@ -401,6 +401,17 @@ def map_wikidata_research_record(
                 )
 
                 return map_wikidata_animation_record(envelope)
+            if payload.get("researchDomain") in {
+                "NEWS",
+                "JOURNALISM",
+                "LEARNING",
+                "INSTRUCTION",
+            }:
+                from video_media_catalog.reference_sources import (
+                    map_wikidata_reference_record,
+                )
+
+                return map_wikidata_reference_record(envelope)
     return map_wikidata_record(envelope)
 
 

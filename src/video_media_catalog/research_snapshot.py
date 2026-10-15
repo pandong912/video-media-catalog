@@ -220,6 +220,10 @@ def capture_pinned_records(
     records: tuple[dict[str, Any], ...],
     source_namespace: Callable[[dict[str, Any]], str],
     source_record_id: Callable[[dict[str, Any]], str],
+    citation_keys: Callable[[dict[str, Any]], tuple[str, ...]] | None = None,
+    source_modified_at: Callable[[dict[str, Any]], str | None] | None = None,
+    valid_from: Callable[[dict[str, Any]], str | None] | None = None,
+    valid_to: Callable[[dict[str, Any]], str | None] | None = None,
     policy_id: str,
     policy_digest: str,
     image_digest: str,
@@ -270,17 +274,21 @@ def capture_pinned_records(
             source_record_id=record_id,
             source_revision=pin.source_revision,
             operation=RecordOperation.UPSERT,
+            source_modified_at=(
+                None if source_modified_at is None else source_modified_at(record)
+            ),
             observed_at=pin.captured_at,
             ingested_at=pin.captured_at,
+            valid_from=None if valid_from is None else valid_from(record),
+            valid_to=None if valid_to is None else valid_to(record),
             payload_schema=pin.schema_id,
             raw_object=raw_object,
-            source_location=f"/records/{index}",
+            source_location=f"/records/{record_id}",
             policy_id=policy_id,
             policy_digest=policy_digest,
+            citation_keys=() if citation_keys is None else citation_keys(record),
         )
-        for index, (record, record_id) in enumerate(
-            zip(ordered, record_ids, strict=True)
-        )
+        for record, record_id in zip(ordered, record_ids, strict=True)
     )
     records_digest = digest_identity(
         {

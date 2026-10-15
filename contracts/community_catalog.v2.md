@@ -109,6 +109,11 @@ Required captured output:
 coverage, acquisition time, and counters. A re-run with the same identity must
 produce the same manifest bytes. A leased batch requires `replayableUntil`.
 
+For `wikidata-global-reference-entity`, `coverageScope` must carry the
+content-addressed `pinId` and the matching `schemaId`. Source Silver copies the
+validated pin to `inputManifest.sourceSnapshotPinId`; Gold release planning
+collects those IDs from committed source runs.
+
 ## SourceWatermark and CaptureWindowReceipt v1
 
 Application-side acquisition control uses two frozen lower-camel JSON contracts

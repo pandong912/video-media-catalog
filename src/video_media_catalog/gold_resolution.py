@@ -298,7 +298,20 @@ class _Eligibility:
         self.policy_counts: Counter[str] = Counter()
         self.withheld = 0
 
-    def permits(self, assertion) -> bool:
+    def valid_at_release(self, assertion) -> bool:
+        provenance = assertion.provenance
+        return not (
+            (
+                provenance.valid_from is not None
+                and parse_rfc3339(provenance.valid_from) > self.as_of
+            )
+            or (
+                provenance.valid_to is not None
+                and parse_rfc3339(provenance.valid_to) <= self.as_of
+            )
+        )
+
+    def permits(self, assertion, *, enforce_valid_time: bool = True) -> bool:
         provenance = assertion.provenance
         profile = self.profiles.get(provenance.policy_id)
         if profile is None:
@@ -320,16 +333,7 @@ class _Eligibility:
         if profile.zone not in self.context.allowed_zones:
             self.withheld += 1
             return False
-        if (
-            provenance.valid_from is not None
-            and parse_rfc3339(provenance.valid_from) > self.as_of
-        ):
-            self.withheld += 1
-            return False
-        if (
-            provenance.valid_to is not None
-            and parse_rfc3339(provenance.valid_to) <= self.as_of
-        ):
+        if enforce_valid_time and not self.valid_at_release(assertion):
             self.withheld += 1
             return False
         if profile.max_cache_age_days is not None:
@@ -428,7 +432,11 @@ def resolve_gold_draft(
     used_entity_keys: set[str] = set()
 
     for assertion in field_assertions:
-        if not _active_and_eligible(assertion, eligibility):
+        temporal = assertion.predicate in temporal_predicates
+        if assertion.status != AssertionStatus.ACTIVE or not eligibility.permits(
+            assertion,
+            enforce_valid_time=not temporal,
+        ):
             continue
         entity_key = identity_index.resolve_source_node(assertion.subject)
         if entity_key is None:
@@ -440,18 +448,17 @@ def resolve_gold_draft(
             continue
         scope = {key: assertion.qualifiers.get(key) for key in rule.scope_qualifiers}
         scope_json = canonical_json(scope)
-        if (
-            assertion.predicate in temporal_predicates
-            and assertion.provenance.observation_key is None
-        ):
+        if temporal and assertion.provenance.observation_key is None:
             eligibility.withheld += 1
             missing_observation_key_count += 1
             continue
-        field_inputs.append((entity_key, assertion.predicate, scope_json, assertion))
-        if assertion.predicate in temporal_predicates:
+        if temporal:
             observation_inputs.append((entity_key, assertion))
         eligibility.record(assertion)
         used_entity_keys.add(entity_key)
+        if temporal and not eligibility.valid_at_release(assertion):
+            continue
+        field_inputs.append((entity_key, assertion.predicate, scope_json, assertion))
 
     temporal_groups: dict[
         tuple[str, str, str, str],

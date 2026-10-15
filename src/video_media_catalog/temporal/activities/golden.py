@@ -27,6 +27,10 @@ from video_media_catalog.community_snapshot import (
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.emr_driver_logs import read_driver_json_summary
 from video_media_catalog.emr_serverless_cli import run as run_emr_submit
+from video_media_catalog.gold import (
+    GOLD_RELEASE_PLAN_MEDIA_TYPE,
+    GoldReleasePlan,
+)
 from video_media_catalog.gold_freshness import (
     research_release_freshness_policy,
     scope_release_freshness_policy,
@@ -38,6 +42,8 @@ from video_media_catalog.gold_ingest import (
     GoldReleaseCommit,
 )
 from video_media_catalog.identity_spark import IdentityResolutionConfig
+from video_media_catalog.predicate_registry import load_research_predicate_registry
+from video_media_catalog.reference_ontology import load_global_reference_ontology
 from video_media_catalog.storage import join_uri
 from video_media_catalog.temporal.errors import (
     NonRetryableGoldenBuildError,
@@ -204,6 +210,7 @@ def _source_run_state_payload(state: GoldenSourceRunState) -> dict[str, Any]:
         "watermark": state.watermark,
         "identitySpine": state.identity_spine,
         "materialization": state.materialization,
+        "goldContribution": state.gold_contribution,
         **({"acquiredAt": state.acquired_at} if state.acquired_at else {}),
         **(
             {"captureReference": _object_ref_payload(state.capture_reference)}
@@ -278,7 +285,7 @@ def _normalized_source_run_states(
     if not input_data.source_run_states:
         raise NonRetryableGoldenBuildError(
             "Golden Build requires explicit sourceRunStates; legacy source routing "
-            "cannot prove canonical identity/materialization authorization"
+            "cannot prove identity, Gold, and materialization authorization"
         )
 
     normalized: list[GoldenSourceRunState] = []
@@ -321,24 +328,29 @@ def _normalized_source_run_states(
                 raise NonRetryableGoldenBuildError(
                     "committed source states require run IDs"
                 )
-        elif run_ids or raw.identity_spine or raw.materialization:
+        elif (
+            run_ids
+            or raw.identity_spine
+            or raw.materialization
+            or raw.gold_contribution
+        ):
             raise NonRetryableGoldenBuildError(
                 "pending, failed, or excluded source states cannot carry "
-                "identity/materialization runs"
+                "identity, Gold, or materialization runs"
             )
 
-        if raw.identity_spine and not raw.materialization:
-            raise NonRetryableGoldenBuildError(
-                "Identity-enabled source states must also enable Gold materialization"
-            )
         if (
-            raw.materialization
+            raw.gold_contribution
             and not raw.identity_spine
             and not set(run_ids).issubset(baseline_run_ids)
         ):
             raise NonRetryableGoldenBuildError(
-                "materialization-only source states must be covered by the "
-                "baseline Identity"
+                "Gold-contributing source states without incremental Identity "
+                "must be covered by the baseline Identity"
+            )
+        if raw.materialization and not raw.gold_contribution:
+            raise NonRetryableGoldenBuildError(
+                "materialization requires an enabled Gold contribution"
             )
         try:
             if raw.identity_spine:
@@ -346,18 +358,19 @@ def _normalized_source_run_states(
                     source_product_id,
                     CatalogSourceCapability.IDENTITY_SPINE,
                 )
+            if raw.gold_contribution:
+                source_policy.require_source(
+                    source_product_id,
+                    CatalogSourceCapability.GOLD_PROJECTION,
+                )
             if raw.materialization:
                 source_policy.require_source(
                     source_product_id,
                     CatalogSourceCapability.MATERIALIZATION,
                 )
-                source_policy.require_source(
-                    source_product_id,
-                    CatalogSourceCapability.GOLD_PROJECTION,
-                )
         except ValueError as exc:
             raise NonRetryableGoldenBuildError(str(exc)) from exc
-        if raw.materialization:
+        if raw.gold_contribution:
             allowed_freshness = (
                 {
                     GoldenSourceFreshnessStatus.PASS,
@@ -374,7 +387,7 @@ def _normalized_source_run_states(
             )
             if freshness_status not in allowed_freshness:
                 raise NonRetryableGoldenBuildError(
-                    f"{source_product_id} is not fresh enough for materialization"
+                    f"{source_product_id} is not fresh enough for Gold contribution"
                 )
 
         watermark = raw.watermark.strip()
@@ -426,6 +439,7 @@ def _normalized_source_run_states(
                 acquired_at=acquired_at,
                 identity_spine=raw.identity_spine,
                 materialization=raw.materialization,
+                gold_contribution=raw.gold_contribution,
                 capture_reference=reference,
             )
         )
@@ -449,9 +463,9 @@ def _normalized_source_run_states(
             raise NonRetryableGoldenBuildError(
                 f"{source_product_id} must be committed and fresh"
             )
-    if not any(state.materialization for state in normalized):
+    if not any(state.gold_contribution for state in normalized):
         raise NonRetryableGoldenBuildError(
-            "explicit source run states require an enabled Identity/Gold source"
+            "explicit source run states require an enabled Gold contribution"
         )
     expected_override_sources = {
         "imdb-non-commercial-datasets",
@@ -705,7 +719,7 @@ def _validate_preflight_documents(
                 | {
                     run_id
                     for state in source_run_states
-                    if state.materialization
+                    if state.gold_contribution
                     for run_id in state.run_ids
                 }
             )
@@ -729,7 +743,7 @@ def _validate_preflight_documents(
             selected_source_product_ids={
                 state.source_product_id
                 for state in source_run_states
-                if state.materialization
+                if state.gold_contribution
             },
         )
     return GoldenPreflightResult(
@@ -1590,12 +1604,45 @@ def _validate_release_documents(
     preflight: GoldenPreflightResult,
     quality_ref: ObjectRefPayload,
     attribution_ref: ObjectRefPayload,
+    plan_ref: ObjectRefPayload,
     commit_ref: ObjectRefPayload,
     release_plan_id: str,
     commit_key: str,
     table_counts: dict[str, int],
     table_snapshot_ids: dict[str, int | None],
 ) -> None:
+    plan_payload = _read_ref_json(client, plan_ref, label="Gold release plan")
+    try:
+        plan = GoldReleasePlan.model_validate(plan_payload)
+    except (TypeError, ValueError) as exc:
+        raise NonRetryableGoldenBuildError("Gold release plan is invalid") from exc
+    if plan.release_plan_id != release_plan_id or (
+        bool(preflight.source_policy_digest)
+        and plan.source_policy_digest != preflight.source_policy_digest
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Gold release plan differs from the verified release evidence"
+        )
+    reference_domains = {"NEWS", "JOURNALISM", "LEARNING", "INSTRUCTION"}
+    has_reference_coverage = any(
+        plan.domain_coverage.get(domain, 0) > 0 for domain in reference_domains
+    )
+    if has_reference_coverage or plan.source_snapshot_pin_ids:
+        ontology = load_global_reference_ontology()
+        predicates = load_research_predicate_registry()
+        if (
+            plan.reference_ontology_digest != ontology.digest
+            or plan.reference_predicate_registry_digest != predicates.digest
+        ):
+            raise NonRetryableGoldenBuildError(
+                "Gold release plan has unverified reference registry coordinates"
+            )
+    if has_reference_coverage and not plan.source_snapshot_pin_ids.get(
+        "wikidata-json-dump"
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Gold reference coverage lacks a pinned Wikidata source snapshot"
+        )
     quality = _read_ref_json(client, quality_ref, label="Gold quality report")
     if (
         quality.get("status") != "PASS"
@@ -1622,17 +1669,21 @@ def _validate_release_documents(
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks one or more required sources"
         )
-    materialized_sources = (
+    gold_sources = (
         {
             state.source_product_id
             for state in preflight.source_run_states
-            if state.materialization
+            if state.gold_contribution
         }
         if preflight.source_run_states
         else _EXPECTED_SOURCE_PRODUCTS
     )
+    if not set(plan.source_snapshot_pin_ids) <= gold_sources:
+        raise NonRetryableGoldenBuildError(
+            "Gold source snapshot pins differ from the contributing source set"
+        )
     source_policy = load_catalog_source_policy()
-    for source_product_id in materialized_sources:
+    for source_product_id in gold_sources:
         expected_status = (
             {"PASS"}
             if source_policy.allows_source(
@@ -1643,10 +1694,10 @@ def _validate_release_documents(
         )
         if sources.get(source_product_id, {}).get("status") not in expected_status:
             raise NonRetryableGoldenBuildError(
-                "Gold quality report contains a non-passing materialized source"
+                "Gold quality report contains a non-passing contributing source"
             )
     tmdb = sources["tmdb-research"]
-    if "tmdb-research" in materialized_sources and (
+    if "tmdb-research" in gold_sources and (
         int(tmdb.get("sloHours") or 0) != input_data.env.gold_tmdb_freshness_slo_hours
         or tmdb.get("status") != "PASS"
         or float(tmdb.get("effectiveAgeHours") or 0)
@@ -1693,7 +1744,7 @@ def _validate_release_documents(
             raise NonRetryableGoldenBuildError(
                 f"freshness override was not applied correctly for {source}"
             )
-        if source in materialized_sources:
+        if source in gold_sources:
             if row.get("status") != "PASS" or (
                 float(row.get("effectiveAgeHours") or 0) > slo
             ):
@@ -1705,7 +1756,7 @@ def _validate_release_documents(
             or row.get("required") is not False
         ):
             raise NonRetryableGoldenBuildError(
-                f"non-materialized freshness source was not scoped out: {source}"
+                f"non-contributing freshness source was not scoped out: {source}"
             )
     attribution = _read_ref_json(
         client,
@@ -1718,9 +1769,9 @@ def _validate_release_documents(
         if isinstance(item, dict)
     }
     if preflight.source_run_states:
-        if attributed_sources != materialized_sources:
+        if attributed_sources != gold_sources:
             raise NonRetryableGoldenBuildError(
-                "Gold attribution manifest differs from the materialized source set"
+                "Gold attribution manifest differs from the contributing source set"
             )
     elif not _EXPECTED_SOURCE_PRODUCTS.issubset(attributed_sources):
         raise NonRetryableGoldenBuildError(
@@ -1828,6 +1879,7 @@ def submit_golden_release(
             entry_args=args,
             required_keys=(
                 "releasePlanId",
+                "releasePlan",
                 "buildMode",
                 "qualityStatus",
                 "qualityReport",
@@ -1869,6 +1921,7 @@ def submit_golden_release(
             raise NonRetryableGoldenBuildError("Gold release was not committed")
         missing_success_keys = {
             "commitKey",
+            "releasePlan",
             "releaseCommit",
             "attributionManifest",
             "tableCounts",
@@ -1880,6 +1933,11 @@ def submit_golden_release(
                 + ", ".join(sorted(missing_success_keys))
             )
         _validate_table_commit(summary, label="Gold release")
+        plan_ref = _validated_object_ref(
+            summary["releasePlan"],
+            label="Gold release plan",
+            media_type=GOLD_RELEASE_PLAN_MEDIA_TYPE,
+        )
         quality_ref = _validated_object_ref(
             summary["qualityReport"],
             label="Gold quality report",
@@ -1914,6 +1972,7 @@ def submit_golden_release(
             client=_s3_client(env.aws_region),
             input_data=input_data,
             preflight=preflight,
+            plan_ref=plan_ref,
             quality_ref=quality_ref,
             attribution_ref=attribution_ref,
             commit_ref=commit_ref,
@@ -1925,6 +1984,7 @@ def submit_golden_release(
         return GoldenReleaseResult(
             release_plan_id=release_plan_id,
             commit_key=commit_key,
+            release_plan=plan_ref,
             quality_report=quality_ref,
             attribution_manifest=attribution_ref,
             release_commit=commit_ref,
@@ -1973,6 +2033,7 @@ def write_golden_build_summary(
             "release": {
                 "releasePlanId": result.release.release_plan_id,
                 "commitKey": result.release.commit_key,
+                "releasePlan": _object_ref_payload(result.release.release_plan),
                 "qualityReport": _object_ref_payload(result.release.quality_report),
                 "attributionManifest": _object_ref_payload(
                     result.release.attribution_manifest

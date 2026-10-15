@@ -1,9 +1,11 @@
 {
   "registryId": "research-predicates",
   "schemaVersion": "1.0",
+  "registryVersion": "1.1.0",
   "predicates": [
     {
       "predicate": "discipline",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "STRING",
       "domains": ["SPORTS"],
@@ -12,6 +14,7 @@
     },
     {
       "predicate": "scheduled_start",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "TIMESTAMP",
       "domains": ["SPORTS"],
@@ -20,6 +23,7 @@
     },
     {
       "predicate": "event_date",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "DATE",
       "domains": ["SPORTS"],
@@ -28,6 +32,7 @@
     },
     {
       "predicate": "round_number",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "STRING",
       "domains": ["SPORTS"],
@@ -36,6 +41,7 @@
     },
     {
       "predicate": "event_status",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "STRING",
       "domains": ["SPORTS"],
@@ -44,6 +50,7 @@
     },
     {
       "predicate": "score",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "JSON",
       "domains": ["SPORTS"],
@@ -52,6 +59,7 @@
     },
     {
       "predicate": "period_score",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "JSON",
       "domains": ["SPORTS"],
@@ -60,6 +68,7 @@
     },
     {
       "predicate": "set_score",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "JSON",
       "domains": ["SPORTS"],
@@ -68,6 +77,7 @@
     },
     {
       "predicate": "placement",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "INTEGER",
       "domains": ["SPORTS"],
@@ -76,6 +86,7 @@
     },
     {
       "predicate": "outcome",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "STRING",
       "domains": ["SPORTS"],
@@ -84,6 +95,7 @@
     },
     {
       "predicate": "standing",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "JSON",
       "domains": ["SPORTS"],
@@ -92,6 +104,7 @@
     },
     {
       "predicate": "match_statistics",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "JSON",
       "domains": ["SPORTS"],
@@ -100,6 +113,7 @@
     },
     {
       "predicate": "lineup",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "JSON",
       "domains": ["SPORTS"],
@@ -108,6 +122,7 @@
     },
     {
       "predicate": "freeze_frame",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "JSON",
       "domains": ["SPORTS"],
@@ -116,6 +131,7 @@
     },
     {
       "predicate": "held_at",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["SPORTS"],
       "resolutionOperator": "SINGLE",
@@ -123,6 +139,7 @@
     },
     {
       "predicate": "participant",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["SPORTS"],
       "resolutionOperator": "SET_UNION",
@@ -130,6 +147,7 @@
     },
     {
       "predicate": "part_of_competition",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["SPORTS"],
       "resolutionOperator": "SINGLE",
@@ -137,6 +155,7 @@
     },
     {
       "predicate": "part_of_sports_season",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["SPORTS"],
       "resolutionOperator": "SINGLE",
@@ -144,6 +163,7 @@
     },
     {
       "predicate": "part_of_stage",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["SPORTS"],
       "resolutionOperator": "SINGLE",
@@ -151,6 +171,7 @@
     },
     {
       "predicate": "animation_technique",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "STRING",
       "domains": ["ANIMATION"],
@@ -159,6 +180,7 @@
     },
     {
       "predicate": "release_form",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "STRING",
       "domains": ["ANIMATION"],
@@ -167,6 +189,7 @@
     },
     {
       "predicate": "animation_tradition",
+      "predicateVersion": "1.0.0",
       "kind": "FIELD",
       "valueType": "STRING",
       "domains": ["ANIMATION"],
@@ -175,6 +198,7 @@
     },
     {
       "predicate": "adaptation_of",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["ANIMATION"],
       "resolutionOperator": "SET_UNION",
@@ -182,6 +206,7 @@
     },
     {
       "predicate": "character_appearance",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["ANIMATION"],
       "resolutionOperator": "SET_UNION",
@@ -189,6 +214,7 @@
     },
     {
       "predicate": "voice_performer",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["ANIMATION"],
       "resolutionOperator": "SET_UNION",
@@ -196,8 +222,238 @@
     },
     {
       "predicate": "production_credit",
+      "predicateVersion": "1.0.0",
       "kind": "RELATIONSHIP",
       "domains": ["ANIMATION"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "publication_time",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "TIMESTAMP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "claim_text",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "claim_status",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "correction_reason",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "reporting_status",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "source_kind",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "story_section",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "has_edition",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "contains_story",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "reports_event",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "reported_by_source",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "makes_claim",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "corrects_claim",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "corrects_story",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["JOURNALISM", "NEWS"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "learning_level",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "learning_duration",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "DURATION",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "objective_text",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "instruction_text",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "KEEP_ALL",
+      "temporal": true
+    },
+    {
+      "predicate": "step_ordinal",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "INTEGER",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SINGLE",
+      "temporal": false
+    },
+    {
+      "predicate": "demonstration_kind",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "has_module",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "has_lesson",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "teaches_concept",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "has_objective",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "requires_prerequisite",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "has_procedure_step",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["INSTRUCTION", "LEARNING"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "demonstrates",
+      "predicateVersion": "1.0.0",
+      "kind": "RELATIONSHIP",
+      "domains": ["INSTRUCTION", "LEARNING"],
       "resolutionOperator": "SET_UNION",
       "temporal": false
     }

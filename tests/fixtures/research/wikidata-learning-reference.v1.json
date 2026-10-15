@@ -1,0 +1,227 @@
+{
+  "schemaVersion": "video.media-catalog.reference-fixture.v1",
+  "fixtureId": "wikidata-learning-reference-v1",
+  "domain": "LEARNING",
+  "sourceRevision": "wikidata-20261001-all.json.bz2",
+  "capturedAt": "2026-10-15T00:00:00Z",
+  "rawObject": {
+    "uri": "file:///tests/fixtures/research/wikidata-learning-reference.v1.jsonl",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/x-ndjson",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    "sizeBytes": 2520
+  },
+  "imageDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "configDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "citations": [
+    {
+      "citationId": "course",
+      "sourceRecordId": "Q600134",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q600134",
+      "title": "course",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    {
+      "citationId": "microlearning",
+      "sourceRecordId": "Q1504241",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q1504241",
+      "title": "microlearning",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    {
+      "citationId": "lesson",
+      "sourceRecordId": "Q379833",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q379833",
+      "title": "lesson",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    {
+      "citationId": "concept",
+      "sourceRecordId": "Q151885",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q151885",
+      "title": "concept",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    {
+      "citationId": "educational-objective",
+      "sourceRecordId": "Q939957",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q939957",
+      "title": "educational objective",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    {
+      "citationId": "prerequisite-property",
+      "sourceRecordId": "Q600134/prerequisite/1",
+      "sourceUrl": "https://www.wikidata.org/wiki/Property:P4967",
+      "title": "prerequisite",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    {
+      "citationId": "procedure",
+      "sourceRecordId": "Q20920559",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q20920559",
+      "title": "procedure",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    },
+    {
+      "citationId": "teaching-method",
+      "sourceRecordId": "Q1813494",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q1813494",
+      "title": "teaching method",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-15T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:da829fcedd9176d6841d4d49e16c1dc8cbb52e2355f80d5f29626689086cb47e"
+    }
+  ],
+  "records": [
+    {
+      "payload": {
+        "id": "Q600134",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "COURSE",
+        "labels": {"en": {"value": "course"}},
+        "descriptions": {"en": {"value": "program of study or unit of teaching"}},
+        "learningLevel": "FOUNDATIONAL",
+        "learningDuration": "PT12H",
+        "relations": [
+          {"predicate": "has_module", "targetId": "Q1504241", "targetType": "MODULE"},
+          {"predicate": "requires_prerequisite", "targetId": "Q600134/prerequisite/1", "targetType": "PREREQUISITE"}
+        ]
+      },
+      "citationIds": ["course"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q1504241",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "MODULE",
+        "labels": {"en": {"value": "microlearning module"}},
+        "learningLevel": "FOUNDATIONAL",
+        "learningDuration": "PT45M",
+        "relations": [
+          {"predicate": "has_lesson", "targetId": "Q379833", "targetType": "LESSON"},
+          {"predicate": "has_objective", "targetId": "Q939957", "targetType": "LEARNING_OBJECTIVE"}
+        ]
+      },
+      "citationIds": ["microlearning"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q379833",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "LESSON",
+        "labels": {"en": {"value": "lesson"}},
+        "instructionText": "Introduce the concept, demonstrate the procedure, then guide practice.",
+        "learningDuration": "PT30M",
+        "relations": [
+          {"predicate": "teaches_concept", "targetId": "Q151885", "targetType": "LEARNING_CONCEPT"},
+          {"predicate": "has_procedure_step", "targetId": "Q20920559", "targetType": "PROCEDURE_STEP"},
+          {"predicate": "demonstrates", "targetId": "Q1813494", "targetType": "DEMONSTRATION"}
+        ]
+      },
+      "citationIds": ["lesson"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "2026-09-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q151885",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "LEARNING_CONCEPT",
+        "labels": {"en": {"value": "concept"}},
+        "descriptions": {"en": {"value": "abstract idea used as a unit of learning"}}
+      },
+      "citationIds": ["concept"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q939957",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "LEARNING_OBJECTIVE",
+        "labels": {"en": {"value": "educational objective"}},
+        "objectiveText": "Learners can identify a concept and apply a reviewed procedure."
+      },
+      "citationIds": ["educational-objective"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q600134/prerequisite/1",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "PREREQUISITE",
+        "labels": {"en": {"value": "foundational knowledge prerequisite"}},
+        "objectiveText": "Basic familiarity with knowledge bases and unique identifiers."
+      },
+      "citationIds": ["prerequisite-property"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q20920559",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "PROCEDURE_STEP",
+        "labels": {"en": {"value": "reviewed procedure step"}},
+        "instructionText": "Carry out one bounded step and verify the result before continuing.",
+        "stepOrdinal": 1,
+        "relations": [
+          {"predicate": "demonstrates", "targetId": "Q151885", "targetType": "LEARNING_CONCEPT"}
+        ]
+      },
+      "citationIds": ["procedure"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z",
+      "validFrom": "2026-09-01T00:00:00Z"
+    },
+    {
+      "payload": {
+        "id": "Q1813494",
+        "researchDomain": "LEARNING",
+        "entityTypeHint": "DEMONSTRATION",
+        "labels": {"en": {"value": "teaching demonstration"}},
+        "demonstrationKind": "GUIDED",
+        "learningDuration": "PT10M",
+        "relations": [
+          {"predicate": "demonstrates", "targetId": "Q20920559", "targetType": "PROCEDURE_STEP"}
+        ]
+      },
+      "citationIds": ["teaching-method"],
+      "sourceModifiedAt": "2026-10-01T00:00:00Z"
+    }
+  ]
+}

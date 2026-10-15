@@ -112,6 +112,45 @@ def _profile(
     )
 
 
+def test_news_and_learning_profiles_are_reference_gold_contributors() -> None:
+    values = {
+        "profile_id": "news-wikidata-reference",
+        "domain": "NEWS",
+        "source_product_id": "wikidata-json-dump",
+        "capture_manifest": ObjectRefPayload.from_mapping(
+            _object_mapping("s3://bucket/captures/news.json", "f")
+        ),
+        "env": _env(),
+        "watermark": "wikidata-news-2026-10",
+    }
+    profile = ResearchSourceProfile(
+        **values,
+        identity_spine=True,
+        gold_contribution=True,
+    )
+
+    assert profile.materialization is False
+    assert profile.gold_contribution is True
+    with pytest.raises(ValueError, match="identity and Gold contribution"):
+        ResearchSourceProfile(**values)
+    with pytest.raises(ValueError, match="identity and Gold contribution"):
+        ResearchSourceProfile(
+            **values,
+            identity_spine=True,
+            gold_contribution=True,
+            materialization=True,
+        )
+    with pytest.raises(ValueError, match="not registered"):
+        ResearchSourceProfile(
+            **{
+                **values,
+                "source_product_id": "openfootball-git",
+            },
+            identity_spine=True,
+            gold_contribution=True,
+        )
+
+
 def _capture(profile: ResearchSourceProfile, marker: str) -> ResearchCaptureResult:
     return ResearchCaptureResult(
         profile_id=profile.profile_id,
@@ -322,6 +361,7 @@ def _golden_result(input_data: GoldenBuildInput) -> GoldenBuildResult:
         release=GoldenReleaseResult(
             release_plan_id=_run(56),
             commit_key=_run(57),
+            release_plan=_ref("s3://bucket/release-plan.json"),
             quality_report=_ref("s3://bucket/quality.json"),
             attribution_manifest=_ref("s3://bucket/attribution.json"),
             release_commit=_ref("s3://bucket/release.json"),
@@ -376,7 +416,7 @@ def test_research_schedule_is_unpaused_and_updated_idempotently() -> None:
         )
     )
     assert client.handle.updated is True
-    assert len(_SCHEDULE_COORDINATES) == 5
+    assert len(_SCHEDULE_COORDINATES) == 7
 
 
 def test_schedule_config_rejects_any_publication_or_cutover_gate(
@@ -394,6 +434,9 @@ def test_schedule_config_rejects_any_publication_or_cutover_gate(
                     "cutoverAllowed": False,
                     "liveCutoverClaimed": False,
                     "reverseDualWriteAllowed": False,
+                    "referenceWorldMaterializationAllowed": False,
+                    "referenceWorldPublicationAllowed": False,
+                    "tenantCanonicalWriteAllowed": False,
                 },
                 "schedules": {},
             }

@@ -72,6 +72,57 @@ _IDENTITY_ENTITY_TYPE_MAP = {
         "SPORTS_VENUE",
     ),
     "CHARACTER": (EntityLevel.CHARACTER, "CHARACTER", "CHARACTER"),
+    "NEWS_PROGRAM": (
+        EntityLevel.NEWS_PROGRAM,
+        "NEWS_PROGRAM",
+        "NEWS_PROGRAM",
+    ),
+    "NEWS_EDITION": (
+        EntityLevel.NEWS_EDITION,
+        "NEWS_EDITION",
+        "NEWS_EDITION",
+    ),
+    "NEWS_STORY": (EntityLevel.NEWS_STORY, "NEWS_STORY", "NEWS_STORY"),
+    "REPORTED_EVENT": (
+        EntityLevel.REPORTED_EVENT,
+        "REPORTED_EVENT",
+        "REPORTED_EVENT",
+    ),
+    "INFORMATION_SOURCE": (
+        EntityLevel.INFORMATION_SOURCE,
+        "INFORMATION_SOURCE",
+        "INFORMATION_SOURCE",
+    ),
+    "CLAIM": (EntityLevel.CLAIM, "CLAIM", "CLAIM"),
+    "CORRECTION": (EntityLevel.CORRECTION, "CORRECTION", "CORRECTION"),
+    "COURSE": (EntityLevel.COURSE, "COURSE", "COURSE"),
+    "MODULE": (EntityLevel.MODULE, "MODULE", "MODULE"),
+    "LESSON": (EntityLevel.LESSON, "LESSON", "LESSON"),
+    "LEARNING_CONCEPT": (
+        EntityLevel.LEARNING_CONCEPT,
+        "LEARNING_CONCEPT",
+        "LEARNING_CONCEPT",
+    ),
+    "LEARNING_OBJECTIVE": (
+        EntityLevel.LEARNING_OBJECTIVE,
+        "LEARNING_OBJECTIVE",
+        "LEARNING_OBJECTIVE",
+    ),
+    "PREREQUISITE": (
+        EntityLevel.PREREQUISITE,
+        "PREREQUISITE",
+        "PREREQUISITE",
+    ),
+    "PROCEDURE_STEP": (
+        EntityLevel.PROCEDURE_STEP,
+        "PROCEDURE_STEP",
+        "PROCEDURE_STEP",
+    ),
+    "DEMONSTRATION": (
+        EntityLevel.DEMONSTRATION,
+        "DEMONSTRATION",
+        "DEMONSTRATION",
+    ),
 }
 
 _REFERENT_KIND_ALIASES = {
@@ -109,6 +160,21 @@ _ENTITY_LEVEL_BY_BLOCKING_KIND = {
     "SPORTS_ENTRY": EntityLevel.SPORTS_ENTRY,
     "SPORTS_VENUE": EntityLevel.SPORTS_VENUE,
     "CHARACTER": EntityLevel.CHARACTER,
+    "NEWS_PROGRAM": EntityLevel.NEWS_PROGRAM,
+    "NEWS_EDITION": EntityLevel.NEWS_EDITION,
+    "NEWS_STORY": EntityLevel.NEWS_STORY,
+    "REPORTED_EVENT": EntityLevel.REPORTED_EVENT,
+    "INFORMATION_SOURCE": EntityLevel.INFORMATION_SOURCE,
+    "CLAIM": EntityLevel.CLAIM,
+    "CORRECTION": EntityLevel.CORRECTION,
+    "COURSE": EntityLevel.COURSE,
+    "MODULE": EntityLevel.MODULE,
+    "LESSON": EntityLevel.LESSON,
+    "LEARNING_CONCEPT": EntityLevel.LEARNING_CONCEPT,
+    "LEARNING_OBJECTIVE": EntityLevel.LEARNING_OBJECTIVE,
+    "PREREQUISITE": EntityLevel.PREREQUISITE,
+    "PROCEDURE_STEP": EntityLevel.PROCEDURE_STEP,
+    "DEMONSTRATION": EntityLevel.DEMONSTRATION,
 }
 
 _LOWERCASE_DISPLAY_NAMESPACES = frozenset(

@@ -136,17 +136,20 @@ The batch indexer builds only the research family:
 
 - prefix `media-catalog-research`;
 - read alias `media-catalog-research-read`;
-- strict mapping with projectionVersion `9`;
+- strict mapping with projectionVersion `10`;
 - mapping digest
-  `sha256:eda3602a4d8cb774a30ab9623c62b74704b6fa27c41931b60f9ad2ac65ebb93b`;
+  `sha256:dc7e8382ee3a43731a2fc9242639d7c001d29c04d2498b2a1d6ec3cfd247ec16`;
 - deterministic build identity bound to one Gold release commit;
-- partition receipts, count reconciliation, and atomic alias update.
+- partition receipts, count reconciliation, and independent validation;
+  alias promotion remains a separate explicitly authorized operation.
 
-Projection v9 retains nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
+Projection v10 retains nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
 `seasonEntityKey`. It also adds `domains`; bounded Sports competition, season,
 stage, participant, venue and current-result fields; bounded Animation profile,
-studio and character fields; and bounded `observationHistory`. Every bounded
-collection has an explicit overflow counter, while complete revision history
+studio and character fields; bounded `observationHistory`; and versioned
+CanonicalSubject roots/type concepts with bounded News/Learning reference
+candidates and relations. Every bounded collection has an explicit overflow
+counter, while complete revision history
 remains in `community_gold_observation`. Hierarchy keys are derived only from
 rights-filtered Gold relations.
 Ambiguous, missing, malformed, or over-bound parent candidates produce null;
@@ -157,6 +160,10 @@ season-to-series edge. Every document also carries the pinned
 canonical source, assertion ID, and bounded citation keys; unknown namespaces
 or source/namespace ownership conflicts are omitted from materialization
 evidence.
+
+The Global Reference release boundary is described in
+`docs/architecture/global-reference-catalog.md`. It binds a validated concrete
+index but deliberately excludes alias activation and every tenant World write.
 
 The Temporal Golden input must carry normalized `sourceRunStates`. IMDb,
 TVmaze, Wikidata, and TMDB each declare exact committed run

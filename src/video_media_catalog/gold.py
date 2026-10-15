@@ -31,6 +31,9 @@ from video_media_catalog.v2_contracts import (
 
 _ZERO_DIGEST = "sha256:" + ("0" * 64)
 RESEARCH_CONTEXT_ID = "research"
+GOLD_RELEASE_PLAN_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.gold-release-plan.v2+json"
+)
 RESEARCH_AUDIENCE = "research"
 RESEARCH_PURPOSE = "research"
 RESEARCH_ALLOWED_ZONES = tuple(
@@ -277,7 +280,7 @@ def research_policy() -> GoldResolutionPolicy:
     )
     return GoldResolutionPolicy(
         policy_id="research-display-v2",
-        policy_version="2.1.0",
+        policy_version="2.3.0",
         requested_actions=(
             UsageAction.STORE,
             UsageAction.TRANSFORM,
@@ -396,6 +399,12 @@ def research_policy() -> GoldResolutionPolicy:
                     "match_statistics",
                     "lineup",
                     "freeze_frame",
+                    "publication_time",
+                    "claim_text",
+                    "claim_status",
+                    "correction_reason",
+                    "reporting_status",
+                    "instruction_text",
                 )
             ),
             *(
@@ -407,6 +416,8 @@ def research_policy() -> GoldResolutionPolicy:
                 for predicate in (
                     "discipline",
                     "animation_technique",
+                    "objective_text",
+                    "demonstration_kind",
                 )
             ),
             *(
@@ -460,6 +471,11 @@ def research_policy() -> GoldResolutionPolicy:
                     "episode_number",
                     "season_count",
                     "season_number",
+                    "story_section",
+                    "source_kind",
+                    "learning_level",
+                    "learning_duration",
+                    "step_ordinal",
                 )
             ),
             *(
@@ -545,6 +561,30 @@ def research_policy() -> GoldResolutionPolicy:
                 assertion_kind=PredicateKind.RELATIONSHIP,
                 operator=ResolutionOperator.SET_UNION,
                 source_priority=fact_priority,
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    assertion_kind=PredicateKind.RELATIONSHIP,
+                    operator=ResolutionOperator.SET_UNION,
+                    source_priority=fact_priority,
+                )
+                for predicate in (
+                    "has_edition",
+                    "contains_story",
+                    "reports_event",
+                    "reported_by_source",
+                    "makes_claim",
+                    "corrects_claim",
+                    "corrects_story",
+                    "has_module",
+                    "has_lesson",
+                    "teaches_concept",
+                    "has_objective",
+                    "requires_prerequisite",
+                    "has_procedure_step",
+                    "demonstrates",
+                )
             ),
         ),
     )
@@ -643,6 +683,9 @@ class GoldReleasePlan(V2ContractModel):
     planned_at: str
     domain_coverage: dict[str, int] = Field(default_factory=dict)
     source_snapshot_digests: dict[str, str] = Field(default_factory=dict)
+    source_snapshot_pin_ids: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    reference_ontology_digest: str | None = None
+    reference_predicate_registry_digest: str | None = None
 
     @field_validator(
         "release_plan_id",
@@ -654,6 +697,8 @@ class GoldReleasePlan(V2ContractModel):
         "config_digest",
         "silver_epoch_id",
         "committed_run_digest",
+        "reference_ontology_digest",
+        "reference_predicate_registry_digest",
     )
     @classmethod
     def validate_digest(cls, value: str | None) -> str | None:
@@ -694,7 +739,15 @@ class GoldReleasePlan(V2ContractModel):
     @field_validator("domain_coverage")
     @classmethod
     def validate_domain_coverage(cls, value: dict[str, int]) -> dict[str, int]:
-        allowed = {"FILM", "SPORTS", "ANIMATION"}
+        allowed = {
+            "FILM",
+            "SPORTS",
+            "ANIMATION",
+            "NEWS",
+            "JOURNALISM",
+            "LEARNING",
+            "INSTRUCTION",
+        }
         if not set(value) <= allowed:
             raise ValueError("Gold domain coverage contains an unknown domain")
         if any(isinstance(count, bool) or count < 0 for count in value.values()):
@@ -717,6 +770,28 @@ class GoldReleasePlan(V2ContractModel):
             )
         )
 
+    @field_validator("source_snapshot_pin_ids")
+    @classmethod
+    def validate_source_snapshot_pin_ids(
+        cls,
+        value: dict[str, tuple[str, ...]],
+    ) -> dict[str, tuple[str, ...]]:
+        normalized: dict[str, tuple[str, ...]] = {}
+        for source, pin_ids in value.items():
+            source_id = require_slug(source, label="Gold source snapshot pin source")
+            pins = tuple(
+                sorted(
+                    {
+                        require_sha256(pin_id, label="Gold source snapshot pin")
+                        for pin_id in pin_ids
+                    }
+                )
+            )
+            if not pins:
+                raise ValueError("Gold source snapshot pin set must not be empty")
+            normalized[source_id] = pins
+        return dict(sorted(normalized.items()))
+
     @field_validator("planned_at")
     @classmethod
     def validate_planned_at(cls, value: str) -> str:
@@ -736,6 +811,16 @@ class GoldReleasePlan(V2ContractModel):
         if bool(self.committed_run_ids) == has_epoch:
             raise ValueError(
                 "Gold release requires either snapshot run IDs or one epoch summary"
+            )
+        if (self.reference_ontology_digest is None) != (
+            self.reference_predicate_registry_digest is None
+        ):
+            raise ValueError(
+                "Gold reference ontology and predicate digests must be paired"
+            )
+        if self.source_snapshot_pin_ids and self.reference_ontology_digest is None:
+            raise ValueError(
+                "Gold source snapshot pins require reference ontology coordinates"
             )
         if (
             context.context_id != RESEARCH_CONTEXT_ID
@@ -772,6 +857,13 @@ def _plan_identity(plan: GoldReleasePlan) -> dict[str, Any]:
         "domainCoverage": plan.domain_coverage,
         "sourceSnapshotDigests": plan.source_snapshot_digests,
     }
+    if plan.source_snapshot_pin_ids:
+        identity["sourceSnapshotPinIds"] = plan.source_snapshot_pin_ids
+    if plan.reference_ontology_digest is not None:
+        identity["referenceOntologyDigest"] = plan.reference_ontology_digest
+        identity["referencePredicateRegistryDigest"] = (
+            plan.reference_predicate_registry_digest
+        )
     if plan.source_policy_digest is not None:
         identity["sourcePolicyDigest"] = plan.source_policy_digest
     if plan.silver_epoch_id is None:

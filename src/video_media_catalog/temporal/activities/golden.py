@@ -291,6 +291,7 @@ def _normalized_source_run_states(
     normalized: list[GoldenSourceRunState] = []
     source_ids: set[str] = set()
     assigned_run_ids: set[str] = set()
+    baseline_run_ids = set(input_data.baseline_source_run_ids)
     for raw in input_data.source_run_states:
         source_product_id = raw.source_product_id.strip().lower()
         if source_product_id in source_ids:
@@ -338,9 +339,14 @@ def _normalized_source_run_states(
                 "identity, Gold, or materialization runs"
             )
 
-        if raw.gold_contribution and not raw.identity_spine:
+        if (
+            raw.gold_contribution
+            and not raw.identity_spine
+            and not set(run_ids).issubset(baseline_run_ids)
+        ):
             raise NonRetryableGoldenBuildError(
-                "Gold contribution requires an enabled Identity source"
+                "Gold-contributing source states without incremental Identity "
+                "must be covered by the baseline Identity"
             )
         if raw.materialization and not raw.gold_contribution:
             raise NonRetryableGoldenBuildError(

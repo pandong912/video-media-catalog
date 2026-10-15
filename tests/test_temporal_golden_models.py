@@ -232,6 +232,67 @@ def test_preflight_accepts_enabled_source_identity_intent() -> None:
     )
 
 
+def test_preflight_projects_sources_already_covered_by_baseline_identity() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        source_run_states=tuple(
+            replace(state, identity_spine=False, gold_contribution=True)
+            if state.source_product_id == "wikidata-json-dump"
+            else replace(state, identity_spine=True, gold_contribution=True)
+            for state in base.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert set(result.all_snapshot_run_ids) == {
+        *input_data.baseline_source_run_ids,
+        input_data.baseline_identity_run_id,
+        *input_data.tmdb_source_run_ids,
+    }
+    assert _incremental_identity_source_run_ids(input_data, result) == tuple(
+        sorted(
+            (
+                input_data.baseline_source_run_ids[0],
+                input_data.baseline_source_run_ids[1],
+                *input_data.tmdb_source_run_ids,
+            )
+        )
+    )
+
+
+def test_preflight_rejects_gold_only_nonbaseline_runs() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        source_run_states=tuple(
+            replace(state, gold_contribution=True)
+            if state.source_product_id == "tmdb-research"
+            else state
+            for state in base.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match=r"Gold-contributing.*baseline Identity",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
 def test_preflight_rejects_pending_source_gold_contribution() -> None:
     base = _with_source_states(_input())
     eidr_run = _run(90)

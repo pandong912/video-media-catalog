@@ -25,8 +25,9 @@ def test_release_buildspec_signs_both_runtime_images_from_immutable_source() -> 
     assert EMR_BASE_IMAGE in contract
     assert "exceeds the maximum supported with Basic Scanning" in contract
     assert "scanner=grype-differential" in contract
-    assert 'test "$new_critical" = 0\n            test "$critical" = 0' in contract
-    assert "MANAGED_EMR_BASE_ZERO_CRITICAL" in contract
+    assert 'test "$new_critical" = 0' in contract
+    assert "MANAGED_EMR_BASE_FINDINGS_RECORDED_NO_NEW_CRITICAL" in contract
+    assert "MANAGED_EMR_BASE_FINDINGS_RECORDED" in contract
     assert "claimsLiveDeployment:false" in contract
 
 

@@ -97,6 +97,10 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     assert "spark.emr-serverless.executor.disk.type=SHUFFLE_OPTIMIZED" in parameters
     assert "spark.speculation=false" in parameters
     assert "spark.dynamicAllocation.enabled=false" in parameters
+    assert "spark.task.maxFailures=8" in parameters
+    assert "spark.stage.maxConsecutiveAttempts=20" in parameters
+    assert "spark.shuffle.io.maxRetries=16" in parameters
+    assert "spark.excludeOnFailure.timeout=24h" in parameters
 
 
 def test_submit_enables_bounded_speculation_when_requested() -> None:
@@ -117,6 +121,27 @@ def test_submit_enables_bounded_speculation_when_requested() -> None:
     assert "spark.speculation.multiplier=4" in parameters
     assert "spark.speculation.minTaskRuntime=300s" in parameters
     assert "spark.speculation.efficiency.enabled=false" in parameters
+
+
+def test_submit_uses_bounded_retries_for_fail_fast_jobs() -> None:
+    client = _Client(["SUCCESS"])
+
+    run(
+        _parsed("--failure-policy", "fail-fast"),
+        client=client,
+        sleep=lambda _seconds: None,
+    )
+
+    assert client.start_request is not None
+    parameters = client.start_request["jobDriver"]["sparkSubmit"][
+        "sparkSubmitParameters"
+    ]
+    assert "spark.speculation=false" in parameters
+    assert "spark.task.maxFailures=4" in parameters
+    assert "spark.stage.maxConsecutiveAttempts=4" in parameters
+    assert "spark.shuffle.io.maxRetries=3" in parameters
+    assert "spark.shuffle.io.retryWait=5s" in parameters
+    assert "spark.excludeOnFailure.timeout=15m" in parameters
 
 
 def test_resume_waits_for_existing_job_without_resubmitting() -> None:

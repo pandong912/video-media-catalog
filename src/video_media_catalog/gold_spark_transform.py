@@ -627,6 +627,37 @@ def _eligible_assertions(
     return resolved, withheld, unresolved
 
 
+def _with_observation_provenance(frame: Any) -> Any:
+    """Hydrate temporal keys from legacy assertion provenance when necessary."""
+
+    from pyspark.sql import functions as F
+
+    paths = {
+        "observation_key": ("$.observationKey", "$.observation_key"),
+        "supersedes_assertion_id": (
+            "$.supersedesAssertionId",
+            "$.supersedes_assertion_id",
+        ),
+    }
+
+    def non_blank(value: Any) -> Any:
+        return F.when(F.length(F.trim(value)) > 0, value)
+
+    hydrated = frame
+    for column, json_paths in paths.items():
+        hydrated = hydrated.withColumn(
+            column,
+            F.coalesce(
+                non_blank(F.col(column)),
+                *(
+                    non_blank(F.get_json_object("provenance_json", path))
+                    for path in json_paths
+                ),
+            ),
+        )
+    return hydrated
+
+
 def _assertion_lineage(row: Any) -> GoldAssertionLineage:
     provenance = json.loads(row["provenance_json"])
     citation_keys = tuple(provenance.get("citationKeys") or ())
@@ -1587,15 +1618,14 @@ def build_distributed_gold(
             termination_fences=termination_fences,
             enforce_valid_time=False,
         )
-        observation_missing_key_count = historical_fields.where(
-            F.col("predicate").isin(*temporal_predicates)
-            & F.col("observation_key").isNull()
+        temporal_fields = _with_observation_provenance(
+            historical_fields.where(F.col("predicate").isin(*temporal_predicates))
+        )
+        observation_missing_key_count = temporal_fields.where(
+            F.col("observation_key").isNull()
         ).count()
         observation_fields = (
-            historical_fields.where(
-                F.col("predicate").isin(*temporal_predicates)
-                & F.col("observation_key").isNotNull()
-            )
+            temporal_fields.where(F.col("observation_key").isNotNull())
             .dropDuplicates(["resolved_entity_key", "assertion_id"])
             .persist()
         )

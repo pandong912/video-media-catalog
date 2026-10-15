@@ -19,13 +19,18 @@ from video_media_catalog.assertions import (
     build_relationship_assertion,
 )
 from video_media_catalog.canonical import canonical_json
+from video_media_catalog.community_iceberg import _restore_optional_columns
 from video_media_catalog.community_ingest import CommunityIngestRun
 from video_media_catalog.community_rows import (
     identifier_assertion_row,
     ingest_run_row,
     relationship_assertion_row,
 )
-from video_media_catalog.community_sources import build_community_registry
+from video_media_catalog.community_sources import (
+    OPENFOOTBALL_SNAPSHOT_CONNECTOR_ID,
+    build_community_registry,
+    openfootball_rights_profile,
+)
 from video_media_catalog.community_spark import (
     community_table_schema,
     create_community_dataframes,
@@ -468,6 +473,85 @@ def _tmdb_source_capture(*, acquired_at: str):
     )
 
 
+def _openfootball_source_capture(*, acquired_at: str):
+    policy = openfootball_rights_profile()
+    raw_object = ObjectRef(
+        uri="file:///tmp/openfootball-gold.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type="application/json",
+        checksum=Checksum(value=hashlib.sha256(b"openfootball-gold").hexdigest()),
+        size_bytes=17,
+        created_at=acquired_at,
+    )
+    snapshot_pin_id = "sha256:" + ("7" * 64)
+    batch = build_connector_batch_manifest(
+        source_system_id="openfootball",
+        source_product_id="openfootball-git",
+        connector_id=OPENFOOTBALL_SNAPSHOT_CONNECTOR_ID,
+        connector_version="1.0.0",
+        image_digest="sha256:" + ("1" * 64),
+        config_digest="sha256:" + ("2" * 64),
+        policy_id=policy.policy_id,
+        policy_digest=policy.digest,
+        transport_kind=TransportKind.DUMP,
+        serialization=Serialization.JSON,
+        change_semantics=ChangeSemantics.FULL_SNAPSHOT,
+        completeness=Completeness.COMPLETE,
+        delete_coverage=DeleteCoverage.SNAPSHOT_DIFF,
+        coverage_scope={
+            "repository": "openfootball",
+            "schemaId": "openfootball-event",
+            "pinId": snapshot_pin_id,
+        },
+        raw_objects=(raw_object,),
+        acquired_at=acquired_at,
+        record_count=1,
+        error_count=0,
+        watermark_after="1" * 40,
+    )
+    envelope = build_connector_record_envelope(
+        payload={
+            "type": "competition",
+            "id": "eng.1",
+            "name": "Premier League",
+            "discipline": "football",
+            "score": {"home": 2, "away": 1},
+        },
+        batch_id=batch.batch_id,
+        source_system_id=batch.source_system_id,
+        source_product_id=batch.source_product_id,
+        source_namespace_id="openfootball-competition",
+        source_record_id="eng.1",
+        source_revision="1" * 40,
+        operation=RecordOperation.UPSERT,
+        observed_at=acquired_at,
+        ingested_at=acquired_at,
+        payload_schema="openfootball-event",
+        raw_object=raw_object,
+        source_location="/competitions/eng.1",
+        policy_id=policy.policy_id,
+        policy_digest=policy.digest,
+        citation_keys=("sha256:" + ("8" * 64),),
+    )
+    record_set = build_connector_record_set_manifest(
+        batch_id=batch.batch_id,
+        source_product_id=batch.source_product_id,
+        policy_id=policy.policy_id,
+        policy_digest=policy.digest,
+        record_objects=(raw_object,),
+        record_count=1,
+        first_envelope_key=envelope.envelope_key,
+        last_envelope_key=envelope.envelope_key,
+        created_at=acquired_at,
+    )
+    return build_source_silver_rows(
+        registry=build_community_registry(),
+        batch=batch,
+        record_set=record_set,
+        envelopes=(envelope,),
+    )
+
+
 def _assertion_provenance_for_source(
     rows: dict[str, list[dict[str, object]]],
     source_id: str,
@@ -618,6 +702,78 @@ def _gold(
         config_digest="sha256:" + ("f" * 64),
         planned_at=as_of,
     )
+
+
+@pytest.mark.spark
+def test_gold_restores_observation_columns_from_legacy_silver_schema(
+    spark: SparkSession,
+) -> None:
+    source_run, rows = _openfootball_source_capture(acquired_at="2026-10-15T00:00:00Z")
+    score_row = next(
+        row for row in rows["community_field_assertion"] if row["predicate"] == "score"
+    )
+    expected_observation_key = json.loads(str(score_row["provenance_json"]))[
+        "observationKey"
+    ]
+    identity_run_id = "sha256:" + ("9" * 64)
+    entity_key = "sha256:" + ("a" * 64)
+    rows["community_entity_ledger"].append(
+        {
+            "entity_key": entity_key,
+            "run_id": identity_run_id,
+            "allocation_id": "01a081e8-6420-7000-8000-000000000303",
+            "entity_level": "SPORTS_COMPETITION",
+            "entity_kind": "SPORTS_COMPETITION",
+            "status": "ACTIVE",
+            "created_at": "2026-10-15T00:00:00Z",
+            "first_release_id": None,
+            "imported_v1": False,
+        }
+    )
+    rows["community_entity_membership"].append(
+        {
+            "membership_key": "sha256:" + ("b" * 64),
+            "run_id": identity_run_id,
+            "source_namespace_id": "openfootball-competition",
+            "source_id": "eng.1",
+            "source_referent_kind": "SPORTS_COMPETITION",
+            "entity_key": entity_key,
+            "decision_id": "sha256:" + ("c" * 64),
+            "valid_from": "2026-10-15T00:00:00Z",
+            "valid_to": None,
+        }
+    )
+    visible = create_community_dataframes(spark, rows)
+    for table in (
+        "community_field_assertion",
+        "community_identifier_assertion",
+        "community_relationship_assertion",
+        "community_entity_type_assertion",
+    ):
+        legacy = visible[table].drop(
+            "observation_key",
+            "supersedes_assertion_id",
+        )
+        visible[table] = _restore_optional_columns(legacy, table=table)
+    visible["community_ingest_run"] = spark.createDataFrame(
+        [ingest_run_row(source_run)],
+        schema=community_table_schema("community_ingest_run"),
+    )
+
+    build = _gold(
+        spark,
+        visible=visible,
+        committed_run_ids=(source_run.run_id, identity_run_id),
+        as_of="2026-10-15T01:00:00Z",
+    )
+    try:
+        observations = build.dataframes["community_gold_observation"].collect()
+        score = next(row for row in observations if row["predicate"] == "score")
+        assert build.quality_report.status == GoldQualityStatus.PASS
+        assert score["observation_key"] == expected_observation_key
+        assert score["entity_key"] == entity_key
+    finally:
+        build.unpersist()
 
 
 @pytest.mark.spark

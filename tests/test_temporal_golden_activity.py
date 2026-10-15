@@ -784,11 +784,7 @@ def test_epoch_requires_unique_exact_pinned_runs_plus_identity(
         identity_bound_config_digest="sha256:" + ("c" * 64),
     )
     identity = GoldenIdentityResult(
-        run_id=(
-            input_data.baseline_identity_run_id
-            if reuse_identity
-            else _run(100)
-        ),
+        run_id=(input_data.baseline_identity_run_id if reuse_identity else _run(100)),
         commit_key=_run(101),
         source_run_ids=preflight.tmdb_source_run_ids,
         table_counts={"community_entity_ledger": 1},

@@ -40,8 +40,8 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
 
     assert emr_dockerfile.startswith("ARG EMR_BASE_IMAGE=")
     assert (
-        "public.ecr.aws/emr-serverless/spark/emr-7.9.0@sha256:"
-        "1c66252dcc31d3be32157ba95239fca0f1f3f2d6fa470e827d3be50bbe9a87b5"
+        "public.ecr.aws/emr-serverless/spark/emr-7.10.0@sha256:"
+        "c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46"
     ) in emr_dockerfile
     assert "FROM ${EMR_BASE_IMAGE}" in emr_dockerfile
     assert "python3.12" in emr_dockerfile

@@ -26,9 +26,13 @@ from video_media_catalog.iceberg import CatalogConfig
 class FakeCatalog:
     def __init__(self) -> None:
         self.dropped: list[str] = []
+        self.refreshed: list[str] = []
 
     def dropTempView(self, name: str) -> None:
         self.dropped.append(name)
+
+    def refreshTable(self, name: str) -> None:
+        self.refreshed.append(name)
 
 
 class FakeConf:
@@ -55,10 +59,26 @@ class FakeSpark:
         self.statements: list[str] = []
         self.catalog = FakeCatalog()
         self.conf = FakeConf()
+        self.table_columns = {
+            table: list(columns) for table, columns in TABLE_COLUMNS.items()
+        }
 
     def sql(self, statement: str):
         self.statements.append(statement)
         return FakeResult()
+
+    def table(self, name: str):
+        physical = name.rsplit(".", 1)[-1]
+        logical = next(
+            table
+            for table in TABLE_COLUMNS
+            if physical == table or physical.startswith(f"{table}__g_")
+        )
+        return type(
+            "FakeSchemaFrame",
+            (),
+            {"columns": self.table_columns[logical]},
+        )()
 
 
 class FakeFrame:
@@ -146,6 +166,51 @@ def test_creates_v2_tables_with_policy_aware_types(tmp_path: Path) -> None:
     assert any("`community_entity_merge_event`" in sql for sql in creates)
     assert any("`community_entity_split_event`" in sql for sql in creates)
     assert all("format-version" in sql for sql in creates)
+
+
+def test_create_tables_adds_nullable_columns_missing_from_legacy_schema(
+    tmp_path: Path,
+) -> None:
+    spark = FakeSpark()
+    spark.table_columns["community_field_assertion"] = [
+        column
+        for column in TABLE_COLUMNS["community_field_assertion"]
+        if column not in {"observation_key", "supersedes_assertion_id"}
+    ]
+    tables = CommunityCatalogTables(
+        spark,
+        CatalogConfig(
+            catalog_name="media",
+            namespace="community_v2",
+            warehouse=(tmp_path / "warehouse").as_uri(),
+        ),
+    )
+
+    tables.create_tables()
+
+    alters = [statement for statement in spark.statements if "ALTER TABLE" in statement]
+    assert len(alters) == 1
+    assert "`observation_key` STRING" in alters[0]
+    assert "`supersedes_assertion_id` STRING" in alters[0]
+    assert "NOT NULL" not in alters[0]
+
+
+def test_create_tables_rejects_missing_required_legacy_column(
+    tmp_path: Path,
+) -> None:
+    spark = FakeSpark()
+    spark.table_columns["community_field_assertion"].remove("predicate")
+    tables = CommunityCatalogTables(
+        spark,
+        CatalogConfig(
+            catalog_name="media",
+            namespace="community_v2",
+            warehouse=(tmp_path / "warehouse").as_uri(),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="missing required columns: predicate"):
+        tables.create_tables()
 
 
 def test_generation_create_and_merge_resolve_identity_physical_table(

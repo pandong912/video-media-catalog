@@ -60,6 +60,37 @@ def _column_definition(table: str, column: str) -> str:
     return f"`{column}` {data_type}{nullability}"
 
 
+def _restore_optional_columns(frame: Any, *, table: str) -> Any:
+    """Restore additive nullable columns when an exact snapshot uses an old schema."""
+
+    if table not in DATA_TABLE_COLUMNS:
+        raise KeyError(f"unknown community data table: {table}")
+
+    from pyspark.sql import functions as F
+
+    from video_media_catalog.community_spark import community_table_schema
+
+    expected_fields = {
+        field.name: field for field in community_table_schema(table).fields
+    }
+    present = set(frame.columns)
+    missing = set(expected_fields) - present
+    missing_required = sorted(missing - NULLABLE_COLUMNS[table])
+    if missing_required:
+        raise RuntimeError(
+            f"{table} snapshot is missing required columns: "
+            + ", ".join(missing_required)
+        )
+
+    restored = frame
+    for column in sorted(missing):
+        restored = restored.withColumn(
+            column,
+            F.lit(None).cast(expected_fields[column].dataType),
+        )
+    return restored
+
+
 class CommunityCatalogTables:
     """Own append-only v2 tables whose visibility is fenced by run commits."""
 
@@ -131,6 +162,37 @@ class CommunityCatalogTables:
                 )
                 """
             )
+            self._ensure_additive_schema(table)
+
+    def _ensure_additive_schema(self, table: str) -> None:
+        existing = set(self.spark.table(self.table_name(table)).columns)
+        missing = set(TABLE_COLUMNS[table]) - existing
+        missing_required = sorted(missing - NULLABLE_COLUMNS[table])
+        if missing_required:
+            raise RuntimeError(
+                f"{table} table is missing required columns: "
+                + ", ".join(missing_required)
+            )
+        if not missing:
+            return
+
+        additions = ", ".join(
+            _column_definition(table, column)
+            for column in TABLE_COLUMNS[table]
+            if column in missing
+        )
+        try:
+            self.spark.sql(
+                f"ALTER TABLE {self.table_identifier(table)} ADD COLUMNS ({additions})"
+            )
+        except Exception:
+            # A concurrent writer may have completed the same additive migration.
+            self.spark.catalog.refreshTable(self.table_name(table))
+            remaining = set(TABLE_COLUMNS[table]) - set(
+                self.spark.table(self.table_name(table)).columns
+            )
+            if remaining:
+                raise
 
     def empty_dataframe(self, table: str) -> Any:
         """Return an empty frame with the mapped physical table schema."""
@@ -995,6 +1057,7 @@ class CommunityCatalogTables:
                 .option("snapshot-id", str(snapshot_id))
                 .load(self.table_name(table))
             )
+            frame = _restore_optional_columns(frame, table=table)
             run_ids = normalized_filters.get(table)
             if run_ids is None:
                 visible[table] = frame.join(commits, "run_id", "inner")

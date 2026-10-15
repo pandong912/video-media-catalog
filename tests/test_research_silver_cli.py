@@ -8,6 +8,10 @@ from video_media_catalog.community_ingest import (
     IngestRunKind,
     build_community_ingest_run,
 )
+from video_media_catalog.community_snapshot import (
+    SILVER_SNAPSHOT_MEDIA_TYPE,
+    build_community_silver_snapshot_set,
+)
 from video_media_catalog.community_tables import (
     DATA_TABLE_COLUMNS,
     SOURCE_TABLES,
@@ -21,6 +25,7 @@ from video_media_catalog.research_silver_cli import (
     _models_by_run,
     _normalize_run_ids,
     _optional_control_object_ref,
+    _parentless_identity_lineage_run_ids,
     _parse_source_watermarks,
     _require_immutable_snapshot_output,
     _selected_silver_frames,
@@ -320,6 +325,124 @@ def test_incremental_run_generation_matches_and_cross_generation_fails() -> None
             identity_generation_id="catalog-2026-10",
             table_mapping=build_community_table_mapping("catalog-2026-10"),
         )
+
+
+def test_parentless_epoch_closes_incremental_identity_lineage_only() -> None:
+    generation = "catalog-2026-09"
+    mapping = build_community_table_mapping(generation)
+    counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+
+    source = build_community_ingest_run(
+        run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+        source_product_id="tmdb-research",
+        input_id="sha256:" + ("1" * 64),
+        policy_id="research-source",
+        policy_digest="sha256:" + ("2" * 64),
+        image_digest="sha256:" + ("3" * 64),
+        config_digest="sha256:" + ("4" * 64),
+        started_at="2026-09-20T00:00:00Z",
+        expected_counts=counts,
+        input_manifest={"captureId": "source"},
+    )
+    parent_identity = build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        source_product_id="identity-resolution-v2",
+        input_id="sha256:" + ("5" * 64),
+        policy_id="internal-key-continuity",
+        policy_digest="sha256:" + ("6" * 64),
+        image_digest="sha256:" + ("7" * 64),
+        config_digest="sha256:" + ("8" * 64),
+        started_at="2026-09-20T01:00:00Z",
+        expected_counts=counts,
+        input_manifest={
+            "identityGenerationId": generation,
+            "identityMode": "full",
+            "tableMapping": mapping,
+        },
+    )
+    parent_snapshot = build_community_silver_snapshot_set(
+        committed_run_ids=(source.run_id, parent_identity.run_id),
+        run_snapshot_id=11,
+        commit_snapshot_id=12,
+        data_snapshot_ids={table: None for table in DATA_TABLE_COLUMNS},
+        identity_generation_id=generation,
+        table_mapping=mapping,
+        created_at="2026-09-20T02:00:00Z",
+    )
+    parent_ref = ObjectRef(
+        uri="file:///tmp/identity-parent-snapshot.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        checksum=Checksum(value="9" * 64),
+        size_bytes=100,
+    )
+    incremental_identity = build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        source_product_id="identity-resolution-v2",
+        input_id="sha256:" + ("a" * 64),
+        policy_id="internal-key-continuity",
+        policy_digest="sha256:" + ("b" * 64),
+        image_digest="sha256:" + ("c" * 64),
+        config_digest="sha256:" + ("d" * 64),
+        started_at="2026-09-20T03:00:00Z",
+        expected_counts=counts,
+        input_manifest={
+            "identityGenerationId": generation,
+            "identityMode": "incremental",
+            "tableMapping": mapping,
+            "pinnedInputs": {
+                "identityGenerationId": generation,
+                "identityMode": "incremental",
+                "silverSnapshot": {
+                    "object": parent_ref.model_dump(
+                        mode="json",
+                        by_alias=True,
+                        exclude_none=True,
+                    ),
+                    "snapshotSetId": parent_snapshot.snapshot_set_id,
+                },
+                "sourceRunIds": [source.run_id],
+                "tableMapping": mapping,
+            },
+        },
+    )
+    concurrent_identity = build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        source_product_id="identity-resolution-v2",
+        input_id="sha256:" + ("e" * 64),
+        policy_id="internal-key-continuity",
+        policy_digest="sha256:" + ("f" * 64),
+        image_digest="sha256:" + ("0" * 64),
+        config_digest="sha256:" + ("1" * 64),
+        started_at="2026-09-20T04:00:00Z",
+        expected_counts=counts,
+        input_manifest={
+            "identityGenerationId": generation,
+            "identityMode": "full",
+            "tableMapping": mapping,
+        },
+    )
+    available = {
+        source.run_id: source,
+        parent_identity.run_id: parent_identity,
+        concurrent_identity.run_id: concurrent_identity,
+    }
+
+    lineage = _parentless_identity_lineage_run_ids(
+        {
+            source.run_id: source,
+            incremental_identity.run_id: incremental_identity,
+        },
+        identity_generation_id=generation,
+        table_mapping=mapping,
+        read_manifest=lambda reference: parent_snapshot,
+        load_runs=lambda manifest, run_ids: {
+            run_id: available[run_id] for run_id in run_ids
+        },
+    )
+
+    assert lineage == (parent_identity.run_id,)
+    assert concurrent_identity.run_id not in lineage
 
 
 def test_full_selection_does_not_read_historical_identity_tables() -> None:

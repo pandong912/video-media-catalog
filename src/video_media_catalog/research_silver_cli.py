@@ -6,7 +6,7 @@ import argparse
 import os
 import re
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -715,6 +715,185 @@ def _validate_run_generations(
             raise ValueError(f"run {run_id} belongs to another Identity generation")
 
 
+def _identity_parent_silver_binding(
+    run: CommunityIngestRun,
+) -> tuple[ObjectRef, str] | None:
+    """Return the immutable Silver input that an Identity state change extends."""
+
+    binding: Any
+    expected_id: Any
+    if run.run_kind == IngestRunKind.IDENTITY_RESOLUTION:
+        identity_mode = run.input_manifest.get("identityMode")
+        if identity_mode == "full":
+            return None
+        if identity_mode != "incremental":
+            raise ValueError(f"Identity run {run.run_id} has an invalid identityMode")
+        pinned_inputs = run.input_manifest.get("pinnedInputs")
+        if not isinstance(pinned_inputs, Mapping):
+            raise ValueError(
+                f"incremental Identity run {run.run_id} lacks pinnedInputs"
+            )
+        binding = pinned_inputs.get("silverSnapshot")
+        if not isinstance(binding, Mapping):
+            raise ValueError(
+                f"incremental Identity run {run.run_id} lacks a pinned Silver input"
+            )
+        snapshot_id = binding.get("snapshotSetId")
+        epoch_id = binding.get("epochId")
+        if (snapshot_id is None) == (epoch_id is None):
+            raise ValueError(
+                f"incremental Identity run {run.run_id} has an invalid Silver binding"
+            )
+        expected_id = snapshot_id if snapshot_id is not None else epoch_id
+    elif run.run_kind == IngestRunKind.IDENTITY_CURATION:
+        binding = run.input_manifest.get("pinnedSilverSnapshot")
+        if not isinstance(binding, Mapping):
+            raise ValueError(
+                f"Identity curation run {run.run_id} lacks a pinned Silver input"
+            )
+        expected_id = binding.get("snapshotSetId")
+    else:
+        return None
+
+    raw_reference = binding.get("object")
+    if not isinstance(raw_reference, Mapping):
+        raise ValueError(f"Identity run {run.run_id} lacks a Silver ObjectRef")
+    try:
+        reference = ObjectRef.model_validate(raw_reference)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Identity run {run.run_id} has an invalid Silver ObjectRef"
+        ) from exc
+    if (
+        reference.format != "OBJECT_FORMAT_JSON"
+        or reference.media_type
+        not in {SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE}
+        or not 0 < reference.size_bytes <= CONTROL_MAX_BYTES
+    ):
+        raise ValueError(f"Identity run {run.run_id} has an invalid Silver ObjectRef")
+    _validate_object_uri(reference.uri, label="Identity parent Silver URI")
+    if urlsplit(reference.uri).scheme == "s3" and (
+        reference.object_version is None or reference.etag is None
+    ):
+        raise ValueError(f"Identity run {run.run_id} has a mutable Silver ObjectRef")
+    return reference, require_sha256(
+        str(expected_id or ""),
+        label="Identity parent Silver manifest ID",
+    )
+
+
+def _explicit_silver_run_ids(
+    manifest: CommunitySilverManifest,
+    *,
+    read_manifest: Callable[[ObjectRef], CommunitySilverManifest],
+) -> tuple[str, ...]:
+    """Enumerate the exact run history declared by a snapshot or epoch chain."""
+
+    if isinstance(manifest, CommunitySilverSnapshotSet):
+        return manifest.committed_run_ids
+
+    expected_count = manifest.committed_run_count
+    generation = manifest.identity_generation_id
+    table_mapping = community_silver_table_mapping(manifest)
+    run_ids: set[str] = set()
+    seen_epochs: set[str] = set()
+    current = manifest
+    while True:
+        if current.epoch_id in seen_epochs:
+            raise ValueError("Silver epoch lineage contains a cycle")
+        seen_epochs.add(current.epoch_id)
+        overlap = run_ids.intersection(current.delta_run_ids)
+        if overlap:
+            raise ValueError("Silver epoch lineage repeats delta run IDs")
+        run_ids.update(current.delta_run_ids)
+        if current.parent_epoch is None:
+            break
+        parent_ref = current.parent_epoch
+        parent = read_manifest(parent_ref.object_ref)
+        if (
+            not isinstance(parent, CommunitySilverEpochManifest)
+            or parent.epoch_id != parent_ref.epoch_id
+        ):
+            raise ValueError("Silver epoch parent reference does not match its object")
+        if (
+            parent.identity_generation_id != generation
+            or community_silver_table_mapping(parent) != table_mapping
+        ):
+            raise ValueError("Silver epoch lineage changes Identity generation")
+        current = parent
+    if len(run_ids) != expected_count:
+        raise ValueError("Silver epoch lineage cannot enumerate its committed runs")
+    return tuple(sorted(run_ids))
+
+
+def _parentless_identity_lineage_run_ids(
+    seed_runs: Mapping[str, CommunityIngestRun],
+    *,
+    identity_generation_id: str,
+    table_mapping: Mapping[str, str],
+    read_manifest: Callable[[ObjectRef], CommunitySilverManifest],
+    load_runs: Callable[
+        [CommunitySilverManifest, tuple[str, ...]],
+        Mapping[str, CommunityIngestRun],
+    ],
+) -> tuple[str, ...]:
+    """Resolve only the Identity ancestors pinned by parentless epoch runs."""
+
+    seed_ids = set(seed_runs)
+    lineage_ids: set[str] = set()
+    visited: set[str] = set()
+    pending = [
+        run
+        for run in seed_runs.values()
+        if run.run_kind
+        in {IngestRunKind.IDENTITY_RESOLUTION, IngestRunKind.IDENTITY_CURATION}
+    ]
+    while pending:
+        run = pending.pop()
+        if run.run_id in visited:
+            continue
+        visited.add(run.run_id)
+        binding = _identity_parent_silver_binding(run)
+        if binding is None:
+            continue
+        reference, expected_manifest_id = binding
+        parent = read_manifest(reference)
+        if community_silver_manifest_id(parent) != expected_manifest_id:
+            raise ValueError(f"Identity run {run.run_id} pins another Silver manifest")
+        if (
+            parent.identity_generation_id != identity_generation_id
+            or community_silver_table_mapping(parent) != dict(table_mapping)
+        ):
+            raise ValueError(
+                f"Identity run {run.run_id} extends another Identity generation"
+            )
+        parent_run_ids = _explicit_silver_run_ids(
+            parent,
+            read_manifest=read_manifest,
+        )
+        parent_runs = dict(load_runs(parent, parent_run_ids))
+        if set(parent_runs) != set(parent_run_ids):
+            raise ValueError("Identity parent Silver manifest has missing run metadata")
+        _validate_run_generations(
+            parent_runs,
+            identity_generation_id=identity_generation_id,
+            table_mapping=table_mapping,
+        )
+        for parent_run in parent_runs.values():
+            if parent_run.run_kind not in {
+                IngestRunKind.IDENTITY_RESOLUTION,
+                IngestRunKind.IDENTITY_CURATION,
+            }:
+                continue
+            if parent_run.run_id == run.run_id:
+                raise ValueError("Identity lineage contains a run cycle")
+            if parent_run.run_id not in seed_ids:
+                lineage_ids.add(parent_run.run_id)
+            if parent_run.run_id not in visited:
+                pending.append(parent_run)
+    return tuple(sorted(lineage_ids))
+
+
 def _manifest_committed_runs(
     spark: Any,
     *,
@@ -1155,7 +1334,7 @@ def _run_epoch_publication(
     identity_generation_id = _optional_identity_generation_id(
         parsed.identity_generation_id
     )
-    delta_run_ids = (
+    requested_delta_run_ids = (
         ()
         if not parsed.delta_run_ids
         else _normalize_run_ids(
@@ -1163,7 +1342,7 @@ def _run_epoch_publication(
             label="publish-epoch delta",
         )
     )
-    if len(delta_run_ids) > MAX_EPOCH_DELTA_RUNS:
+    if len(requested_delta_run_ids) > MAX_EPOCH_DELTA_RUNS:
         raise ValueError(
             f"publish-epoch delta supports at most {MAX_EPOCH_DELTA_RUNS} run IDs"
         )
@@ -1237,6 +1416,21 @@ def _run_epoch_publication(
             else tables.committed_runs_dataframe(commit_snapshot_id)
         )
 
+        requested_delta_runs: dict[str, CommunityIngestRun] = {}
+        if requested_delta_run_ids:
+            requested_delta_runs, _ = _load_run_state(
+                spark,
+                tables=tables,
+                run_snapshot_id=run_snapshot_id,
+                commit_snapshot_id=commit_snapshot_id,
+                run_ids=requested_delta_run_ids,
+            )
+            _validate_run_generations(
+                requested_delta_runs,
+                identity_generation_id=identity_generation_id,
+                table_mapping=tables.table_mapping,
+            )
+
         parent_runs = None
         parent_epoch_ref = None
         baseline_epoch_ref = None
@@ -1256,6 +1450,68 @@ def _run_epoch_publication(
                 object_ref=parent_ref,
             )
             baseline_epoch_ref = parent.baseline_epoch or parent_epoch_ref
+        identity_lineage_run_ids: tuple[str, ...] = ()
+        if (
+            parent is None
+            and identity_generation_id is not None
+            and requested_delta_runs
+        ):
+            manifest_cache: dict[str, CommunitySilverManifest] = {}
+
+            def read_lineage_manifest(
+                reference: ObjectRef,
+            ) -> CommunitySilverManifest:
+                cache_key = canonical_json(
+                    reference.model_dump(
+                        mode="json",
+                        by_alias=True,
+                        exclude_none=True,
+                    )
+                )
+                cached = manifest_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+                lineage_store = _object_store(
+                    parsed,
+                    local_only=urlsplit(reference.uri).scheme == "file",
+                )
+                loaded = _read_silver_manifest(lineage_store, reference)
+                manifest_cache[cache_key] = loaded
+                return loaded
+
+            def load_lineage_runs(
+                manifest: CommunitySilverManifest,
+                run_ids: tuple[str, ...],
+            ) -> Mapping[str, CommunityIngestRun]:
+                lineage_tables = _tables_for_silver_manifest(
+                    spark,
+                    config,
+                    manifest,
+                )
+                runs, _ = _load_run_state(
+                    spark,
+                    tables=lineage_tables,
+                    run_snapshot_id=manifest.run_snapshot_id,
+                    commit_snapshot_id=manifest.commit_snapshot_id,
+                    run_ids=run_ids,
+                )
+                return runs
+
+            identity_lineage_run_ids = _parentless_identity_lineage_run_ids(
+                requested_delta_runs,
+                identity_generation_id=identity_generation_id,
+                table_mapping=tables.table_mapping,
+                read_manifest=read_lineage_manifest,
+                load_runs=load_lineage_runs,
+            )
+        delta_run_ids = tuple(
+            sorted({*requested_delta_run_ids, *identity_lineage_run_ids})
+        )
+        if len(delta_run_ids) > MAX_EPOCH_DELTA_RUNS:
+            raise ValueError(
+                "parentless Silver epoch Identity lineage exceeds "
+                f"{MAX_EPOCH_DELTA_RUNS} run IDs"
+            )
         committed_runs = available_committed_runs
         if parent is None and delta_run_ids:
             committed_runs = tables.select_committed_runs(
@@ -1349,6 +1605,8 @@ def _run_epoch_publication(
             "baselineEpochId": (
                 None if epoch.baseline_epoch is None else epoch.baseline_epoch.epoch_id
             ),
+            "requestedDeltaRunIds": requested_delta_run_ids,
+            "identityLineageRunIds": identity_lineage_run_ids,
             "deltaRunIds": epoch.delta_run_ids,
             "sourceWatermarks": epoch.source_watermarks,
             "committedRunCount": epoch.committed_run_count,

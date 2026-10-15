@@ -1570,7 +1570,7 @@ def publish_golden_epoch(
             input_data.identity_generation_id,
         ]
         expected_runs = tuple(
-            sorted((*preflight.all_snapshot_run_ids, identity.run_id))
+            sorted({*preflight.all_snapshot_run_ids, identity.run_id})
         )
         for run_id in expected_runs:
             args.extend(["--delta-run-id", run_id])

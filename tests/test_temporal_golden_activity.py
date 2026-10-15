@@ -755,8 +755,10 @@ def test_golden_identity_rejects_mismatched_source_policy_digest(
     assert "sourcePolicyDigest" in required_keys
 
 
-def test_epoch_requires_exact_pinned_runs_plus_identity(
+@pytest.mark.parametrize("reuse_identity", [False, True])
+def test_epoch_requires_unique_exact_pinned_runs_plus_identity(
     monkeypatch: pytest.MonkeyPatch,
+    reuse_identity: bool,
 ) -> None:
     input_data = _input()
     preflight = GoldenPreflightResult(
@@ -782,14 +784,18 @@ def test_epoch_requires_exact_pinned_runs_plus_identity(
         identity_bound_config_digest="sha256:" + ("c" * 64),
     )
     identity = GoldenIdentityResult(
-        run_id=_run(100),
+        run_id=(
+            input_data.baseline_identity_run_id
+            if reuse_identity
+            else _run(100)
+        ),
         commit_key=_run(101),
         source_run_ids=preflight.tmdb_source_run_ids,
         table_counts={"community_entity_ledger": 1},
         table_snapshot_ids={"community_entity_ledger": 7},
         job_run_id="identity-job",
     )
-    expected = tuple(sorted((*preflight.all_snapshot_run_ids, identity.run_id)))
+    expected = tuple(sorted({*preflight.all_snapshot_run_ids, identity.run_id}))
     epoch_ref = ObjectRefPayload(
         uri="s3://bucket/epoch.json",
         format="OBJECT_FORMAT_JSON",
@@ -837,4 +843,5 @@ def test_epoch_requires_exact_pinned_runs_plus_identity(
         if value == "--delta-run-id"
     ]
     assert tuple(delta_values) == expected
-    assert result.committed_run_count == 20
+    assert len(delta_values) == len(set(delta_values))
+    assert result.committed_run_count == len(expected)

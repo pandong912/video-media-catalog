@@ -343,6 +343,10 @@ def _normalized_source_run_states(
             raw.gold_contribution
             and not raw.identity_spine
             and not set(run_ids).issubset(baseline_run_ids)
+            and not (
+                input_data.identity_reuse is not None
+                and set(run_ids).issubset(set(input_data.tmdb_source_run_ids))
+            )
         ):
             raise NonRetryableGoldenBuildError(
                 "Gold-contributing source states without incremental Identity "
@@ -847,27 +851,16 @@ def _validated_reused_identity(
             "Identity reuse receipt lacks job or summary evidence"
         )
 
-    source_policy_digest = (
-        preflight.source_policy_digest or load_catalog_source_policy().digest
-    )
-    source_runtime, source_resolution, source_bound = _identity_config_digests(
-        source_build_id,
-        source_policy_digest=source_policy_digest,
-    )
+    resolution = IdentityResolutionConfig()
     if (
         summary.get("context") != "research"
         or summary.get("stage") != "identity-resolution"
         or summary.get("identityGenerationId") != input_data.identity_generation_id
         or summary.get("identityMode") != "incremental"
         or tuple(sorted(summary.get("sourceRunIds") or ())) != identity_source_run_ids
-        or summary.get("configDigest") != source_bound
-        or summary.get("identityResolutionConfigDigest") != source_resolution
-        or source_resolution != preflight.identity_resolution_config_digest
+        or summary.get("identityResolutionConfigDigest") != resolution.digest
+        or resolution.digest != preflight.identity_resolution_config_digest
         or summary.get("registryDigest") != build_community_registry().digest
-        or (
-            bool(preflight.source_policy_digest)
-            and summary.get("sourcePolicyDigest") != source_policy_digest
-        )
     ):
         raise NonRetryableGoldenBuildError(
             "reused Identity summary differs from pinned incremental inputs"
@@ -880,6 +873,36 @@ def _validated_reused_identity(
     )["jobRun"]
     spark_submit = (job.get("jobDriver") or {}).get("sparkSubmit") or {}
     arguments = [str(value) for value in spark_submit.get("entryPointArguments") or ()]
+    job_policy_digests = _argument_values(arguments, "--source-policy-digest")
+    if len(job_policy_digests) > 1:
+        raise NonRetryableGoldenBuildError(
+            "reused Identity job must not repeat --source-policy-digest"
+        )
+    summary_policy_digest = summary.get("sourcePolicyDigest")
+    if summary_policy_digest not in (None, ""):
+        summary_policy_digest = _require_sha256(
+            str(summary_policy_digest),
+            label="reused Identity sourcePolicyDigest",
+        )
+    else:
+        summary_policy_digest = None
+    if job_policy_digests and summary_policy_digest is None:
+        raise NonRetryableGoldenBuildError(
+            "reused Identity summary lacks sourcePolicyDigest present on the EMR job"
+        )
+    if (
+        summary_policy_digest is not None
+        and job_policy_digests
+        and summary_policy_digest != job_policy_digests[0]
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity sourcePolicyDigest differs between summary and EMR job"
+        )
+    job_runtime = _single_argument(arguments, "--config-digest")
+    if summary.get("configDigest") != resolution.bind_runtime_config(job_runtime):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity configDigest does not match the EMR runtime digest"
+        )
     if (
         job.get("applicationId") != application_id
         or job.get("jobRunId") != job_run_id
@@ -895,12 +918,6 @@ def _validated_reused_identity(
         != input_data.identity_generation_id
         or _single_argument(arguments, "--identity-mode") != "incremental"
         or _single_argument(arguments, "--image-digest") != image_digest
-        or _single_argument(arguments, "--config-digest") != source_runtime
-        or (
-            bool(preflight.source_policy_digest)
-            and _single_argument(arguments, "--source-policy-digest")
-            != source_policy_digest
-        )
     ):
         raise NonRetryableGoldenBuildError(
             "reused Identity EMR job differs from receipt provenance"

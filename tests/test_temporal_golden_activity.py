@@ -355,6 +355,221 @@ def test_golden_preflight_reuses_verified_identity_job(
     assert result.source_run_ids == preflight.tmdb_source_run_ids
 
 
+def test_golden_preflight_reuses_identity_across_source_policy_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    source_build_id = "catalog-source-policy-v8-20261014-r2"
+    current_policy = golden_mod.load_catalog_source_policy().digest
+    historical_policy = "sha256:" + ("b" * 64)
+    source_runtime, source_resolution, source_bound = (
+        golden_mod._identity_config_digests(
+            source_build_id,
+            source_policy_digest=historical_policy,
+        )
+    )
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=tuple(
+            sorted(
+                (
+                    *input_data.baseline_source_run_ids,
+                    input_data.baseline_identity_run_id,
+                    *input_data.tmdb_source_run_ids,
+                )
+            )
+        ),
+        tmdb_source_run_ids=tuple(sorted(input_data.tmdb_source_run_ids)),
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(90),
+        identity_config_digest=_run(91),
+        identity_resolution_config_digest=source_resolution,
+        identity_bound_config_digest=_run(92),
+        source_policy_digest=current_policy,
+        source_run_states=(),
+    )
+    # Spine defaults to TMDB runs when source_run_states are empty.
+    image_digest = _run(93)
+    arguments = ["resolve-identity"]
+    for run_id in preflight.tmdb_source_run_ids:
+        arguments.extend(["--source-run-id", run_id])
+    arguments.extend(
+        [
+            "--identity-generation-id",
+            input_data.identity_generation_id,
+            "--identity-mode",
+            "incremental",
+            "--image-digest",
+            image_digest,
+            "--config-digest",
+            source_runtime,
+            "--source-policy-digest",
+            historical_policy,
+        ]
+    )
+    job_run_id = "00historicalidentity"
+    fake_emr = SimpleNamespace(
+        get_job_run=lambda **_kwargs: {
+            "jobRun": {
+                "applicationId": "00verifiedapplication",
+                "jobRunId": job_run_id,
+                "name": f"gold-identity-{source_build_id}",
+                "state": "SUCCESS",
+                "executionRole": input_data.env.emr_execution_role_arn,
+                "jobDriver": {
+                    "sparkSubmit": {
+                        "entryPoint": input_data.env.research_silver_entry_point,
+                        "entryPointArguments": arguments,
+                    }
+                },
+            }
+        }
+    )
+    monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    payload = {
+        "schemaVersion": "1.0",
+        "sourceBuildId": source_build_id,
+        "applicationId": "00verifiedapplication",
+        "jobRunId": job_run_id,
+        "imageDigest": image_digest,
+        "identitySummary": {
+            "context": "research",
+            "stage": "identity-resolution",
+            "runId": _run(94),
+            "commitKey": _run(95),
+            "configDigest": source_bound,
+            "identityResolutionConfigDigest": source_resolution,
+            "registryDigest": golden_mod.build_community_registry().digest,
+            "sourcePolicyDigest": historical_policy,
+            "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": "incremental",
+            "sourceRunIds": list(preflight.tmdb_source_run_ids),
+            "tableCounts": {"community_entity_ledger": 1},
+            "tableSnapshotIds": {"community_entity_ledger": 7},
+        },
+    }
+
+    result = golden_mod._validated_reused_identity(
+        input_data,
+        preflight,
+        payload,
+    )
+
+    assert result.run_id == _run(94)
+    assert current_policy != historical_policy
+
+
+def test_golden_preflight_reuses_pre_policy_identity_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    source_build_id = "tmdb-multisource-20261009-r3"
+    _source_runtime, source_resolution, source_bound = (
+        golden_mod._identity_config_digests(
+            source_build_id,
+            source_policy_digest="sha256:" + ("c" * 64),
+        )
+    )
+    # Reconstruct the historical runtime digest without a source-policy pin by
+    # binding whatever digest the EMR job recorded.
+    historical_runtime = "sha256:" + ("d" * 64)
+    historical_bound = golden_mod.IdentityResolutionConfig().bind_runtime_config(
+        historical_runtime
+    )
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=tuple(
+            sorted(
+                (
+                    *input_data.baseline_source_run_ids,
+                    input_data.baseline_identity_run_id,
+                    *input_data.tmdb_source_run_ids,
+                )
+            )
+        ),
+        tmdb_source_run_ids=tuple(sorted(input_data.tmdb_source_run_ids)),
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(90),
+        identity_config_digest=_run(91),
+        identity_resolution_config_digest=source_resolution,
+        identity_bound_config_digest=_run(92),
+        source_policy_digest=golden_mod.load_catalog_source_policy().digest,
+    )
+    image_digest = _run(93)
+    arguments = ["resolve-identity"]
+    for run_id in preflight.tmdb_source_run_ids:
+        arguments.extend(["--source-run-id", run_id])
+    arguments.extend(
+        [
+            "--identity-generation-id",
+            input_data.identity_generation_id,
+            "--identity-mode",
+            "incremental",
+            "--image-digest",
+            image_digest,
+            "--config-digest",
+            historical_runtime,
+        ]
+    )
+    job_run_id = "00prepolicyidentity"
+    fake_emr = SimpleNamespace(
+        get_job_run=lambda **_kwargs: {
+            "jobRun": {
+                "applicationId": "00verifiedapplication",
+                "jobRunId": job_run_id,
+                "name": f"gold-identity-{source_build_id}",
+                "state": "SUCCESS",
+                "executionRole": input_data.env.emr_execution_role_arn,
+                "jobDriver": {
+                    "sparkSubmit": {
+                        "entryPoint": input_data.env.research_silver_entry_point,
+                        "entryPointArguments": arguments,
+                    }
+                },
+            }
+        }
+    )
+    monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    payload = {
+        "schemaVersion": "1.0",
+        "sourceBuildId": source_build_id,
+        "applicationId": "00verifiedapplication",
+        "jobRunId": job_run_id,
+        "imageDigest": image_digest,
+        "identitySummary": {
+            "context": "research",
+            "stage": "identity-resolution",
+            "runId": _run(94),
+            "commitKey": _run(95),
+            "configDigest": historical_bound,
+            "identityResolutionConfigDigest": source_resolution,
+            "registryDigest": golden_mod.build_community_registry().digest,
+            "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": "incremental",
+            "sourceRunIds": list(preflight.tmdb_source_run_ids),
+            "tableCounts": {"community_entity_ledger": 1},
+            "tableSnapshotIds": {"community_entity_ledger": 7},
+        },
+    }
+
+    result = golden_mod._validated_reused_identity(
+        input_data,
+        preflight,
+        payload,
+    )
+
+    assert result.run_id == _run(94)
+    assert source_bound != historical_bound
+
+
 def test_golden_identity_rejects_mismatched_source_policy_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

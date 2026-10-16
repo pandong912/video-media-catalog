@@ -112,6 +112,10 @@ _BUILD_MIN_EXECUTOR_DISK_GIB = 400
 # (20g/4g) and executors exited with code 1 within seconds of create.
 _CONTROL_EXECUTOR_MEMORY = "48g"
 _CONTROL_EXECUTOR_MEMORY_OVERHEAD = None
+# Identity keeps 400G shuffle disk; control Snapshot historically only needs
+# modest local shuffle. Prefer a smaller worker disk to avoid EMR Serverless
+# executor create/exit-1 loops when large SHUFFLE_OPTIMIZED disks are scarce.
+_CONTROL_EXECUTOR_DISK = "200G"
 _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS = 36
 _DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO = 0.05
 _MAX_GOLD_FRESHNESS_SLO_HOURS = 45 * 24
@@ -1910,7 +1914,11 @@ def _emr_namespace(
             )
         ),
         executor_disk=(
-            env.gold_executor_disk if gold_release else env.build_executor_disk
+            env.gold_executor_disk
+            if gold_release
+            else (
+                _CONTROL_EXECUTOR_DISK if control_profile else env.build_executor_disk
+            )
         ),
         executor_instances=(
             env.gold_executor_instances

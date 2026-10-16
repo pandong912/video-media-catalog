@@ -33,18 +33,36 @@ jobs:
       - run: uv sync --frozen --all-extras
       - run: make verify-ci
 
+  # Worker and EMR public bases are rate-limited from PR runners, while the
+  # catalog CI role trust does not allow pull_request OIDC subjects. Verify the
+  # no-network private worker overlay on main and through publish.yml instead.
   container:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          role-session-name: media-catalog-ci-worker-${{ github.run_id }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Verify worker overlay dependency lock
+        run: |
+          sha256sum --check --strict <<'EOF'
+          41cfaa125ba3acaa724b6deb4a5c026a559d908ea24367d3240a0e4b7f9343d9  pyproject.toml
+          32a73a14986be13d19957523ab83717174973139e06bce3b1e713ea830d7c4d8  uv.lock
+          EOF
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.release
           push: false
           platforms: linux/amd64
+          build-args: >-
+            WORKER_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:6f819fcdee67896f180d49dd038f3172f557bd9cc6f680beae97c27773817041
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

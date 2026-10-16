@@ -1,0 +1,15 @@
+ARG WORKER_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:6f819fcdee67896f180d49dd038f3172f557bd9cc6f680beae97c27773817041
+FROM ${WORKER_BASE_IMAGE}
+
+# The publish workflow proves pyproject.toml and uv.lock still match this
+# private base before using the no-network source overlay.
+WORKDIR /opt/video-media-catalog-release
+COPY --chown=10001:10001 src ./src
+COPY --chown=10001:10001 contracts ./contracts
+ENV PYTHONPATH="/opt/video-media-catalog-release/src:${PYTHONPATH}"
+
+WORKDIR /opt/spark/work-dir
+USER 10001:10001
+
+ENTRYPOINT ["/opt/entrypoint.sh"]
+CMD ["video-media-catalog-community-spark", "--help"]

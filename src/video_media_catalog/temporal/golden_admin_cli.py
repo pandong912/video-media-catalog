@@ -139,6 +139,9 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
             max_slo_hours=int(override.get("maxSloHours", 720)),
         ),
         env=_env_from_mapping(values["env"]),
+        baseline_identity_source_run_ids=tuple(
+            str(value) for value in values.get("baselineIdentitySourceRunIds", ())
+        ),
         supplemental_source_run_ids=tuple(
             str(value) for value in values.get("supplementalSourceRunIds", ())
         ),

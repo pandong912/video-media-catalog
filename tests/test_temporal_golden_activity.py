@@ -32,6 +32,16 @@ def _mapping(reference: ObjectRefPayload) -> dict[str, Any]:
     }
 
 
+def _fixture_incremental_identity_runs(input_data: Any) -> tuple[str, ...]:
+    snapshot_source_runs = {
+        *input_data.baseline_source_run_ids,
+        *input_data.tmdb_source_run_ids,
+    }
+    return tuple(
+        sorted(snapshot_source_runs - set(input_data.baseline_identity_source_run_ids))
+    )
+
+
 def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     input_data = _input()
 
@@ -404,6 +414,7 @@ def test_golden_preflight_reuses_verified_identity_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
+    identity_source_run_ids = _fixture_incremental_identity_runs(input_data)
     source_build_id = "tmdb-multisource-20261009-r3"
     source_policy_digest = golden_mod.load_catalog_source_policy().digest
     source_runtime, source_resolution, source_bound = (
@@ -437,7 +448,7 @@ def test_golden_preflight_reuses_verified_identity_job(
     )
     image_digest = _run(93)
     arguments = ["resolve-identity"]
-    for run_id in preflight.tmdb_source_run_ids:
+    for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
         [
@@ -489,7 +500,7 @@ def test_golden_preflight_reuses_verified_identity_job(
             "sourcePolicyDigest": source_policy_digest,
             "identityGenerationId": input_data.identity_generation_id,
             "identityMode": "incremental",
-            "sourceRunIds": list(preflight.tmdb_source_run_ids),
+            "sourceRunIds": list(identity_source_run_ids),
             "tableCounts": {"community_entity_ledger": 1},
             "tableSnapshotIds": {"community_entity_ledger": 7},
         },
@@ -503,7 +514,7 @@ def test_golden_preflight_reuses_verified_identity_job(
 
     assert result.run_id == _run(94)
     assert result.job_run_id == job_run_id
-    assert result.source_run_ids == preflight.tmdb_source_run_ids
+    assert result.source_run_ids == identity_source_run_ids
     assert result.source_policy_digest == source_policy_digest
 
 
@@ -511,6 +522,7 @@ def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
+    identity_source_run_ids = _fixture_incremental_identity_runs(input_data)
     source_build_id = "catalog-source-policy-v8-20261014-r2"
     current_policy = golden_mod.load_catalog_source_policy().digest
     historical_policy = "sha256:" + ("b" * 64)
@@ -544,10 +556,9 @@ def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
         source_policy_digest=current_policy,
         source_run_states=(),
     )
-    # Spine defaults to TMDB runs when source_run_states are empty.
     image_digest = _run(93)
     arguments = ["resolve-identity"]
-    for run_id in preflight.tmdb_source_run_ids:
+    for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
         [
@@ -599,7 +610,7 @@ def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
             "sourcePolicyDigest": historical_policy,
             "identityGenerationId": input_data.identity_generation_id,
             "identityMode": "incremental",
-            "sourceRunIds": list(preflight.tmdb_source_run_ids),
+            "sourceRunIds": list(identity_source_run_ids),
             "tableCounts": {"community_entity_ledger": 1},
             "tableSnapshotIds": {"community_entity_ledger": 7},
         },
@@ -621,6 +632,7 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
+    identity_source_run_ids = _fixture_incremental_identity_runs(input_data)
     source_build_id = "catalog-source-policy-v8-20261014-r2"
     source_policy_digest = golden_mod.load_catalog_source_policy().digest
     source_runtime, source_resolution, source_bound = (
@@ -655,7 +667,7 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
     )
     image_digest = _run(93)
     arguments = ["resolve-identity"]
-    for run_id in preflight.tmdb_source_run_ids:
+    for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
         [
@@ -709,7 +721,7 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
             "sourcePolicyDigest": source_policy_digest,
             "identityGenerationId": input_data.identity_generation_id,
             "identityMode": "incremental",
-            "sourceRunIds": list(preflight.tmdb_source_run_ids),
+            "sourceRunIds": list(identity_source_run_ids),
             "tableCounts": {"community_entity_ledger": 1},
             "tableSnapshotIds": {"community_entity_ledger": 7},
         },
@@ -729,6 +741,7 @@ def test_golden_preflight_rejects_pre_policy_identity_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
+    identity_source_run_ids = _fixture_incremental_identity_runs(input_data)
     source_build_id = "tmdb-multisource-20261009-r3"
     _source_runtime, source_resolution, _source_bound = (
         golden_mod._identity_config_digests(
@@ -767,7 +780,7 @@ def test_golden_preflight_rejects_pre_policy_identity_job(
     )
     image_digest = _run(93)
     arguments = ["resolve-identity"]
-    for run_id in preflight.tmdb_source_run_ids:
+    for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
         [
@@ -816,7 +829,7 @@ def test_golden_preflight_rejects_pre_policy_identity_job(
             "registryDigest": golden_mod.build_community_registry().digest,
             "identityGenerationId": input_data.identity_generation_id,
             "identityMode": "incremental",
-            "sourceRunIds": list(preflight.tmdb_source_run_ids),
+            "sourceRunIds": list(identity_source_run_ids),
             "tableCounts": {"community_entity_ledger": 1},
             "tableSnapshotIds": {"community_entity_ledger": 7},
         },

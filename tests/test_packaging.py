@@ -7,6 +7,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text()
     dockerfile = (root / "Dockerfile").read_text()
+    release_dockerfile = (root / "Dockerfile.release").read_text()
     emr_dockerfile = (root / "Dockerfile.emr").read_text()
     publish_workflow = (root / ".github/workflows/publish.yml").read_text()
     tmdb_workflow = (root / ".github/workflows/tmdb-capture.yml").read_text()
@@ -37,6 +38,22 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert old_stage not in dockerfile
     assert old_validate_stage not in dockerfile
     assert "--extra index" in dockerfile
+
+    private_worker_base = (
+        "209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@"
+        "sha256:6f819fcdee67896f180d49dd038f3172f557bd9cc6f680beae97c27773817041"
+    )
+    assert release_dockerfile.startswith(f"ARG WORKER_BASE_IMAGE={private_worker_base}")
+    assert "FROM ${WORKER_BASE_IMAGE}" in release_dockerfile
+    assert "WORKDIR /opt/video-media-catalog-release" in release_dockerfile
+    assert "COPY --chown=10001:10001 src ./src" in release_dockerfile
+    assert "COPY --chown=10001:10001 contracts ./contracts" in release_dockerfile
+    assert (
+        'ENV PYTHONPATH="/opt/video-media-catalog-release/src:${PYTHONPATH}"'
+        in release_dockerfile
+    )
+    assert "RUN " not in release_dockerfile
+    assert "USER 10001:10001" in release_dockerfile
 
     assert emr_dockerfile.startswith("ARG EMR_BASE_IMAGE=")
     assert (
@@ -84,7 +101,10 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert api_dockerfile not in publish_workflow
     assert api_entrypoint not in publish_workflow
     assert api_dockerfile not in ci_workflow
-    assert "file: Dockerfile" in ci_workflow
+    assert "file: Dockerfile.release" in ci_workflow
+    assert "WORKER_BASE_IMAGE=" in ci_workflow
+    assert private_worker_base in ci_workflow
+    assert "media-catalog-ci-worker-" in ci_workflow
     assert "file: Dockerfile.emr" in ci_workflow
     assert "container-emr:" in ci_workflow
     assert "EMR_BASE_IMAGE=" in ci_workflow
@@ -92,6 +112,17 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
         "209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@"
         "sha256:a4670f025c013b85b288713ec62b5b32eb0a1626ed5cfcef362d9c56167b78cd"
     ) in ci_workflow
+    assert "dockerfile: Dockerfile.release" in publish_workflow
+    assert f"WORKER_BASE_IMAGE={private_worker_base}" in publish_workflow
+    assert "Verify worker overlay dependency lock" in publish_workflow
+    assert (
+        "41cfaa125ba3acaa724b6deb4a5c026a559d908ea24367d3240a0e4b7f9343d9"
+        in publish_workflow
+    )
+    assert (
+        "32a73a14986be13d19957523ab83717174973139e06bce3b1e713ea830d7c4d8"
+        in publish_workflow
+    )
     assert "dockerfile: Dockerfile.emr" in publish_workflow
     assert "findingSeverityCounts.CRITICAL" in publish_workflow
     assert "exceeds the maximum supported with Basic Scanning" in publish_workflow

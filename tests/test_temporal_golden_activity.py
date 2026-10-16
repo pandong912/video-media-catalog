@@ -145,6 +145,8 @@ def test_golden_control_profile_uses_r8l_snapshot_memory_shape() -> None:
     assert parsed.executor_instances == 4
     assert parsed.executor_memory == "48g"
     assert parsed.executor_memory_overhead is None
+    assert parsed.driver_memory_overhead is None
+    assert parsed.failure_policy == "resilient"
 
 
 def test_golden_identity_rejects_emr_serverless_worker_memory_overflow() -> None:

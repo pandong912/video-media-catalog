@@ -1882,7 +1882,11 @@ def _emr_namespace(
         max_attempts=1,
         driver_cores=_GOLD_DRIVER_CORES,
         driver_memory=_GOLD_DRIVER_MEMORY,
-        driver_memory_overhead=_GOLD_DRIVER_MEMORY_OVERHEAD,
+        driver_memory_overhead=(
+            None
+            if control_profile and not gold_release
+            else _GOLD_DRIVER_MEMORY_OVERHEAD
+        ),
         driver_disk=_GOLD_DRIVER_DISK,
         executor_cores=(
             env.gold_executor_cores if gold_release else env.build_executor_cores
@@ -1929,7 +1933,13 @@ def _emr_namespace(
         # Speculation duplicates shuffle writes and amplifies local-disk
         # pressure. The release has fixed capacity and deterministic retries.
         enable_speculation=False,
-        failure_policy="fail-fast",
+        # Control Snapshot historically succeeded under resilient retries (r8l);
+        # fail-fast is reserved for Identity/Gold where we want quick signal.
+        failure_policy=(
+            "resilient"
+            if control_profile and not gold_release
+            else "fail-fast"
+        ),
         entry_point_arguments=entry_args,
     )
 

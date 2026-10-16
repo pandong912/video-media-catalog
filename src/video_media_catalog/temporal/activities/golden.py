@@ -1936,9 +1936,7 @@ def _emr_namespace(
         # Control Snapshot historically succeeded under resilient retries (r8l);
         # fail-fast is reserved for Identity/Gold where we want quick signal.
         failure_policy=(
-            "resilient"
-            if control_profile and not gold_release
-            else "fail-fast"
+            "resilient" if control_profile and not gold_release else "fail-fast"
         ),
         entry_point_arguments=entry_args,
     )

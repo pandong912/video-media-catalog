@@ -122,6 +122,7 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     base = _input()
+    source_policy_digest = golden_mod.load_catalog_source_policy().digest
     input_data = replace(
         base,
         env=replace(
@@ -144,6 +145,16 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
         identity_config_digest=_run(81),
         identity_resolution_config_digest=_run(82),
         identity_bound_config_digest=_run(83),
+        source_policy_digest=source_policy_digest,
+    )
+    identity = GoldenIdentityResult(
+        run_id=_run(86),
+        commit_key=_run(87),
+        source_run_ids=input_data.tmdb_source_run_ids,
+        table_counts={"community_entity_ledger": 1},
+        table_snapshot_ids={"community_entity_ledger": 1},
+        job_run_id="identity-job",
+        source_policy_digest=source_policy_digest,
     )
     epoch = GoldenEpochResult(
         epoch_id=_run(84),
@@ -181,6 +192,7 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
         golden_mod.submit_golden_release(
             input_data,
             preflight,
+            identity,
             epoch,
             "2026-10-09T00:00:00Z",
         )
@@ -199,6 +211,142 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
         )
         == "0.12"
     )
+
+
+def test_golden_release_refuses_mismatched_identity_source_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_policy_digest = golden_mod.load_catalog_source_policy().digest
+    input_data = _input()
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=(),
+        tmdb_source_run_ids=input_data.tmdb_source_run_ids,
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(80),
+        identity_config_digest=_run(81),
+        identity_resolution_config_digest=_run(82),
+        identity_bound_config_digest=_run(83),
+        source_policy_digest=source_policy_digest,
+    )
+    identity = GoldenIdentityResult(
+        run_id=_run(86),
+        commit_key=_run(87),
+        source_run_ids=input_data.tmdb_source_run_ids,
+        table_counts={"community_entity_ledger": 1},
+        table_snapshot_ids={"community_entity_ledger": 1},
+        job_run_id="identity-job",
+        source_policy_digest="sha256:" + ("a" * 64),
+    )
+    epoch = GoldenEpochResult(
+        epoch_id=_run(84),
+        epoch=replace(
+            _ref("s3://bucket/epoch.json"),
+            media_type=SILVER_EPOCH_MEDIA_TYPE,
+        ),
+        committed_run_count=20,
+        committed_run_digest=_run(85),
+        data_snapshot_ids={"community_ingest_run": 1},
+        job_run_id="epoch-job",
+    )
+    called = {"emr": False}
+
+    def fake_stage(**_kwargs: Any) -> tuple[dict[str, Any], str]:
+        called["emr"] = True
+        raise AssertionError("Gold EMR must not start")
+
+    monkeypatch.setattr(golden_mod, "_run_emr_stage", fake_stage)
+    monkeypatch.setattr(
+        golden_mod,
+        "classify_golden_build_exception",
+        lambda exc: exc,
+    )
+
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="refusing to start Gold EMR",
+    ):
+        golden_mod.submit_golden_release(
+            input_data,
+            preflight,
+            identity,
+            epoch,
+            "2026-10-09T00:00:00Z",
+        )
+
+    assert called["emr"] is False
+
+
+def test_golden_release_refuses_mismatched_catalog_source_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    stale_policy = "sha256:" + ("b" * 64)
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=(),
+        tmdb_source_run_ids=input_data.tmdb_source_run_ids,
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(80),
+        identity_config_digest=_run(81),
+        identity_resolution_config_digest=_run(82),
+        identity_bound_config_digest=_run(83),
+        source_policy_digest=stale_policy,
+    )
+    identity = GoldenIdentityResult(
+        run_id=_run(86),
+        commit_key=_run(87),
+        source_run_ids=input_data.tmdb_source_run_ids,
+        table_counts={"community_entity_ledger": 1},
+        table_snapshot_ids={"community_entity_ledger": 1},
+        job_run_id="identity-job",
+        source_policy_digest=stale_policy,
+    )
+    epoch = GoldenEpochResult(
+        epoch_id=_run(84),
+        epoch=replace(
+            _ref("s3://bucket/epoch.json"),
+            media_type=SILVER_EPOCH_MEDIA_TYPE,
+        ),
+        committed_run_count=20,
+        committed_run_digest=_run(85),
+        data_snapshot_ids={"community_ingest_run": 1},
+        job_run_id="epoch-job",
+    )
+    called = {"emr": False}
+
+    def fake_stage(**_kwargs: Any) -> tuple[dict[str, Any], str]:
+        called["emr"] = True
+        raise AssertionError("Gold EMR must not start")
+
+    monkeypatch.setattr(golden_mod, "_run_emr_stage", fake_stage)
+    monkeypatch.setattr(
+        golden_mod,
+        "classify_golden_build_exception",
+        lambda exc: exc,
+    )
+
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="refusing to start Gold EMR",
+    ):
+        golden_mod.submit_golden_release(
+            input_data,
+            preflight,
+            identity,
+            epoch,
+            "2026-10-09T00:00:00Z",
+        )
+
+    assert called["emr"] is False
 
 
 def test_golden_emr_stage_resumes_job_from_matching_heartbeat(
@@ -356,9 +504,10 @@ def test_golden_preflight_reuses_verified_identity_job(
     assert result.run_id == _run(94)
     assert result.job_run_id == job_run_id
     assert result.source_run_ids == preflight.tmdb_source_run_ids
+    assert result.source_policy_digest == source_policy_digest
 
 
-def test_golden_preflight_reuses_identity_across_source_policy_digest(
+def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
@@ -456,14 +605,16 @@ def test_golden_preflight_reuses_identity_across_source_policy_digest(
         },
     }
 
-    result = golden_mod._validated_reused_identity(
-        input_data,
-        preflight,
-        payload,
-    )
-
-    assert result.run_id == _run(94)
     assert current_policy != historical_policy
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="sourcePolicyDigest differs from the current Catalog source policy",
+    ):
+        golden_mod._validated_reused_identity(
+            input_data,
+            preflight,
+            payload,
+        )
 
 
 def test_golden_preflight_reuses_identity_across_registry_digest(
@@ -571,14 +722,15 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
     )
 
     assert result.run_id == _run(94)
+    assert result.source_policy_digest == source_policy_digest
 
 
-def test_golden_preflight_reuses_pre_policy_identity_job(
+def test_golden_preflight_rejects_pre_policy_identity_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
     source_build_id = "tmdb-multisource-20261009-r3"
-    _source_runtime, source_resolution, source_bound = (
+    _source_runtime, source_resolution, _source_bound = (
         golden_mod._identity_config_digests(
             source_build_id,
             source_policy_digest="sha256:" + ("c" * 64),
@@ -670,14 +822,15 @@ def test_golden_preflight_reuses_pre_policy_identity_job(
         },
     }
 
-    result = golden_mod._validated_reused_identity(
-        input_data,
-        preflight,
-        payload,
-    )
-
-    assert result.run_id == _run(94)
-    assert source_bound != historical_bound
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="sourcePolicyDigest differs from the current Catalog source policy",
+    ):
+        golden_mod._validated_reused_identity(
+            input_data,
+            preflight,
+            payload,
+        )
 
 
 def test_golden_identity_rejects_mismatched_source_policy_digest(
@@ -793,6 +946,7 @@ def test_epoch_accepts_verified_identity_lineage_closure(
         table_counts={"community_entity_ledger": 1},
         table_snapshot_ids={"community_entity_ledger": 7},
         job_run_id="identity-job",
+        source_policy_digest=golden_mod.load_catalog_source_policy().digest,
     )
     expected = tuple(sorted({*preflight.all_snapshot_run_ids, identity.run_id}))
     lineage = (_run(104),)

@@ -141,6 +141,7 @@ class GoldenIdentityResult:
     table_counts: dict[str, int]
     table_snapshot_ids: dict[str, int | None]
     job_run_id: str
+    source_policy_digest: str
 
 
 @dataclass(frozen=True)

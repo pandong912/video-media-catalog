@@ -56,6 +56,20 @@ def test_preflight_passes_without_identity_reuse() -> None:
     assert any(item.name == "build.identityReuse" for item in results)
 
 
+def test_preflight_blocks_r8h_pre_gate_image_digests() -> None:
+    unsafe = next(iter(preflight._UNSAFE_PRE_GATE_DIGESTS))
+    results = preflight.evaluate_values(
+        _base_values(
+            image={"digest": unsafe},
+            env={"imageDigest": unsafe},
+        )
+    )
+    by_name = {item.name: item for item in results}
+    assert by_name["image.digest"].passed is False
+    assert by_name["build.env.imageDigest"].passed is False
+    assert "r8h digests are blocked" in by_name["image.digest"].detail
+
+
 def test_preflight_fails_wrong_disk() -> None:
     results = preflight.evaluate_values(_base_values(env={"goldExecutorDisk": "170G"}))
     disk = next(item for item in results if item.name == "build.env.goldExecutorDisk")

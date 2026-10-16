@@ -23,6 +23,15 @@ from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGE
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REQUIRED_DISK = "185G"
+# Digests pinned for r8h: worker/EMR images lack the release-start Identity
+# policy gate and the early Gold provenance check. Starting Gold on these
+# burns hours before fail-closing on source-policy mismatch.
+_UNSAFE_PRE_GATE_DIGESTS = frozenset(
+    {
+        "sha256:91bb7c3a480187dea363bed5c05c0f1a59cee5c83e3ffc8eab238bc0866cc04b",
+        "sha256:98536ff0ac95d8ca38b172f108f03181975dc374578b9ce00fd03857fc7940d3",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -122,21 +131,43 @@ def evaluate_values(
         )
     )
 
-    worker_digest = image.get("digest")
+    worker_digest = str(image.get("digest") or "")
+    worker_ok = _is_sha256(worker_digest) and (
+        worker_digest.lower() not in _UNSAFE_PRE_GATE_DIGESTS
+    )
     checks.append(
         CheckResult(
             name="image.digest",
-            passed=_is_sha256(worker_digest),
-            detail=str(worker_digest or "empty"),
+            passed=worker_ok,
+            detail=(
+                worker_digest
+                if worker_ok
+                else (
+                    f"{worker_digest or 'empty'} "
+                    "(must be sha256 and post-policy-gate; "
+                    "r8h digests are blocked)"
+                )
+            ),
         )
     )
 
-    image_digest = env.get("imageDigest")
+    image_digest = str(env.get("imageDigest") or "")
+    emr_ok = _is_sha256(image_digest) and (
+        image_digest.lower() not in _UNSAFE_PRE_GATE_DIGESTS
+    )
     checks.append(
         CheckResult(
             name="build.env.imageDigest",
-            passed=_is_sha256(image_digest),
-            detail=str(image_digest or "empty"),
+            passed=emr_ok,
+            detail=(
+                image_digest
+                if emr_ok
+                else (
+                    f"{image_digest or 'empty'} "
+                    "(must be sha256 and post-policy-gate; "
+                    "r8h digests are blocked)"
+                )
+            ),
         )
     )
 

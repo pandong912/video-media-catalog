@@ -221,7 +221,7 @@ def test_golden_release_uses_dedicated_capacity_with_replacement_headroom() -> N
     assert parsed.executor_instances == 20
     assert parsed.executor_cores == 4
     assert parsed.executor_memory == "24g"
-    assert parsed.executor_memory_overhead == "4g"
+    assert parsed.executor_memory_overhead == "6g"
     assert parsed.executor_disk == "185G"
     assert parsed.shuffle_partitions == 1152
     assert parsed.driver_memory_overhead == "4g"

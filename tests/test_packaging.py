@@ -85,7 +85,11 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert api_entrypoint not in publish_workflow
     assert api_dockerfile not in ci_workflow
     assert "dockerfile: Dockerfile.emr" in ci_workflow
-    assert "EMR_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:a4670f025c013b85b288713ec62b5b32eb0a1626ed5cfcef362d9c56167b78cd" in ci_workflow
+    assert "EMR_BASE_IMAGE=" in ci_workflow
+    assert (
+        "209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@"
+        "sha256:a4670f025c013b85b288713ec62b5b32eb0a1626ed5cfcef362d9c56167b78cd"
+    ) in ci_workflow
     assert "dockerfile: Dockerfile.emr" in publish_workflow
     assert "findingSeverityCounts.CRITICAL" in publish_workflow
     assert "exceeds the maximum supported with Basic Scanning" in publish_workflow

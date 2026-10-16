@@ -102,6 +102,7 @@ class GoldenBuildInput:
     source_watermarks: dict[str, str]
     freshness_override: FreshnessOverrideInput
     env: GoldenBuildEnv
+    baseline_identity_source_run_ids: tuple[str, ...] = ()
     supplemental_source_run_ids: tuple[str, ...] = ()
     identity_reuse: ObjectRefPayload | None = None
     source_run_states: tuple[GoldenSourceRunState, ...] = ()

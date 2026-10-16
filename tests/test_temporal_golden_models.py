@@ -86,6 +86,7 @@ def _input() -> GoldenBuildInput:
             gold_emr_application_name="gold-app",
             gold_emr_log_uri="s3://bucket/gold-logs/",
         ),
+        baseline_identity_source_run_ids=(_run(3),),
     )
 
 
@@ -139,7 +140,7 @@ def _with_source_states(input_data: GoldenBuildInput) -> GoldenBuildInput:
                 run_status=GoldenSourceRunStatus.COMMITTED,
                 freshness_status=GoldenSourceFreshnessStatus.PASS,
                 watermark=input_data.source_watermarks["wikidata-json-dump"],
-                identity_spine=True,
+                identity_spine=False,
                 materialization=False,
                 gold_contribution=True,
             ),
@@ -149,6 +150,8 @@ def _with_source_states(input_data: GoldenBuildInput) -> GoldenBuildInput:
                 run_status=GoldenSourceRunStatus.COMMITTED,
                 freshness_status=GoldenSourceFreshnessStatus.PASS,
                 watermark=input_data.source_watermarks["tmdb-research"],
+                identity_spine=True,
+                materialization=True,
             ),
         ),
     )
@@ -194,9 +197,14 @@ def test_preflight_pins_explicit_source_run_and_freshness_states() -> None:
     assert result.all_snapshot_run_ids == (
         input_data.baseline_source_run_ids[2],
         input_data.baseline_identity_run_id,
+        *input_data.tmdb_source_run_ids,
     )
-    assert _incremental_identity_source_run_ids(input_data, result) == (
-        input_data.baseline_source_run_ids[2],
+    assert (
+        _incremental_identity_source_run_ids(
+            input_data,
+            result,
+        )
+        == input_data.tmdb_source_run_ids
     )
 
 
@@ -225,11 +233,59 @@ def test_preflight_accepts_enabled_source_identity_intent() -> None:
         planned_at="2026-10-09T00:00:00Z",
     )
 
-    assert result.all_snapshot_run_ids == (_run(1), _run(3), _run(4))
-    assert _incremental_identity_source_run_ids(input_data, result) == (
+    assert result.all_snapshot_run_ids == (
         _run(1),
         _run(3),
+        _run(4),
+        *input_data.tmdb_source_run_ids,
     )
+    assert _incremental_identity_source_run_ids(input_data, result) == tuple(
+        sorted((_run(1), *input_data.tmdb_source_run_ids))
+    )
+
+
+def test_preflight_rejects_reprocessing_baseline_identity_sources() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        source_run_states=tuple(
+            replace(state, identity_spine=True)
+            if state.source_product_id == "wikidata-json-dump"
+            else state
+            for state in base.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="unprocessed Silver delta",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_requires_baseline_identity_source_pin() -> None:
+    input_data = replace(
+        _with_source_states(_input()),
+        baseline_identity_source_run_ids=(),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="baseline Identity source run IDs must be pinned",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
 
 
 def test_preflight_projects_sources_already_covered_by_baseline_identity() -> None:
@@ -273,7 +329,11 @@ def test_preflight_rejects_gold_only_nonbaseline_runs() -> None:
     input_data = replace(
         base,
         source_run_states=tuple(
-            replace(state, gold_contribution=True)
+            replace(
+                state,
+                identity_spine=False,
+                gold_contribution=True,
+            )
             if state.source_product_id == "tmdb-research"
             else state
             for state in base.source_run_states
@@ -334,7 +394,7 @@ def test_preflight_allows_reused_identity_tmdb_materialization_without_spine() -
             (
                 input_data.baseline_source_run_ids[0],
                 input_data.baseline_source_run_ids[1],
-                input_data.baseline_source_run_ids[2],
+                *input_data.tmdb_source_run_ids,
             )
         )
     )
@@ -463,12 +523,7 @@ def test_preflight_includes_supplemental_runs_in_snapshot_and_identity() -> None
 
     assert eidr_run in result.all_snapshot_run_ids
     assert _incremental_identity_source_run_ids(input_data, result) == tuple(
-        sorted(
-            (
-                input_data.baseline_source_run_ids[2],
-                eidr_run,
-            )
-        )
+        sorted((*input_data.tmdb_source_run_ids, eidr_run))
     )
 
 
@@ -501,7 +556,10 @@ def test_preflight_applies_audited_temporary_quality_thresholds() -> None:
                 imdb_slo_hours=result.imdb_slo_hours,
                 wikidata_slo_hours=45 * 24,
             ),
-            selected_source_product_ids={"wikidata-json-dump"},
+            selected_source_product_ids={
+                "tmdb-research",
+                "wikidata-json-dump",
+            },
         ).digest
     )
 

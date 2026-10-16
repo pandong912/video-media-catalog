@@ -609,6 +609,14 @@ def _validate_preflight_documents(
             }
         )
     )
+    baseline_identity_sources = tuple(
+        sorted(
+            {
+                _require_sha256(value, label="baseline Identity source run ID")
+                for value in input_data.baseline_identity_source_run_ids
+            }
+        )
+    )
     tmdb_runs = tuple(
         sorted(
             {
@@ -627,6 +635,21 @@ def _validate_preflight_documents(
     )
     if len(baseline_sources) != len(input_data.baseline_source_run_ids):
         raise NonRetryableGoldenBuildError("baseline source run IDs must be unique")
+    if len(baseline_identity_sources) != len(
+        input_data.baseline_identity_source_run_ids
+    ):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity source run IDs must be unique"
+        )
+    if not baseline_identity_sources:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity source run IDs must be pinned"
+        )
+    unknown_identity_sources = set(baseline_identity_sources) - set(baseline_sources)
+    if unknown_identity_sources:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity source runs must belong to the baseline snapshot"
+        )
     if len(tmdb_runs) != 15:
         raise NonRetryableGoldenBuildError(
             "Golden Build requires exactly 15 unique TMDB source runs"
@@ -719,7 +742,7 @@ def _validate_preflight_documents(
     all_runs = tuple(
         sorted(
             (
-                {identity_run}
+                {identity_run, *baseline_identity_sources}
                 | {
                     run_id
                     for state in source_run_states
@@ -750,7 +773,7 @@ def _validate_preflight_documents(
                 if state.gold_contribution
             },
         )
-    return GoldenPreflightResult(
+    result = GoldenPreflightResult(
         build_spec=ObjectRefPayload(
             uri="s3://pending/build-spec.json",
             format="OBJECT_FORMAT_JSON",
@@ -773,29 +796,40 @@ def _validate_preflight_documents(
         source_policy_digest=source_policy.digest,
         source_run_states=source_run_states,
     )
+    if input_data.identity_reuse is None:
+        expected_identity_runs = _incremental_identity_source_run_ids(
+            input_data,
+            result,
+        )
+        selected_identity_runs = tuple(
+            sorted(
+                run_id
+                for state in source_run_states
+                if state.identity_spine
+                for run_id in state.run_ids
+            )
+        )
+        if not expected_identity_runs:
+            raise NonRetryableGoldenBuildError(
+                "fresh incremental Identity requires an unprocessed source run"
+            )
+        if selected_identity_runs != expected_identity_runs:
+            raise NonRetryableGoldenBuildError(
+                "fresh incremental Identity source states differ from the pinned "
+                "unprocessed Silver delta"
+            )
+    return result
 
 
 def _incremental_identity_source_run_ids(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
 ) -> tuple[str, ...]:
-    if preflight.source_run_states:
-        return tuple(
-            sorted(
-                run_id
-                for state in preflight.source_run_states
-                if state.identity_spine
-                for run_id in state.run_ids
-            )
-        )
-    return tuple(
-        sorted(
-            {
-                *preflight.tmdb_source_run_ids,
-                *input_data.supplemental_source_run_ids,
-            }
-        )
-    )
+    baseline_identity_sources = set(input_data.baseline_identity_source_run_ids)
+    snapshot_source_runs = set(preflight.all_snapshot_run_ids) - {
+        input_data.baseline_identity_run_id
+    }
+    return tuple(sorted(snapshot_source_runs - baseline_identity_sources))
 
 
 def _argument_values(arguments: list[str], flag: str) -> tuple[str, ...]:
@@ -1030,6 +1064,9 @@ def prepare_golden_build(
             ),
             "baselineSourceRunIds": list(input_data.baseline_source_run_ids),
             "baselineIdentityRunId": input_data.baseline_identity_run_id,
+            "baselineIdentitySourceRunIds": list(
+                input_data.baseline_identity_source_run_ids
+            ),
             "tmdbSourceRunIds": list(preflight.tmdb_source_run_ids),
             "supplementalSourceRunIds": list(input_data.supplemental_source_run_ids),
             "incrementalIdentitySourceRunIds": list(

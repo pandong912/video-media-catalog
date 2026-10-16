@@ -22,6 +22,7 @@ import yaml
 
 from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGEST
 from video_media_catalog.temporal.activities.golden import (
+    _incremental_identity_source_run_ids,
     _read_ref_json,
     _validate_preflight_documents,
 )
@@ -274,12 +275,17 @@ def evaluate_runtime_input(
             for state in result.source_run_states
             if state.identity_spine
         )
+        incremental_run_ids = _incremental_identity_source_run_ids(
+            input_data,
+            result,
+        )
         return CheckResult(
             name="build.runtimePreflight",
             passed=True,
             detail=(
                 f"sourcePolicy={result.source_policy_digest}; "
-                f"identitySources={','.join(identity_sources)}"
+                f"identitySources={','.join(identity_sources)}; "
+                f"incrementalIdentityRuns={len(incremental_run_ids)}"
             ),
         )
     except Exception as exc:

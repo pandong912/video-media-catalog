@@ -80,6 +80,7 @@ def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
             "tmdbPipelineSummary": _object_ref("s3://bucket/tmdb-summary.json"),
             "baselineSourceRunIds": list(baseline_run_ids),
             "baselineIdentityRunId": _run(4),
+            "baselineIdentitySourceRunIds": [baseline_run_ids[2]],
             "tmdbSourceRunIds": list(tmdb_run_ids),
             "supplementalSourceRunIds": [],
             "sourceWatermarks": {
@@ -102,7 +103,7 @@ def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
                     "freshnessStatus": "OVERRIDDEN",
                     "watermark": "2026-09-20T22:03:01Z",
                     "acquiredAt": "2026-09-20T22:03:01Z",
-                    "identitySpine": False,
+                    "identitySpine": True,
                     "materialization": True,
                 },
                 {
@@ -112,7 +113,7 @@ def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
                     "freshnessStatus": "OVERRIDDEN",
                     "watermark": "2026-09-25T18:45:56Z",
                     "acquiredAt": "2026-09-25T18:45:56Z",
-                    "identitySpine": False,
+                    "identitySpine": True,
                     "materialization": True,
                 },
                 {
@@ -121,7 +122,7 @@ def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
                     "runStatus": "COMMITTED",
                     "freshnessStatus": "PASS",
                     "watermark": "20260914",
-                    "identitySpine": True,
+                    "identitySpine": False,
                     "materialization": True,
                 },
                 {
@@ -278,6 +279,7 @@ def test_runtime_preflight_accepts_fresh_identity_with_tmdb_spine() -> None:
 
     assert result.passed is True
     assert "tmdb-research" in result.detail
+    assert "incrementalIdentityRuns=17" in result.detail
 
 
 def test_runtime_preflight_rejects_fresh_identity_without_tmdb_spine() -> None:
@@ -292,6 +294,29 @@ def test_runtime_preflight_rejects_fresh_identity_without_tmdb_spine() -> None:
 
     assert result.passed is False
     assert "without incremental Identity" in result.detail
+
+
+def test_runtime_preflight_rejects_r8j_baseline_delta_inversion() -> None:
+    values = _runtime_values(tmdb_identity_spine=True)
+    documents = values.pop("_testDocuments")
+    for state in values["build"]["sourceRunStates"]:
+        source = state["sourceProductId"]
+        if source in {
+            "imdb-non-commercial-datasets",
+            "tvmaze-public-api",
+        }:
+            state["identitySpine"] = False
+        elif source == "wikidata-json-dump":
+            state["identitySpine"] = True
+
+    result = preflight.evaluate_runtime_input(
+        values,
+        documents=documents,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert result.passed is False
+    assert "unprocessed Silver delta" in result.detail
 
 
 def test_preflight_cli_exit_codes(

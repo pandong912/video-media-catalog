@@ -81,7 +81,11 @@ class _Client:
 def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     client = _Client(["SUBMITTED", "RUNNING", "SUCCESS"])
 
-    result = run(_parsed(), client=client, sleep=lambda _seconds: None)
+    result = run(
+        _parsed("--executor-memory-overhead", "20g"),
+        client=client,
+        sleep=lambda _seconds: None,
+    )
 
     assert result["state"] == "SUCCESS"
     assert client.cancel_requests == []
@@ -95,12 +99,18 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     parameters = spark_submit["sparkSubmitParameters"]
     assert "spark.emr-serverless.executor.disk=200G" in parameters
     assert "spark.emr-serverless.executor.disk.type=SHUFFLE_OPTIMIZED" in parameters
+    assert "spark.executor.memoryOverhead=20g" in parameters
     assert "spark.speculation=false" in parameters
     assert "spark.dynamicAllocation.enabled=false" in parameters
     assert "spark.task.maxFailures=8" in parameters
     assert "spark.stage.maxConsecutiveAttempts=20" in parameters
     assert "spark.shuffle.io.maxRetries=16" in parameters
     assert "spark.excludeOnFailure.timeout=24h" in parameters
+    assert "spark.executor.extraJavaOptions=-XX:+UseG1GC" in parameters
+    assert "'spark.executor.extraJavaOptions" not in parameters
+    tokens = parameters.split()
+    assert all(token == "--conf" for token in tokens[::2])
+    assert all(token.startswith("spark.") for token in tokens[1::2])
 
 
 def test_submit_enables_bounded_speculation_when_requested() -> None:

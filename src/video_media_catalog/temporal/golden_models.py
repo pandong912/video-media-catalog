@@ -67,7 +67,11 @@ class GoldenBuildEnv:
     glue_namespace: str = "video_media_catalog"
     control_executor_instances: int = 4
     control_shuffle_partitions: int = 96
-    build_executor_instances: int = 8
+    build_executor_instances: int = 7
+    build_executor_cores: int = 8
+    build_executor_memory: str = "48g"
+    build_executor_memory_overhead: str = "20g"
+    build_executor_disk: str = "400G"
     build_shuffle_partitions: int = 432
     gold_emr_application_name: str = ""
     gold_emr_log_uri: str = ""
@@ -98,6 +102,7 @@ class GoldenBuildInput:
     tmdb_pipeline_summary: ObjectRefPayload
     baseline_source_run_ids: tuple[str, ...]
     baseline_identity_run_id: str
+    baseline_identity_manifest: ObjectRefPayload
     tmdb_source_run_ids: tuple[str, ...]
     source_watermarks: dict[str, str]
     freshness_override: FreshnessOverrideInput

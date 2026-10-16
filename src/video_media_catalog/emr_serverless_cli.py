@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shlex
 import signal
 import time
 from collections.abc import Callable, Sequence
@@ -192,10 +191,10 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.network.timeout": "3600s",
         "spark.executor.heartbeatInterval": "30s",
         "spark.shuffle.io.connectionTimeout": "3600s",
-        "spark.executor.extraJavaOptions": (
-            "-XX:+UseG1GC -XX:InitiatingHeapOccupancyPercent=35 "
-            "-XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=1000"
-        ),
+        # EMR Serverless does not shell-expand sparkSubmitParameters. A
+        # whitespace-containing value serialized with shell quotes is parsed
+        # as a property whose name starts with a literal quote and is ignored.
+        "spark.executor.extraJavaOptions": "-XX:+UseG1GC",
         "spark.emr-serverless.driver.disk": parsed.driver_disk,
         "spark.emr-serverless.executor.disk": parsed.executor_disk,
         "spark.emr-serverless.driver.disk.type": "SHUFFLE_OPTIMIZED",
@@ -223,8 +222,10 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         properties["spark.executor.memoryOverhead"] = parsed.executor_memory_overhead
     arguments: list[str] = []
     for key, value in properties.items():
+        if any(character.isspace() for character in f"{key}={value}"):
+            raise ValueError("Spark --conf keys and values must not contain whitespace")
         arguments.extend(("--conf", f"{key}={value}"))
-    return shlex.join(arguments)
+    return " ".join(arguments)
 
 
 def _emit(payload: dict[str, Any]) -> None:

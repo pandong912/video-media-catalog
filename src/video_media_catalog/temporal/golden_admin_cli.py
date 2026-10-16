@@ -47,7 +47,13 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
         glue_namespace=str(values.get("glueNamespace", "video_media_catalog")),
         control_executor_instances=int(values.get("controlExecutorInstances", 4)),
         control_shuffle_partitions=int(values.get("controlShufflePartitions", 96)),
-        build_executor_instances=int(values.get("buildExecutorInstances", 8)),
+        build_executor_instances=int(values.get("buildExecutorInstances", 7)),
+        build_executor_cores=int(values.get("buildExecutorCores", 8)),
+        build_executor_memory=str(values.get("buildExecutorMemory", "48g")),
+        build_executor_memory_overhead=str(
+            values.get("buildExecutorMemoryOverhead", "20g")
+        ),
+        build_executor_disk=str(values.get("buildExecutorDisk", "400G")),
         build_shuffle_partitions=int(values.get("buildShufflePartitions", 432)),
         gold_emr_application_name=str(
             values.get("goldEmrApplicationName", values["emrApplicationName"])
@@ -128,6 +134,9 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
             str(value) for value in values["baselineSourceRunIds"]
         ),
         baseline_identity_run_id=str(values["baselineIdentityRunId"]),
+        baseline_identity_manifest=ObjectRefPayload.from_mapping(
+            values["baselineIdentityManifest"]
+        ),
         tmdb_source_run_ids=tuple(str(value) for value in values["tmdbSourceRunIds"]),
         source_watermarks={
             str(key): str(value) for key, value in values["sourceWatermarks"].items()
@@ -140,7 +149,7 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
         ),
         env=_env_from_mapping(values["env"]),
         baseline_identity_source_run_ids=tuple(
-            str(value) for value in values.get("baselineIdentitySourceRunIds", ())
+            str(value) for value in values["baselineIdentitySourceRunIds"]
         ),
         supplemental_source_run_ids=tuple(
             str(value) for value in values.get("supplementalSourceRunIds", ())

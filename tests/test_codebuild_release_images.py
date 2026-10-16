@@ -11,7 +11,7 @@ def test_release_buildspec_signs_both_runtime_images_from_immutable_source() -> 
     contract = (ROOT / "buildspec.release-images.yml").read_text()
 
     assert 'test "${CODEBUILD_SOURCE_VERSION:?}" = "$SOURCE_OBJECT_VERSION"' in contract
-    assert "runtime|Dockerfile|release|10001:10001" in contract
+    assert "runtime|Dockerfile.release|release|10001:10001" in contract
     assert "emr|Dockerfile.emr|emr-release|hadoop:hadoop" in contract
     assert 'cosign sign --yes --key "awskms:///$KMS_KEY_ARN"' in contract
     assert contract.count("for attempt in $(seq 1 8)") == 2

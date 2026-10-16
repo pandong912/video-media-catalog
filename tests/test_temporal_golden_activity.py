@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -7,7 +8,10 @@ from typing import Any
 import pytest
 from test_temporal_golden_models import _input, _ref, _run
 
-from video_media_catalog.community_snapshot import SILVER_EPOCH_MEDIA_TYPE
+from video_media_catalog.community_snapshot import (
+    SILVER_EPOCH_MEDIA_TYPE,
+    SILVER_SNAPSHOT_MEDIA_TYPE,
+)
 from video_media_catalog.temporal.activities import golden as golden_mod
 from video_media_catalog.temporal.golden_models import (
     GoldenEpochResult,
@@ -42,6 +46,35 @@ def _fixture_incremental_identity_runs(input_data: Any) -> tuple[str, ...]:
     )
 
 
+def _reuse_snapshot_ref() -> ObjectRefPayload:
+    return replace(
+        _ref("s3://bucket/reused-pre-identity-snapshot.json"),
+        media_type=golden_mod.SILVER_SNAPSHOT_MEDIA_TYPE,
+    )
+
+
+def _reuse_snapshot_payload(
+    input_data: Any,
+    preflight: GoldenPreflightResult,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": "2.0",
+        "identityGenerationId": input_data.identity_generation_id,
+        "committedRunIds": list(preflight.all_snapshot_run_ids),
+        "tableMapping": {"community_ingest_run": "community_ingest_run"},
+        "dataSnapshotIds": {"community_ingest_run": 7},
+    }
+
+
+def _reuse_identity_arguments(reference: ObjectRefPayload) -> list[str]:
+    return [
+        "resolve-identity",
+        *golden_mod._object_args("silver-snapshot", reference),
+        "--silver-snapshot-media-type",
+        golden_mod.SILVER_SNAPSHOT_MEDIA_TYPE,
+    ]
+
+
 def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     input_data = _input()
 
@@ -55,21 +88,69 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     )
 
     assert parsed.max_attempts == 1
-    assert parsed.executor_instances == 8
+    assert parsed.executor_instances == 7
     assert parsed.shuffle_partitions == 432
     assert parsed.executor_cores == 8
     assert parsed.executor_memory == "48g"
+    assert parsed.executor_memory_overhead == "20g"
     assert parsed.executor_disk == "400G"
     assert parsed.driver_memory == "16g"
+    assert parsed.driver_memory_overhead == "4g"
     assert parsed.driver_disk == "50G"
     assert parsed.enable_speculation is False
-    assert parsed.failure_policy == "resilient"
+    assert parsed.failure_policy == "fail-fast"
     assert parsed.execution_timeout_minutes == 900
     assert parsed.client_token == golden_mod._stage_token(
         build_id=input_data.build_id,
         stage="identity",
         workflow_run_id="temporal-run-1",
     )
+
+
+def test_golden_identity_rejects_insufficient_python_memory_overhead() -> None:
+    input_data = _input()
+
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match=r"memory overhead must provide at least 2\.5 GiB per core",
+    ):
+        golden_mod._emr_namespace(
+            input_data=replace(
+                input_data,
+                env=replace(
+                    input_data.env,
+                    build_executor_memory_overhead="8g",
+                ),
+            ),
+            stage="identity",
+            entry_point=input_data.env.research_silver_entry_point,
+            entry_args=["resolve-identity"],
+            workflow_run_id="temporal-run-1",
+            control_profile=False,
+        )
+
+
+def test_golden_identity_rejects_application_capacity_overflow() -> None:
+    input_data = _input()
+
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match=r"Identity EMR request exceeds.*vCPU 68>64",
+    ):
+        golden_mod._emr_namespace(
+            input_data=replace(
+                input_data,
+                env=replace(
+                    input_data.env,
+                    build_executor_instances=8,
+                ),
+            ),
+            stage="identity",
+            entry_point=input_data.env.research_silver_entry_point,
+            entry_args=["resolve-identity"],
+            workflow_run_id="temporal-run-1",
+            control_profile=False,
+        )
 
 
 def test_golden_release_uses_dedicated_capacity_with_replacement_headroom() -> None:
@@ -410,8 +491,19 @@ def test_golden_emr_stage_resumes_job_from_matching_heartbeat(
     assert job_run_id == "00existingjob"
 
 
+@pytest.mark.parametrize(
+    ("variant", "expected_error"),
+    [
+        ("valid", None),
+        ("receipt-object-mismatch", "EMR Silver ObjectRef differs from the receipt"),
+        ("job-object-mismatch", "EMR Silver ObjectRef differs from the receipt"),
+        ("snapshot-content-mismatch", "snapshot differs from the planned snapshot"),
+    ],
+)
 def test_golden_preflight_reuses_verified_identity_job(
     monkeypatch: pytest.MonkeyPatch,
+    variant: str,
+    expected_error: str | None,
 ) -> None:
     input_data = _input()
     identity_source_run_ids = _fixture_incremental_identity_runs(input_data)
@@ -447,7 +539,8 @@ def test_golden_preflight_reuses_verified_identity_job(
         source_policy_digest=source_policy_digest,
     )
     image_digest = _run(93)
-    arguments = ["resolve-identity"]
+    snapshot_ref = _reuse_snapshot_ref()
+    arguments = _reuse_identity_arguments(snapshot_ref)
     for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
@@ -483,12 +576,26 @@ def test_golden_preflight_reuses_verified_identity_job(
         }
     )
     monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    monkeypatch.setattr(
+        golden_mod,
+        "read_driver_json_summary",
+        lambda **_kwargs: {
+            "runId": _run(94),
+            "commitKey": _run(95),
+            "sourceRunIds": list(identity_source_run_ids),
+            "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": "incremental",
+            "tableCounts": {"community_entity_ledger": 1},
+            "tableSnapshotIds": {"community_entity_ledger": 7},
+        },
+    )
     payload = {
         "schemaVersion": "1.0",
         "sourceBuildId": source_build_id,
         "applicationId": "00verifiedapplication",
         "jobRunId": job_run_id,
         "imageDigest": image_digest,
+        "silverSnapshot": _mapping(snapshot_ref),
         "identitySummary": {
             "context": "research",
             "stage": "identity-resolution",
@@ -505,11 +612,33 @@ def test_golden_preflight_reuses_verified_identity_job(
             "tableSnapshotIds": {"community_entity_ledger": 7},
         },
     }
+    reuse_snapshot = _reuse_snapshot_payload(input_data, preflight)
+    if variant == "receipt-object-mismatch":
+        payload["silverSnapshot"]["uri"] = "s3://bucket/other-snapshot.json"
+    elif variant == "job-object-mismatch":
+        uri_index = arguments.index("--silver-snapshot-uri") + 1
+        arguments[uri_index] = "s3://bucket/other-snapshot.json"
+    elif variant == "snapshot-content-mismatch":
+        reuse_snapshot["committedRunIds"] = reuse_snapshot["committedRunIds"][:-1]
+
+    if expected_error is not None:
+        with pytest.raises(
+            golden_mod.NonRetryableGoldenBuildError,
+            match=expected_error,
+        ):
+            golden_mod._validated_reused_identity(
+                input_data,
+                preflight,
+                payload,
+                reuse_snapshot=reuse_snapshot,
+            )
+        return
 
     result = golden_mod._validated_reused_identity(
         input_data,
         preflight,
         payload,
+        reuse_snapshot=reuse_snapshot,
     )
 
     assert result.run_id == _run(94)
@@ -557,7 +686,8 @@ def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
         source_run_states=(),
     )
     image_digest = _run(93)
-    arguments = ["resolve-identity"]
+    snapshot_ref = _reuse_snapshot_ref()
+    arguments = _reuse_identity_arguments(snapshot_ref)
     for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
@@ -593,12 +723,26 @@ def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
         }
     )
     monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    monkeypatch.setattr(
+        golden_mod,
+        "read_driver_json_summary",
+        lambda **_kwargs: {
+            "runId": _run(94),
+            "commitKey": _run(95),
+            "sourceRunIds": list(identity_source_run_ids),
+            "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": "incremental",
+            "tableCounts": {"community_entity_ledger": 1},
+            "tableSnapshotIds": {"community_entity_ledger": 7},
+        },
+    )
     payload = {
         "schemaVersion": "1.0",
         "sourceBuildId": source_build_id,
         "applicationId": "00verifiedapplication",
         "jobRunId": job_run_id,
         "imageDigest": image_digest,
+        "silverSnapshot": _mapping(snapshot_ref),
         "identitySummary": {
             "context": "research",
             "stage": "identity-resolution",
@@ -625,6 +769,7 @@ def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
             input_data,
             preflight,
             payload,
+            reuse_snapshot=_reuse_snapshot_payload(input_data, preflight),
         )
 
 
@@ -666,7 +811,8 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
         source_run_states=(),
     )
     image_digest = _run(93)
-    arguments = ["resolve-identity"]
+    snapshot_ref = _reuse_snapshot_ref()
+    arguments = _reuse_identity_arguments(snapshot_ref)
     for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
@@ -702,6 +848,19 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
         }
     )
     monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    monkeypatch.setattr(
+        golden_mod,
+        "read_driver_json_summary",
+        lambda **_kwargs: {
+            "runId": _run(94),
+            "commitKey": _run(95),
+            "sourceRunIds": list(identity_source_run_ids),
+            "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": "incremental",
+            "tableCounts": {"community_entity_ledger": 1},
+            "tableSnapshotIds": {"community_entity_ledger": 7},
+        },
+    )
     historical_registry = "sha256:" + ("a" * 64)
     assert historical_registry != golden_mod.build_community_registry().digest
     payload = {
@@ -710,6 +869,7 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
         "applicationId": "00verifiedapplication",
         "jobRunId": job_run_id,
         "imageDigest": image_digest,
+        "silverSnapshot": _mapping(snapshot_ref),
         "identitySummary": {
             "context": "research",
             "stage": "identity-resolution",
@@ -731,6 +891,7 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
         input_data,
         preflight,
         payload,
+        reuse_snapshot=_reuse_snapshot_payload(input_data, preflight),
     )
 
     assert result.run_id == _run(94)
@@ -779,7 +940,8 @@ def test_golden_preflight_rejects_pre_policy_identity_job(
         source_policy_digest=golden_mod.load_catalog_source_policy().digest,
     )
     image_digest = _run(93)
-    arguments = ["resolve-identity"]
+    snapshot_ref = _reuse_snapshot_ref()
+    arguments = _reuse_identity_arguments(snapshot_ref)
     for run_id in identity_source_run_ids:
         arguments.extend(["--source-run-id", run_id])
     arguments.extend(
@@ -813,12 +975,26 @@ def test_golden_preflight_rejects_pre_policy_identity_job(
         }
     )
     monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    monkeypatch.setattr(
+        golden_mod,
+        "read_driver_json_summary",
+        lambda **_kwargs: {
+            "runId": _run(94),
+            "commitKey": _run(95),
+            "sourceRunIds": list(identity_source_run_ids),
+            "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": "incremental",
+            "tableCounts": {"community_entity_ledger": 1},
+            "tableSnapshotIds": {"community_entity_ledger": 7},
+        },
+    )
     payload = {
         "schemaVersion": "1.0",
         "sourceBuildId": source_build_id,
         "applicationId": "00verifiedapplication",
         "jobRunId": job_run_id,
         "imageDigest": image_digest,
+        "silverSnapshot": _mapping(snapshot_ref),
         "identitySummary": {
             "context": "research",
             "stage": "identity-resolution",
@@ -843,6 +1019,7 @@ def test_golden_preflight_rejects_pre_policy_identity_job(
             input_data,
             preflight,
             payload,
+            reuse_snapshot=_reuse_snapshot_payload(input_data, preflight),
         )
 
 
@@ -1015,3 +1192,121 @@ def test_epoch_accepts_verified_identity_lineage_closure(
     assert tuple(delta_values) == expected
     assert len(delta_values) == len(set(delta_values))
     assert result.committed_run_count == len(committed)
+
+
+def test_normalized_object_ref_payload_ignores_checksum_encoding() -> None:
+    left = ObjectRefPayload(
+        uri="s3://bucket/silver.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        checksum_algorithm="sha256",
+        checksum_value="sha256:" + ("a" * 64),
+        size_bytes=12,
+        etag='"etag-1"',
+        object_version="v1",
+    )
+    right = ObjectRefPayload(
+        uri="s3://bucket/silver.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        checksum_algorithm="CHECKSUM_ALGORITHM_SHA256",
+        checksum_value="a" * 64,
+        size_bytes=12,
+        etag="etag-1",
+        object_version="v1",
+    )
+    assert golden_mod._normalized_object_ref_payload(
+        left
+    ) == golden_mod._normalized_object_ref_payload(right)
+
+
+def test_baseline_identity_parent_silver_binds_downloaded_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    from video_media_catalog.community_snapshot import (
+        DATA_TABLE_COLUMNS,
+        build_community_silver_snapshot_set,
+    )
+    from video_media_catalog.community_tables import build_community_table_mapping
+
+    table_mapping = build_community_table_mapping(input_data.identity_generation_id)
+    snapshot = build_community_silver_snapshot_set(
+        committed_run_ids=tuple(
+            sorted(
+                (
+                    *input_data.baseline_source_run_ids,
+                    input_data.baseline_identity_run_id,
+                )
+            )
+        ),
+        run_snapshot_id=1,
+        commit_snapshot_id=2,
+        data_snapshot_ids={table: 1 for table in DATA_TABLE_COLUMNS},
+        identity_generation_id=input_data.identity_generation_id,
+        table_mapping=table_mapping,
+        created_at="2026-10-08T00:00:00Z",
+    )
+    body = snapshot.json_bytes()
+    silver_ref = ObjectRefPayload(
+        uri="s3://bucket/parent-silver.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        checksum_algorithm="CHECKSUM_ALGORITHM_SHA256",
+        checksum_value=hashlib.sha256(body).hexdigest(),
+        size_bytes=len(body),
+        etag="parent-etag",
+        object_version="parent-version",
+    )
+    baseline = {
+        "schemaVersion": "2.0",
+        "identityGenerationId": input_data.identity_generation_id,
+        "tableMapping": table_mapping,
+        "committedRunIds": list(snapshot.committed_run_ids),
+    }
+
+    def fake_read(_client, reference, *, label, max_bytes=0):
+        assert reference.uri == silver_ref.uri
+        return body
+
+    monkeypatch.setattr(golden_mod, "_read_ref_bytes", fake_read)
+    golden_mod._validate_baseline_identity_parent_silver(
+        object(),
+        silver_ref,
+        expected_manifest_id=snapshot.snapshot_set_id,
+        baseline=baseline,
+        identity_generation_id=input_data.identity_generation_id,
+    )
+
+
+def test_baseline_identity_rejects_epoch_binding_without_epoch_id() -> None:
+    input_data = _input()
+    from test_temporal_golden_models import _baseline_identity_manifest
+
+    epoch_ref = replace(
+        _ref("s3://bucket/parent-epoch.json"),
+        media_type=SILVER_EPOCH_MEDIA_TYPE,
+    )
+    manifest = _baseline_identity_manifest(
+        identity_generation_id=input_data.identity_generation_id,
+        source_run_ids=input_data.baseline_identity_source_run_ids,
+        silver_ref=epoch_ref,
+    )
+    # Keep snapshotSetId while advertising epoch media type — must fail closed.
+    baseline = {
+        "schemaVersion": "2.0",
+        "identityGenerationId": input_data.identity_generation_id,
+        "tableMapping": {"community_ingest_run": "community_ingest_run"},
+    }
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="epoch Silver binding requires epochId",
+    ):
+        golden_mod._validate_baseline_identity_manifest(
+            input_data,
+            baseline=baseline,
+            payload=manifest,
+            identity_run_id=str(manifest["runId"]),
+            identity_source_run_ids=input_data.baseline_identity_source_run_ids,
+            client=None,
+        )

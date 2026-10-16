@@ -32,7 +32,12 @@ from video_media_catalog.community_snapshot import (
 )
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.emr_driver_logs import read_driver_json_summary
-from video_media_catalog.emr_serverless_cli import run as run_emr_submit
+from video_media_catalog.emr_serverless_cli import (
+    run as run_emr_submit,
+)
+from video_media_catalog.emr_serverless_cli import (
+    validate_emr_serverless_worker_total_memory,
+)
 from video_media_catalog.gold import (
     GOLD_RELEASE_PLAN_MEDIA_TYPE,
     GoldReleasePlan,
@@ -96,7 +101,9 @@ _GOLD_REPLACEMENT_EXECUTORS = 1
 _BUILD_EMR_MAX_VCPU = 64
 _BUILD_EMR_MAX_MEMORY_GIB = 512
 _BUILD_EMR_MAX_DISK_GIB = 6000
-_BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB = 6
+# 8 vCPU EMR Serverless workers max out at 60 GiB total. Keep 2.5 GiB/core
+# Python/native overhead (20g) and size heap to the remaining 40g floor.
+_BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB = 5
 _BUILD_MIN_EXECUTOR_OVERHEAD_PER_CORE_GIB = 2.5
 _BUILD_MIN_EXECUTOR_DISK_GIB = 400
 _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS = 36
@@ -1693,6 +1700,26 @@ def _validate_build_emr_capacity(input_data: GoldenBuildInput) -> None:
             "Identity executor disk must be at least "
             f"{_BUILD_MIN_EXECUTOR_DISK_GIB} GiB"
         )
+    driver_memory = _resource_gib(_GOLD_DRIVER_MEMORY, label="Identity driver memory")
+    driver_overhead = _resource_gib(
+        _GOLD_DRIVER_MEMORY_OVERHEAD,
+        label="Identity driver memory overhead",
+    )
+    try:
+        validate_emr_serverless_worker_total_memory(
+            cores=_GOLD_DRIVER_CORES,
+            memory_gib=driver_memory,
+            overhead_gib=driver_overhead,
+            label="Identity driver",
+        )
+        validate_emr_serverless_worker_total_memory(
+            cores=env.build_executor_cores,
+            memory_gib=executor_memory,
+            overhead_gib=executor_overhead,
+            label="Identity executor",
+        )
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(str(exc)) from exc
 
     executor_instances = max(
         env.control_executor_instances,
@@ -1704,11 +1731,8 @@ def _validate_build_emr_capacity(input_data: GoldenBuildInput) -> None:
             _BUILD_EMR_MAX_VCPU,
         ),
         "GiB memory": (
-            _resource_gib(_GOLD_DRIVER_MEMORY, label="Identity driver memory")
-            + _resource_gib(
-                _GOLD_DRIVER_MEMORY_OVERHEAD,
-                label="Identity driver memory overhead",
-            )
+            driver_memory
+            + driver_overhead
             + executor_instances * (executor_memory + executor_overhead),
             _BUILD_EMR_MAX_MEMORY_GIB,
         ),
@@ -1748,25 +1772,41 @@ def _validate_gold_emr_capacity(input_data: GoldenBuildInput) -> None:
     if env.gold_shuffle_partitions < 1:
         raise NonRetryableGoldenBuildError("Gold shuffle partitions must be positive")
 
+    gold_executor_memory = _resource_gib(
+        env.gold_executor_memory,
+        label="Gold executor memory",
+    )
+    gold_executor_overhead = _resource_gib(
+        env.gold_executor_memory_overhead,
+        label="Gold executor memory overhead",
+    )
+    gold_driver_memory = _resource_gib(_GOLD_DRIVER_MEMORY, label="Gold driver memory")
+    gold_driver_overhead = _resource_gib(
+        _GOLD_DRIVER_MEMORY_OVERHEAD,
+        label="Gold driver memory overhead",
+    )
+    try:
+        validate_emr_serverless_worker_total_memory(
+            cores=_GOLD_DRIVER_CORES,
+            memory_gib=gold_driver_memory,
+            overhead_gib=gold_driver_overhead,
+            label="Gold driver",
+        )
+        validate_emr_serverless_worker_total_memory(
+            cores=env.gold_executor_cores,
+            memory_gib=gold_executor_memory,
+            overhead_gib=gold_executor_overhead,
+            label="Gold executor",
+        )
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(str(exc)) from exc
+
     executor_slots = env.gold_executor_instances + _GOLD_REPLACEMENT_EXECUTORS
     requested_vcpu = _GOLD_DRIVER_CORES + executor_slots * env.gold_executor_cores
     requested_memory = (
-        _resource_gib(_GOLD_DRIVER_MEMORY, label="Gold driver memory")
-        + _resource_gib(
-            _GOLD_DRIVER_MEMORY_OVERHEAD,
-            label="Gold driver memory overhead",
-        )
-        + executor_slots
-        * (
-            _resource_gib(
-                env.gold_executor_memory,
-                label="Gold executor memory",
-            )
-            + _resource_gib(
-                env.gold_executor_memory_overhead,
-                label="Gold executor memory overhead",
-            )
-        )
+        gold_driver_memory
+        + gold_driver_overhead
+        + executor_slots * (gold_executor_memory + gold_executor_overhead)
     )
     requested_disk = _resource_gib(
         _GOLD_DRIVER_DISK,

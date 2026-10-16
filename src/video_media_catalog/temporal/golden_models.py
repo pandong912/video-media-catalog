@@ -69,7 +69,7 @@ class GoldenBuildEnv:
     control_shuffle_partitions: int = 96
     build_executor_instances: int = 7
     build_executor_cores: int = 8
-    build_executor_memory: str = "48g"
+    build_executor_memory: str = "40g"
     build_executor_memory_overhead: str = "20g"
     build_executor_disk: str = "400G"
     build_shuffle_partitions: int = 432
@@ -78,7 +78,7 @@ class GoldenBuildEnv:
     gold_executor_instances: int = 20
     gold_executor_cores: int = 4
     gold_executor_memory: str = "24g"
-    gold_executor_memory_overhead: str = "8g"
+    gold_executor_memory_overhead: str = "6g"
     gold_executor_disk: str = "170G"
     gold_shuffle_partitions: int = 1152
     gold_tmdb_freshness_slo_hours: int = 36

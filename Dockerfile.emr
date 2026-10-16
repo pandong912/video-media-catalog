@@ -1,4 +1,6 @@
 ARG EMR_BASE_IMAGE=public.ecr.aws/emr-serverless/spark/emr-7.10.0@sha256:c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46
+# Publish CI may override EMR_BASE_IMAGE to a private ECR digest when
+# public.ecr.aws rate-limits the EMR Serverless base pull.
 FROM ${EMR_BASE_IMAGE}
 
 ARG UV_VERSION=0.9.7

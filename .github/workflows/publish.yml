@@ -59,11 +59,17 @@ jobs:
             tag_prefix: sha
             release_prefix: ""
             artifact: video-media-catalog
+            # Worker image does not need an EMR Serverless base.
+            build_args: ""
           - repository: video-media-catalog
             dockerfile: Dockerfile.emr
             tag_prefix: emr-sha
             release_prefix: emr-
             artifact: video-media-catalog-emr
+            # Rebuild app layers on the last successful private EMR image so
+            # public.ecr.aws EMR base pulls cannot 429-fail the release path.
+            build_args: >-
+              EMR_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:a4670f025c013b85b288713ec62b5b32eb0a1626ed5cfcef362d9c56167b78cd
     env:
       ECR_REPOSITORY: ${{ matrix.repository }}
     steps:
@@ -118,6 +124,7 @@ jobs:
           provenance: mode=max
           sbom: true
           tags: ${{ steps.tags.outputs.values }}
+          build-args: ${{ matrix.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Refresh AWS credentials after long image build

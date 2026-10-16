@@ -13,6 +13,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -20,6 +21,11 @@ from urllib.parse import urlparse
 import yaml
 
 from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGEST
+from video_media_catalog.temporal.activities.golden import (
+    _read_ref_json,
+    _validate_preflight_documents,
+)
+from video_media_catalog.temporal.golden_admin_cli import _input_from_mapping
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REQUIRED_DISK = "185G"
@@ -189,41 +195,99 @@ def evaluate_values(
                 detail="absent (fresh Identity required)",
             )
         )
-        return checks
+    else:
+        try:
+            reference = _require_mapping(identity_reuse, label="build.identityReuse")
+            downloader = download_receipt or _download_identity_reuse_receipt
+            receipt = downloader(reference, region=region, s3_client=s3_client)
+            summary = receipt.get("identitySummary")
+            if not isinstance(summary, dict):
+                raise ValueError("identityReuse receipt lacks identitySummary object")
+            receipt_digest = str(summary.get("sourcePolicyDigest") or "")
+            if not _is_sha256(receipt_digest):
+                raise ValueError(
+                    "identitySummary.sourcePolicyDigest must be a sha256 digest"
+                )
+            if receipt_digest.lower() != CATALOG_SOURCE_POLICY_DIGEST.lower():
+                raise ValueError(
+                    "identitySummary.sourcePolicyDigest differs from "
+                    f"CATALOG_SOURCE_POLICY_DIGEST ({CATALOG_SOURCE_POLICY_DIGEST})"
+                )
+            checks.append(
+                CheckResult(
+                    name="identityReuse.sourcePolicyDigest",
+                    passed=True,
+                    detail=receipt_digest,
+                )
+            )
+        except Exception as exc:
+            checks.append(
+                CheckResult(
+                    name="identityReuse.sourcePolicyDigest",
+                    passed=False,
+                    detail=str(exc),
+                )
+            )
+    return checks
+
+
+def evaluate_runtime_input(
+    values: dict[str, Any],
+    *,
+    s3_client: Any | None = None,
+    documents: tuple[dict[str, Any], dict[str, Any]] | None = None,
+    planned_at: str | None = None,
+) -> CheckResult:
+    """Replay the worker's exact pre-EMR input validation against live pins."""
 
     try:
-        reference = _require_mapping(identity_reuse, label="build.identityReuse")
-        downloader = download_receipt or _download_identity_reuse_receipt
-        receipt = downloader(reference, region=region, s3_client=s3_client)
-        summary = receipt.get("identitySummary")
-        if not isinstance(summary, dict):
-            raise ValueError("identityReuse receipt lacks identitySummary object")
-        receipt_digest = str(summary.get("sourcePolicyDigest") or "")
-        if not _is_sha256(receipt_digest):
-            raise ValueError(
-                "identitySummary.sourcePolicyDigest must be a sha256 digest"
+        build = _require_mapping(values.get("build"), label="build")
+        aws = _require_mapping(values.get("aws"), label="aws")
+        input_data = _input_from_mapping(build)
+        if documents is None:
+            import boto3
+
+            client = s3_client or boto3.client(
+                "s3",
+                region_name=str(aws.get("region") or ""),
             )
-        if receipt_digest.lower() != CATALOG_SOURCE_POLICY_DIGEST.lower():
-            raise ValueError(
-                "identitySummary.sourcePolicyDigest differs from "
-                f"CATALOG_SOURCE_POLICY_DIGEST ({CATALOG_SOURCE_POLICY_DIGEST})"
+            baseline = _read_ref_json(
+                client,
+                input_data.baseline_snapshot,
+                label="baseline Silver snapshot",
             )
-        checks.append(
-            CheckResult(
-                name="identityReuse.sourcePolicyDigest",
-                passed=True,
-                detail=receipt_digest,
+            tmdb_summary = _read_ref_json(
+                client,
+                input_data.tmdb_pipeline_summary,
+                label="TMDB pipeline summary",
             )
+        else:
+            baseline, tmdb_summary = documents
+        result = _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb_summary,
+            planned_at=planned_at or datetime.now(UTC).isoformat(),
+        )
+        identity_sources = sorted(
+            state.source_product_id
+            for state in result.source_run_states
+            if state.identity_spine
+        )
+        return CheckResult(
+            name="build.runtimePreflight",
+            passed=True,
+            detail=(
+                f"sourcePolicy={result.source_policy_digest}; "
+                f"identitySources={','.join(identity_sources)}"
+            ),
         )
     except Exception as exc:
-        checks.append(
-            CheckResult(
-                name="identityReuse.sourcePolicyDigest",
-                passed=False,
-                detail=str(exc),
-            )
+        return CheckResult(
+            name="build.runtimePreflight",
+            passed=False,
+            detail=str(exc),
         )
-    return checks
 
 
 def load_values(path: Path) -> dict[str, Any]:
@@ -242,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     parsed = parser.parse_args(argv)
     values = load_values(parsed.values_file)
     results = evaluate_values(values)
+    results.append(evaluate_runtime_input(values))
     for item in results:
         print(item.line())
     failed = [item for item in results if not item.passed]

@@ -27,6 +27,25 @@ def _load_preflight() -> ModuleType:
 preflight = _load_preflight()
 
 
+def _run(index: int) -> str:
+    return "sha256:" + f"{index:064x}"
+
+
+def _object_ref(uri: str) -> dict[str, Any]:
+    return {
+        "uri": uri,
+        "format": "OBJECT_FORMAT_JSON",
+        "mediaType": "application/json",
+        "checksum": {
+            "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+            "value": "a" * 64,
+        },
+        "sizeBytes": 100,
+        "etag": "etag",
+        "objectVersion": "v1",
+    }
+
+
 def _base_values(**overrides: Any) -> dict[str, Any]:
     values: dict[str, Any] = {
         "aws": {"region": "us-east-1"},
@@ -47,6 +66,105 @@ def _base_values(**overrides: Any) -> dict[str, Any]:
             values["build"]["env"].update(value)
         else:
             values[key] = value
+    return values
+
+
+def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
+    values = _base_values()
+    baseline_run_ids = (_run(1), _run(2), _run(3))
+    tmdb_run_ids = tuple(_run(index) for index in range(10, 25))
+    values["build"].update(
+        {
+            "identityGenerationId": "pure-source-2026-09-r1",
+            "baselineSnapshot": _object_ref("s3://bucket/baseline.json"),
+            "tmdbPipelineSummary": _object_ref("s3://bucket/tmdb-summary.json"),
+            "baselineSourceRunIds": list(baseline_run_ids),
+            "baselineIdentityRunId": _run(4),
+            "tmdbSourceRunIds": list(tmdb_run_ids),
+            "supplementalSourceRunIds": [],
+            "sourceWatermarks": {
+                "imdb-non-commercial-datasets": "2026-09-20T22:03:01Z",
+                "tmdb-research": "2026-10-07",
+                "tvmaze-public-api": "2026-09-25T18:45:56Z",
+                "wikidata-json-dump": "20260914",
+            },
+            "freshnessOverride": {
+                "reason": "One-time release over verified source baselines.",
+                "imdbAcquiredAt": "2026-09-20T22:03:01Z",
+                "tvmazeAcquiredAt": "2026-09-25T18:45:56Z",
+                "maxSloHours": 720,
+            },
+            "sourceRunStates": [
+                {
+                    "sourceProductId": "imdb-non-commercial-datasets",
+                    "runIds": [baseline_run_ids[0]],
+                    "runStatus": "COMMITTED",
+                    "freshnessStatus": "OVERRIDDEN",
+                    "watermark": "2026-09-20T22:03:01Z",
+                    "acquiredAt": "2026-09-20T22:03:01Z",
+                    "identitySpine": False,
+                    "materialization": True,
+                },
+                {
+                    "sourceProductId": "tvmaze-public-api",
+                    "runIds": [baseline_run_ids[1]],
+                    "runStatus": "COMMITTED",
+                    "freshnessStatus": "OVERRIDDEN",
+                    "watermark": "2026-09-25T18:45:56Z",
+                    "acquiredAt": "2026-09-25T18:45:56Z",
+                    "identitySpine": False,
+                    "materialization": True,
+                },
+                {
+                    "sourceProductId": "wikidata-json-dump",
+                    "runIds": [baseline_run_ids[2]],
+                    "runStatus": "COMMITTED",
+                    "freshnessStatus": "PASS",
+                    "watermark": "20260914",
+                    "identitySpine": True,
+                    "materialization": True,
+                },
+                {
+                    "sourceProductId": "tmdb-research",
+                    "runIds": list(tmdb_run_ids),
+                    "runStatus": "COMMITTED",
+                    "freshnessStatus": "PASS",
+                    "watermark": "2026-10-07",
+                    "identitySpine": tmdb_identity_spine,
+                    "materialization": True,
+                },
+            ],
+        }
+    )
+    values["build"]["env"].update(
+        {
+            "awsRegion": "us-east-1",
+            "warehouseUri": "s3://bucket/warehouse",
+            "controlPrefix": "s3://bucket/warehouse/research/control",
+            "goldOutputPrefix": "s3://bucket/warehouse/research/gold",
+            "pipelineSummaryPrefix": "s3://bucket/landing/summaries/golden",
+            "emrApplicationName": "snapshot-app",
+            "goldEmrApplicationName": "gold-app",
+            "emrExecutionRoleArn": "arn:aws:iam::123456789012:role/emr",
+            "emrLogUri": "s3://bucket/logs/",
+            "goldEmrLogUri": "s3://bucket/gold-logs/",
+            "researchSilverEntryPoint": "local:///opt/research_silver_cli.py",
+            "goldEntryPoint": "local:///opt/gold_cli.py",
+        }
+    )
+    baseline = {
+        "schemaVersion": "2.0",
+        "identityGenerationId": "pure-source-2026-09-r1",
+        "committedRunIds": [*baseline_run_ids, _run(4)],
+        "tableMapping": {"community_ingest_run": "community_ingest_run"},
+    }
+    tmdb_summary = {
+        "mode": "bootstrap",
+        "captureCount": 15,
+        "captures": [{} for _ in range(15)],
+        "sourceSilver": [{"runId": run_id} for run_id in tmdb_run_ids],
+    }
+    values["_testDocuments"] = (baseline, tmdb_summary)
     return values
 
 
@@ -148,9 +266,48 @@ def test_preflight_fails_stale_identity_reuse_digest() -> None:
     assert "CATALOG_SOURCE_POLICY_DIGEST" in reuse.detail
 
 
+def test_runtime_preflight_accepts_fresh_identity_with_tmdb_spine() -> None:
+    values = _runtime_values(tmdb_identity_spine=True)
+    documents = values.pop("_testDocuments")
+
+    result = preflight.evaluate_runtime_input(
+        values,
+        documents=documents,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert result.passed is True
+    assert "tmdb-research" in result.detail
+
+
+def test_runtime_preflight_rejects_fresh_identity_without_tmdb_spine() -> None:
+    values = _runtime_values(tmdb_identity_spine=False)
+    documents = values.pop("_testDocuments")
+
+    result = preflight.evaluate_runtime_input(
+        values,
+        documents=documents,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert result.passed is False
+    assert "without incremental Identity" in result.detail
+
+
 def test_preflight_cli_exit_codes(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        preflight,
+        "evaluate_runtime_input",
+        lambda _values: preflight.CheckResult(
+            name="build.runtimePreflight",
+            passed=True,
+            detail="stubbed for CLI exit-code coverage",
+        ),
+    )
     pass_path = tmp_path / "pass.yaml"
     fail_path = tmp_path / "fail.yaml"
     pass_path.write_text(yaml.safe_dump(_base_values()), encoding="utf-8")

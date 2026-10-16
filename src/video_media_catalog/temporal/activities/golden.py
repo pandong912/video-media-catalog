@@ -612,13 +612,13 @@ def _validate_baseline_identity_parent_silver(
         if silver_reference.media_type != SILVER_SNAPSHOT_MEDIA_TYPE:
             raise NonRetryableGoldenBuildError(
                 "baseline Identity parent Silver media type does not match "
-            "snapshot contents"
+                "snapshot contents"
             )
     elif isinstance(parent, CommunitySilverEpochManifest):
         if silver_reference.media_type != SILVER_EPOCH_MEDIA_TYPE:
             raise NonRetryableGoldenBuildError(
                 "baseline Identity parent Silver media type does not match "
-            "epoch contents"
+                "epoch contents"
             )
     else:  # pragma: no cover - parse_community_silver_manifest is exhaustive
         raise NonRetryableGoldenBuildError(

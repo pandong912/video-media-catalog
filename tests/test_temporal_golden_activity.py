@@ -144,7 +144,7 @@ def test_golden_control_profile_uses_light_memory_overhead() -> None:
     )
     assert parsed.executor_instances == 4
     assert parsed.executor_memory == "36g"
-    assert parsed.executor_memory_overhead == "6g"
+    assert parsed.executor_memory_overhead == "4g"
 
 
 def test_golden_identity_rejects_emr_serverless_worker_memory_overflow() -> None:
@@ -221,7 +221,7 @@ def test_golden_release_uses_dedicated_capacity_with_replacement_headroom() -> N
     assert parsed.executor_instances == 20
     assert parsed.executor_cores == 4
     assert parsed.executor_memory == "24g"
-    assert parsed.executor_memory_overhead == "6g"
+    assert parsed.executor_memory_overhead == "4g"
     assert parsed.executor_disk == "185G"
     assert parsed.shuffle_partitions == 1152
     assert parsed.driver_memory_overhead == "4g"

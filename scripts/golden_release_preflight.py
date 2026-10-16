@@ -236,7 +236,7 @@ def evaluate_runtime_input(
     values: dict[str, Any],
     *,
     s3_client: Any | None = None,
-    documents: tuple[dict[str, Any], dict[str, Any]] | None = None,
+    documents: (tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None) = None,
     planned_at: str | None = None,
 ) -> CheckResult:
     """Replay the worker's exact pre-EMR input validation against live pins."""
@@ -257,16 +257,22 @@ def evaluate_runtime_input(
                 input_data.baseline_snapshot,
                 label="baseline Silver snapshot",
             )
+            baseline_identity_manifest = _read_ref_json(
+                client,
+                input_data.baseline_identity_manifest,
+                label="baseline Identity manifest",
+            )
             tmdb_summary = _read_ref_json(
                 client,
                 input_data.tmdb_pipeline_summary,
                 label="TMDB pipeline summary",
             )
         else:
-            baseline, tmdb_summary = documents
+            baseline, baseline_identity_manifest, tmdb_summary = documents
         result = _validate_preflight_documents(
             input_data,
             baseline=baseline,
+            baseline_identity_manifest=baseline_identity_manifest,
             tmdb_summary=tmdb_summary,
             planned_at=planned_at or datetime.now(UTC).isoformat(),
         )
@@ -285,7 +291,13 @@ def evaluate_runtime_input(
             detail=(
                 f"sourcePolicy={result.source_policy_digest}; "
                 f"identitySources={','.join(identity_sources)}; "
-                f"incrementalIdentityRuns={len(incremental_run_ids)}"
+                f"incrementalIdentityRuns={len(incremental_run_ids)}; "
+                "identityExecutorProfile="
+                f"{input_data.env.build_executor_instances}x"
+                f"{input_data.env.build_executor_cores}c/"
+                f"{input_data.env.build_executor_memory}+"
+                f"{input_data.env.build_executor_memory_overhead}/"
+                f"{input_data.env.build_executor_disk}"
             ),
         )
     except Exception as exc:

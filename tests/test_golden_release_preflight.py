@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import yaml
+from test_temporal_golden_models import _baseline_identity_manifest
 
 from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGEST
 
@@ -31,11 +32,15 @@ def _run(index: int) -> str:
     return "sha256:" + f"{index:064x}"
 
 
-def _object_ref(uri: str) -> dict[str, Any]:
+def _object_ref(
+    uri: str,
+    *,
+    media_type: str = "application/json",
+) -> dict[str, Any]:
     return {
         "uri": uri,
         "format": "OBJECT_FORMAT_JSON",
-        "mediaType": "application/json",
+        "mediaType": media_type,
         "checksum": {
             "algorithm": "CHECKSUM_ALGORITHM_SHA256",
             "value": "a" * 64,
@@ -73,13 +78,24 @@ def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
     values = _base_values()
     baseline_run_ids = (_run(1), _run(2), _run(3))
     tmdb_run_ids = tuple(_run(index) for index in range(10, 25))
+    identity_manifest = _baseline_identity_manifest(
+        identity_generation_id="pure-source-2026-09-r1",
+        source_run_ids=(baseline_run_ids[2],),
+    )
+    identity_run_id = str(identity_manifest["runId"])
     values["build"].update(
         {
             "identityGenerationId": "pure-source-2026-09-r1",
             "baselineSnapshot": _object_ref("s3://bucket/baseline.json"),
             "tmdbPipelineSummary": _object_ref("s3://bucket/tmdb-summary.json"),
             "baselineSourceRunIds": list(baseline_run_ids),
-            "baselineIdentityRunId": _run(4),
+            "baselineIdentityRunId": identity_run_id,
+            "baselineIdentityManifest": _object_ref(
+                "s3://bucket/baseline-identity-manifest.json",
+                media_type=(
+                    "application/vnd.video-media-catalog.community-ingest-run.v2+json"
+                ),
+            ),
             "baselineIdentitySourceRunIds": [baseline_run_ids[2]],
             "tmdbSourceRunIds": list(tmdb_run_ids),
             "supplementalSourceRunIds": [],
@@ -156,7 +172,7 @@ def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
     baseline = {
         "schemaVersion": "2.0",
         "identityGenerationId": "pure-source-2026-09-r1",
-        "committedRunIds": [*baseline_run_ids, _run(4)],
+        "committedRunIds": [*baseline_run_ids, identity_run_id],
         "tableMapping": {"community_ingest_run": "community_ingest_run"},
     }
     tmdb_summary = {
@@ -165,7 +181,7 @@ def _runtime_values(*, tmdb_identity_spine: bool) -> dict[str, Any]:
         "captures": [{} for _ in range(15)],
         "sourceSilver": [{"runId": run_id} for run_id in tmdb_run_ids],
     }
-    values["_testDocuments"] = (baseline, tmdb_summary)
+    values["_testDocuments"] = (baseline, identity_manifest, tmdb_summary)
     return values
 
 
@@ -280,6 +296,7 @@ def test_runtime_preflight_accepts_fresh_identity_with_tmdb_spine() -> None:
     assert result.passed is True
     assert "tmdb-research" in result.detail
     assert "incrementalIdentityRuns=17" in result.detail
+    assert "identityExecutorProfile=7x8c/48g+20g/400G" in result.detail
 
 
 def test_runtime_preflight_rejects_fresh_identity_without_tmdb_spine() -> None:

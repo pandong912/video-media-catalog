@@ -20,9 +20,15 @@ from video_media_catalog.catalog_source_policy import (
     CatalogSourcePolicy,
     load_catalog_source_policy,
 )
+from video_media_catalog.community_ingest import CommunityIngestRun, IngestRunKind
 from video_media_catalog.community_snapshot import (
     SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
+    CommunitySilverEpochManifest,
+    CommunitySilverSnapshotSet,
+    community_silver_manifest_id,
+    community_silver_table_mapping,
+    parse_community_silver_manifest,
 )
 from video_media_catalog.community_sources import build_community_registry
 from video_media_catalog.emr_driver_logs import read_driver_json_summary
@@ -69,6 +75,9 @@ _CONTROL_MAX_BYTES = 16 * 1024 * 1024
 _IDENTITY_REUSE_MEDIA_TYPE = (
     "application/vnd.video-media-catalog.golden-identity-reuse.v1+json"
 )
+_IDENTITY_RUN_MANIFEST_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.community-ingest-run.v2+json"
+)
 _EXPECTED_SOURCE_PRODUCTS = {
     "imdb-non-commercial-datasets",
     "tmdb-research",
@@ -84,6 +93,12 @@ _GOLD_DRIVER_MEMORY = "16g"
 _GOLD_DRIVER_MEMORY_OVERHEAD = "4g"
 _GOLD_DRIVER_DISK = "50G"
 _GOLD_REPLACEMENT_EXECUTORS = 1
+_BUILD_EMR_MAX_VCPU = 64
+_BUILD_EMR_MAX_MEMORY_GIB = 512
+_BUILD_EMR_MAX_DISK_GIB = 6000
+_BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB = 6
+_BUILD_MIN_EXECUTOR_OVERHEAD_PER_CORE_GIB = 2.5
+_BUILD_MIN_EXECUTOR_DISK_GIB = 400
 _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS = 36
 _DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO = 0.05
 _MAX_GOLD_FRESHNESS_SLO_HOURS = 45 * 24
@@ -183,21 +198,24 @@ def _object_ref_from_put(
 
 
 def _object_ref_payload(reference: ObjectRefPayload) -> dict[str, Any]:
+    return _normalized_object_ref_payload(reference)
+
+
+def _normalized_object_ref_payload(reference: ObjectRefPayload) -> dict[str, Any]:
+    """Compare ObjectRefs by immutable identity, not raw encoding variants."""
+
+    digest = reference.checksum_digest().lower()
     return {
         "uri": reference.uri,
         "format": reference.format,
         "mediaType": reference.media_type,
         "checksum": {
-            "algorithm": reference.checksum_algorithm,
-            "value": reference.checksum_value,
+            "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+            "value": digest.removeprefix("sha256:"),
         },
         "sizeBytes": reference.size_bytes,
-        **({"etag": reference.etag} if reference.etag else {}),
-        **(
-            {"objectVersion": reference.object_version}
-            if reference.object_version
-            else {}
-        ),
+        "etag": str(reference.etag or "").strip('"') or None,
+        "objectVersion": reference.object_version,
     }
 
 
@@ -565,12 +583,222 @@ def _identity_config_digests(
     )
 
 
+def _validate_baseline_identity_parent_silver(
+    client: Any,
+    silver_reference: ObjectRefPayload,
+    *,
+    expected_manifest_id: str,
+    baseline: dict[str, Any],
+    identity_generation_id: str,
+) -> None:
+    """Download and bind the parent Silver object pinned by baseline Identity."""
+
+    body = _read_ref_bytes(
+        client,
+        silver_reference,
+        label="baseline Identity parent Silver",
+    )
+    try:
+        parent = parse_community_silver_manifest(body)
+    except (TypeError, ValueError) as exc:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity parent Silver is invalid"
+        ) from exc
+    if community_silver_manifest_id(parent) != expected_manifest_id:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity parent Silver ID differs from the pinned binding"
+        )
+    if isinstance(parent, CommunitySilverSnapshotSet):
+        if silver_reference.media_type != SILVER_SNAPSHOT_MEDIA_TYPE:
+            raise NonRetryableGoldenBuildError(
+                "baseline Identity parent Silver media type does not match "
+            "snapshot contents"
+            )
+    elif isinstance(parent, CommunitySilverEpochManifest):
+        if silver_reference.media_type != SILVER_EPOCH_MEDIA_TYPE:
+            raise NonRetryableGoldenBuildError(
+                "baseline Identity parent Silver media type does not match "
+            "epoch contents"
+            )
+    else:  # pragma: no cover - parse_community_silver_manifest is exhaustive
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity parent Silver uses an unsupported schema"
+        )
+    if parent.identity_generation_id != identity_generation_id:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity parent Silver belongs to another Identity generation"
+        )
+    parent_mapping = community_silver_table_mapping(parent)
+    baseline_mapping = baseline.get("tableMapping")
+    if not isinstance(baseline_mapping, dict) or parent_mapping != dict(
+        baseline_mapping
+    ):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity parent Silver table mapping differs from the "
+            "baseline snapshot"
+        )
+
+
+def _validate_baseline_identity_manifest(
+    input_data: GoldenBuildInput,
+    *,
+    baseline: dict[str, Any],
+    payload: dict[str, Any],
+    identity_run_id: str,
+    identity_source_run_ids: tuple[str, ...],
+    client: Any | None = None,
+) -> None:
+    reference = input_data.baseline_identity_manifest
+    if (
+        reference.format != "OBJECT_FORMAT_JSON"
+        or reference.media_type != _IDENTITY_RUN_MANIFEST_MEDIA_TYPE
+        or reference.size_bytes <= 0
+        or not reference.etag
+        or not reference.object_version
+    ):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest ObjectRef is incomplete"
+        )
+    try:
+        run = CommunityIngestRun.model_validate(payload)
+    except (TypeError, ValueError) as exc:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest is invalid"
+        ) from exc
+    if (
+        run.run_id != identity_run_id
+        or run.run_kind != IngestRunKind.IDENTITY_RESOLUTION
+        or run.source_product_id != "identity-resolution-v2"
+    ):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest differs from the pinned Identity run"
+        )
+    manifest = run.input_manifest
+    pinned = manifest.get("pinnedInputs")
+    if not isinstance(pinned, dict):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest lacks pinnedInputs"
+        )
+    raw_source_run_ids = pinned.get("sourceRunIds")
+    if not isinstance(raw_source_run_ids, list):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest lacks pinned sourceRunIds"
+        )
+    manifest_source_run_ids = tuple(
+        sorted(
+            {
+                _require_sha256(
+                    str(value),
+                    label="baseline Identity manifest source run ID",
+                )
+                for value in raw_source_run_ids
+            }
+        )
+    )
+    if (
+        len(manifest_source_run_ids) != len(raw_source_run_ids)
+        or manifest_source_run_ids != identity_source_run_ids
+    ):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest source runs differ from the pinned coverage"
+        )
+    identity_mode = str(pinned.get("identityMode") or "")
+    if (
+        pinned.get("identityGenerationId") != input_data.identity_generation_id
+        or manifest.get("identityGenerationId") != input_data.identity_generation_id
+        or identity_mode not in {"full", "incremental"}
+        or manifest.get("identityMode") != identity_mode
+        or manifest.get("inputId") != run.input_id
+        or pinned.get("tableMapping") != baseline.get("tableMapping")
+        or manifest.get("tableMapping") != baseline.get("tableMapping")
+    ):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest provenance differs from the baseline snapshot"
+        )
+    pinned_policy = _require_sha256(
+        str(pinned.get("sourcePolicyDigest") or ""),
+        label="baseline Identity manifest sourcePolicyDigest",
+    )
+    if manifest.get("sourcePolicyDigest") != pinned_policy:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest source policy binding is inconsistent"
+        )
+    silver_binding = pinned.get("silverSnapshot")
+    if not isinstance(silver_binding, dict):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest lacks a pinned Silver snapshot"
+        )
+    try:
+        silver_reference = ObjectRefPayload.from_mapping(silver_binding["object"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest Silver ObjectRef is invalid"
+        ) from exc
+    if (
+        silver_reference.format != "OBJECT_FORMAT_JSON"
+        or silver_reference.media_type
+        not in {SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE}
+        or silver_reference.size_bytes <= 0
+        or not silver_reference.etag
+        or not silver_reference.object_version
+    ):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest Silver ObjectRef is incomplete"
+        )
+    _split_s3_uri(silver_reference.uri)
+    try:
+        silver_digest = silver_reference.checksum_digest()
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest Silver ObjectRef checksum is invalid"
+        ) from exc
+    _require_sha256(
+        silver_digest,
+        label="baseline Identity manifest Silver ObjectRef checksum",
+    )
+    snapshot_set_id = silver_binding.get("snapshotSetId")
+    epoch_id = silver_binding.get("epochId")
+    if (snapshot_set_id is None) == (epoch_id is None):
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity manifest Silver binding must pin snapshotSetId "
+            "or epochId"
+        )
+    if silver_reference.media_type == SILVER_SNAPSHOT_MEDIA_TYPE:
+        if epoch_id is not None or snapshot_set_id is None:
+            raise NonRetryableGoldenBuildError(
+                "baseline Identity snapshot Silver binding requires snapshotSetId"
+            )
+        expected_manifest_id = _require_sha256(
+            str(snapshot_set_id),
+            label="baseline Identity manifest snapshotSetId",
+        )
+    else:
+        if snapshot_set_id is not None or epoch_id is None:
+            raise NonRetryableGoldenBuildError(
+                "baseline Identity epoch Silver binding requires epochId"
+            )
+        expected_manifest_id = _require_sha256(
+            str(epoch_id),
+            label="baseline Identity manifest epochId",
+        )
+    if client is not None:
+        _validate_baseline_identity_parent_silver(
+            client,
+            silver_reference,
+            expected_manifest_id=expected_manifest_id,
+            baseline=baseline,
+            identity_generation_id=input_data.identity_generation_id,
+        )
+
+
 def _validate_preflight_documents(
     input_data: GoldenBuildInput,
     *,
     baseline: dict[str, Any],
+    baseline_identity_manifest: dict[str, Any],
     tmdb_summary: dict[str, Any],
     planned_at: str,
+    client: Any | None = None,
 ) -> GoldenPreflightResult:
     if not _BUILD_ID.fullmatch(input_data.build_id):
         raise NonRetryableGoldenBuildError("build_id must be a lower-case slug")
@@ -601,6 +829,8 @@ def _validate_preflight_documents(
         raise NonRetryableGoldenBuildError(
             "temporary Gold quality override reason exceeds 512 characters"
         )
+    _validate_build_emr_capacity(input_data)
+    _validate_gold_emr_capacity(input_data)
     baseline_sources = tuple(
         sorted(
             {
@@ -687,6 +917,14 @@ def _validate_preflight_documents(
     table_mapping = baseline.get("tableMapping")
     if not isinstance(table_mapping, dict) or not table_mapping:
         raise NonRetryableGoldenBuildError("baseline snapshot lacks table mapping")
+    _validate_baseline_identity_manifest(
+        input_data,
+        baseline=baseline,
+        payload=baseline_identity_manifest,
+        identity_run_id=identity_run,
+        identity_source_run_ids=baseline_identity_sources,
+        client=client,
+    )
     summary_runs = tuple(
         sorted(
             str(item.get("runId")) for item in tmdb_summary.get("sourceSilver") or []
@@ -739,6 +977,19 @@ def _validate_preflight_documents(
         input_data,
         source_policy=source_policy,
     )
+    non_contributing_baseline_identity_runs = set(
+        baseline_identity_sources
+    ).intersection(
+        run_id
+        for state in source_run_states
+        if not state.gold_contribution
+        for run_id in state.run_ids
+    )
+    if non_contributing_baseline_identity_runs:
+        raise NonRetryableGoldenBuildError(
+            "baseline Identity coverage contains source runs excluded from Gold; "
+            "a scoped Gold epoch is required before this routing is supported"
+        )
     all_runs = tuple(
         sorted(
             (
@@ -825,9 +1076,15 @@ def _incremental_identity_source_run_ids(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
 ) -> tuple[str, ...]:
-    baseline_identity_sources = set(input_data.baseline_identity_source_run_ids)
+    baseline_identity_sources = {
+        _require_sha256(value, label="baseline Identity source run ID")
+        for value in input_data.baseline_identity_source_run_ids
+    }
     snapshot_source_runs = set(preflight.all_snapshot_run_ids) - {
-        input_data.baseline_identity_run_id
+        _require_sha256(
+            input_data.baseline_identity_run_id,
+            label="baseline Identity run ID",
+        )
     }
     return tuple(sorted(snapshot_source_runs - baseline_identity_sources))
 
@@ -854,10 +1111,86 @@ def _single_argument(arguments: list[str], flag: str) -> str:
     return values[0]
 
 
+def _optional_single_argument(arguments: list[str], flag: str) -> str | None:
+    values = _argument_values(arguments, flag)
+    if len(values) > 1:
+        raise NonRetryableGoldenBuildError(
+            f"reused Identity job must not repeat {flag}"
+        )
+    return values[0] if values else None
+
+
+def _reuse_silver_snapshot_reference(payload: dict[str, Any]) -> ObjectRefPayload:
+    try:
+        reference = ObjectRefPayload.from_mapping(payload["silverSnapshot"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse receipt lacks a valid Silver ObjectRef"
+        ) from exc
+    if (
+        reference.format != "OBJECT_FORMAT_JSON"
+        or reference.media_type
+        not in {SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE}
+        or reference.size_bytes <= 0
+        or not reference.etag
+        or not reference.object_version
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse Silver ObjectRef is incomplete"
+        )
+    try:
+        digest = reference.checksum_digest()
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse Silver ObjectRef checksum is invalid"
+        ) from exc
+    _require_sha256(digest, label="Identity reuse Silver ObjectRef checksum")
+    return reference
+
+
+def _job_silver_snapshot_reference(arguments: list[str]) -> ObjectRefPayload:
+    digest = _require_sha256(
+        _single_argument(arguments, "--silver-snapshot-hash"),
+        label="reused Identity Silver snapshot hash",
+    )
+    try:
+        size_bytes = int(_single_argument(arguments, "--silver-snapshot-size"))
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(
+            "reused Identity Silver snapshot size is invalid"
+        ) from exc
+    reference = ObjectRefPayload(
+        uri=_single_argument(arguments, "--silver-snapshot-uri"),
+        format="OBJECT_FORMAT_JSON",
+        media_type=_single_argument(arguments, "--silver-snapshot-media-type"),
+        checksum_algorithm="CHECKSUM_ALGORITHM_SHA256",
+        checksum_value=digest.removeprefix("sha256:"),
+        size_bytes=size_bytes,
+        etag=_optional_single_argument(arguments, "--silver-snapshot-etag"),
+        object_version=_optional_single_argument(
+            arguments,
+            "--silver-snapshot-version",
+        ),
+    )
+    if (
+        reference.media_type
+        not in {SILVER_SNAPSHOT_MEDIA_TYPE, SILVER_EPOCH_MEDIA_TYPE}
+        or reference.size_bytes <= 0
+        or not reference.etag
+        or not reference.object_version
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity EMR Silver ObjectRef is incomplete"
+        )
+    return reference
+
+
 def _validated_reused_identity(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
     payload: dict[str, Any],
+    *,
+    reuse_snapshot: dict[str, Any],
 ) -> GoldenIdentityResult:
     identity_source_run_ids = _incremental_identity_source_run_ids(
         input_data,
@@ -914,6 +1247,51 @@ def _validated_reused_identity(
     )["jobRun"]
     spark_submit = (job.get("jobDriver") or {}).get("sparkSubmit") or {}
     arguments = [str(value) for value in spark_submit.get("entryPointArguments") or ()]
+    receipt_snapshot_ref = _reuse_silver_snapshot_reference(payload)
+    job_snapshot_ref = _job_silver_snapshot_reference(arguments)
+    if _object_ref_payload(job_snapshot_ref) != _object_ref_payload(
+        receipt_snapshot_ref
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity EMR Silver ObjectRef differs from the receipt"
+        )
+    if receipt_snapshot_ref.media_type == SILVER_EPOCH_MEDIA_TYPE:
+        # Epoch reuse must still prove the planned run set. Until epoch lineage
+        # enumeration is wired here, fail closed instead of accepting a digest-only
+        # control object as if it were the planned snapshot set.
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse over Silver epoch manifests is not supported yet"
+        )
+    raw_snapshot_runs = reuse_snapshot.get("committedRunIds")
+    if not isinstance(raw_snapshot_runs, list):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity Silver snapshot lacks committedRunIds"
+        )
+    snapshot_runs = tuple(
+        sorted(
+            {
+                _require_sha256(
+                    str(value),
+                    label="reused Identity Silver snapshot run ID",
+                )
+                for value in raw_snapshot_runs
+            }
+        )
+    )
+    if (
+        reuse_snapshot.get("schemaVersion") != "2.0"
+        or reuse_snapshot.get("identityGenerationId")
+        != input_data.identity_generation_id
+        or len(snapshot_runs) != len(raw_snapshot_runs)
+        or snapshot_runs != tuple(sorted(preflight.all_snapshot_run_ids))
+        or not isinstance(reuse_snapshot.get("tableMapping"), dict)
+        or not reuse_snapshot.get("tableMapping")
+        or not isinstance(reuse_snapshot.get("dataSnapshotIds"), dict)
+        or not reuse_snapshot.get("dataSnapshotIds")
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity Silver snapshot differs from the planned snapshot"
+        )
     job_policy_digests = _argument_values(arguments, "--source-policy-digest")
     if len(job_policy_digests) > 1:
         raise NonRetryableGoldenBuildError(
@@ -982,6 +1360,58 @@ def _validated_reused_identity(
         raise NonRetryableGoldenBuildError(
             "reused Identity EMR job differs from receipt provenance"
         )
+    try:
+        driver_summary = read_driver_json_summary(
+            s3_client=_s3_client(input_data.env.aws_region),
+            log_uri=input_data.env.emr_log_uri,
+            application_id=application_id,
+            job_run_id=job_run_id,
+            required_keys=(
+                "runId",
+                "commitKey",
+                "sourceRunIds",
+                "identityGenerationId",
+                "identityMode",
+                "tableCounts",
+                "tableSnapshotIds",
+            ),
+            label="reused Identity",
+        )
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(
+            f"reused Identity driver summary is unavailable: {exc}"
+        ) from exc
+    driver_source_run_ids = tuple(
+        sorted(
+            {
+                _require_sha256(
+                    str(value), label="reused Identity driver source run ID"
+                )
+                for value in (driver_summary.get("sourceRunIds") or ())
+            }
+        )
+    )
+    if (
+        _require_sha256(str(driver_summary.get("runId") or ""), label="driver runId")
+        != _require_sha256(str(summary.get("runId") or ""), label="receipt runId")
+        or _require_sha256(
+            str(driver_summary.get("commitKey") or ""),
+            label="driver commitKey",
+        )
+        != _require_sha256(
+            str(summary.get("commitKey") or ""),
+            label="receipt commitKey",
+        )
+        or driver_source_run_ids != identity_source_run_ids
+        or driver_summary.get("identityGenerationId")
+        != input_data.identity_generation_id
+        or driver_summary.get("identityMode") != "incremental"
+        or driver_summary.get("tableCounts") != summary.get("tableCounts")
+        or driver_summary.get("tableSnapshotIds") != summary.get("tableSnapshotIds")
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity receipt summary differs from the EMR driver summary"
+        )
 
     return GoldenIdentityResult(
         run_id=_require_sha256(
@@ -1017,6 +1447,11 @@ def prepare_golden_build(
             input_data.baseline_snapshot,
             label="baseline Silver snapshot",
         )
+        baseline_identity_manifest = _read_ref_json(
+            client,
+            input_data.baseline_identity_manifest,
+            label="baseline Identity manifest",
+        )
         tmdb_summary = _read_ref_json(
             client,
             input_data.tmdb_pipeline_summary,
@@ -1025,8 +1460,10 @@ def prepare_golden_build(
         preflight = _validate_preflight_documents(
             input_data,
             baseline=baseline,
+            baseline_identity_manifest=baseline_identity_manifest,
             tmdb_summary=tmdb_summary,
             planned_at=planned_at,
+            client=client,
         )
         if input_data.identity_reuse is not None:
             reference = input_data.identity_reuse
@@ -1045,12 +1482,18 @@ def prepare_golden_build(
                 reference,
                 label="Identity reuse receipt",
             )
+            reuse_snapshot = _read_ref_json(
+                client,
+                _reuse_silver_snapshot_reference(reuse_payload),
+                label="reused Identity Silver snapshot",
+            )
             preflight = replace(
                 preflight,
                 reused_identity=_validated_reused_identity(
                     input_data,
                     preflight,
                     reuse_payload,
+                    reuse_snapshot=reuse_snapshot,
                 ),
             )
         payload = {
@@ -1064,6 +1507,9 @@ def prepare_golden_build(
             ),
             "baselineSourceRunIds": list(input_data.baseline_source_run_ids),
             "baselineIdentityRunId": input_data.baseline_identity_run_id,
+            "baselineIdentityManifest": _object_ref_payload(
+                input_data.baseline_identity_manifest
+            ),
             "baselineIdentitySourceRunIds": list(
                 input_data.baseline_identity_source_run_ids
             ),
@@ -1204,6 +1650,86 @@ def _resource_gib(value: str, *, label: str) -> int:
     return int(match.group(1))
 
 
+def _validate_build_emr_capacity(input_data: GoldenBuildInput) -> None:
+    """Pin the Identity profile below its app limits with Python memory room."""
+
+    env = input_data.env
+    if (
+        env.build_executor_instances < 1
+        or env.control_executor_instances < 1
+        or env.build_executor_cores < 1
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Identity executor instances and cores must be positive"
+        )
+    executor_memory = _resource_gib(
+        env.build_executor_memory,
+        label="Identity executor memory",
+    )
+    executor_overhead = _resource_gib(
+        env.build_executor_memory_overhead,
+        label="Identity executor memory overhead",
+    )
+    executor_disk = _resource_gib(
+        env.build_executor_disk,
+        label="Identity executor disk",
+    )
+    required_memory = env.build_executor_cores * _BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB
+    required_overhead = math.ceil(
+        env.build_executor_cores * _BUILD_MIN_EXECUTOR_OVERHEAD_PER_CORE_GIB
+    )
+    if executor_memory < required_memory:
+        raise NonRetryableGoldenBuildError(
+            "Identity executor heap must provide at least "
+            f"{_BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB} GiB per core"
+        )
+    if executor_overhead < required_overhead:
+        raise NonRetryableGoldenBuildError(
+            "Identity executor memory overhead must provide at least "
+            f"{_BUILD_MIN_EXECUTOR_OVERHEAD_PER_CORE_GIB} GiB per core"
+        )
+    if executor_disk < _BUILD_MIN_EXECUTOR_DISK_GIB:
+        raise NonRetryableGoldenBuildError(
+            "Identity executor disk must be at least "
+            f"{_BUILD_MIN_EXECUTOR_DISK_GIB} GiB"
+        )
+
+    executor_instances = max(
+        env.control_executor_instances,
+        env.build_executor_instances,
+    )
+    requested = {
+        "vCPU": (
+            _GOLD_DRIVER_CORES + executor_instances * env.build_executor_cores,
+            _BUILD_EMR_MAX_VCPU,
+        ),
+        "GiB memory": (
+            _resource_gib(_GOLD_DRIVER_MEMORY, label="Identity driver memory")
+            + _resource_gib(
+                _GOLD_DRIVER_MEMORY_OVERHEAD,
+                label="Identity driver memory overhead",
+            )
+            + executor_instances * (executor_memory + executor_overhead),
+            _BUILD_EMR_MAX_MEMORY_GIB,
+        ),
+        "GiB disk": (
+            _resource_gib(_GOLD_DRIVER_DISK, label="Identity driver disk")
+            + executor_instances * executor_disk,
+            _BUILD_EMR_MAX_DISK_GIB,
+        ),
+    }
+    exceeded = [
+        f"{label} {actual}>{limit}"
+        for label, (actual, limit) in requested.items()
+        if actual > limit
+    ]
+    if exceeded:
+        raise NonRetryableGoldenBuildError(
+            "Identity EMR request exceeds the application capacity: "
+            + ", ".join(exceeded)
+        )
+
+
 def _validate_gold_emr_capacity(input_data: GoldenBuildInput) -> None:
     """Keep the Gold request below its dedicated app, including replacement room."""
 
@@ -1280,6 +1806,8 @@ def _emr_namespace(
     gold_release = stage == "release"
     if gold_release:
         _validate_gold_emr_capacity(input_data)
+    else:
+        _validate_build_emr_capacity(input_data)
     return argparse.Namespace(
         application_name=(
             (env.gold_emr_application_name or env.emr_application_name)
@@ -1308,14 +1836,22 @@ def _emr_namespace(
         max_attempts=1,
         driver_cores=_GOLD_DRIVER_CORES,
         driver_memory=_GOLD_DRIVER_MEMORY,
-        driver_memory_overhead=(_GOLD_DRIVER_MEMORY_OVERHEAD if gold_release else None),
+        driver_memory_overhead=_GOLD_DRIVER_MEMORY_OVERHEAD,
         driver_disk=_GOLD_DRIVER_DISK,
-        executor_cores=(env.gold_executor_cores if gold_release else 8),
-        executor_memory=(env.gold_executor_memory if gold_release else "48g"),
-        executor_memory_overhead=(
-            env.gold_executor_memory_overhead if gold_release else None
+        executor_cores=(
+            env.gold_executor_cores if gold_release else env.build_executor_cores
         ),
-        executor_disk=(env.gold_executor_disk if gold_release else "400G"),
+        executor_memory=(
+            env.gold_executor_memory if gold_release else env.build_executor_memory
+        ),
+        executor_memory_overhead=(
+            env.gold_executor_memory_overhead
+            if gold_release
+            else env.build_executor_memory_overhead
+        ),
+        executor_disk=(
+            env.gold_executor_disk if gold_release else env.build_executor_disk
+        ),
         executor_instances=(
             env.gold_executor_instances
             if gold_release
@@ -1337,7 +1873,7 @@ def _emr_namespace(
         # Speculation duplicates shuffle writes and amplifies local-disk
         # pressure. The release has fixed capacity and deterministic retries.
         enable_speculation=False,
-        failure_policy="fail-fast" if gold_release else "resilient",
+        failure_policy="fail-fast",
         entry_point_arguments=entry_args,
     )
 

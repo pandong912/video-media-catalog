@@ -209,6 +209,8 @@
             "tmdbPipelineSummary",
             "baselineSourceRunIds",
             "baselineIdentityRunId",
+            "baselineIdentityManifest",
+            "baselineIdentitySourceRunIds",
             "tmdbSourceRunIds",
             "sourceWatermarks",
             "freshnessOverride",

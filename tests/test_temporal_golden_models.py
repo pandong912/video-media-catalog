@@ -5,13 +5,21 @@ from dataclasses import asdict, replace
 import pytest
 
 from video_media_catalog.catalog_source_policy import load_catalog_source_policy
+from video_media_catalog.community_ingest import (
+    IngestRunKind,
+    build_community_ingest_run,
+)
+from video_media_catalog.community_snapshot import SILVER_SNAPSHOT_MEDIA_TYPE
+from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.gold_freshness import (
     research_release_freshness_policy,
     scope_release_freshness_policy,
 )
 from video_media_catalog.temporal.activities.golden import (
     _incremental_identity_source_run_ids,
-    _validate_preflight_documents,
+)
+from video_media_catalog.temporal.activities.golden import (
+    _validate_preflight_documents as _validate_preflight_documents_impl,
 )
 from video_media_catalog.temporal.errors import NonRetryableGoldenBuildError
 from video_media_catalog.temporal.golden_admin_cli import _state_bool
@@ -43,6 +51,90 @@ def _run(index: int) -> str:
     return "sha256:" + f"{index:064x}"
 
 
+def _ref_payload(reference: ObjectRefPayload) -> dict[str, object]:
+    return {
+        "uri": reference.uri,
+        "format": reference.format,
+        "mediaType": reference.media_type,
+        "checksum": {
+            "algorithm": reference.checksum_algorithm,
+            "value": reference.checksum_value,
+        },
+        "sizeBytes": reference.size_bytes,
+        "etag": reference.etag,
+        "objectVersion": reference.object_version,
+    }
+
+
+def _baseline_identity_manifest(
+    *,
+    identity_generation_id: str,
+    source_run_ids: tuple[str, ...],
+    silver_ref: ObjectRefPayload | None = None,
+) -> dict[str, object]:
+    table_mapping = {"community_ingest_run": "community_ingest_run"}
+    identity_silver_ref = silver_ref or replace(
+        _ref("s3://bucket/baseline-identity-input.json"),
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+    )
+    source_policy_digest = _run(703)
+    input_id = _run(704)
+    pinned_inputs = {
+        "silverSnapshot": {
+            "object": _ref_payload(identity_silver_ref),
+            "snapshotSetId": _run(705),
+        },
+        "sourceRunIds": list(source_run_ids),
+        "identityGenerationId": identity_generation_id,
+        "identityMode": "incremental",
+        "tableMapping": table_mapping,
+        "sourcePolicyDigest": source_policy_digest,
+    }
+    run = build_community_ingest_run(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        source_product_id="identity-resolution-v2",
+        input_id=input_id,
+        policy_id="internal-key-continuity",
+        policy_digest=_run(706),
+        image_digest=_run(707),
+        config_digest=_run(708),
+        started_at="2026-10-08T00:00:00Z",
+        expected_counts={table: 0 for table in DATA_TABLE_COLUMNS},
+        input_manifest={
+            "inputId": input_id,
+            "identityGenerationId": identity_generation_id,
+            "identityMode": "incremental",
+            "tableMapping": table_mapping,
+            "sourcePolicyDigest": source_policy_digest,
+            "pinnedInputs": pinned_inputs,
+        },
+    )
+    return run.model_dump(mode="json", by_alias=True)
+
+
+def _validate_preflight_documents(
+    input_data: GoldenBuildInput,
+    *,
+    baseline: dict[str, object],
+    baseline_identity_manifest: dict[str, object] | None = None,
+    tmdb_summary: dict[str, object],
+    planned_at: str,
+):
+    return _validate_preflight_documents_impl(
+        input_data,
+        baseline=baseline,
+        baseline_identity_manifest=(
+            baseline_identity_manifest
+            or _baseline_identity_manifest(
+                identity_generation_id=input_data.identity_generation_id,
+                source_run_ids=input_data.baseline_identity_source_run_ids,
+            )
+        ),
+        tmdb_summary=tmdb_summary,
+        planned_at=planned_at,
+    )
+
+
 def test_source_state_boolean_config_is_strict() -> None:
     assert not _state_bool({"identitySpine": False}, "identitySpine", default=True)
     assert not _state_bool({}, "identitySpine", default=False)
@@ -51,13 +143,23 @@ def test_source_state_boolean_config_is_strict() -> None:
 
 
 def _input() -> GoldenBuildInput:
+    manifest = _baseline_identity_manifest(
+        identity_generation_id="pure-source-2026-09-r1",
+        source_run_ids=(_run(3),),
+    )
     return GoldenBuildInput(
         build_id="tmdb-multisource-20261009",
         identity_generation_id="pure-source-2026-09-r1",
         baseline_snapshot=_ref("s3://bucket/baseline.json"),
         tmdb_pipeline_summary=_ref("s3://bucket/tmdb-summary.json"),
         baseline_source_run_ids=(_run(1), _run(2), _run(3)),
-        baseline_identity_run_id=_run(4),
+        baseline_identity_run_id=str(manifest["runId"]),
+        baseline_identity_manifest=replace(
+            _ref("s3://bucket/baseline-identity-manifest.json"),
+            media_type=(
+                "application/vnd.video-media-catalog.community-ingest-run.v2+json"
+            ),
+        ),
         tmdb_source_run_ids=tuple(_run(index) for index in range(10, 25)),
         source_watermarks={
             "imdb-non-commercial-datasets": "2026-09-20T22:03:01Z",
@@ -194,10 +296,14 @@ def test_preflight_pins_explicit_source_run_and_freshness_states() -> None:
         "tvmaze-public-api": GoldenSourceFreshnessStatus.OVERRIDDEN,
         "wikidata-json-dump": GoldenSourceFreshnessStatus.PASS,
     }
-    assert result.all_snapshot_run_ids == (
-        input_data.baseline_source_run_ids[2],
-        input_data.baseline_identity_run_id,
-        *input_data.tmdb_source_run_ids,
+    assert result.all_snapshot_run_ids == tuple(
+        sorted(
+            (
+                input_data.baseline_source_run_ids[2],
+                input_data.baseline_identity_run_id,
+                *input_data.tmdb_source_run_ids,
+            )
+        )
     )
     assert (
         _incremental_identity_source_run_ids(
@@ -233,11 +339,15 @@ def test_preflight_accepts_enabled_source_identity_intent() -> None:
         planned_at="2026-10-09T00:00:00Z",
     )
 
-    assert result.all_snapshot_run_ids == (
-        _run(1),
-        _run(3),
-        _run(4),
-        *input_data.tmdb_source_run_ids,
+    assert result.all_snapshot_run_ids == tuple(
+        sorted(
+            (
+                _run(1),
+                _run(3),
+                input_data.baseline_identity_run_id,
+                *input_data.tmdb_source_run_ids,
+            )
+        )
     )
     assert _incremental_identity_source_run_ids(input_data, result) == tuple(
         sorted((_run(1), *input_data.tmdb_source_run_ids))
@@ -279,6 +389,88 @@ def test_preflight_requires_baseline_identity_source_pin() -> None:
     with pytest.raises(
         NonRetryableGoldenBuildError,
         match="baseline Identity source run IDs must be pinned",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_rejects_baseline_identity_manifest_coverage_mismatch() -> None:
+    manifest = _baseline_identity_manifest(
+        identity_generation_id="pure-source-2026-09-r1",
+        source_run_ids=(_run(2),),
+    )
+    input_data = _with_source_states(
+        replace(
+            _input(),
+            baseline_identity_run_id=str(manifest["runId"]),
+        )
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="source runs differ from the pinned coverage",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            baseline_identity_manifest=manifest,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_rejects_incomplete_baseline_identity_silver_reference() -> None:
+    manifest = _baseline_identity_manifest(
+        identity_generation_id="pure-source-2026-09-r1",
+        source_run_ids=(_run(3),),
+        silver_ref=replace(
+            _ref("s3://bucket/baseline-identity-input.json"),
+            media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+            size_bytes=0,
+        ),
+    )
+    input_data = _with_source_states(
+        replace(
+            _input(),
+            baseline_identity_run_id=str(manifest["runId"]),
+        )
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="Silver ObjectRef is incomplete",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            baseline_identity_manifest=manifest,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_rejects_noncontributing_baseline_identity_coverage() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        source_run_states=tuple(
+            replace(state, gold_contribution=False)
+            if state.source_product_id == "wikidata-json-dump"
+            else state
+            for state in base.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="baseline Identity coverage contains source runs excluded from Gold",
     ):
         _validate_preflight_documents(
             input_data,
@@ -527,6 +719,32 @@ def test_preflight_includes_supplemental_runs_in_snapshot_and_identity() -> None
     )
 
 
+def test_incremental_identity_run_set_normalizes_sha256_case() -> None:
+    input_data = _with_source_states(_input())
+    baseline, tmdb = _documents(input_data)
+    preflight = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+    mixed_case_input = replace(
+        input_data,
+        baseline_identity_run_id=input_data.baseline_identity_run_id.upper(),
+        baseline_identity_source_run_ids=tuple(
+            run_id.upper() for run_id in input_data.baseline_identity_source_run_ids
+        ),
+    )
+
+    assert (
+        _incremental_identity_source_run_ids(
+            mixed_case_input,
+            preflight,
+        )
+        == input_data.tmdb_source_run_ids
+    )
+
+
 def test_preflight_applies_audited_temporary_quality_thresholds() -> None:
     base = _with_source_states(_input())
     input_data = replace(
@@ -578,6 +796,29 @@ def test_preflight_requires_audit_reason_for_non_default_quality_thresholds() ->
     with pytest.raises(
         NonRetryableGoldenBuildError,
         match="requires an audit reason",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
+def test_preflight_rejects_identity_profile_without_python_memory_room() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        env=replace(
+            base.env,
+            build_executor_memory_overhead="8g",
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match=r"memory overhead must provide at least 2\.5 GiB per core",
     ):
         _validate_preflight_documents(
             input_data,

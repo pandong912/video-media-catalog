@@ -107,9 +107,11 @@ _BUILD_EMR_MAX_DISK_GIB = 6000
 _BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB = 4
 _BUILD_MIN_EXECUTOR_OVERHEAD_PER_CORE_GIB = 2.5
 _BUILD_MIN_EXECUTOR_DISK_GIB = 400
-# Control/snapshot stages historically succeed without the Identity-sized
-# native overhead; r8m2's 40g+20g control executors exited with code 1.
-_CONTROL_EXECUTOR_MEMORY_OVERHEAD = "4g"
+# Control/snapshot must match the r8l-proven worker shape: 48g heap and no
+# explicit memoryOverhead in the EMR ResourceProfile. r8m2/r8m6 set overhead
+# (20g/4g) and executors exited with code 1 within seconds of create.
+_CONTROL_EXECUTOR_MEMORY = "48g"
+_CONTROL_EXECUTOR_MEMORY_OVERHEAD = None
 _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS = 36
 _DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO = 0.05
 _MAX_GOLD_FRESHNESS_SLO_HOURS = 45 * 24
@@ -1886,7 +1888,13 @@ def _emr_namespace(
             env.gold_executor_cores if gold_release else env.build_executor_cores
         ),
         executor_memory=(
-            env.gold_executor_memory if gold_release else env.build_executor_memory
+            env.gold_executor_memory
+            if gold_release
+            else (
+                _CONTROL_EXECUTOR_MEMORY
+                if control_profile
+                else env.build_executor_memory
+            )
         ),
         executor_memory_overhead=(
             env.gold_executor_memory_overhead

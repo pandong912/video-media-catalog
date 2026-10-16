@@ -130,8 +130,8 @@ def test_golden_identity_rejects_insufficient_python_memory_overhead() -> None:
         )
 
 
-def test_golden_control_profile_uses_light_memory_overhead() -> None:
-    """Snapshot/epoch must not inherit Identity-sized 20g native overhead."""
+def test_golden_control_profile_uses_r8l_snapshot_memory_shape() -> None:
+    """Snapshot/epoch use 48g heap and omit overhead (r8l-proven shape)."""
 
     input_data = _input()
     parsed = golden_mod._emr_namespace(
@@ -143,8 +143,8 @@ def test_golden_control_profile_uses_light_memory_overhead() -> None:
         control_profile=True,
     )
     assert parsed.executor_instances == 4
-    assert parsed.executor_memory == "36g"
-    assert parsed.executor_memory_overhead == "4g"
+    assert parsed.executor_memory == "48g"
+    assert parsed.executor_memory_overhead is None
 
 
 def test_golden_identity_rejects_emr_serverless_worker_memory_overflow() -> None:

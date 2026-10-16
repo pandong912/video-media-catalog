@@ -349,6 +349,7 @@ def _golden_result(input_data: GoldenBuildInput) -> GoldenBuildResult:
             table_counts={"community_entity_ledger": 2},
             table_snapshot_ids={"community_entity_ledger": 11},
             job_run_id="identity-job",
+            source_policy_digest=_run(55),
         ),
         epoch=GoldenEpochResult(
             epoch_id=_run(53),

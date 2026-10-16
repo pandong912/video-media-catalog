@@ -967,6 +967,7 @@ def _validated_reused_identity(
             for key, value in summary["tableSnapshotIds"].items()
         },
         job_run_id=job_run_id,
+        source_policy_digest=str(summary_policy_digest or source_policy_digest),
     )
 
 
@@ -1561,6 +1562,7 @@ def resolve_golden_identity(
                 for key, value in summary["tableSnapshotIds"].items()
             },
             job_run_id=job_run_id,
+            source_policy_digest=preflight.source_policy_digest,
         )
     except Exception as exc:
         classified = classify_golden_build_exception(exc)
@@ -1898,11 +1900,23 @@ def _validate_release_documents(
 def submit_golden_release(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
+    identity: GoldenIdentityResult,
     epoch: GoldenEpochResult,
     committed_at: str,
 ) -> GoldenReleaseResult:
     try:
         env = input_data.env
+        current_policy_digest = load_catalog_source_policy().digest
+        if current_policy_digest != preflight.source_policy_digest:
+            raise NonRetryableGoldenBuildError(
+                "Catalog source policy digest differs from Golden preflight; "
+                "refusing to start Gold EMR"
+            )
+        if identity.source_policy_digest != preflight.source_policy_digest:
+            raise NonRetryableGoldenBuildError(
+                "Identity source_policy_digest differs from Golden preflight; "
+                "refusing to start Gold EMR"
+            )
         args = [
             *_object_args("silver-snapshot", epoch.epoch),
             "--silver-snapshot-media-type",

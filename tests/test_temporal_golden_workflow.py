@@ -8,6 +8,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 from test_temporal_golden_models import _input, _ref, _run
 
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.temporal.golden_models import (
     GoldenBuildInput,
     GoldenBuildResult,
@@ -61,6 +62,7 @@ async def _golden_workflow_case(*, reuse_identity: bool) -> None:
             identity_config_digest=_run(30),
             identity_resolution_config_digest=_run(38),
             identity_bound_config_digest=_run(39),
+            source_policy_digest=load_catalog_source_policy().digest,
             reused_identity=(
                 GoldenIdentityResult(
                     run_id=_run(32),
@@ -69,6 +71,7 @@ async def _golden_workflow_case(*, reuse_identity: bool) -> None:
                     table_counts={"community_entity_ledger": 1},
                     table_snapshot_ids={"community_entity_ledger": 3},
                     job_run_id="reused-identity-job",
+                    source_policy_digest=load_catalog_source_policy().digest,
                 )
                 if reuse_identity
                 else None
@@ -103,6 +106,7 @@ async def _golden_workflow_case(*, reuse_identity: bool) -> None:
             table_counts={"community_entity_ledger": 1},
             table_snapshot_ids={"community_entity_ledger": 3},
             job_run_id="identity-job",
+            source_policy_digest=preflight.source_policy_digest,
         )
 
     @activity.defn(name="PublishGoldenEpoch")
@@ -126,6 +130,7 @@ async def _golden_workflow_case(*, reuse_identity: bool) -> None:
     async def release(
         _build_input: GoldenBuildInput,
         _preflight: GoldenPreflightResult,
+        _identity: GoldenIdentityResult,
         _epoch: GoldenEpochResult,
         _committed_at: str,
     ) -> GoldenReleaseResult:

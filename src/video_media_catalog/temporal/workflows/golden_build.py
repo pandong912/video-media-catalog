@@ -82,7 +82,7 @@ class GoldenBuildWorkflow:
         )
         release = await workflow.execute_activity(
             submit_golden_release,
-            args=[input_data, preflight, epoch, planned_at],
+            args=[input_data, preflight, identity, epoch, planned_at],
             task_queue=GOLDEN_EMR_TASK_QUEUE,
             start_to_close_timeout=timedelta(hours=12),
             heartbeat_timeout=timedelta(minutes=5),

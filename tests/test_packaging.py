@@ -86,6 +86,9 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert api_dockerfile not in ci_workflow
     assert "dockerfile: Dockerfile.emr" in publish_workflow
     assert "findingSeverityCounts.CRITICAL" in publish_workflow
+    assert "exceeds the maximum supported with Basic Scanning" in publish_workflow
+    assert "EMR_SCAN_BASELINE_REF" in publish_workflow
+    assert "trivy image" in publish_workflow
     assert "branches: [main]" in publish_workflow
 
     assert "GitHub Actions production capture is retired" in tmdb_workflow

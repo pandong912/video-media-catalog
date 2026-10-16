@@ -1,3 +1,5 @@
+# Default stays on the public EMR Serverless base. Publish CI may override
+# EMR_BASE_IMAGE to a private ECR digest when public.ecr.aws rate-limits.
 ARG EMR_BASE_IMAGE=public.ecr.aws/emr-serverless/spark/emr-7.10.0@sha256:c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46
 FROM ${EMR_BASE_IMAGE}
 

@@ -94,8 +94,10 @@ def _validate_identity_source_policy_provenance(
     )
     if not identity_runs:
         raise ValueError("Gold source policy requires an Identity resolution run")
-    if any(
-        run.input_manifest.get("sourcePolicyDigest") != source_policy.digest
+    # Parentless epochs may retain older Identity lineage runs under prior
+    # source-policy pins. Require a head Identity run bound to the current pin.
+    if not any(
+        run.input_manifest.get("sourcePolicyDigest") == source_policy.digest
         for run in identity_runs
     ):
         raise ValueError("Identity run does not bind the current Catalog source policy")
@@ -1540,6 +1542,19 @@ def build_distributed_gold(
         )
         for table, frame in visible_silver.items()
     }
+    if source_policy is not None:
+        # Fail before membership/resolution shuffle when Identity provenance
+        # does not bind the Catalog source policy pin for this release.
+        early_ingest_runs = tuple(
+            CommunityIngestRun.model_validate_json(row["manifest_json"])
+            for row in committed_silver["community_ingest_run"]
+            .select("manifest_json")
+            .collect()
+        )
+        _validate_identity_source_policy_provenance(
+            early_ingest_runs,
+            source_policy=source_policy,
+        )
     current_source_envelope_keys = current_upsert_envelope_keys(
         source_records=committed_silver["community_source_record"],
         ingest_runs=committed_silver["community_ingest_run"],
@@ -2385,16 +2400,6 @@ def build_distributed_gold(
             .select("manifest_json")
             .collect()
         )
-        if source_policy is not None:
-            try:
-                _validate_identity_source_policy_provenance(
-                    selected_ingest_runs,
-                    source_policy=source_policy,
-                )
-            except ValueError:
-                for frame in output_frames.values():
-                    frame.unpersist()
-                raise
         effective_freshness_policy = (
             freshness_policy
             if freshness_policy is not None

@@ -358,7 +358,7 @@ def test_golden_preflight_reuses_verified_identity_job(
     assert result.source_run_ids == preflight.tmdb_source_run_ids
 
 
-def test_golden_preflight_reuses_identity_across_source_policy_digest(
+def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
@@ -456,14 +456,16 @@ def test_golden_preflight_reuses_identity_across_source_policy_digest(
         },
     }
 
-    result = golden_mod._validated_reused_identity(
-        input_data,
-        preflight,
-        payload,
-    )
-
-    assert result.run_id == _run(94)
     assert current_policy != historical_policy
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="sourcePolicyDigest differs from the current Catalog source policy",
+    ):
+        golden_mod._validated_reused_identity(
+            input_data,
+            preflight,
+            payload,
+        )
 
 
 def test_golden_preflight_reuses_identity_across_registry_digest(
@@ -573,12 +575,12 @@ def test_golden_preflight_reuses_identity_across_registry_digest(
     assert result.run_id == _run(94)
 
 
-def test_golden_preflight_reuses_pre_policy_identity_job(
+def test_golden_preflight_rejects_pre_policy_identity_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_data = _input()
     source_build_id = "tmdb-multisource-20261009-r3"
-    _source_runtime, source_resolution, source_bound = (
+    _source_runtime, source_resolution, _source_bound = (
         golden_mod._identity_config_digests(
             source_build_id,
             source_policy_digest="sha256:" + ("c" * 64),
@@ -670,14 +672,15 @@ def test_golden_preflight_reuses_pre_policy_identity_job(
         },
     }
 
-    result = golden_mod._validated_reused_identity(
-        input_data,
-        preflight,
-        payload,
-    )
-
-    assert result.run_id == _run(94)
-    assert source_bound != historical_bound
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="sourcePolicyDigest differs from the current Catalog source policy",
+    ):
+        golden_mod._validated_reused_identity(
+            input_data,
+            preflight,
+            payload,
+        )
 
 
 def test_golden_identity_rejects_mismatched_source_policy_digest(

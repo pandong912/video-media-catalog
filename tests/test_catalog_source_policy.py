@@ -302,6 +302,13 @@ def test_gold_rejects_identity_run_from_another_source_policy() -> None:
         (identity_run(policy.digest),),
         source_policy=policy,
     )
+    _validate_identity_source_policy_provenance(
+        (
+            identity_run("sha256:" + ("0" * 64)),
+            identity_run(policy.digest),
+        ),
+        source_policy=policy,
+    )
     with pytest.raises(ValueError, match="does not bind"):
         _validate_identity_source_policy_provenance(
             (identity_run("sha256:" + ("0" * 64)),),

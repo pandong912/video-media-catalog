@@ -885,6 +885,9 @@ def _validated_reused_identity(
         raise NonRetryableGoldenBuildError(
             "reused Identity job must not repeat --source-policy-digest"
         )
+    source_policy_digest = (
+        preflight.source_policy_digest or load_catalog_source_policy().digest
+    )
     summary_policy_digest = summary.get("sourcePolicyDigest")
     if summary_policy_digest not in (None, ""):
         summary_policy_digest = _require_sha256(
@@ -904,6 +907,22 @@ def _validated_reused_identity(
     ):
         raise NonRetryableGoldenBuildError(
             "reused Identity sourcePolicyDigest differs between summary and EMR job"
+        )
+    # Gold release fail-closes unless Identity binds the current Catalog source
+    # policy. Cross-digest reuse burns a full EMR release before that check.
+    if bool(source_policy_digest) and summary_policy_digest != source_policy_digest:
+        raise NonRetryableGoldenBuildError(
+            "reused Identity sourcePolicyDigest differs from the current Catalog "
+            "source policy"
+        )
+    if (
+        bool(source_policy_digest)
+        and job_policy_digests
+        and job_policy_digests[0] != source_policy_digest
+    ):
+        raise NonRetryableGoldenBuildError(
+            "reused Identity EMR --source-policy-digest differs from the current "
+            "Catalog source policy"
         )
     job_runtime = _single_argument(arguments, "--config-digest")
     if summary.get("configDigest") != resolution.bind_runtime_config(job_runtime):

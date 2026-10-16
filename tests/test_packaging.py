@@ -84,7 +84,9 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert api_dockerfile not in publish_workflow
     assert api_entrypoint not in publish_workflow
     assert api_dockerfile not in ci_workflow
-    assert "dockerfile: Dockerfile.emr" in ci_workflow
+    assert "file: Dockerfile" in ci_workflow
+    assert "file: Dockerfile.emr" in ci_workflow
+    assert "container-emr:" in ci_workflow
     assert "EMR_BASE_IMAGE=" in ci_workflow
     assert (
         "209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@"

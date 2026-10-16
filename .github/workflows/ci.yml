@@ -36,36 +36,41 @@ jobs:
   container:
     needs: verify
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - dockerfile: Dockerfile
-            build_args: ""
-          - dockerfile: Dockerfile.emr
-            # Same private EMR base as publish.yml so CI does not hit
-            # public.ecr.aws 429 rate limits on the EMR Serverless image.
-            build_args: >-
-              EMR_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:a4670f025c013b85b288713ec62b5b32eb0a1626ed5cfcef362d9c56167b78cd
     steps:
       - uses: actions/checkout@v5
-      - name: Configure AWS credentials for private EMR base
-        if: matrix.dockerfile == 'Dockerfile.emr'
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
-          role-session-name: media-catalog-ci-emr-${{ github.run_id }}
-      - name: Log in to Amazon ECR
-        if: matrix.dockerfile == 'Dockerfile.emr'
-        uses: aws-actions/amazon-ecr-login@v2
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: Dockerfile
           push: false
           platforms: linux/amd64
-          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # EMR Serverless base pulls hit public.ecr.aws 429 from PR runners, and the
+  # catalog CI role trust does not allow pull_request OIDC subjects. Validate
+  # Dockerfile.emr on main (private ECR) and via publish.yml instead.
+  container-emr:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_MEDIA_CATALOG_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          role-session-name: media-catalog-ci-emr-${{ github.run_id }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.emr
+          push: false
+          platforms: linux/amd64
+          build-args: >-
+            EMR_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:a4670f025c013b85b288713ec62b5b32eb0a1626ed5cfcef362d9c56167b78cd
           cache-from: type=gha
           cache-to: type=gha,mode=max

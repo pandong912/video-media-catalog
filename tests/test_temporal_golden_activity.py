@@ -91,7 +91,7 @@ def test_golden_emr_profile_is_single_attempt_and_scaled() -> None:
     assert parsed.executor_instances == 7
     assert parsed.shuffle_partitions == 432
     assert parsed.executor_cores == 8
-    assert parsed.executor_memory == "40g"
+    assert parsed.executor_memory == "36g"
     assert parsed.executor_memory_overhead == "20g"
     assert parsed.executor_disk == "400G"
     assert parsed.driver_memory == "16g"
@@ -128,6 +128,23 @@ def test_golden_identity_rejects_insufficient_python_memory_overhead() -> None:
             workflow_run_id="temporal-run-1",
             control_profile=False,
         )
+
+
+def test_golden_control_profile_uses_light_memory_overhead() -> None:
+    """Snapshot/epoch must not inherit Identity-sized 20g native overhead."""
+
+    input_data = _input()
+    parsed = golden_mod._emr_namespace(
+        input_data=input_data,
+        stage="snapshot",
+        entry_point=input_data.env.research_silver_entry_point,
+        entry_args=["publish-snapshot"],
+        workflow_run_id="temporal-run-1",
+        control_profile=True,
+    )
+    assert parsed.executor_instances == 4
+    assert parsed.executor_memory == "36g"
+    assert parsed.executor_memory_overhead == "6g"
 
 
 def test_golden_identity_rejects_emr_serverless_worker_memory_overflow() -> None:

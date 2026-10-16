@@ -102,10 +102,14 @@ _BUILD_EMR_MAX_VCPU = 64
 _BUILD_EMR_MAX_MEMORY_GIB = 512
 _BUILD_EMR_MAX_DISK_GIB = 6000
 # 8 vCPU EMR Serverless workers max out at 60 GiB total. Keep 2.5 GiB/core
-# Python/native overhead (20g) and size heap to the remaining 40g floor.
-_BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB = 5
+# Python/native overhead (20g) and size Identity heap to 36g (56g total) so
+# the request stays below the hard ceiling with allocation headroom.
+_BUILD_MIN_EXECUTOR_MEMORY_PER_CORE_GIB = 4
 _BUILD_MIN_EXECUTOR_OVERHEAD_PER_CORE_GIB = 2.5
 _BUILD_MIN_EXECUTOR_DISK_GIB = 400
+# Control/snapshot stages historically succeed without the Identity-sized
+# native overhead; r8m2's 40g+20g control executors exited with code 1.
+_CONTROL_EXECUTOR_MEMORY_OVERHEAD = "6g"
 _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS = 36
 _DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO = 0.05
 _MAX_GOLD_FRESHNESS_SLO_HOURS = 45 * 24
@@ -1887,7 +1891,11 @@ def _emr_namespace(
         executor_memory_overhead=(
             env.gold_executor_memory_overhead
             if gold_release
-            else env.build_executor_memory_overhead
+            else (
+                _CONTROL_EXECUTOR_MEMORY_OVERHEAD
+                if control_profile
+                else env.build_executor_memory_overhead
+            )
         ),
         executor_disk=(
             env.gold_executor_disk if gold_release else env.build_executor_disk

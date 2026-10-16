@@ -101,7 +101,10 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert api_dockerfile not in publish_workflow
     assert api_entrypoint not in publish_workflow
     assert api_dockerfile not in ci_workflow
-    assert "file: Dockerfile" in ci_workflow
+    assert "file: Dockerfile.release" in ci_workflow
+    assert "WORKER_BASE_IMAGE=" in ci_workflow
+    assert private_worker_base in ci_workflow
+    assert "media-catalog-ci-worker-" in ci_workflow
     assert "file: Dockerfile.emr" in ci_workflow
     assert "container-emr:" in ci_workflow
     assert "EMR_BASE_IMAGE=" in ci_workflow

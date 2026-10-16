@@ -55,12 +55,14 @@ jobs:
       matrix:
         include:
           - repository: video-media-catalog
-            dockerfile: Dockerfile
+            dockerfile: Dockerfile.release
             tag_prefix: sha
             release_prefix: ""
             artifact: video-media-catalog
-            # Worker image does not need an EMR Serverless base.
-            build_args: ""
+            # Reuse the last scanned private worker runtime so publishing a
+            # code-only fix cannot fail on public.ecr.aws rate limiting.
+            build_args: >-
+              WORKER_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:6f819fcdee67896f180d49dd038f3172f557bd9cc6f680beae97c27773817041
           - repository: video-media-catalog
             dockerfile: Dockerfile.emr
             tag_prefix: emr-sha
@@ -83,6 +85,13 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
       - name: Verify infrastructure-managed repository
         run: aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" >/dev/null
+      - name: Verify worker overlay dependency lock
+        if: matrix.dockerfile == 'Dockerfile.release'
+        run: |
+          sha256sum --check --strict <<'EOF'
+          41cfaa125ba3acaa724b6deb4a5c026a559d908ea24367d3240a0e4b7f9343d9  pyproject.toml
+          32a73a14986be13d19957523ab83717174973139e06bce3b1e713ea830d7c4d8  uv.lock
+          EOF
       - id: tags
         name: Build immutable tags
         run: |

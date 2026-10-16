@@ -49,7 +49,7 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
         control_shuffle_partitions=int(values.get("controlShufflePartitions", 96)),
         build_executor_instances=int(values.get("buildExecutorInstances", 7)),
         build_executor_cores=int(values.get("buildExecutorCores", 8)),
-        build_executor_memory=str(values.get("buildExecutorMemory", "40g")),
+        build_executor_memory=str(values.get("buildExecutorMemory", "36g")),
         build_executor_memory_overhead=str(
             values.get("buildExecutorMemoryOverhead", "20g")
         ),

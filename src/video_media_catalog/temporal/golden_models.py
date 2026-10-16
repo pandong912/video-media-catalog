@@ -69,7 +69,7 @@ class GoldenBuildEnv:
     control_shuffle_partitions: int = 96
     build_executor_instances: int = 7
     build_executor_cores: int = 8
-    build_executor_memory: str = "40g"
+    build_executor_memory: str = "36g"
     build_executor_memory_overhead: str = "20g"
     build_executor_disk: str = "400G"
     build_shuffle_partitions: int = 432

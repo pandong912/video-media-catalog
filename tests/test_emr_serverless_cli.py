@@ -82,7 +82,7 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     client = _Client(["SUBMITTED", "RUNNING", "SUCCESS"])
 
     result = run(
-        _parsed("--executor-memory-overhead", "20g"),
+        _parsed("--executor-memory-overhead", "6g"),
         client=client,
         sleep=lambda _seconds: None,
     )
@@ -99,7 +99,7 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     parameters = spark_submit["sparkSubmitParameters"]
     assert "spark.emr-serverless.executor.disk=200G" in parameters
     assert "spark.emr-serverless.executor.disk.type=SHUFFLE_OPTIMIZED" in parameters
-    assert "spark.executor.memoryOverhead=20g" in parameters
+    assert "spark.executor.memoryOverhead=6g" in parameters
     assert "spark.speculation=false" in parameters
     assert "spark.dynamicAllocation.enabled=false" in parameters
     assert "spark.task.maxFailures=8" in parameters
@@ -222,3 +222,19 @@ def test_submit_requires_forwarded_entry_point_arguments() -> None:
 
     with pytest.raises(ValueError, match="entry-point argument"):
         run(parsed, client=_Client(["SUCCESS"]), sleep=lambda _seconds: None)
+
+
+def test_submit_rejects_illegal_emr_serverless_worker_memory() -> None:
+    with pytest.raises(ValueError, match=r"executor total memory.*got 68 GiB"):
+        run(
+            _parsed(
+                "--executor-cores",
+                "8",
+                "--executor-memory",
+                "48g",
+                "--executor-memory-overhead",
+                "20g",
+            ),
+            client=_Client(["SUCCESS"]),
+            sleep=lambda _seconds: None,
+        )

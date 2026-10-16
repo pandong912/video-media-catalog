@@ -49,7 +49,7 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
         control_shuffle_partitions=int(values.get("controlShufflePartitions", 96)),
         build_executor_instances=int(values.get("buildExecutorInstances", 7)),
         build_executor_cores=int(values.get("buildExecutorCores", 8)),
-        build_executor_memory=str(values.get("buildExecutorMemory", "48g")),
+        build_executor_memory=str(values.get("buildExecutorMemory", "40g")),
         build_executor_memory_overhead=str(
             values.get("buildExecutorMemoryOverhead", "20g")
         ),
@@ -63,7 +63,7 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
         gold_executor_cores=int(values.get("goldExecutorCores", 4)),
         gold_executor_memory=str(values.get("goldExecutorMemory", "24g")),
         gold_executor_memory_overhead=str(
-            values.get("goldExecutorMemoryOverhead", "8g")
+            values.get("goldExecutorMemoryOverhead", "6g")
         ),
         gold_executor_disk=str(values.get("goldExecutorDisk", "170G")),
         gold_shuffle_partitions=int(values.get("goldShufflePartitions", 1152)),

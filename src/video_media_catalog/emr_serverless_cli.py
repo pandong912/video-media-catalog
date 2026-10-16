@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import signal
 import time
@@ -16,6 +17,60 @@ _SUCCESS_STATES = {"SUCCESS"}
 _FAILURE_STATES = {"FAILED", "CANCELLED"}
 _TERMINAL_STATES = _SUCCESS_STATES | _FAILURE_STATES
 _CLIENT_TOKEN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_GIB_RESOURCE = re.compile(r"^([1-9][0-9]*)[gG]i?[bB]?$")
+# EMR Serverless worker memory is discrete per vCPU; heap+overhead must fit.
+# https://docs.aws.amazon.com/emr/latest/EMR-Serverless-UserGuide/app-behavior.html
+_EMR_SERVERLESS_WORKER_MEMORY_GIB: dict[int, tuple[int, int, int]] = {
+    1: (2, 8, 1),
+    2: (4, 16, 1),
+    4: (8, 30, 1),
+    8: (16, 60, 4),
+    16: (32, 120, 8),
+}
+_EMR_SERVERLESS_WORKER_32_MEMORY_GIB = frozenset({60, 120, 244})
+
+
+def _gib_amount(value: str, *, label: str) -> int:
+    match = _GIB_RESOURCE.fullmatch(value.strip())
+    if match is None:
+        raise ValueError(f"{label} must be a positive whole GiB value such as 24g")
+    return int(match.group(1))
+
+
+def validate_emr_serverless_worker_total_memory(
+    *,
+    cores: int,
+    memory_gib: int,
+    overhead_gib: int = 0,
+    label: str = "worker",
+) -> None:
+    """Reject Spark worker sizes EMR Serverless cannot allocate."""
+
+    if memory_gib < 1 or overhead_gib < 0:
+        raise ValueError(f"{label} memory and overhead must be positive whole GiB")
+    total = memory_gib + overhead_gib
+    if cores == 32:
+        if not any(
+            abs(total - allowed) <= 8
+            for allowed in _EMR_SERVERLESS_WORKER_32_MEMORY_GIB
+        ):
+            raise ValueError(
+                f"{label} total memory {total} GiB is not within 8 GiB of an "
+                "EMR Serverless 32 vCPU size (60/120/244 GiB)"
+            )
+        return
+    spec = _EMR_SERVERLESS_WORKER_MEMORY_GIB.get(cores)
+    if spec is None:
+        raise ValueError(
+            f"{label} uses unsupported EMR Serverless worker vCPU count {cores}"
+        )
+    minimum, maximum, step = spec
+    if total < minimum or total > maximum or (total - minimum) % step != 0:
+        raise ValueError(
+            f"{label} total memory (heap+overhead) must be in "
+            f"[{minimum}, {maximum}] GiB with step {step} for {cores} vCPU; "
+            f"got {total} GiB"
+        )
 
 
 def _entry_point_arguments(parsed: argparse.Namespace) -> list[str]:
@@ -102,6 +157,31 @@ def _validate(parsed: argparse.Namespace) -> None:
         raise ValueError("failure-policy must be 'resilient' or 'fail-fast'")
     if not _entry_point_arguments(parsed):
         raise ValueError("at least one entry-point argument is required after --")
+    driver_memory = _gib_amount(parsed.driver_memory, label="driver-memory")
+    executor_memory = _gib_amount(parsed.executor_memory, label="executor-memory")
+    # Spark defaults overhead to 10% of heap when unset; size workers with that.
+    driver_overhead = (
+        _gib_amount(parsed.driver_memory_overhead, label="driver-memory-overhead")
+        if parsed.driver_memory_overhead
+        else max(1, math.ceil(driver_memory / 10))
+    )
+    executor_overhead = (
+        _gib_amount(parsed.executor_memory_overhead, label="executor-memory-overhead")
+        if parsed.executor_memory_overhead
+        else max(1, math.ceil(executor_memory / 10))
+    )
+    validate_emr_serverless_worker_total_memory(
+        cores=parsed.driver_cores,
+        memory_gib=driver_memory,
+        overhead_gib=driver_overhead,
+        label="driver",
+    )
+    validate_emr_serverless_worker_total_memory(
+        cores=parsed.executor_cores,
+        memory_gib=executor_memory,
+        overhead_gib=executor_overhead,
+        label="executor",
+    )
 
 
 def _applications(client: Any) -> list[dict[str, Any]]:

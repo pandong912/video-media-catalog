@@ -296,7 +296,7 @@ def test_runtime_preflight_accepts_fresh_identity_with_tmdb_spine() -> None:
     assert result.passed is True
     assert "tmdb-research" in result.detail
     assert "incrementalIdentityRuns=17" in result.detail
-    assert "identityExecutorProfile=7x8c/48g+20g/400G" in result.detail
+    assert "identityExecutorProfile=7x8c/40g+20g/400G" in result.detail
 
 
 def test_runtime_preflight_rejects_fresh_identity_without_tmdb_spine() -> None:

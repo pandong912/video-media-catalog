@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import signal
 import time
@@ -159,16 +158,18 @@ def _validate(parsed: argparse.Namespace) -> None:
         raise ValueError("at least one entry-point argument is required after --")
     driver_memory = _gib_amount(parsed.driver_memory, label="driver-memory")
     executor_memory = _gib_amount(parsed.executor_memory, label="executor-memory")
-    # Spark defaults overhead to 10% of heap when unset; size workers with that.
+    # When overhead is unset we omit spark.*.memoryOverhead so EMR Serverless
+    # sizes the worker on heap alone (r8l Snapshot ResourceProfile). Do not
+    # invent a 10% overhead for the worker-size gate in that case.
     driver_overhead = (
         _gib_amount(parsed.driver_memory_overhead, label="driver-memory-overhead")
         if parsed.driver_memory_overhead
-        else max(1, math.ceil(driver_memory / 10))
+        else 0
     )
     executor_overhead = (
         _gib_amount(parsed.executor_memory_overhead, label="executor-memory-overhead")
         if parsed.executor_memory_overhead
-        else max(1, math.ceil(executor_memory / 10))
+        else 0
     )
     validate_emr_serverless_worker_total_memory(
         cores=parsed.driver_cores,

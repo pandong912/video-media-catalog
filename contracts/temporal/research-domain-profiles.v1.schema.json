@@ -15,6 +15,7 @@
       "required": [
         "sportsPublicationAllowed",
         "animationPublicationAllowed",
+        "musicPublicationAllowed",
         "openSearchAliasActivationAllowed",
         "cutoverAllowed",
         "liveCutoverClaimed",
@@ -26,6 +27,7 @@
       "properties": {
         "sportsPublicationAllowed": {"const": false},
         "animationPublicationAllowed": {"const": false},
+        "musicPublicationAllowed": {"const": false},
         "openSearchAliasActivationAllowed": {"const": false},
         "cutoverAllowed": {"const": false},
         "liveCutoverClaimed": {"const": false},
@@ -43,6 +45,7 @@
         "research-wikidata-animation-monthly-v1",
         "research-wikidata-news-monthly-v1",
         "research-wikidata-learning-monthly-v1",
+        "research-music-monthly-v1",
         "research-openfootball-daily-v1",
         "research-statsbomb-weekly-v1",
         "research-madb-weekly-v1"
@@ -59,6 +62,9 @@
         },
         "research-wikidata-learning-monthly-v1": {
           "$ref": "#/$defs/wikidataLearning"
+        },
+        "research-music-monthly-v1": {
+          "$ref": "#/$defs/music"
         },
         "research-openfootball-daily-v1": {
           "$ref": "#/$defs/openFootball"
@@ -122,7 +128,8 @@
             "NEWS",
             "JOURNALISM",
             "LEARNING",
-            "INSTRUCTION"
+            "INSTRUCTION",
+            "MUSIC"
           ]
         },
         "sourceProductId": {
@@ -130,7 +137,8 @@
             "wikidata-json-dump",
             "openfootball-git",
             "statsbomb-open-data",
-            "madb-public-data"
+            "madb-public-data",
+            "musicbrainz-core-dump"
           ]
         },
         "captureManifest": {"$ref": "#/$defs/objectRef"},
@@ -191,13 +199,14 @@
             "NEWS",
             "JOURNALISM",
             "LEARNING",
-            "INSTRUCTION"
+            "INSTRUCTION",
+            "MUSIC"
           ]
         },
         "sources": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 1,
+          "maxItems": 2,
           "items": {"$ref": "#/$defs/source"}
         },
         "goldenBuild": {
@@ -235,6 +244,7 @@
           "properties": {
             "domain": {"const": "SPORTS"},
             "sources": {
+              "maxItems": 1,
               "prefixItems": [
                 {
                   "allOf": [
@@ -260,6 +270,7 @@
           "properties": {
             "domain": {"const": "ANIMATION"},
             "sources": {
+              "maxItems": 1,
               "prefixItems": [
                 {
                   "allOf": [
@@ -285,6 +296,7 @@
           "properties": {
             "domain": {"const": "NEWS"},
             "sources": {
+              "maxItems": 1,
               "prefixItems": [
                 {
                   "allOf": [
@@ -318,6 +330,7 @@
           "properties": {
             "domain": {"const": "LEARNING"},
             "sources": {
+              "maxItems": 1,
               "prefixItems": [
                 {
                   "allOf": [
@@ -344,6 +357,60 @@
         }
       ]
     },
+    "music": {
+      "allOf": [
+        {"$ref": "#/$defs/schedule"},
+        {
+          "properties": {
+            "domain": {"const": "MUSIC"},
+            "sources": {
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "MUSIC"},
+                        "sourceProductId": {"const": "musicbrainz-core-dump"},
+                        "identitySpine": {"const": true},
+                        "materialization": {"const": false},
+                        "goldContribution": {"const": true}
+                      },
+                      "required": [
+                        "identitySpine",
+                        "materialization",
+                        "goldContribution"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {"$ref": "#/$defs/source"},
+                    {
+                      "properties": {
+                        "domain": {"const": "MUSIC"},
+                        "sourceProductId": {"const": "wikidata-json-dump"},
+                        "identitySpine": {"const": true},
+                        "materialization": {"const": false},
+                        "goldContribution": {"const": true}
+                      },
+                      "required": [
+                        "identitySpine",
+                        "materialization",
+                        "goldContribution"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "openFootball": {
       "allOf": [
         {"$ref": "#/$defs/schedule"},
@@ -351,6 +418,7 @@
           "properties": {
             "domain": {"const": "SPORTS"},
             "sources": {
+              "maxItems": 1,
               "prefixItems": [
                 {
                   "allOf": [
@@ -376,6 +444,7 @@
           "properties": {
             "domain": {"const": "SPORTS"},
             "sources": {
+              "maxItems": 1,
               "prefixItems": [
                 {
                   "allOf": [
@@ -401,6 +470,7 @@
           "properties": {
             "domain": {"const": "ANIMATION"},
             "sources": {
+              "maxItems": 1,
               "prefixItems": [
                 {
                   "allOf": [

@@ -12,17 +12,39 @@
     ],
     "sourceManifestBound": true,
     "supportedDomains": [
+      "MUSIC",
       "SPORTS"
     ],
     "titleIsIdentity": false
   },
   "domains": [
     "FILM_TV",
+    "MUSIC",
     "SPORTS",
     "UNKNOWN"
   ],
   "maxCandidates": 20,
   "minimumScore": 250,
+  "musicMatchPolicy": {
+    "ambiguousExactCandidates": "ABSTAIN",
+    "exactIdentifierNamespaces": [
+      "isrc",
+      "iswc",
+      "musicbrainz-artist",
+      "musicbrainz-recording",
+      "musicbrainz-release",
+      "musicbrainz-release-group",
+      "musicbrainz-work",
+      "wikidata-item"
+    ],
+    "parentConstrained": {
+      "decision": "REVIEW_ONLY",
+      "predicates": [
+        "recording_of",
+        "release_membership"
+      ]
+    }
+  },
   "retrieval": {
     "exactIdentifierBoost": 1000
   },

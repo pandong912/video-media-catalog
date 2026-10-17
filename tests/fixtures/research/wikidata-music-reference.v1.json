@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "video.media-catalog.reference-fixture.v1",
+  "fixtureId": "wikidata-music-reference-v1",
+  "domain": "MUSIC",
+  "sourceSystemId": "wikidata",
+  "sourceProductId": "wikidata-json-dump",
+  "connectorId": "wikidata-full-media-backfill",
+  "revisionKind": "DUMP_OBJECT",
+  "schemaId": "wikidata-global-reference-entity",
+  "sourceRevision": "wikidata-20261001-all.json.bz2",
+  "capturedAt": "2026-10-17T00:00:00Z",
+  "rawObject": {
+    "uri": "file:///tests/fixtures/research/wikidata-music-reference.v1.jsonl",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/x-ndjson",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "a9c0cf9b91d227385add4871e1136bc5d66d8f112db259a86e6ead8ee3f2e9b7"
+    },
+    "sizeBytes": 428
+  },
+  "imageDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "configDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "citations": [
+    {
+      "citationId": "wikidata-high-and-dry",
+      "sourceRecordId": "Q2469634",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q2469634",
+      "title": "High and Dry",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:a9c0cf9b91d227385add4871e1136bc5d66d8f112db259a86e6ead8ee3f2e9b7"
+    }
+  ],
+  "records": [
+    {
+      "payload": {
+        "id": "Q2469634",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RELEASE_GROUP",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "High and Dry"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "High & Dry"
+            }
+          ]
+        },
+        "claims": {
+          "P436": [
+            {
+              "rank": "normal",
+              "mainsnak": {
+                "datavalue": {
+                  "value": "96838f33-94ec-3d55-9147-f158e2247bf3"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q44190",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER"
+            }
+          }
+        ]
+      },
+      "citationIds": ["wikidata-high-and-dry"]
+    }
+  ]
+}

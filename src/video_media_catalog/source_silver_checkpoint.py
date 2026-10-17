@@ -113,6 +113,10 @@ _DEFAULT_MAPPER_IDENTITIES = {
         mapper_id="madb-animation-source-mapper",
         mapper_version="1.0.0",
     ),
+    "musicbrainz-core-dump": SourceSilverMapperIdentity(
+        mapper_id="musicbrainz-core-source-mapper",
+        mapper_version="1.0.0",
+    ),
     "tmdb-research": SourceSilverMapperIdentity(
         mapper_id="tmdb-research-mapper",
         mapper_version="1.0.0",

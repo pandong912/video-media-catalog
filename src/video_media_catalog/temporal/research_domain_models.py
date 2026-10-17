@@ -24,6 +24,7 @@ ResearchDomain = Literal[
     "JOURNALISM",
     "LEARNING",
     "INSTRUCTION",
+    "MUSIC",
 ]
 
 _DOMAIN_SOURCES = {
@@ -44,8 +45,22 @@ _DOMAIN_SOURCES = {
     "JOURNALISM": frozenset({"wikidata-json-dump"}),
     "LEARNING": frozenset({"wikidata-json-dump"}),
     "INSTRUCTION": frozenset({"wikidata-json-dump"}),
+    "MUSIC": frozenset(
+        {
+            "musicbrainz-core-dump",
+            "wikidata-json-dump",
+        }
+    ),
 }
-_REFERENCE_ONLY_DOMAINS = frozenset({"NEWS", "JOURNALISM", "LEARNING", "INSTRUCTION"})
+_REFERENCE_ONLY_DOMAINS = frozenset(
+    {
+        "NEWS",
+        "JOURNALISM",
+        "LEARNING",
+        "INSTRUCTION",
+        "MUSIC",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -159,6 +174,16 @@ class ResearchDomainInput:
         profile_ids = tuple(source.profile_id for source in self.sources)
         if len(profile_ids) != len(set(profile_ids)):
             raise ValueError("research domain source profile IDs must be unique")
+        source_products = tuple(source.source_product_id for source in self.sources)
+        if len(source_products) != len(set(source_products)):
+            raise ValueError("research domain source products must be unique")
+        if self.domain == "MUSIC" and source_products != (
+            "musicbrainz-core-dump",
+            "wikidata-json-dump",
+        ):
+            raise ValueError(
+                "MUSIC workflow requires ordered MusicBrainz core and Wikidata sources"
+            )
         if not 0 <= self.next_source_index <= len(self.sources):
             raise ValueError("research domain source cursor is out of range")
         if (

@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from jsonschema import Draft202012Validator
 from temporalio import activity, workflow
 from temporalio.client import Client, ScheduleAlreadyRunningError
 from temporalio.testing import WorkflowEnvironment
@@ -24,6 +27,9 @@ from video_media_catalog.temporal.golden_models import (
     GoldenIdentityResult,
     GoldenReleaseResult,
     GoldenSnapshotResult,
+    GoldenSourceFreshnessStatus,
+    GoldenSourceRunState,
+    GoldenSourceRunStatus,
 )
 from video_media_catalog.temporal.models import (
     CaptureResult,
@@ -45,11 +51,13 @@ from video_media_catalog.temporal.research_domain_models import (
     ResearchCaptureResult,
     ResearchDomainInput,
     ResearchSourceProfile,
+    ResearchSourceResult,
 )
 from video_media_catalog.temporal.workflows.research_domain import (
     ResearchCaptureWorkflow,
     ResearchDomainWorkflow,
     ResearchSilverWorkflow,
+    _golden_input,
 )
 
 
@@ -148,6 +156,106 @@ def test_news_and_learning_profiles_are_reference_gold_contributors() -> None:
             },
             identity_spine=True,
             gold_contribution=True,
+        )
+
+
+def test_music_profiles_feed_two_reference_only_golden_source_states() -> None:
+    profiles = tuple(
+        ResearchSourceProfile(
+            profile_id=f"music-{source_product_id}",
+            domain="MUSIC",
+            source_product_id=source_product_id,
+            capture_manifest=ObjectRefPayload.from_mapping(
+                _object_mapping(
+                    f"s3://bucket/captures/{source_product_id}.json",
+                    marker,
+                )
+            ),
+            env=_env(),
+            watermark=f"music-{marker}",
+            identity_spine=True,
+            materialization=False,
+            gold_contribution=True,
+        )
+        for source_product_id, marker in (
+            ("musicbrainz-core-dump", "a"),
+            ("wikidata-json-dump", "b"),
+        )
+    )
+    completed = tuple(
+        ResearchSourceResult(
+            profile_id=profile.profile_id,
+            domain=profile.domain,
+            source_product_id=profile.source_product_id,
+            watermark=profile.watermark,
+            acquired_at="2026-10-17T00:00:00Z",
+            capture_manifest=profile.capture_manifest,
+            captures=(),
+            silvers=(
+                SilverResult(
+                    batch_id="sha256:" + (marker * 64),
+                    run_id="sha256:" + (marker * 64),
+                    commit_key="sha256:" + (marker.upper() * 64),
+                    job_run_id=f"music-{marker}",
+                    table_counts={"community_assertion": 1},
+                    table_snapshot_ids={"community_assertion": 1},
+                ),
+            ),
+        )
+        for profile, marker in zip(profiles, ("a", "b"), strict=True)
+    )
+    baseline = _input()
+    baseline = replace(
+        baseline,
+        source_run_states=(
+            GoldenSourceRunState(
+                source_product_id="wikidata-json-dump",
+                run_ids=(baseline.baseline_source_run_ids[2],),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.PASS,
+                watermark=baseline.source_watermarks["wikidata-json-dump"],
+                identity_spine=False,
+                materialization=True,
+                gold_contribution=True,
+            ),
+        ),
+    )
+    golden = _golden_input(
+        ResearchDomainInput(
+            domain="MUSIC",
+            sources=profiles,
+            golden_build=baseline,
+            next_source_index=2,
+            completed_sources=completed,
+        )
+    )
+
+    states = {state.source_product_id: state for state in golden.source_run_states}
+    assert set(states) == {"musicbrainz-core-dump", "wikidata-json-dump"}
+    assert set(golden.supplemental_source_run_ids) == {
+        "sha256:" + ("a" * 64),
+        "sha256:" + ("b" * 64),
+    }
+    assert states["wikidata-json-dump"].run_ids == tuple(
+        sorted(
+            {
+                baseline.baseline_source_run_ids[2],
+                "sha256:" + ("b" * 64),
+            }
+        )
+    )
+    assert all(
+        state.identity_spine
+        and state.gold_contribution
+        and not state.materialization
+        and state.capture_reference is not None
+        for state in states.values()
+    )
+    with pytest.raises(ValueError, match="requires ordered MusicBrainz"):
+        ResearchDomainInput(
+            domain="MUSIC",
+            sources=profiles[:1],
+            golden_build=baseline,
         )
 
 
@@ -417,7 +525,25 @@ def test_research_schedule_is_unpaused_and_updated_idempotently() -> None:
         )
     )
     assert client.handle.updated is True
-    assert len(_SCHEDULE_COORDINATES) == 7
+    assert len(_SCHEDULE_COORDINATES) == 8
+
+
+def test_research_domain_profile_schema_includes_music_schedule() -> None:
+    schema = json.loads(
+        Path("contracts/temporal/research-domain-profiles.v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    Draft202012Validator.check_schema(schema)
+    schedules = schema["properties"]["schedules"]
+    assert "research-music-monthly-v1" in schedules["required"]
+    assert schedules["properties"]["research-music-monthly-v1"] == {
+        "$ref": "#/$defs/music"
+    }
+    assert schema["properties"]["publicationGates"]["properties"][
+        "musicPublicationAllowed"
+    ] == {"const": False}
 
 
 def test_schedule_config_rejects_any_publication_or_cutover_gate(
@@ -431,6 +557,7 @@ def test_schedule_config_rejects_any_publication_or_cutover_gate(
                 "publicationGates": {
                     "sportsPublicationAllowed": True,
                     "animationPublicationAllowed": False,
+                    "musicPublicationAllowed": False,
                     "openSearchAliasActivationAllowed": False,
                     "cutoverAllowed": False,
                     "liveCutoverClaimed": False,

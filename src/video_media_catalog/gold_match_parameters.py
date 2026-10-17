@@ -28,6 +28,54 @@ PARAMETER_MEDIA_TYPE = (
 _CONCRETE_INDEX = re.compile(rf"^{RESEARCH_INDEX_PREFIX}-[0-9a-f]{{24}}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REGION = re.compile(r"^[a-z]{2}-[a-z]+-\d$")
+_REQUIRED_MUSIC_EXACT_NAMESPACES = frozenset(
+    {
+        "isrc",
+        "iswc",
+        "musicbrainz-artist",
+        "musicbrainz-recording",
+        "musicbrainz-release",
+        "musicbrainz-release-group",
+        "musicbrainz-work",
+        "wikidata-item",
+    }
+)
+
+
+def _music_match_policy(contract: Mapping[str, Any]) -> dict[str, Any]:
+    domains = contract.get("domains")
+    authority = contract.get("domainIdentityAuthority")
+    policy = contract.get("musicMatchPolicy")
+    supported_domains = (
+        authority.get("supportedDomains") if isinstance(authority, Mapping) else None
+    )
+    if (
+        not isinstance(domains, list)
+        or "MUSIC" not in domains
+        or len(domains) != len(set(domains))
+        or not isinstance(supported_domains, list)
+        or "MUSIC" not in supported_domains
+        or not isinstance(policy, Mapping)
+    ):
+        raise ValueError("catalog match algorithm must declare MUSIC support")
+    namespaces = policy.get("exactIdentifierNamespaces")
+    parent = policy.get("parentConstrained")
+    parent_predicates = (
+        parent.get("predicates") if isinstance(parent, Mapping) else None
+    )
+    if (
+        not isinstance(namespaces, list)
+        or namespaces != sorted(_REQUIRED_MUSIC_EXACT_NAMESPACES)
+        or not isinstance(parent, Mapping)
+        or parent.get("decision") != "REVIEW_ONLY"
+        or not isinstance(parent_predicates, list)
+        or parent_predicates != ["recording_of", "release_membership"]
+        or policy.get("ambiguousExactCandidates") != "ABSTAIN"
+    ):
+        raise ValueError(
+            "MUSIC matching requires exact IDs, parent review, and ambiguity abstention"
+        )
+    return json.loads(canonical_json(dict(policy)))
 
 
 def catalog_match_algorithm_identity(
@@ -38,6 +86,7 @@ def catalog_match_algorithm_identity(
     algorithm_id = contract.get("algorithmId")
     if algorithm_id != "catalog-asset-match-v1":
         raise ValueError("unsupported catalog match algorithm ID")
+    _music_match_policy(contract)
     digest = (
         "sha256:" + hashlib.sha256(canonical_json_bytes(dict(contract))).hexdigest()
     )
@@ -93,6 +142,7 @@ def match_parameters_from_manifest(
     algorithm_id, algorithm_schema, algorithm_digest = catalog_match_algorithm_identity(
         algorithm_contract
     )
+    music_policy = _music_match_policy(algorithm_contract)
     return {
         "schemaVersion": PARAMETER_SCHEMA_VERSION,
         "contextId": RESEARCH_CONTEXT_ID,
@@ -103,6 +153,8 @@ def match_parameters_from_manifest(
         "algorithmId": algorithm_id,
         "algorithmSchemaVersion": algorithm_schema,
         "algorithmDigest": algorithm_digest,
+        "supportedDomains": list(algorithm_contract["domains"]),
+        "musicMatchPolicy": music_policy,
         "searchEndpoint": search_endpoint.rstrip("/"),
         "awsRegion": aws_region,
         "awsService": aws_service,

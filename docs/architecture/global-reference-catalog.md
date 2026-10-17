@@ -12,6 +12,10 @@ The ontology contract is
 predicates are independently versioned. The registry declares
 `authority=GLOBAL_REFERENCE_ONLY` and
 `tenantWorldIdentityAuthority=false`.
+The current ontology registry is `1.1.0`
+(`sha256:cb9422fe2d49fbab7cf610191e5fea635694454fe1bc6259bf262b95d71c99c1`)
+and the predicate registry is `1.2.0`
+(`sha256:d8942df842d6bb3947f65a6398f5635ccc53b2efd38b2fb970e8a5c53901c927`).
 
 This extends the existing Sports and Animation Capture → Silver → Identity →
 Gold pipeline; it does not create a parallel authority or a tenant canonical
@@ -43,15 +47,31 @@ Supported reference types are:
 Relations preserve course/module/lesson structure, taught concepts,
 objectives, prerequisites, ordered procedure steps, and demonstrations.
 
-Both slices use only the existing `wikidata-json-dump` mapping from
-`catalog-source-policy.v1.json`. The policy file, registry version, semantic
-digest, and commercial authorization are unchanged. Adding another source
-requires a separately reviewed source-policy change; this implementation does
-not infer permission from mapper support.
+News and Learning use the existing `wikidata-json-dump` mapping from
+`catalog-source-policy.v1.json`. Mapper support never infers permission from
+technical capability; the MusicBrainz addition is an explicit source-policy v1
+registry change with its own reviewed semantic digest.
 
 News and Learning production profiles must set `identitySpine=true`,
 `goldContribution=true`, and `materialization=false`. Identity and Gold consume
 the pinned source runs, while the separate materialization flag remains off.
+
+## Music reference slice
+
+Music adds `MUSIC_ARTIST`, `MUSICAL_WORK`, `MUSIC_RECORDING`,
+`MUSIC_RELEASE_GROUP`, and `MUSIC_RELEASE` under the existing `AGENT` and
+`WORK` roots. Exact identifiers cover the five MusicBrainz MBID namespaces,
+ISRC, ISWC, and Wikidata QID. Generic relationship assertions cover
+`recording_of`, `release_membership`, `credit`, and `performance_link`; no
+Music-only OpenSearch index fields are introduced.
+
+The slice requires two immutable captures in one release: MusicBrainz offline
+core CC0 and Wikidata Music. MusicBrainz tags, genres, ratings, annotations,
+supplementary/live feeds, and Cover Art Archive assets are rejected. Both
+Temporal source profiles are Identity/Gold contributors with
+`materialization=false`. One exact identifier may reuse an entity; multiple
+exact candidates abstain, while parent-constrained recording/release matches
+remain review-only.
 
 ## Data path
 
@@ -63,13 +83,14 @@ the pinned source runs, while the separate materialization flag remains off.
 4. Gold retains current candidates, conflicts, citations, immutable source
    snapshots, and complete double-temporal observations.
 5. OpenSearch projection v10 contributes bounded, searchable reference
-   candidates and relations. News/Learning search contribution is restricted to
-   `wikidata-json-dump` with `GOLD_PROJECTION`. Overflow is explicit; Gold
-   remains complete.
+   candidates and relations. News/Learning use `wikidata-json-dump`; Music uses
+   `musicbrainz-core-dump` plus `wikidata-json-dump`. Every source still
+   requires `GOLD_PROJECTION`. Overflow is explicit; Gold remains complete.
 
-The pinned News and Learning fixtures under `tests/fixtures/research` contain
-small reviewed selections of real Wikidata entity identifiers. Their NDJSON
-sidecars are checksum- and size-bound and exercise the production mapper.
+The pinned News, Learning, and Music fixtures under `tests/fixtures/research`
+contain small reviewed selections of real Wikidata and MusicBrainz identifiers.
+Their NDJSON sidecars are checksum- and size-bound and exercise the production
+mappers without a runtime public API dependency.
 
 ## Release and World boundary
 
@@ -80,6 +101,8 @@ must bind:
 - ontology and predicate registry coordinates and digests;
 - the unchanged source-policy v1 coordinate and digest;
 - immutable source snapshot pins;
+- exactly one News pin, one Learning pin, and both MusicBrainz/Wikidata Music
+  pins for the Music slice;
 - one content-bound Gold release plan and Gold release commit;
 - one concrete OpenSearch index;
 - its content-bound immutable build manifest and independent validation

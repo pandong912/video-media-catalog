@@ -54,6 +54,7 @@ _NEWS_REFERENCE_DOMAINS = frozenset({ReferenceDomain.NEWS, ReferenceDomain.JOURN
 _LEARNING_REFERENCE_DOMAINS = frozenset(
     {ReferenceDomain.LEARNING, ReferenceDomain.INSTRUCTION}
 )
+_MUSIC_REFERENCE_DOMAINS = frozenset({ReferenceDomain.MUSIC})
 
 _SPORTS_FIELD_PREDICATES = frozenset(
     {
@@ -169,7 +170,18 @@ def _reference_slices(concept: ReferenceTypeConcept | None) -> list[str]:
         slices.append("NEWS/JOURNALISM")
     if domains & _LEARNING_REFERENCE_DOMAINS:
         slices.append("LEARNING/INSTRUCTION")
+    if domains & _MUSIC_REFERENCE_DOMAINS:
+        slices.append("MUSIC")
     return slices
+
+
+def _reference_source_allowed(
+    source_product_id: str,
+    reference_slices: list[str],
+) -> bool:
+    if source_product_id == "wikidata-json-dump":
+        return True
+    return source_product_id == "musicbrainz-core-dump" and "MUSIC" in reference_slices
 
 
 def _external_identifier_url(
@@ -183,6 +195,17 @@ def _external_identifier_url(
         except ValueError:
             return None
         return f"https://doi.org/{normalized}"
+    musicbrainz_entity = {
+        "musicbrainz-artist": "artist",
+        "musicbrainz-work": "work",
+        "musicbrainz-recording": "recording",
+        "musicbrainz-release-group": "release-group",
+        "musicbrainz-release": "release",
+    }.get(namespace.strip().lower())
+    if musicbrainz_entity is not None:
+        return f"https://musicbrainz.org/{musicbrainz_entity}/{identifier}"
+    if namespace.strip().lower() == "isrc":
+        return f"https://musicbrainz.org/isrc/{identifier}"
     return douban_jump_url(namespace, identifier, referent_kind)
 
 
@@ -779,9 +802,7 @@ def project_gold_entity(
                 }
             )
             winning_ids.add(assertion_id)
-            if item.source_product_id == "wikidata-json-dump" and source.allows(
-                CatalogSourceCapability.GOLD_PROJECTION
-            ):
+            if source.allows(CatalogSourceCapability.GOLD_PROJECTION):
                 reference_relation_candidates.append(
                     {
                         "predicate": predicate,
@@ -794,6 +815,7 @@ def project_gold_entity(
                             0,
                             len(citations) - MAX_CITATION_KEYS,
                         ),
+                        "_implementationSourceProductId": item.source_product_id,
                     }
                 )
 
@@ -1056,9 +1078,10 @@ def project_gold_entity(
             item = lineage_by_id[assertion_id]
             context = reference_candidate_context[assertion_id]
             source = source_policy.source(item.source_product_id)
-            if item.source_product_id != "wikidata-json-dump" or not source.allows(
-                CatalogSourceCapability.GOLD_PROJECTION
-            ):
+            if not _reference_source_allowed(
+                item.source_product_id,
+                reference_slices,
+            ) or not source.allows(CatalogSourceCapability.GOLD_PROJECTION):
                 continue
             citations = list(item.citation_keys)
             reference_candidates.append(
@@ -1083,6 +1106,18 @@ def project_gold_entity(
                     ),
                 }
             )
+    reference_relation_candidates = [
+        {
+            key: value
+            for key, value in candidate.items()
+            if key != "_implementationSourceProductId"
+        }
+        for candidate in reference_relation_candidates
+        if _reference_source_allowed(
+            str(candidate["_implementationSourceProductId"]),
+            reference_slices,
+        )
+    ]
     reference_relation_candidates.sort(
         key=lambda item: (
             item["predicate"],

@@ -50,11 +50,12 @@
       "type": "array",
       "prefixItems": [
         {"const": "LEARNING/INSTRUCTION"},
+        {"const": "MUSIC"},
         {"const": "NEWS/JOURNALISM"}
       ],
       "items": false,
-      "minItems": 2,
-      "maxItems": 2
+      "minItems": 3,
+      "maxItems": 3
     },
     "ontologyRegistryId": {"const": "global-reference-ontology"},
     "ontologyRegistryVersion": {"type": "string", "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$"},
@@ -70,35 +71,47 @@
     "sourceSnapshots": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {"$ref": "#/$defs/sourceSnapshot"}
     },
     "sliceSourcePins": {
       "type": "array",
-      "prefixItems": [
+      "items": {"$ref": "#/$defs/sliceSourcePin"},
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "allOf": [
         {
-          "allOf": [
-            {"$ref": "#/$defs/sliceSourcePin"},
-            {
-              "properties": {
-                "referenceSlice": {"const": "LEARNING/INSTRUCTION"}
-              }
-            }
-          ]
+          "contains": {
+            "properties": {
+              "referenceSlice": {"const": "LEARNING/INSTRUCTION"}
+            },
+            "required": ["referenceSlice"]
+          },
+          "minContains": 1,
+          "maxContains": 1
         },
         {
-          "allOf": [
-            {"$ref": "#/$defs/sliceSourcePin"},
-            {
-              "properties": {
-                "referenceSlice": {"const": "NEWS/JOURNALISM"}
-              }
-            }
-          ]
+          "contains": {
+            "properties": {
+              "referenceSlice": {"const": "MUSIC"}
+            },
+            "required": ["referenceSlice"]
+          },
+          "minContains": 2,
+          "maxContains": 2
+        },
+        {
+          "contains": {
+            "properties": {
+              "referenceSlice": {"const": "NEWS/JOURNALISM"}
+            },
+            "required": ["referenceSlice"]
+          },
+          "minContains": 1,
+          "maxContains": 1
         }
-      ],
-      "items": false,
-      "minItems": 2,
-      "maxItems": 2
+      ]
     },
     "goldReleasePlanId": {"$ref": "#/$defs/sha256"},
     "goldReleasePlan": {
@@ -208,19 +221,49 @@
       ],
       "properties": {
         "pinId": {"$ref": "#/$defs/sha256"},
-        "sourceSystemId": {"const": "wikidata"},
-        "sourceProductId": {"const": "wikidata-json-dump"},
-        "connectorId": {"const": "wikidata-full-media-backfill"},
+        "sourceSystemId": {"enum": ["wikidata", "musicbrainz"]},
+        "sourceProductId": {
+          "enum": ["wikidata-json-dump", "musicbrainz-core-dump"]
+        },
+        "connectorId": {
+          "enum": [
+            "wikidata-full-media-backfill",
+            "musicbrainz-core-dump-snapshot"
+          ]
+        },
         "revisionKind": {"const": "DUMP_OBJECT"},
         "sourceRevision": {"type": "string", "minLength": 1},
-        "schemaId": {"const": "wikidata-global-reference-entity"},
+        "schemaId": {
+          "enum": [
+            "wikidata-global-reference-entity",
+            "musicbrainz-core-entity"
+          ]
+        },
         "rawObjects": {
           "type": "array",
           "minItems": 1,
           "items": {"$ref": "#/$defs/objectRef"}
         },
         "capturedAt": {"type": "string", "format": "date-time"}
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "sourceSystemId": {"const": "wikidata"},
+            "sourceProductId": {"const": "wikidata-json-dump"},
+            "connectorId": {"const": "wikidata-full-media-backfill"},
+            "schemaId": {"const": "wikidata-global-reference-entity"}
+          }
+        },
+        {
+          "properties": {
+            "sourceSystemId": {"const": "musicbrainz"},
+            "sourceProductId": {"const": "musicbrainz-core-dump"},
+            "connectorId": {"const": "musicbrainz-core-dump-snapshot"},
+            "schemaId": {"const": "musicbrainz-core-entity"}
+          }
+        }
+      ]
     },
     "sliceSourcePin": {
       "type": "object",
@@ -228,7 +271,7 @@
       "required": ["referenceSlice", "sourceSnapshotPinId"],
       "properties": {
         "referenceSlice": {
-          "enum": ["NEWS/JOURNALISM", "LEARNING/INSTRUCTION"]
+          "enum": ["NEWS/JOURNALISM", "LEARNING/INSTRUCTION", "MUSIC"]
         },
         "sourceSnapshotPinId": {"$ref": "#/$defs/sha256"}
       }

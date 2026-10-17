@@ -33,8 +33,9 @@ Before Gold rows are written, the builder publishes an immutable release plan:
   grouped by source product;
 - paired Global Reference ontology and predicate-registry digests whenever
   snapshot pins are present;
-- per-domain coverage counts, including News/Journalism and
-  Learning/Instruction;
+- per-domain coverage counts, including News/Journalism,
+  Learning/Instruction, and Music; Music release evidence binds both
+  MusicBrainz core and Wikidata source snapshot pins;
 - expected row counts for every Gold table.
 
 Every Gold row contains `release_plan_id`. A final release commit is visible
@@ -254,18 +255,21 @@ digest; the evaluated matrix and blocking violations are part of the quality
 report identity.
 
 Temporal Golden inputs must pin `sourceRunStates`. The explicit state combines
-source product, exact Silver run IDs, terminal run status,
-freshness status, watermark, optional acquisition time and immutable capture
-reference, plus Identity/materialization intent. All five canonical sources
-must be committed and fresh (or carry the
-existing bounded override evidence), and the union of state run IDs must equal
-the legacy pinned run fields exactly. This is orchestration evidence only: it
+source product, exact Silver run IDs, terminal run status, freshness status,
+watermark, optional acquisition time and immutable capture reference, plus
+explicit Identity, Gold-contribution, and materialization intent. The four
+baseline products (IMDb, TVmaze, Wikidata, and TMDB) and every
+selected domain source must be committed and fresh (or carry bounded override
+evidence), and the union of state run IDs must equal the pinned run fields
+exactly. This is orchestration evidence only: it
 does not call a provider, provide credentials, or replace the Gold freshness
 matrix computed from committed ingest manifests. For the current Golden
 release path, IMDb and TVmaze states must be `OVERRIDDEN`, TMDB and Wikidata
 are `PASS`, and EIDR is `NOT_REQUIRED`; release validation reconciles those
-states with the quality report's override evidence. All five states enter the
-epoch, Identity and Gold inputs. Legacy payloads remain parseable, but
+states with the quality report's override evidence. Gold-contributing states
+enter the epoch and Gold; only `identitySpine=true` runs enter incremental
+Identity. MusicBrainz/Wikidata Music profiles are reference-only and therefore
+set `materialization=false`. Legacy payloads remain parseable, but
 preflight without explicit states fails closed.
 
 ## Source termination and removal

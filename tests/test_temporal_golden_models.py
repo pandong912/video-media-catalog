@@ -354,7 +354,51 @@ def test_preflight_accepts_enabled_source_identity_intent() -> None:
     )
 
 
-def test_preflight_rejects_reprocessing_baseline_identity_sources() -> None:
+def test_preflight_accepts_reference_only_musicbrainz_source_state() -> None:
+    base = _with_source_states(_input())
+    music_run = _run(90)
+    input_data = replace(
+        base,
+        supplemental_source_run_ids=(music_run,),
+        source_watermarks={
+            **base.source_watermarks,
+            "musicbrainz-core-dump": "musicbrainz-core-2026-10-17",
+        },
+        source_run_states=(
+            *base.source_run_states,
+            GoldenSourceRunState(
+                source_product_id="musicbrainz-core-dump",
+                run_ids=(music_run,),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.PASS,
+                watermark="musicbrainz-core-2026-10-17",
+                identity_spine=True,
+                materialization=False,
+                gold_contribution=True,
+            ),
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert music_run in result.all_snapshot_run_ids
+    assert music_run in _incremental_identity_source_run_ids(input_data, result)
+    music = next(
+        state
+        for state in result.source_run_states
+        if state.source_product_id == "musicbrainz-core-dump"
+    )
+    assert music.identity_spine and music.gold_contribution
+    assert music.materialization is False
+
+
+def test_preflight_does_not_reprocess_baseline_identity_sources() -> None:
     base = _with_source_states(_input())
     input_data = replace(
         base,
@@ -367,16 +411,16 @@ def test_preflight_rejects_reprocessing_baseline_identity_sources() -> None:
     )
     baseline, tmdb = _documents(input_data)
 
-    with pytest.raises(
-        NonRetryableGoldenBuildError,
-        match="unprocessed Silver delta",
-    ):
-        _validate_preflight_documents(
-            input_data,
-            baseline=baseline,
-            tmdb_summary=tmdb,
-            planned_at="2026-10-09T00:00:00Z",
-        )
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert input_data.baseline_identity_source_run_ids[
+        0
+    ] not in _incremental_identity_source_run_ids(input_data, result)
 
 
 def test_preflight_requires_baseline_identity_source_pin() -> None:

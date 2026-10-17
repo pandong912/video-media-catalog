@@ -25,6 +25,7 @@
   "closedGates": {
     "sportsDomainPublication": false,
     "animationDomainPublication": false,
+    "musicDomainPublication": false,
     "openSearchAliasActivation": false,
     "cutoverAllowed": false,
     "liveCutoverClaimed": false,
@@ -56,6 +57,19 @@
       "assetRelationKind": "PRESENTATION_OF",
       "queryRoute": "/api/v1/global-catalog/animation/works/{entityKey}",
       "consoleSurface": "GlobalCatalogPane:ANIMATION"
+    },
+    {
+      "domain": "MUSIC",
+      "sourceFixture": "musicbrainz-music-reference.v1.json",
+      "entityKey": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "exactIdentifier": {
+        "namespace": "isrc",
+        "value": "GBAYE9400055"
+      },
+      "canonicalEntityKind": "MUSIC_RECORDING",
+      "assetRelationKind": "RECORDING_OF",
+      "queryRoute": "/api/v1/global-catalog/music/recordings/{entityKey}",
+      "consoleSurface": "GlobalCatalogPane:MUSIC"
     }
   ],
   "reviewOnlyCases": [

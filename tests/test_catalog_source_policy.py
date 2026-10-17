@@ -35,15 +35,17 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
     policy = load_catalog_source_policy(registry=build_community_registry())
 
     assert sha256_digest(canonical_json_bytes(payload)) == (
-        "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
+        "sha256:27749e3d25228edbcf5341873fd89b96c1ad8e8b2fcc806c6ae9256e17be5512"
     )
     assert policy.digest == CATALOG_SOURCE_POLICY_DIGEST
+    assert policy.canonical_registry.registry_version == "1.3.0"
     assert {
         source.source_product_id: source.source_id for source in policy.sources
     } == {
         "eidr-public-registry": "eidr",
         "imdb-non-commercial-datasets": "imdb",
         "madb-public-data": "madb",
+        "musicbrainz-core-dump": "musicbrainz",
         "openfootball-git": "openfootball",
         "statsbomb-open-data": "statsbomb",
         "tmdb-research": "tmdb",
@@ -59,6 +61,7 @@ def test_live_permissions_are_intersected_with_technical_support() -> None:
         "eidr-public-registry",
         "imdb-non-commercial-datasets",
         "madb-public-data",
+        "musicbrainz-core-dump",
         "openfootball-git",
         "statsbomb-open-data",
         "tmdb-research",
@@ -105,10 +108,17 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         "eidr-content",
         "imdb-title",
         "madb-work",
+        "musicbrainz-artist",
+        "musicbrainz-recording",
+        "musicbrainz-release",
+        "musicbrainz-release-group",
+        "musicbrainz-work",
         "openfootball-competition",
         "openfootball-event",
         "openfootball-team",
         "statsbomb-match",
+        "isrc",
+        "iswc",
         "tmdb-movie",
         "tmdb-tv",
         "tvmaze-show",
@@ -174,6 +184,14 @@ def test_materializable_predicates_are_enforced_per_canonical_source() -> None:
     assert policy.allows_materializable_predicate(
         "madb-public-data",
         "identity.title",
+    )
+    assert policy.allows_materializable_predicate(
+        "musicbrainz-core-dump",
+        "identity.title",
+    )
+    assert not policy.allows_materializable_predicate(
+        "musicbrainz-core-dump",
+        "genre",
     )
     assert not policy.allows_materializable_predicate(
         "statsbomb-open-data",

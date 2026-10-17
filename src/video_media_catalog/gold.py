@@ -198,6 +198,7 @@ def research_policy() -> GoldResolutionPolicy:
         "imdb-non-commercial-datasets",
         "tmdb-research",
         "tvmaze-public-api",
+        "musicbrainz-core-dump",
         "openfootball-git",
         "statsbomb-open-data",
         "wikidata-json-dump",
@@ -206,6 +207,7 @@ def research_policy() -> GoldResolutionPolicy:
         EUROPEANA_SOURCE_PRODUCT_ID,
     )
     fact_priority = (
+        "musicbrainz-core-dump",
         "openfootball-git",
         "statsbomb-open-data",
         "madb-public-data",
@@ -227,6 +229,11 @@ def research_policy() -> GoldResolutionPolicy:
         "madb-agent",
         "madb-character",
         "madb-work",
+        "musicbrainz-artist",
+        "musicbrainz-recording",
+        "musicbrainz-release",
+        "musicbrainz-release-group",
+        "musicbrainz-work",
         "openfootball-competition",
         "openfootball-entry",
         "openfootball-event",
@@ -240,6 +247,8 @@ def research_policy() -> GoldResolutionPolicy:
         "statsbomb-season",
         "statsbomb-team",
         "statsbomb-venue",
+        "isrc",
+        "iswc",
         "thetvdb-series",
         "tmdb-movie",
         "tmdb-person",
@@ -266,6 +275,7 @@ def research_policy() -> GoldResolutionPolicy:
         "voice_performer",
         "production_credit",
         "character_appearance",
+        "credit",
         "worked_on",
         "written_by",
     )
@@ -278,9 +288,14 @@ def research_policy() -> GoldResolutionPolicy:
         "part_of_sports_season",
         "part_of_stage",
     )
+    music_relation_predicates = (
+        "performance_link",
+        "recording_of",
+        "release_membership",
+    )
     return GoldResolutionPolicy(
         policy_id="research-display-v2",
-        policy_version="2.3.0",
+        policy_version="2.4.0",
         requested_actions=(
             UsageAction.STORE,
             UsageAction.TRANSFORM,
@@ -501,6 +516,7 @@ def research_policy() -> GoldResolutionPolicy:
                         "job",
                         "order",
                         "ordering",
+                        "role",
                     ),
                     source_priority=fact_priority,
                 )
@@ -519,6 +535,16 @@ def research_policy() -> GoldResolutionPolicy:
                     source_priority=fact_priority,
                 )
                 for predicate in parent_predicates
+            ),
+            *(
+                FieldPolicyRule(
+                    predicate=predicate,
+                    assertion_kind=PredicateKind.RELATIONSHIP,
+                    operator=ResolutionOperator.SET_UNION,
+                    scope_qualifiers=("membershipKind", "trackPosition"),
+                    source_priority=fact_priority,
+                )
+                for predicate in music_relation_predicates
             ),
             *(
                 FieldPolicyRule(
@@ -747,6 +773,7 @@ class GoldReleasePlan(V2ContractModel):
             "JOURNALISM",
             "LEARNING",
             "INSTRUCTION",
+            "MUSIC",
         }
         if not set(value) <= allowed:
             raise ValueError("Gold domain coverage contains an unknown domain")

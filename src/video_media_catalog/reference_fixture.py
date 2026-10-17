@@ -12,9 +12,15 @@ from urllib.parse import urlsplit
 from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.assertions import Citation, build_citation
-from video_media_catalog.community_sources import wikidata_rights_profile
+from video_media_catalog.community_sources import (
+    musicbrainz_core_rights_profile,
+    wikidata_rights_profile,
+)
 from video_media_catalog.models import ObjectRef
-from video_media_catalog.reference_sources import map_wikidata_reference_record
+from video_media_catalog.music_sources import (
+    map_musicbrainz_core_record,
+    musicbrainz_namespace_for_type,
+)
 from video_media_catalog.research_snapshot import (
     CapturedSnapshot,
     SnapshotRevisionKind,
@@ -63,9 +69,9 @@ class ReferenceFixtureCitation(V2ContractModel):
     def validate_raw_object_hash(cls, value: str) -> str:
         return require_sha256(value, label="fixture raw object hash")
 
-    def build(self) -> Citation:
+    def build(self, *, source_product_id: str) -> Citation:
         return build_citation(
-            source_product_id="wikidata-json-dump",
+            source_product_id=source_product_id,
             source_record_id=self.source_record_id,
             source_url=self.source_url,
             title=self.title,
@@ -107,7 +113,12 @@ class ReferenceFixtureRecord(V2ContractModel):
 class PinnedReferenceFixture(V2ContractModel):
     schema_version: Literal["video.media-catalog.reference-fixture.v1"]
     fixture_id: str
-    domain: Literal["NEWS", "LEARNING"]
+    domain: Literal["NEWS", "LEARNING", "MUSIC"]
+    source_system_id: str = "wikidata"
+    source_product_id: str = "wikidata-json-dump"
+    connector_id: str = "wikidata-full-media-backfill"
+    revision_kind: SnapshotRevisionKind = SnapshotRevisionKind.DUMP_OBJECT
+    schema_id: str = "wikidata-global-reference-entity"
     source_revision: str
     captured_at: str
     raw_object: ObjectRef
@@ -120,6 +131,16 @@ class PinnedReferenceFixture(V2ContractModel):
     @classmethod
     def validate_fixture_id(cls, value: str) -> str:
         return require_slug(value, label="reference fixture")
+
+    @field_validator(
+        "source_system_id",
+        "source_product_id",
+        "connector_id",
+        "schema_id",
+    )
+    @classmethod
+    def validate_source_coordinate(cls, value: str) -> str:
+        return require_slug(value, label="reference fixture source coordinate")
 
     @field_validator("captured_at")
     @classmethod
@@ -141,6 +162,30 @@ class PinnedReferenceFixture(V2ContractModel):
 
     @model_validator(mode="after")
     def validate_fixture(self) -> Self:
+        coordinates = (
+            self.source_system_id,
+            self.source_product_id,
+            self.connector_id,
+            self.schema_id,
+        )
+        wikidata = (
+            "wikidata",
+            "wikidata-json-dump",
+            "wikidata-full-media-backfill",
+            "wikidata-global-reference-entity",
+        )
+        musicbrainz = (
+            "musicbrainz",
+            "musicbrainz-core-dump",
+            "musicbrainz-core-dump-snapshot",
+            "musicbrainz-core-entity",
+        )
+        if self.domain in {"NEWS", "LEARNING"} and coordinates != wikidata:
+            raise ValueError("News/Learning fixtures require pinned Wikidata")
+        if self.domain == "MUSIC" and coordinates not in {wikidata, musicbrainz}:
+            raise ValueError(
+                "Music fixtures require pinned Wikidata or MusicBrainz core"
+            )
         citation_ids = {item.citation_id for item in self.citations}
         if len(citation_ids) != len(self.citations):
             raise ValueError("reference fixture citation IDs must be unique")
@@ -195,23 +240,34 @@ def load_reference_fixture(path: str | Path) -> PinnedReferenceFixture:
 def materialize_reference_fixture(
     fixture: PinnedReferenceFixture,
 ) -> MaterializedReferenceFixture:
-    citations_by_id = {item.citation_id: item.build() for item in fixture.citations}
+    citations_by_id = {
+        item.citation_id: item.build(source_product_id=fixture.source_product_id)
+        for item in fixture.citations
+    }
     record_by_id = {str(item.payload["id"]): item for item in fixture.records}
     pin = build_source_snapshot_pin(
-        source_system_id="wikidata",
-        source_product_id="wikidata-json-dump",
-        connector_id="wikidata-full-media-backfill",
-        revision_kind=SnapshotRevisionKind.DUMP_OBJECT,
+        source_system_id=fixture.source_system_id,
+        source_product_id=fixture.source_product_id,
+        connector_id=fixture.connector_id,
+        revision_kind=fixture.revision_kind,
         source_revision=fixture.source_revision,
-        schema_id="wikidata-global-reference-entity",
+        schema_id=fixture.schema_id,
         raw_objects=(fixture.raw_object,),
         captured_at=fixture.captured_at,
     )
-    policy = wikidata_rights_profile()
+    policy = (
+        musicbrainz_core_rights_profile()
+        if fixture.source_product_id == "musicbrainz-core-dump"
+        else wikidata_rights_profile()
+    )
     captured = capture_pinned_records(
         pin=pin,
         records=tuple(item.payload for item in fixture.records),
-        source_namespace=lambda _record: "wikidata-item",
+        source_namespace=lambda record: (
+            musicbrainz_namespace_for_type(str(record.get("entityType") or ""))
+            if fixture.source_product_id == "musicbrainz-core-dump"
+            else "wikidata-item"
+        ),
         source_record_id=lambda record: str(record["id"]),
         citation_keys=lambda record: tuple(
             citations_by_id[citation_id].citation_key
@@ -227,9 +283,16 @@ def materialize_reference_fixture(
         image_digest=fixture.image_digest,
         config_digest=fixture.config_digest,
     )
-    mapped = tuple(
-        map_wikidata_reference_record(envelope) for envelope in captured.envelopes
-    )
+    if fixture.source_product_id == "musicbrainz-core-dump":
+        mapped = tuple(
+            map_musicbrainz_core_record(envelope) for envelope in captured.envelopes
+        )
+    else:
+        from video_media_catalog.source_mappers import map_wikidata_research_record
+
+        mapped = tuple(
+            map_wikidata_research_record(envelope) for envelope in captured.envelopes
+        )
     return MaterializedReferenceFixture(
         fixture=fixture,
         citations=tuple(citations_by_id[key] for key in sorted(citations_by_id)),

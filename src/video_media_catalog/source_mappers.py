@@ -401,6 +401,12 @@ def map_wikidata_research_record(
                 )
 
                 return map_wikidata_animation_record(envelope)
+            if payload.get("researchDomain") == "MUSIC":
+                from video_media_catalog.music_sources import (
+                    map_wikidata_music_record,
+                )
+
+                return map_wikidata_music_record(envelope)
             if payload.get("researchDomain") in {
                 "NEWS",
                 "JOURNALISM",

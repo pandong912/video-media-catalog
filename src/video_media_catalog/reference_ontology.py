@@ -40,6 +40,7 @@ class ReferenceDomain(StrEnum):
     JOURNALISM = "JOURNALISM"
     LEARNING = "LEARNING"
     INSTRUCTION = "INSTRUCTION"
+    MUSIC = "MUSIC"
 
 
 class ReferenceTypeConcept(V2ContractModel):

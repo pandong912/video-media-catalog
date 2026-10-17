@@ -9,8 +9,11 @@
   live 权限取两者交集，说明见同目录 `.md`；
 - `catalog/global-reference-ontology.v1.json`：七类 CanonicalSubject 根、
   versioned concrete type concepts 及 tenant-neutral authority；
-- `catalog/global-reference-release.v1.schema.json`：News/Learning reference
-  release、Gold/index evidence pin 与零 World 写入边界；
+- `catalog/global-reference-release.v1.schema.json`：News/Learning/Music
+  reference release、MusicBrainz/Wikidata 双 pin、Gold/index evidence 与零
+  World 写入边界；
+- `temporal/research-domain-profiles.v1.schema.json`：包含双来源 Music 月度
+  workflow 的八个生产 Schedule，以及全部默认关闭的 publication/cutover gate；
 - `parquet/community_catalog_silver.v2.md`：Silver run visibility、source /
   assertion / identity Iceberg 表与 commit-last 规则；
 - `control/community_silver_epoch.v3.md`：Silver epoch、parent / baseline

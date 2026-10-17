@@ -66,6 +66,15 @@ def test_research_predicate_registry_is_versioned_and_complete() -> None:
     voice = registry.definition_for("voice_performer")
     assert voice.kind == PredicateKind.RELATIONSHIP
     assert voice.domains == (ResearchDomain.ANIMATION,)
+    for predicate in (
+        "recording_of",
+        "release_membership",
+        "credit",
+        "performance_link",
+    ):
+        definition = registry.definition_for(predicate)
+        assert definition.kind == PredicateKind.RELATIONSHIP
+        assert definition.domains == (ResearchDomain.MUSIC,)
     with pytest.raises(ValueError, match="unregistered"):
         registry.definition_for("unreviewed_fact")
 
@@ -140,6 +149,7 @@ def test_research_source_products_pin_schema_contracts() -> None:
         "openfootball-event",
         "statsbomb-open-data",
         "madb-animation-record",
+        "musicbrainz-core-entity",
     } == schemas
     assert products["wikidata-json-dump"].schema_contract_ids == (
         "wikidata-global-reference-entity",
@@ -148,4 +158,7 @@ def test_research_source_products_pin_schema_contracts() -> None:
     assert products["openfootball-git"].schema_contract_ids == ("openfootball-event",)
     assert products["statsbomb-open-data"].schema_contract_ids == (
         "statsbomb-open-data",
+    )
+    assert products["musicbrainz-core-dump"].schema_contract_ids == (
+        "musicbrainz-core-entity",
     )

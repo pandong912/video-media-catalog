@@ -747,16 +747,18 @@ def review_parent_constrained_source_node(
     decision_policy_version: str,
     decided_by: str,
 ) -> IdentityResolutionResult:
-    """Emit review evidence for non-exact sports hierarchy matching."""
+    """Emit review evidence for non-exact research hierarchy matching."""
 
     if parent_constraint.child_level not in {
         EntityLevel.SPORTS_SEASON,
         EntityLevel.SPORTS_STAGE,
         EntityLevel.SPORTS_EVENT,
         EntityLevel.SPORTS_ENTRY,
+        EntityLevel.MUSIC_RECORDING,
+        EntityLevel.MUSIC_RELEASE,
     }:
         raise ValueError(
-            "review-only parent constraints are reserved for sports hierarchy"
+            "review-only parent constraints are reserved for sports or music hierarchy"
         )
     entity_key = require_sha256(
         candidate_entity_key,
@@ -780,7 +782,7 @@ def review_parent_constrained_source_node(
         policy_version=decision_policy_version,
         decided_by=decided_by,
         decided_at=observed_at,
-        reason="parent-constrained sports candidate requires human review",
+        reason="parent-constrained research candidate requires human review",
     )
     return IdentityResolutionResult(
         evidence=(evidence,),

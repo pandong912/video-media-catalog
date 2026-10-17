@@ -35,6 +35,7 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "identity-resolution-v2",
         "imdb-non-commercial-datasets",
         "madb-public-data",
+        "musicbrainz-core-dump",
         "openfootball-git",
         "statsbomb-open-data",
         "tmdb-research",
@@ -61,6 +62,10 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
     assert policies["tmdb-research-noncommercial"].zone.value == "research_private"
     assert policies["statsbomb-open-data-research"].zone.value == "research_private"
     assert policies["madb-public-data-attributed"].zone.value == "open_attributed"
+    musicbrainz = policies["musicbrainz-core-data-cc0"]
+    assert musicbrainz.zone.value == "open_cc0"
+    assert "core dump only" in str(musicbrainz.notes).lower()
+    assert "cover art" in str(musicbrainz.notes).lower()
 
 
 def test_registry_declares_every_source_product_connector() -> None:
@@ -144,6 +149,13 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         "eidr-content",
         "europeana-record",
         "madb-work",
+        "musicbrainz-artist",
+        "musicbrainz-work",
+        "musicbrainz-recording",
+        "musicbrainz-release-group",
+        "musicbrainz-release",
+        "isrc",
+        "iswc",
         "openfootball-competition",
         "openfootball-event",
         "openfootball-team",
@@ -165,6 +177,14 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         == "10.5240/AAAA-BBBB-CCCC-DDDD-EEEE-F"
     )
     assert namespaces["europeana-record"].normalize("/123/item-1") == "/123/item-1"
+    assert (
+        namespaces["musicbrainz-recording"].normalize(
+            "83cf16bc-01db-4766-9e3e-f3c796639cf2"
+        )
+        == "83cf16bc-01db-4766-9e3e-f3c796639cf2"
+    )
+    assert namespaces["isrc"].normalize("gbaye9400055") == "GBAYE9400055"
+    assert namespaces["iswc"].normalize("t-010.346.288-9") == "T-010.346.288-9"
 
     rows = exact_id_namespace_rows(registry)
     imdb = {

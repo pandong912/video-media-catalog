@@ -34,14 +34,16 @@ Silver / Gold / epoch 的内部契约版本回退或改名。
 Catalog Match 的来源 enablement 固定在
 `contracts/catalog/catalog-source-policy.v1.json`，其 canonical semantic
 digest 为
-`sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859`。
-Wikidata、EIDR、IMDb、TVmaze、TMDB、OpenFootball、StatsBomb 与 MADB
-均可进入 Identity/Gold。Catalog 的
+`sha256:27749e3d25228edbcf5341873fd89b96c1ad8e8b2fcc806c6ae9256e17be5512`。
+Wikidata、MusicBrainz core、EIDR、IMDb、TVmaze、TMDB、OpenFootball、
+StatsBomb 与 MADB 均可进入 Identity/Gold。MusicBrainz 仅允许离线 core CC0
+dump；tags、genres、ratings、annotations、supplementary/live feed 与 cover art
+不在授权或 mapper 边界内。Catalog 的
 source-product、capture/freshness 与 projection 技术能力保存在独立实现映射，
 live 权限始终与 canonical policy 求交，不产生第二个授权 digest。Golden
 Build 必须使用显式 `sourceRunStates` 钉住 capture/run、freshness、watermark
-与用途；五个 canonical source run 都会被送入 snapshot、Identity 与 Gold，
-且流程不会读取或伪造外部凭据。
+与用途；被当前构建选中的 canonical source run 会被送入 snapshot、Identity
+与 Gold，且流程不会读取或伪造外部凭据。
 
 ## Global Research Catalog reference ontology
 
@@ -51,10 +53,10 @@ Build 必须使用显式 `sourceRunStates` 钉住 capture/run、freshness、wate
 predicate 都有独立版本；其 authority 固定为 `GLOBAL_REFERENCE_ONLY`，
 `tenantWorldIdentityAuthority=false`。
 
-News/Journalism 与 Learning/Instruction 只复用 source-policy v1 中已有的
-Wikidata 授权。它们经过 immutable Capture、Silver assertion、Identity、
-Gold 双时态 observation/conflict/citation，再贡献到 v10 search projection。
-对应生产 profile 必须显式使用
+News/Journalism、Learning/Instruction 与 Music 经过 immutable Capture、
+Silver assertion、Identity、Gold 双时态 observation/conflict/citation，再贡献
+到 v10 search projection。Music 同时绑定 MusicBrainz core 与 Wikidata Music
+快照。对应生产 profile 必须显式使用
 `identitySpine=true`、`goldContribution=true`、`materialization=false`；
 Gold contribution 不等于 tenant/World materialization。
 Global reference release 只能声明 `RESEARCH`、`DISPLAY`、`IDENTITY`，并强制
@@ -62,6 +64,8 @@ tenant canonical write、World materialization/publication 与 alias activation
 计数全部为零。release 精确绑定 Gold plan/commit、slice source snapshot pins、
 ontology/predicate/source-policy digest，以及 validated concrete index 的 build
 manifest 和 validation receipt；不接受 activation receipt。
+MusicBrainz 离线 core 的范围、排除项与固定 fixture 见
+`docs/sources/musicbrainz-core.md`。
 
 本地可复验 ontology、predicate、source-policy 坐标和 pinned fixtures：
 
@@ -69,7 +73,9 @@ manifest 和 validation receipt；不接受 activation receipt。
 video-media-catalog-global-reference coordinates
 video-media-catalog-global-reference validate-fixtures \
   --fixture tests/fixtures/research/wikidata-news-reference.v1.json \
-  --fixture tests/fixtures/research/wikidata-learning-reference.v1.json
+  --fixture tests/fixtures/research/wikidata-learning-reference.v1.json \
+  --fixture tests/fixtures/research/musicbrainz-music-reference.v1.json \
+  --fixture tests/fixtures/research/wikidata-music-reference.v1.json
 ```
 
 `build-release --bundle <json>` 生成内容寻址的
@@ -185,19 +191,20 @@ SHA-256、大小、ETag 与 ObjectVersion 的 connector manifest；它不会在�
 读取 mutable branch、latest dump 或未归档的 HTTP 响应。
 
 `video-media-catalog-research-temporal-admin ensure-runtime` 从
-`RESEARCH_DOMAIN_PROFILES_FILE` 幂等协调七个生产 Schedule：
+`RESEARCH_DOMAIN_PROFILES_FILE` 幂等协调八个生产 Schedule：
 
 - Wikidata Sports / Animation / News / Learning：每月；
+- MusicBrainz core + Wikidata Music：同一个 Music Schedule，每月；
 - OpenFootball：每日；
 - StatsBomb / MADB：每周。
 
-每个 Schedule 固定一个领域和来源 profile，执行 Capture → Source Silver →
+每个 Schedule 固定一个领域和一个或多个来源 profile，执行 Capture → Source Silver →
 Golden Build；来源失败受有限重试及 failure budget 约束，长历史通过
 continue-as-new 截断。profile Secret 由 GitOps ExternalSecret 从
 `ai-video-platform/dev/media-catalog/research-domain-profiles` 注入，必须先由
 采集发布方写入新的 immutable capture pin，Schedule 才会处理新快照。
 
-News/Learning profile 必须 `identitySpine=true` 且
+News/Learning/Music profile 必须 `identitySpine=true` 且
 `materialization=false`；profile gate 同时固定
 `referenceWorldMaterializationAllowed=false`、
 `referenceWorldPublicationAllowed=false` 与

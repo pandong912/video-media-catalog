@@ -2048,6 +2048,15 @@ def build_distributed_gold(
                 "DEMONSTRATION",
             )
         ).count()
+        music_entity_count = entity_summary.where(
+            F.col("entity_level").isin(
+                "MUSIC_ARTIST",
+                "MUSICAL_WORK",
+                "MUSIC_RECORDING",
+                "MUSIC_RELEASE_GROUP",
+                "MUSIC_RELEASE",
+            )
+        ).count()
         domain_coverage = {
             key: count
             for key, count in (
@@ -2057,6 +2066,7 @@ def build_distributed_gold(
                 ("JOURNALISM", news_entity_count),
                 ("LEARNING", learning_entity_count),
                 ("INSTRUCTION", learning_entity_count),
+                ("MUSIC", music_entity_count),
             )
             if count
         }

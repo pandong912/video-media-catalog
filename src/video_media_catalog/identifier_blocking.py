@@ -72,6 +72,31 @@ _IDENTITY_ENTITY_TYPE_MAP = {
         "SPORTS_VENUE",
     ),
     "CHARACTER": (EntityLevel.CHARACTER, "CHARACTER", "CHARACTER"),
+    "MUSIC_ARTIST": (
+        EntityLevel.MUSIC_ARTIST,
+        "MUSIC_ARTIST",
+        "MUSIC_ARTIST",
+    ),
+    "MUSICAL_WORK": (
+        EntityLevel.MUSICAL_WORK,
+        "MUSICAL_WORK",
+        "MUSICAL_WORK",
+    ),
+    "MUSIC_RECORDING": (
+        EntityLevel.MUSIC_RECORDING,
+        "MUSIC_RECORDING",
+        "MUSIC_RECORDING",
+    ),
+    "MUSIC_RELEASE_GROUP": (
+        EntityLevel.MUSIC_RELEASE_GROUP,
+        "MUSIC_RELEASE_GROUP",
+        "MUSIC_RELEASE_GROUP",
+    ),
+    "MUSIC_RELEASE": (
+        EntityLevel.MUSIC_RELEASE,
+        "MUSIC_RELEASE",
+        "MUSIC_RELEASE",
+    ),
     "NEWS_PROGRAM": (
         EntityLevel.NEWS_PROGRAM,
         "NEWS_PROGRAM",
@@ -160,6 +185,11 @@ _ENTITY_LEVEL_BY_BLOCKING_KIND = {
     "SPORTS_ENTRY": EntityLevel.SPORTS_ENTRY,
     "SPORTS_VENUE": EntityLevel.SPORTS_VENUE,
     "CHARACTER": EntityLevel.CHARACTER,
+    "MUSIC_ARTIST": EntityLevel.MUSIC_ARTIST,
+    "MUSICAL_WORK": EntityLevel.MUSICAL_WORK,
+    "MUSIC_RECORDING": EntityLevel.MUSIC_RECORDING,
+    "MUSIC_RELEASE_GROUP": EntityLevel.MUSIC_RELEASE_GROUP,
+    "MUSIC_RELEASE": EntityLevel.MUSIC_RELEASE,
     "NEWS_PROGRAM": EntityLevel.NEWS_PROGRAM,
     "NEWS_EDITION": EntityLevel.NEWS_EDITION,
     "NEWS_STORY": EntityLevel.NEWS_STORY,

@@ -197,6 +197,7 @@ def _external_identifier_url(
         return f"https://doi.org/{normalized}"
     musicbrainz_entity = {
         "musicbrainz-artist": "artist",
+        "musicbrainz-label": "label",
         "musicbrainz-work": "work",
         "musicbrainz-recording": "recording",
         "musicbrainz-release-group": "release-group",

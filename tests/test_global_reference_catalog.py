@@ -87,7 +87,7 @@ from video_media_catalog.v2_contracts import V2ContractModel
 FIXTURE_ROOT = Path("tests/fixtures/research")
 TIMESTAMP = "2026-10-15T00:00:00Z"
 SOURCE_POLICY_DIGEST = (
-    "sha256:27749e3d25228edbcf5341873fd89b96c1ad8e8b2fcc806c6ae9256e17be5512"
+    "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018"
 )
 
 
@@ -234,6 +234,35 @@ def _wikidata_trace(assertion_id: str, source_path: str) -> str:
     )
 
 
+def _musicbrainz_trace(assertion_id: str, source_path: str) -> str:
+    return canonical_json(
+        {
+            "assertions": [
+                {
+                    "assertionId": assertion_id,
+                    "sourceProductId": "musicbrainz-core-dump",
+                    "sourceName": "MusicBrainz core database dump",
+                    "sourceRecordId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+                    "sourcePath": source_path,
+                    "observedAt": TIMESTAMP,
+                    "citationKeys": ["sha256:" + ("9" * 64)],
+                    "rights": {
+                        "policyId": "musicbrainz-core-data-cc0",
+                        "policyZone": "open_cc0",
+                        "licenseId": "CC0-1.0",
+                        "licenseUri": (
+                            "https://creativecommons.org/publicdomain/zero/1.0/"
+                        ),
+                        "attributionText": "MusicBrainz core database contributors",
+                        "sourceUrl": "https://musicbrainz.org/",
+                        "shareAlike": False,
+                    },
+                }
+            ]
+        }
+    )
+
+
 def _projection_row(
     *,
     entity_kind: str,
@@ -278,6 +307,20 @@ def _projection_row(
             }
         )
         relation_summary.append({"predicate": relation_predicate, "count": 1})
+    identifiers = []
+    if entity_kind == "MUSIC_LABEL":
+        identifier_id = "sha256:" + ("8" * 64)
+        identifiers.append(
+            {
+                "namespace_id": "musicbrainz-label",
+                "value": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+                "issuer": "MusicBrainz",
+                "referent_kind": "MUSIC_LABEL",
+                "selected_assertion_id": identifier_id,
+                "assertion_ids_json": canonical_json([identifier_id]),
+                "trace_json": _musicbrainz_trace(identifier_id, "/id"),
+            }
+        )
     return {
         "entity_key": "sha256:" + ("f" * 64),
         "entity_level": entity_kind,
@@ -286,7 +329,7 @@ def _projection_row(
         "release_plan_id": "sha256:" + ("1" * 64),
         "source_node_count": 1,
         "fields": fields,
-        "identifiers": [],
+        "identifiers": identifiers,
         "relations": relations,
         "relation_summary": relation_summary,
         "observations": [],
@@ -300,8 +343,18 @@ def test_reference_ontology_has_terminal_roots_and_versioned_concepts() -> None:
     predicates = load_research_predicate_registry()
 
     assert set(ontology.root_types) == set(CanonicalSubjectRoot)
-    assert ontology.registry_version == "1.1.0"
+    assert ontology.registry_version == "1.2.0"
+    assert ontology.digest == (
+        "sha256:8f82f8998ac3b915340860b6b08d86d053b1257c72a9f49d6d7b6c19d944e584"
+    )
     assert predicates.registry_version == "1.2.0"
+    assert predicates.digest == (
+        "sha256:d8942df842d6bb3947f65a6398f5635ccc53b2efd38b2fb970e8a5c53901c927"
+    )
+    assert research_policy().policy_version == "2.5.0"
+    assert research_policy().digest == (
+        "sha256:8b45e7b676f20a1b11e3a5c00b30cf8bed43c5a98dd6a0c39f33f9a42555a1cb"
+    )
     assert ontology.authority == "GLOBAL_REFERENCE_ONLY"
     assert ontology.tenant_world_identity_authority is False
     assert ontology.predicate_registry_version == predicates.registry_version
@@ -323,6 +376,7 @@ def test_reference_ontology_has_terminal_roots_and_versioned_concepts() -> None:
         "PROCEDURE_STEP",
         "DEMONSTRATION",
         "MUSIC_ARTIST",
+        "MUSIC_LABEL",
         "MUSICAL_WORK",
         "MUSIC_RECORDING",
         "MUSIC_RELEASE_GROUP",
@@ -337,6 +391,9 @@ def test_reference_ontology_has_terminal_roots_and_versioned_concepts() -> None:
         ResearchDomain.LEARNING in predicates.definition_for("objective_text").domains
     )
     assert predicates.definition_for("recording_of").domains == (ResearchDomain.MUSIC,)
+    assert predicates.definition_for("credit").domains == (ResearchDomain.MUSIC,)
+    assert ontology.root_for("MUSIC_ARTIST") == CanonicalSubjectRoot.AGENT
+    assert ontology.root_for("MUSIC_LABEL") == CanonicalSubjectRoot.AGENT
 
 
 def test_pinned_reference_fixtures_are_deterministic_and_cited() -> None:
@@ -350,7 +407,7 @@ def test_pinned_reference_fixtures_are_deterministic_and_cited() -> None:
     replayed = tuple(_fixture(name) for name in names)
 
     assert materialized == replayed
-    assert [len(item.captured.envelopes) for item in materialized] == [7, 8, 5, 1]
+    assert [len(item.captured.envelopes) for item in materialized] == [7, 8, 6, 2]
     assert all(
         envelope.citation_keys
         for item in materialized
@@ -379,6 +436,7 @@ def test_pinned_reference_fixtures_are_deterministic_and_cited() -> None:
         "PROCEDURE_STEP",
         "DEMONSTRATION",
         "MUSIC_ARTIST",
+        "MUSIC_LABEL",
         "MUSICAL_WORK",
         "MUSIC_RECORDING",
         "MUSIC_RELEASE_GROUP",
@@ -570,25 +628,35 @@ def test_equal_rank_claim_conflict_abstains() -> None:
 
 
 @pytest.mark.parametrize(
-    ("entity_kind", "predicate", "text", "expected_slice"),
+    ("entity_kind", "predicate", "text", "expected_slice", "expected_root"),
     (
         (
             "NEWS_STORY",
             "claim_text",
             "A cited reported claim.",
             "NEWS/JOURNALISM",
+            "WORK",
         ),
         (
             "LESSON",
             "instruction_text",
             "Guide the learner through one reviewed step.",
             "LEARNING/INSTRUCTION",
+            "WORK",
         ),
         (
             "MUSIC_RECORDING",
             "title",
             "High and Dry",
             "MUSIC",
+            "WORK",
+        ),
+        (
+            "MUSIC_LABEL",
+            "title",
+            "Parlophone",
+            "MUSIC",
+            "AGENT",
         ),
     ),
 )
@@ -597,6 +665,7 @@ def test_reference_slices_contribute_bounded_search_candidates(
     predicate: str,
     text: str,
     expected_slice: str,
+    expected_root: str,
 ) -> None:
     document = project_gold_entity(
         _projection_row(
@@ -616,7 +685,7 @@ def test_reference_slices_contribute_bounded_search_candidates(
         "RESEARCH",
     ]
     assert document["referenceSlices"] == [expected_slice]
-    assert document["canonicalSubjectRoot"] == "WORK"
+    assert document["canonicalSubjectRoot"] == expected_root
     assert document["typeConcepts"][0]["typeConceptId"] == entity_kind
     assert any(
         item["predicate"] == predicate and item["valueText"] == text
@@ -630,6 +699,22 @@ def test_reference_slices_contribute_bounded_search_candidates(
         assert {"LEARNING", "INSTRUCTION"} <= set(document["domains"])
     else:
         assert document["domains"] == ["MUSIC"]
+    if entity_kind == "MUSIC_LABEL":
+        assert document["externalIdentifiers"] == [
+            {
+                "namespace": "musicbrainz-label",
+                "value": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+                "issuer": "MusicBrainz",
+                "referentKind": "MUSIC_LABEL",
+                "url": (
+                    "https://musicbrainz.org/label/df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
+                ),
+                "sourceProductId": "musicbrainz",
+                "assertionId": "sha256:" + ("8" * 64),
+                "citationKeys": ["sha256:" + ("9" * 64)],
+            }
+        ]
+        assert "musicLabel" not in document
     assert "worldMaterialization" not in document
     assert "worldPublication" not in document
 
@@ -750,7 +835,7 @@ def test_reference_release_is_deterministic_validated_and_world_write_free(
             "JOURNALISM": 4,
             "LEARNING": 4,
             "INSTRUCTION": 4,
-            "MUSIC": 5,
+            "MUSIC": 6,
         },
         source_snapshot_digests={
             "wikidata-json-dump": "sha256:" + ("6" * 64),

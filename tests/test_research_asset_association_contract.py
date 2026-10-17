@@ -85,6 +85,14 @@ def test_contract_exact_identifiers_are_backed_by_source_fixtures_and_policy() -
     assert music["exactIdentifier"]["namespace"] in namespaces
     assert music["canonicalEntityKind"] == "MUSIC_RECORDING"
     assert music["assetRelationKind"] == "RECORDING_OF"
+    label = next(
+        item["payload"]
+        for item in music_source["records"]
+        if item["payload"]["entityType"] == "MUSIC_LABEL"
+    )
+    assert label["id"] == "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
+    assert "musicbrainz.label" in namespaces
+    assert "musicbrainz-label" in namespaces
 
     assert set(contract["reviewOnlyCases"]) == {
         "PARENT_CONSTRAINED",

@@ -16,6 +16,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 from test_temporal_golden_models import _input, _ref, _run
 
+from video_media_catalog.reference_fixture import load_reference_fixture
 from video_media_catalog.temporal.activities.research_domain import (
     RESEARCH_CAPTURE_MANIFEST_SCHEMA,
     load_pinned_research_capture,
@@ -181,6 +182,26 @@ def test_music_profiles_feed_two_reference_only_golden_source_states() -> None:
             ("musicbrainz-core-dump", "a"),
             ("wikidata-json-dump", "b"),
         )
+    )
+    fixtures = (
+        load_reference_fixture(
+            Path("tests/fixtures/research/musicbrainz-music-reference.v1.json")
+        ),
+        load_reference_fixture(
+            Path("tests/fixtures/research/wikidata-music-reference.v1.json")
+        ),
+    )
+    assert tuple(item.source_product_id for item in fixtures) == tuple(
+        profile.source_product_id for profile in profiles
+    )
+    assert any(
+        record.payload.get("entityType") == "MUSIC_LABEL"
+        for record in fixtures[0].records
+    )
+    assert any(
+        record.payload.get("entityTypeHint") == "MUSIC_LABEL"
+        and "P966" in record.payload.get("claims", {})
+        for record in fixtures[1].records
     )
     completed = tuple(
         ResearchSourceResult(

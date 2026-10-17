@@ -18,7 +18,7 @@ from video_media_catalog.v2_contracts import V2ContractModel, require_slug
 
 CATALOG_SOURCE_POLICY_SCHEMA_VERSION = "video.world.catalog-source-policy-registry.v1"
 CATALOG_SOURCE_POLICY_DIGEST = (
-    "sha256:27749e3d25228edbcf5341873fd89b96c1ad8e8b2fcc806c6ae9256e17be5512"
+    "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018"
 )
 _REQUIRED_CANONICAL_SOURCE_IDS = frozenset(
     {
@@ -413,6 +413,7 @@ CATALOG_SOURCE_IMPLEMENTATIONS = (
             )
             for namespace_id in (
                 "musicbrainz-artist",
+                "musicbrainz-label",
                 "musicbrainz-work",
                 "musicbrainz-recording",
                 "musicbrainz-release-group",

@@ -33,6 +33,7 @@ _REQUIRED_MUSIC_EXACT_NAMESPACES = frozenset(
         "isrc",
         "iswc",
         "musicbrainz-artist",
+        "musicbrainz-label",
         "musicbrainz-recording",
         "musicbrainz-release",
         "musicbrainz-release-group",

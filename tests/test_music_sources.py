@@ -46,34 +46,46 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
     assert musicbrainz == _materialize("musicbrainz-music-reference.v1.json")
     assert wikidata == _materialize("wikidata-music-reference.v1.json")
     assert musicbrainz.fixture.digest == (
-        "sha256:6013d8b710be982501e8566b4793837f69be345ed727cfb72e7839811717353f"
+        "sha256:9e10b0b04119f76f9f7073ecdb49fc536be3b2dca39be6267a9e54b2ce50373d"
     )
     assert musicbrainz.captured.pin.pin_id == (
-        "sha256:dd89887a2ebd48b124082ba75835322665015ead20dac1278a2a333c48b1082c"
+        "sha256:dcdad6140f498eac0a569a8212ec96835fecc33d76666c6b542c65778ac8b7e7"
     )
     assert wikidata.fixture.digest == (
-        "sha256:17a2deca0493f4328cee4cecbb4f47656c65f680701a58f83646278c3c990ace"
+        "sha256:629828cb6f46a2cd68e21d032e95fa39fa8610ac7d7f9294487b50d167eb285c"
     )
     assert wikidata.captured.pin.pin_id == (
-        "sha256:4094e4c326b7f224af5621e4557aeaf5c8f75a6d014e26f3e8e8509beb4cf719"
+        "sha256:946966b7efd21408500156ac7afd6a449a5d8e4f45d5ad22e2a274bc2df0d1fb"
     )
-    assert len(musicbrainz.captured.envelopes) == 5
-    assert len(wikidata.captured.envelopes) == 1
+    assert len(musicbrainz.captured.envelopes) == 6
+    assert len(wikidata.captured.envelopes) == 2
     assert {
         assertion.provenance.mapper_id
         for mapped in musicbrainz.mapped
         for assertion in mapped.entity_type_assertions
     } == {"musicbrainz-core-source-mapper"}
-    assert (
-        wikidata.mapped[0].entity_type_assertions[0].provenance.mapper_id
-        == "wikidata-music-source-mapper"
-    )
+    assert {
+        assertion.provenance.mapper_version
+        for mapped in musicbrainz.mapped
+        for assertion in mapped.entity_type_assertions
+    } == {"1.1.0"}
+    assert {
+        assertion.provenance.mapper_id
+        for mapped in wikidata.mapped
+        for assertion in mapped.entity_type_assertions
+    } == {"wikidata-music-source-mapper"}
+    assert {
+        assertion.provenance.mapper_version
+        for mapped in wikidata.mapped
+        for assertion in mapped.entity_type_assertions
+    } == {"1.1.0"}
     assert {
         assertion.entity_type
         for mapped in musicbrainz.mapped
         for assertion in mapped.entity_type_assertions
     } == {
         "MUSIC_ARTIST",
+        "MUSIC_LABEL",
         "MUSICAL_WORK",
         "MUSIC_RECORDING",
         "MUSIC_RELEASE_GROUP",
@@ -88,11 +100,16 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
     assert {
         ("isrc", "GBAYE9400055"),
         ("iswc", "T-010.346.288-9"),
+        ("wikidata-item", "Q208909"),
         ("wikidata-item", "Q2469634"),
         ("wikidata-item", "Q44190"),
         (
             "musicbrainz-artist",
             "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+        ),
+        (
+            "musicbrainz-label",
+            "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
         ),
         (
             "musicbrainz-work",
@@ -111,6 +128,22 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
             "08a5dbf1-e22f-471a-a170-280fa8a4f3ba",
         ),
     } <= identifiers
+    wikidata_label = next(
+        mapped
+        for mapped in wikidata.mapped
+        if mapped.entity_type_assertions[0].entity_type == "MUSIC_LABEL"
+    )
+    assert {
+        (assertion.namespace_id, assertion.value, assertion.referent_kind)
+        for assertion in wikidata_label.identifier_assertions
+    } == {
+        (
+            "musicbrainz-label",
+            "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            "MUSIC_LABEL",
+        ),
+        ("wikidata-item", "Q208909", "MUSIC_LABEL"),
+    }
     assert {
         assertion.predicate
         for mapped in musicbrainz.mapped
@@ -120,6 +153,24 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
         "release_membership",
         "credit",
         "performance_link",
+    }
+    assert {
+        (
+            assertion.object.namespace_id,
+            assertion.object.source_id,
+            assertion.object.referent_kind,
+            assertion.qualifiers.get("role"),
+        )
+        for mapped in musicbrainz.mapped
+        for assertion in mapped.relationship_assertions
+        if assertion.object.referent_kind == "MUSIC_LABEL"
+    } == {
+        (
+            "musicbrainz-label",
+            "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            "MUSIC_LABEL",
+            "LABEL",
+        )
     }
     assert all(
         assertion.provenance.citation_keys
@@ -183,8 +234,8 @@ def test_music_capture_pin_reaches_source_silver() -> None:
     )
 
     assert run.input_manifest["sourceSnapshotPinId"] == captured.pin.pin_id
-    assert len(rows["community_source_record"]) == 5
-    assert len(rows["community_entity_type_assertion"]) == 5
+    assert len(rows["community_source_record"]) == 6
+    assert len(rows["community_entity_type_assertion"]) == 6
 
 
 def test_music_uses_generic_gold_identifier_and_relationship_rules() -> None:
@@ -192,10 +243,15 @@ def test_music_uses_generic_gold_identifier_and_relationship_rules() -> None:
 
     assert mapper_identity_for_product("musicbrainz-core-dump").model_dump() == {
         "mapper_id": "musicbrainz-core-source-mapper",
-        "mapper_version": "1.0.0",
+        "mapper_version": "1.1.0",
+    }
+    assert mapper_identity_for_product("wikidata-json-dump").model_dump() == {
+        "mapper_id": "wikidata-research-dispatcher",
+        "mapper_version": "2.1.0",
     }
     for namespace in (
         "musicbrainz-artist",
+        "musicbrainz-label",
         "musicbrainz-work",
         "musicbrainz-recording",
         "musicbrainz-release-group",
@@ -279,3 +335,26 @@ def test_music_exact_id_parent_review_and_ambiguous_abstention() -> None:
     assert ambiguous.conflicts[0].reason == "MULTIPLE_EXACT_IDENTIFIER_CANDIDATES"
     assert review.memberships == ()
     assert review.decisions[0].status == DecisionStatus.UNCERTAIN
+
+
+def test_music_label_exact_mbid_reuses_unique_candidate() -> None:
+    candidate = "sha256:" + ("8" * 64)
+    result = resolve_or_allocate_source_node(
+        source_node=SourceNodeRef(
+            namespace_id="musicbrainz-label",
+            source_id="df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            referent_kind="MUSIC_LABEL",
+        ),
+        entity_level=EntityLevel.MUSIC_LABEL,
+        entity_kind="MUSIC_LABEL",
+        exact_candidate_entity_keys=(candidate,),
+        assertion_keys=("sha256:" + ("9" * 64),),
+        observed_at=TIMESTAMP,
+        policy_id="musicbrainz-core-data-cc0",
+        policy_digest="sha256:" + ("a" * 64),
+        decision_policy_version="research-identity-v1",
+        decided_by="research-identity-resolver",
+    )
+
+    assert result.memberships[0].entity_key == candidate
+    assert result.entities == ()

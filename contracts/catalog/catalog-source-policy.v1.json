@@ -1,6 +1,6 @@
 {
   "schemaVersion": "video.world.catalog-source-policy-registry.v1",
-  "registryVersion": "1.3.0",
+  "registryVersion": "1.4.0",
   "sources": [
     {
       "sourceId": "wikidata",
@@ -34,6 +34,11 @@
         {
           "namespace": "musicbrainz.artist",
           "aliases": ["musicbrainz-artist"],
+          "materializablePredicates": ["identity.title", "identity.alias"]
+        },
+        {
+          "namespace": "musicbrainz.label",
+          "aliases": ["musicbrainz-label"],
           "materializablePredicates": ["identity.title", "identity.alias"]
         },
         {

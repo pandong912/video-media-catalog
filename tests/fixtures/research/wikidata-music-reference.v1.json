@@ -16,9 +16,9 @@
     "checksum": {
       "algorithm": "CHECKSUM_ALGORITHM_SHA256",
       "encoding": "CHECKSUM_ENCODING_HEX",
-      "value": "a9c0cf9b91d227385add4871e1136bc5d66d8f112db259a86e6ead8ee3f2e9b7"
+      "value": "fdc5ced0cf3a5a08ea10f5fb1efe2ecd57a7f3e7e44bc20d52e8ad217a60adde"
     },
-    "sizeBytes": 428
+    "sizeBytes": 703
   },
   "imageDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
   "configDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
@@ -32,7 +32,18 @@
       "retrievedAt": "2026-10-17T00:00:00Z",
       "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
       "attributionText": "Wikidata contributors",
-      "rawObjectHash": "sha256:a9c0cf9b91d227385add4871e1136bc5d66d8f112db259a86e6ead8ee3f2e9b7"
+      "rawObjectHash": "sha256:fdc5ced0cf3a5a08ea10f5fb1efe2ecd57a7f3e7e44bc20d52e8ad217a60adde"
+    },
+    {
+      "citationId": "wikidata-parlophone",
+      "sourceRecordId": "Q208909",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q208909",
+      "title": "Parlophone",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:fdc5ced0cf3a5a08ea10f5fb1efe2ecd57a7f3e7e44bc20d52e8ad217a60adde"
     }
   ],
   "records": [
@@ -79,6 +90,36 @@
         ]
       },
       "citationIds": ["wikidata-high-and-dry"]
+    },
+    {
+      "payload": {
+        "id": "Q208909",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_LABEL",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Parlophone"
+          }
+        },
+        "aliases": {
+          "en": []
+        },
+        "claims": {
+          "P966": [
+            {
+              "rank": "normal",
+              "mainsnak": {
+                "datavalue": {
+                  "value": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
+                }
+              }
+            }
+          ]
+        },
+        "relations": []
+      },
+      "citationIds": ["wikidata-parlophone"]
     }
   ]
 }

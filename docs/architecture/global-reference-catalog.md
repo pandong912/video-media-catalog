@@ -12,10 +12,12 @@ The ontology contract is
 predicates are independently versioned. The registry declares
 `authority=GLOBAL_REFERENCE_ONLY` and
 `tenantWorldIdentityAuthority=false`.
-The current ontology registry is `1.1.0`
-(`sha256:cb9422fe2d49fbab7cf610191e5fea635694454fe1bc6259bf262b95d71c99c1`)
+The current ontology registry is `1.2.0`
+(`sha256:8f82f8998ac3b915340860b6b08d86d053b1257c72a9f49d6d7b6c19d944e584`)
 and the predicate registry is `1.2.0`
 (`sha256:d8942df842d6bb3947f65a6398f5635ccc53b2efd38b2fb970e8a5c53901c927`).
+The Label-capable Gold resolution policy is `research-display-v2@2.5.0`
+(`sha256:8b45e7b676f20a1b11e3a5c00b30cf8bed43c5a98dd6a0c39f33f9a42555a1cb`).
 
 This extends the existing Sports and Animation Capture → Silver → Identity →
 Gold pipeline; it does not create a parallel authority or a tenant canonical
@@ -58,12 +60,14 @@ the pinned source runs, while the separate materialization flag remains off.
 
 ## Music reference slice
 
-Music adds `MUSIC_ARTIST`, `MUSICAL_WORK`, `MUSIC_RECORDING`,
-`MUSIC_RELEASE_GROUP`, and `MUSIC_RELEASE` under the existing `AGENT` and
-`WORK` roots. Exact identifiers cover the five MusicBrainz MBID namespaces,
-ISRC, ISWC, and Wikidata QID. Generic relationship assertions cover
-`recording_of`, `release_membership`, `credit`, and `performance_link`; no
-Music-only OpenSearch index fields are introduced.
+Music adds `MUSIC_ARTIST`, `MUSIC_LABEL`, `MUSICAL_WORK`,
+`MUSIC_RECORDING`, `MUSIC_RELEASE_GROUP`, and `MUSIC_RELEASE` under the existing
+`AGENT` and `WORK` roots. Artist and Label both use `AGENT`. Exact identifiers
+cover the six MusicBrainz MBID namespaces, ISRC, ISWC, and Wikidata QID;
+Wikidata `P966` crosswalks Label QIDs. Generic relationship assertions cover
+`recording_of`, `release_membership`, `credit`, and `performance_link`; Label
+credits reuse `credit` with `role=LABEL`, and no Music-only OpenSearch index
+fields are introduced.
 
 The slice requires two immutable captures in one release: MusicBrainz offline
 core CC0 and Wikidata Music. MusicBrainz tags, genres, ratings, annotations,

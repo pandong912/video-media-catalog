@@ -26,26 +26,36 @@ The mapper emits generic Silver title, identifier, relationship, and
 entity-type assertions for:
 
 - `MUSIC_ARTIST`
+- `MUSIC_LABEL`
 - `MUSICAL_WORK`
 - `MUSIC_RECORDING`
 - `MUSIC_RELEASE_GROUP`
 - `MUSIC_RELEASE`
 
+`MUSIC_ARTIST` and `MUSIC_LABEL` both map to the generic `AGENT` ontology root.
 Identifiers are the matching MusicBrainz MBID namespace plus ISRC, ISWC, and
-reviewed Wikidata QID links. Relationships are `recording_of`,
+reviewed Wikidata QID links. Wikidata property `P966` crosswalks a Label QID to
+`musicbrainz.label` / `musicbrainz-label`. Relationships are `recording_of`,
 `release_membership`, `credit`, and `performance_link`. Gold and OpenSearch
 reuse generic identifier/relation collections; no Music-specific index field is
-added.
+added. Label participation in a release or release group uses the existing
+`credit` relation with `role=LABEL`, not a Label-specific predicate.
+The Label-capable MusicBrainz and Wikidata Music mappers are versioned
+`1.1.0`; Source Silver checkpoints bind MusicBrainz mapper `1.1.0` and the
+Wikidata research dispatcher `2.1.0`.
 
 ## Release and matching
 
 The Music reference slice requires both a MusicBrainz core pin and a Wikidata
 Music pin. Both Temporal profiles use `identitySpine=true`,
 `goldContribution=true`, and `materialization=false`; the monthly MusicBrainz
-capture uses the bounded 45-day Gold freshness SLO in
+core profile includes Label records, so Label does not introduce a third source
+or a Music-specific workflow. The capture uses the bounded 45-day Gold freshness SLO in
 `research-gold-source-freshness-v1@1.1.0`. Catalog Match accepts one exact ID
 candidate, abstains on multiple exact candidates, and leaves parent-constrained
-recording/release candidates for human review.
+recording/release candidates for human review. Its Label-capable algorithm
+digest is
+`sha256:0dcf5d5aff823f490439b447e60ef4fb3e2752bfb6765bf6ad2ebac282025bba`.
 
 Publication, alias activation, live cutover, reverse dual write, tenant
 canonical writes, and every World materialization/publication gate remain
@@ -54,12 +64,14 @@ false.
 ## Offline verification fixture
 
 `tests/fixtures/research/musicbrainz-music-reference.v1.json` pins a small
-five-record NDJSON sample covering Radiohead and “High and Dry”, including
-artist/work/recording/release-group/release MBIDs, ISRC `GBAYE9400055`, ISWC
-`T-010.346.288-9`, and Wikidata QIDs `Q44190` and `Q2469634`. Tests verify the
-sidecar checksum before mapping and never depend on a public API.
+six-record NDJSON sample covering Radiohead, Parlophone, and “High and Dry”,
+including artist/label/work/recording/release-group/release MBIDs, ISRC
+`GBAYE9400055`, ISWC `T-010.346.288-9`, and Wikidata QIDs `Q44190`, `Q208909`,
+and `Q2469634`. The paired two-record Wikidata fixture verifies the
+`Q208909`/`P966` Label crosswalk. Tests verify sidecar checksums before mapping
+and never depend on a public API.
 
 The fixture materializes to source snapshot pin
-`sha256:dd89887a2ebd48b124082ba75835322665015ead20dac1278a2a333c48b1082c`.
+`sha256:dcdad6140f498eac0a569a8212ec96835fecc33d76666c6b542c65778ac8b7e7`.
 Its paired Wikidata Music fixture materializes to
-`sha256:4094e4c326b7f224af5621e4557aeaf5c8f75a6d014e26f3e8e8509beb4cf719`.
+`sha256:946966b7efd21408500156ac7afd6a449a5d8e4f45d5ad22e2a274bc2df0d1fb`.

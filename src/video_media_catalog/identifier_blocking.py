@@ -77,6 +77,11 @@ _IDENTITY_ENTITY_TYPE_MAP = {
         "MUSIC_ARTIST",
         "MUSIC_ARTIST",
     ),
+    "MUSIC_LABEL": (
+        EntityLevel.MUSIC_LABEL,
+        "MUSIC_LABEL",
+        "MUSIC_LABEL",
+    ),
     "MUSICAL_WORK": (
         EntityLevel.MUSICAL_WORK,
         "MUSICAL_WORK",
@@ -186,6 +191,7 @@ _ENTITY_LEVEL_BY_BLOCKING_KIND = {
     "SPORTS_VENUE": EntityLevel.SPORTS_VENUE,
     "CHARACTER": EntityLevel.CHARACTER,
     "MUSIC_ARTIST": EntityLevel.MUSIC_ARTIST,
+    "MUSIC_LABEL": EntityLevel.MUSIC_LABEL,
     "MUSICAL_WORK": EntityLevel.MUSICAL_WORK,
     "MUSIC_RECORDING": EntityLevel.MUSIC_RECORDING,
     "MUSIC_RELEASE_GROUP": EntityLevel.MUSIC_RELEASE_GROUP,

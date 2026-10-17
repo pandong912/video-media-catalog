@@ -67,6 +67,35 @@ def _wikidata_trace(assertion_id: str, source_path: str) -> str:
     )
 
 
+def _musicbrainz_trace(assertion_id: str, source_path: str) -> str:
+    return canonical_json(
+        {
+            "assertions": [
+                {
+                    "assertionId": assertion_id,
+                    "sourceProductId": "musicbrainz-core-dump",
+                    "sourceName": "MusicBrainz core database dump",
+                    "sourceRecordId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+                    "sourcePath": source_path,
+                    "observedAt": "2026-10-17T00:00:00Z",
+                    "citationKeys": ["sha256:" + ("9" * 64)],
+                    "rights": {
+                        "policyId": "musicbrainz-core-data-cc0",
+                        "policyZone": "open_cc0",
+                        "licenseId": "CC0-1.0",
+                        "licenseUri": (
+                            "https://creativecommons.org/publicdomain/zero/1.0/"
+                        ),
+                        "attributionText": "MusicBrainz core database contributors",
+                        "sourceUrl": "https://musicbrainz.org/",
+                        "shareAlike": False,
+                    },
+                }
+            ]
+        }
+    )
+
+
 @pytest.fixture(scope="module")
 def spark():
     session = (
@@ -332,3 +361,71 @@ def test_distributed_news_reference_search_contribution(
     assert {item.predicate: item.valueText for item in document.referenceCandidates}[
         "claim_text"
     ] == "A searchable reference claim."
+
+
+@pytest.mark.spark
+def test_distributed_music_label_search_contribution(
+    spark: SparkSession,
+) -> None:
+    plan_id = "sha256:" + ("a" * 64)
+    entity_key = "sha256:" + ("f" * 64)
+    title_id = "sha256:" + ("6" * 64)
+    identifier_id = "sha256:" + ("7" * 64)
+    rows = {table: [] for table in GOLD_DATA_COLUMNS}
+    rows["community_gold_entity"] = [
+        {
+            "row_key": "sha256:" + ("5" * 64),
+            "release_plan_id": plan_id,
+            "entity_key": entity_key,
+            "entity_level": "MUSIC_LABEL",
+            "entity_kind": "MUSIC_LABEL",
+            "status": "ACTIVE",
+            "source_node_count": 1,
+            "trace_json": "{}",
+        }
+    ]
+    rows["community_gold_field"] = [
+        {
+            "resolution_key": "sha256:" + ("4" * 64),
+            "release_plan_id": plan_id,
+            "entity_key": entity_key,
+            "predicate": "title",
+            "scope_hash": "sha256:" + ("3" * 64),
+            "value_type": "STRING",
+            "value_json": canonical_json("Parlophone"),
+            "qualifiers_json": '{"language":"en","titleRole":"PRIMARY"}',
+            "resolution_status": "SELECTED",
+            "selected_assertion_id": title_id,
+            "assertion_ids_json": canonical_json([title_id]),
+            "trace_json": _musicbrainz_trace(title_id, "/name"),
+        }
+    ]
+    rows["community_gold_identifier"] = [
+        {
+            "resolution_key": "sha256:" + ("2" * 64),
+            "release_plan_id": plan_id,
+            "entity_key": entity_key,
+            "namespace_id": "musicbrainz-label",
+            "value": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            "issuer": "MusicBrainz",
+            "referent_kind": "MUSIC_LABEL",
+            "assertion_ids_json": canonical_json([identifier_id]),
+            "trace_json": _musicbrainz_trace(identifier_id, "/id"),
+        }
+    ]
+
+    document = build_gold_search_projection(
+        spark,
+        gold_tables=create_gold_dataframes(spark, rows),
+        release_plan_id=plan_id,
+    ).collect()[0]
+
+    assert document.canonicalSubjectRoot == "AGENT"
+    assert document.referenceSlices == ["MUSIC"]
+    assert document.domains == ["MUSIC"]
+    assert document.typeConcepts[0].typeConceptId == "MUSIC_LABEL"
+    assert document.externalIdentifiers[0].namespace == "musicbrainz-label"
+    assert document.externalIdentifiers[0].url == (
+        "https://musicbrainz.org/label/df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
+    )
+    assert "musicLabel" not in document.asDict()

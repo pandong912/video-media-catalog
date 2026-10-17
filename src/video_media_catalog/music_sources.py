@@ -21,7 +21,9 @@ from video_media_catalog.reference_ontology import (
 from video_media_catalog.source_mapper import AssertionBuilder, MappedAssertions
 
 MUSICBRAINZ_CORE_MAPPER_ID = "musicbrainz-core-source-mapper"
+MUSICBRAINZ_CORE_MAPPER_VERSION = "1.1.0"
 WIKIDATA_MUSIC_MAPPER_ID = "wikidata-music-source-mapper"
+WIKIDATA_MUSIC_MAPPER_VERSION = "1.1.0"
 MUSICBRAINZ_CORE_SCHEMA_ID = "musicbrainz-core-entity"
 MUSICBRAINZ_CORE_DATASET = "MUSICBRAINZ_CORE_CC0"
 
@@ -32,6 +34,7 @@ _QID = re.compile(r"Q[1-9][0-9]*")
 
 _MUSIC_TYPES = {
     "MUSIC_ARTIST": "musicbrainz-artist",
+    "MUSIC_LABEL": "musicbrainz-label",
     "MUSICAL_WORK": "musicbrainz-work",
     "MUSIC_RECORDING": "musicbrainz-recording",
     "MUSIC_RELEASE_GROUP": "musicbrainz-release-group",
@@ -73,6 +76,7 @@ _FORBIDDEN_CORE_PREFIXES = (
 )
 _WIKIDATA_IDENTIFIER_PROPERTIES = {
     "P434": ("musicbrainz-artist", "MUSIC_ARTIST", _MBID),
+    "P966": ("musicbrainz-label", "MUSIC_LABEL", _MBID),
     "P435": ("musicbrainz-work", "MUSICAL_WORK", _MBID),
     "P436": ("musicbrainz-release-group", "MUSIC_RELEASE_GROUP", _MBID),
     "P4404": ("musicbrainz-recording", "MUSIC_RECORDING", _MBID),
@@ -296,7 +300,7 @@ def map_musicbrainz_core_record(
         envelope=envelope,
         source_node=node,
         mapper_id=MUSICBRAINZ_CORE_MAPPER_ID,
-        mapper_version="1.0.0",
+        mapper_version=MUSICBRAINZ_CORE_MAPPER_VERSION,
     )
     builder.add_identifier(namespace_id, mbid, "MusicBrainz", entity_type, "/id")
     builder.add_entity_type(entity_type, "/entityType")
@@ -387,7 +391,7 @@ def map_wikidata_music_record(
         envelope=envelope,
         source_node=node,
         mapper_id=WIKIDATA_MUSIC_MAPPER_ID,
-        mapper_version="1.0.0",
+        mapper_version=WIKIDATA_MUSIC_MAPPER_VERSION,
     )
     builder.add_identifier("wikidata-item", qid, "Wikidata", entity_type, "/id")
     builder.add_entity_type(entity_type, "/entityTypeHint")

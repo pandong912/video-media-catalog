@@ -34,11 +34,13 @@ Silver / Gold / epoch 的内部契约版本回退或改名。
 Catalog Match 的来源 enablement 固定在
 `contracts/catalog/catalog-source-policy.v1.json`，其 canonical semantic
 digest 为
-`sha256:27749e3d25228edbcf5341873fd89b96c1ad8e8b2fcc806c6ae9256e17be5512`。
+`sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018`。
 Wikidata、MusicBrainz core、EIDR、IMDb、TVmaze、TMDB、OpenFootball、
 StatsBomb 与 MADB 均可进入 Identity/Gold。MusicBrainz 仅允许离线 core CC0
 dump；tags、genres、ratings、annotations、supplementary/live feed 与 cover art
-不在授权或 mapper 边界内。Catalog 的
+不在授权或 mapper 边界内；Artist 与 Label 分别使用
+`musicbrainz.artist`、`musicbrainz.label`，Wikidata `P966` 提供 Label MBID
+crosswalk。Catalog 的
 source-product、capture/freshness 与 projection 技术能力保存在独立实现映射，
 live 权限始终与 canonical policy 求交，不产生第二个授权 digest。Golden
 Build 必须使用显式 `sourceRunStates` 钉住 capture/run、freshness、watermark
@@ -56,7 +58,8 @@ predicate 都有独立版本；其 authority 固定为 `GLOBAL_REFERENCE_ONLY`�
 News/Journalism、Learning/Instruction 与 Music 经过 immutable Capture、
 Silver assertion、Identity、Gold 双时态 observation/conflict/citation，再贡献
 到 v10 search projection。Music 同时绑定 MusicBrainz core 与 Wikidata Music
-快照。对应生产 profile 必须显式使用
+快照，并覆盖 `MUSIC_ARTIST`、`MUSIC_LABEL`、work、recording、release-group
+与 release；Artist/Label 都落在通用 `AGENT` 根。对应生产 profile 必须显式使用
 `identitySpine=true`、`goldContribution=true`、`materialization=false`；
 Gold contribution 不等于 tenant/World materialization。
 Global reference release 只能声明 `RESEARCH`、`DISPLAY`、`IDENTITY`，并强制

@@ -6,11 +6,11 @@
 artifact shared with Platform and Compute. Its normalized JSON semantic digest
 is:
 
-`sha256:27749e3d25228edbcf5341873fd89b96c1ad8e8b2fcc806c6ae9256e17be5512`
+`sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018`
 
 The schema remains
 `video.world.catalog-source-policy-registry.v1`; registry content version is
-`1.3.0`.
+`1.4.0`.
 
 Source entries define canonical `sourceId`, lifecycle status and granted
 capabilities. Namespace entries define canonical namespace ownership and
@@ -35,6 +35,9 @@ namespace IDs, aliases, unknown mappings and conflicting ownership fail closed.
   dumps under CC0. User tags, genres, ratings, annotations, supplementary or
   live feeds, and Cover Art Archive assets are excluded. The implementation
   accepts only the `musicbrainz-core-dump` product and rejects those fields.
+  Artist and Label identity use the canonical `musicbrainz.artist` and
+  `musicbrainz.label` namespaces (local aliases `musicbrainz-artist` and
+  `musicbrainz-label`).
 - Their canonical title namespaces can all drive exact Identity blocking and
   Gold identifier projection for the personal-research catalog.
 - Research Gold requires canonical `IDENTITY + DISPLAY`. `MATERIALIZATION` is

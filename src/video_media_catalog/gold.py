@@ -230,6 +230,7 @@ def research_policy() -> GoldResolutionPolicy:
         "madb-character",
         "madb-work",
         "musicbrainz-artist",
+        "musicbrainz-label",
         "musicbrainz-recording",
         "musicbrainz-release",
         "musicbrainz-release-group",
@@ -295,7 +296,7 @@ def research_policy() -> GoldResolutionPolicy:
     )
     return GoldResolutionPolicy(
         policy_id="research-display-v2",
-        policy_version="2.4.0",
+        policy_version="2.5.0",
         requested_actions=(
             UsageAction.STORE,
             UsageAction.TRANSFORM,

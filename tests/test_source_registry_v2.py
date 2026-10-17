@@ -150,6 +150,7 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         "europeana-record",
         "madb-work",
         "musicbrainz-artist",
+        "musicbrainz-label",
         "musicbrainz-work",
         "musicbrainz-recording",
         "musicbrainz-release-group",
@@ -183,6 +184,12 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
         )
         == "83cf16bc-01db-4766-9e3e-f3c796639cf2"
     )
+    assert (
+        namespaces["musicbrainz-label"].normalize(
+            "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
+        )
+        == "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
+    )
     assert namespaces["isrc"].normalize("gbaye9400055") == "GBAYE9400055"
     assert namespaces["iswc"].normalize("t-010.346.288-9") == "T-010.346.288-9"
 
@@ -201,6 +208,12 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
     }
     assert ("imdb", "ORGANIZATION") in imdb_company
     assert ("imdb-company", "ORGANIZATION") in imdb_company
+    musicbrainz_label = {
+        (row["scheme"], row["referent_kind"])
+        for row in rows
+        if row["namespace_id"] == "musicbrainz-label"
+    }
+    assert musicbrainz_label == {("musicbrainz-label", "MUSIC_LABEL")}
     douban_work = {
         (row["scheme"], row["referent_kind"])
         for row in rows

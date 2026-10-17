@@ -499,6 +499,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
                     "PROCEDURE_STEP",
                     "DEMONSTRATION",
                     "MUSIC_ARTIST",
+                    "MUSIC_LABEL",
                     "MUSICAL_WORK",
                     "MUSIC_RECORDING",
                     "MUSIC_RELEASE_GROUP",
@@ -520,6 +521,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
                 )
                 for suffix, referent_kind in (
                     ("artist", "MUSIC_ARTIST"),
+                    ("label", "MUSIC_LABEL"),
                     ("work", "MUSICAL_WORK"),
                     ("recording", "MUSIC_RECORDING"),
                     ("release-group", "MUSIC_RELEASE_GROUP"),

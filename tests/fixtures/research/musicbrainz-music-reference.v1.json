@@ -16,9 +16,9 @@
     "checksum": {
       "algorithm": "CHECKSUM_ALGORITHM_SHA256",
       "encoding": "CHECKSUM_ENCODING_HEX",
-      "value": "13b59319d06345e8b1d94c4976ac6956f8239987ef8d97c5afb0ea2cb4737f94"
+      "value": "8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
     },
-    "sizeBytes": 2097
+    "sizeBytes": 2554
   },
   "imageDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
   "configDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
@@ -32,7 +32,18 @@
       "retrievedAt": "2026-10-17T00:00:00Z",
       "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
       "attributionText": "MusicBrainz core database contributors",
-      "rawObjectHash": "sha256:13b59319d06345e8b1d94c4976ac6956f8239987ef8d97c5afb0ea2cb4737f94"
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    },
+    {
+      "citationId": "musicbrainz-parlophone",
+      "sourceRecordId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+      "sourceUrl": "https://musicbrainz.org/label/df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+      "title": "Parlophone",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
     },
     {
       "citationId": "musicbrainz-high-and-dry-work",
@@ -43,7 +54,7 @@
       "retrievedAt": "2026-10-17T00:00:00Z",
       "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
       "attributionText": "MusicBrainz core database contributors",
-      "rawObjectHash": "sha256:13b59319d06345e8b1d94c4976ac6956f8239987ef8d97c5afb0ea2cb4737f94"
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
     },
     {
       "citationId": "musicbrainz-high-and-dry-recording",
@@ -54,7 +65,7 @@
       "retrievedAt": "2026-10-17T00:00:00Z",
       "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
       "attributionText": "MusicBrainz core database contributors",
-      "rawObjectHash": "sha256:13b59319d06345e8b1d94c4976ac6956f8239987ef8d97c5afb0ea2cb4737f94"
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
     },
     {
       "citationId": "musicbrainz-high-and-dry-release-group",
@@ -65,7 +76,7 @@
       "retrievedAt": "2026-10-17T00:00:00Z",
       "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
       "attributionText": "MusicBrainz core database contributors",
-      "rawObjectHash": "sha256:13b59319d06345e8b1d94c4976ac6956f8239987ef8d97c5afb0ea2cb4737f94"
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
     },
     {
       "citationId": "musicbrainz-high-and-dry-release",
@@ -76,7 +87,7 @@
       "retrievedAt": "2026-10-17T00:00:00Z",
       "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
       "attributionText": "MusicBrainz core database contributors",
-      "rawObjectHash": "sha256:13b59319d06345e8b1d94c4976ac6956f8239987ef8d97c5afb0ea2cb4737f94"
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
     }
   ],
   "records": [
@@ -91,6 +102,18 @@
         "relations": []
       },
       "citationIds": ["musicbrainz-radiohead"]
+    },
+    {
+      "payload": {
+        "id": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_LABEL",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Parlophone",
+        "wikidataQids": ["Q208909"],
+        "relations": []
+      },
+      "citationIds": ["musicbrainz-parlophone"]
     },
     {
       "payload": {
@@ -161,6 +184,12 @@
             "targetId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
             "targetType": "MUSIC_ARTIST",
             "qualifiers": {"role": "PRIMARY_ARTIST"}
+          },
+          {
+            "predicate": "credit",
+            "targetId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            "targetType": "MUSIC_LABEL",
+            "qualifiers": {"role": "LABEL"}
           }
         ]
       },
@@ -185,6 +214,12 @@
             "targetId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
             "targetType": "MUSIC_ARTIST",
             "qualifiers": {"role": "PRIMARY_ARTIST"}
+          },
+          {
+            "predicate": "credit",
+            "targetId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            "targetType": "MUSIC_LABEL",
+            "qualifiers": {"role": "LABEL"}
           }
         ]
       },

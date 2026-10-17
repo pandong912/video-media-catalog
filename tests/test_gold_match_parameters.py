@@ -98,7 +98,7 @@ def test_parameter_package_pins_concrete_index_and_current_mapping() -> None:
     assert document["concreteIndex"] == index
     assert document["mappingDigest"] == MAPPING_DIGEST
     assert document["algorithmDigest"] == (
-        "sha256:69a86ae011d019950c4768eba0f9f7d08103a5657df93fefd823daec6e228109"
+        "sha256:0dcf5d5aff823f490439b447e60ef4fb3e2752bfb6765bf6ad2ebac282025bba"
     )
     assert document["algorithmId"] == "catalog-asset-match-v1"
     assert document["searchEndpoint"].endswith(".internal")
@@ -110,6 +110,7 @@ def test_parameter_package_pins_concrete_index_and_current_mapping() -> None:
             "isrc",
             "iswc",
             "musicbrainz-artist",
+            "musicbrainz-label",
             "musicbrainz-recording",
             "musicbrainz-release",
             "musicbrainz-release-group",
@@ -157,6 +158,21 @@ def test_music_match_contract_fails_closed_and_keeps_activation_disabled() -> No
     }
     with pytest.raises(ValueError, match="ambiguity abstention"):
         catalog_match_algorithm_identity(stale_policy)
+    missing_label = {
+        **_ALGORITHM_CONTRACT,
+        "musicMatchPolicy": {
+            **_ALGORITHM_CONTRACT["musicMatchPolicy"],
+            "exactIdentifierNamespaces": [
+                namespace
+                for namespace in _ALGORITHM_CONTRACT["musicMatchPolicy"][
+                    "exactIdentifierNamespaces"
+                ]
+                if namespace != "musicbrainz-label"
+            ],
+        },
+    }
+    with pytest.raises(ValueError, match="exact IDs"):
+        catalog_match_algorithm_identity(missing_label)
 
     music = next(
         item for item in _ASSOCIATION_CONTRACT["domains"] if item["domain"] == "MUSIC"

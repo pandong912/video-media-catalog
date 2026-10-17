@@ -35,10 +35,10 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
     policy = load_catalog_source_policy(registry=build_community_registry())
 
     assert sha256_digest(canonical_json_bytes(payload)) == (
-        "sha256:27749e3d25228edbcf5341873fd89b96c1ad8e8b2fcc806c6ae9256e17be5512"
+        "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018"
     )
     assert policy.digest == CATALOG_SOURCE_POLICY_DIGEST
-    assert policy.canonical_registry.registry_version == "1.3.0"
+    assert policy.canonical_registry.registry_version == "1.4.0"
     assert {
         source.source_product_id: source.source_id for source in policy.sources
     } == {
@@ -109,6 +109,7 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         "imdb-title",
         "madb-work",
         "musicbrainz-artist",
+        "musicbrainz-label",
         "musicbrainz-recording",
         "musicbrainz-release",
         "musicbrainz-release-group",
@@ -128,6 +129,10 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         set(policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE))
         == expected_namespaces
     )
+    label = policy.namespace("musicbrainz-label")
+    assert label.canonical.namespace == "musicbrainz.label"
+    assert label.canonical.aliases == ("musicbrainz-label",)
+    assert label.source_product_id == "musicbrainz-core-dump"
     identity_rows = exact_id_namespace_rows(
         build_community_registry(),
         allowed_namespace_ids=policy.enabled_namespace_ids(

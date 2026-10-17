@@ -1,4 +1,4 @@
-ARG WORKER_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:6f819fcdee67896f180d49dd038f3172f557bd9cc6f680beae97c27773817041
+ARG WORKER_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:362d556ba623d5ed44f3e9600de0cd223ae860b777ca3706e13fbffa88fd8028
 FROM ${WORKER_BASE_IMAGE}
 
 # The publish workflow proves pyproject.toml and uv.lock still match this

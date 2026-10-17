@@ -62,7 +62,7 @@ jobs:
           push: false
           platforms: linux/amd64
           build-args: >-
-            WORKER_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:6f819fcdee67896f180d49dd038f3172f557bd9cc6f680beae97c27773817041
+            WORKER_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:362d556ba623d5ed44f3e9600de0cd223ae860b777ca3706e13fbffa88fd8028
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -89,6 +89,6 @@ jobs:
           push: false
           platforms: linux/amd64
           build-args: >-
-            EMR_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:a4670f025c013b85b288713ec62b5b32eb0a1626ed5cfcef362d9c56167b78cd
+            EMR_BASE_IMAGE=public.ecr.aws/emr-serverless/spark/emr-7.10.0@sha256:c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46
           cache-from: type=gha
           cache-to: type=gha,mode=max

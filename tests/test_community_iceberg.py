@@ -815,6 +815,49 @@ def test_identity_existing_new_key_collision_fails_preflight() -> None:
         )
 
 
+def test_incremental_strips_existing_identity_keys_and_rebuilds_run() -> None:
+    class StripFrame:
+        def __init__(self, *, count: int, columns: list[str]) -> None:
+            self._count = count
+            self.columns = list(columns)
+
+        def select(self, *columns: str):
+            return StripFrame(count=self._count, columns=list(columns))
+
+        def join(self, _other, _keys, how: str):
+            assert how == "left_anti"
+            return StripFrame(count=0, columns=self.columns)
+
+        def count(self) -> int:
+            return self._count
+
+        def withColumn(self, name: str, _value):
+            assert name == "run_id"
+            return self
+
+    class StripSpark(StageSpark):
+        def table(self, _name):
+            return StripFrame(count=1, columns=["entity_key"])
+
+    run = _run_with_counts(community_entity_ledger=3)
+    original_run_id = run.run_id
+    tables = RecordingTables()
+    tables.spark = StripSpark()
+    frame = StripFrame(
+        count=3,
+        columns=list(TABLE_COLUMNS["community_entity_ledger"]),
+    )
+
+    rebuilt, prepared = tables._strip_existing_identity_keys(
+        run,
+        {"community_entity_ledger": frame},
+    )
+
+    assert rebuilt.run_id != original_run_id
+    assert rebuilt.expected_counts["community_entity_ledger"] == 0
+    assert prepared["community_entity_ledger"].count() == 0
+
+
 @pytest.mark.parametrize(
     ("current", "message"),
     [(1, "partial persisted rows"), (3, "more than expected persisted rows")],

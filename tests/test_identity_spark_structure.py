@@ -62,6 +62,11 @@ def test_identity_spark_truncates_lineage_with_durable_checkpoints() -> None:
     assert "StorageLevel.DISK_ONLY" in source
     assert "_materialize_identity_frame(" in source
     assert "refusing incomplete merge" in source
+    materialize_block = source.split("def _materialize_identity_frame", 1)[1].split(
+        "\ndef ", 1
+    )[0]
+    assert "frame.rdd.getNumPartitions()" not in materialize_block
+    assert "frame.repartition(checkpoint_partitions)" in materialize_block
     assert 'countDistinct("candidate_entity_key")' in source
     assert "node_candidate_counts" in source
     assert (

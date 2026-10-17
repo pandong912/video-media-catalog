@@ -293,7 +293,9 @@ def _validate_golden_coordinates(input_data: ResearchDomainInput) -> None:
         "pipeline_summary_prefix": (
             f"{_WAREHOUSE}/research/control/golden-builds/summaries"
         ),
-        "emr_application_name": ("ai-video-platform-dev-media-catalog-golden-release"),
+        "emr_application_name": (
+            "ai-video-platform-dev-media-catalog-wikidata-reference"
+        ),
         "gold_emr_application_name": (
             "ai-video-platform-dev-media-catalog-golden-release"
         ),

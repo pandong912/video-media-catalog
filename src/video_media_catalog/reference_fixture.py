@@ -16,6 +16,7 @@ from video_media_catalog.community_sources import (
     musicbrainz_core_rights_profile,
     wikidata_rights_profile,
 )
+from video_media_catalog.connector import Serialization
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.music_sources import (
     map_musicbrainz_core_record,
@@ -345,6 +346,8 @@ def load_reference_fixture(path: str | Path) -> PinnedReferenceFixture:
 
 def materialize_reference_fixture(
     fixture: PinnedReferenceFixture,
+    *,
+    serialization: Serialization = Serialization.JSON,
 ) -> MaterializedReferenceFixture:
     citations_by_id = {
         item.citation_id: item.build(source_product_id=fixture.source_product_id)
@@ -388,6 +391,7 @@ def materialize_reference_fixture(
         policy_digest=policy.digest,
         image_digest=fixture.image_digest,
         config_digest=fixture.config_digest,
+        serialization=serialization,
     )
     if fixture.source_product_id == "musicbrainz-core-dump":
         mapped = tuple(

@@ -272,10 +272,11 @@ def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
         "spark.network.timeout": "3600s",
         "spark.executor.heartbeatInterval": "30s",
         "spark.shuffle.io.connectionTimeout": "3600s",
-        # EMR Serverless does not shell-expand sparkSubmitParameters. A
-        # whitespace-containing value serialized with shell quotes is parsed
-        # as a property whose name starts with a literal quote and is ignored.
-        "spark.executor.extraJavaOptions": "-XX:+UseG1GC",
+        # Do not set spark.executor.extraJavaOptions. Even a single-token
+        # "-XX:+UseG1GC" makes EMR Serverless executors exit code 1 before
+        # registration on this application image (confirmed by SparkPi
+        # bisect 2026-10-17). Whitespace GC flag strings are also ignored
+        # after quote-mangling, so omit the conf entirely.
         "spark.emr-serverless.driver.disk": parsed.driver_disk,
         "spark.emr-serverless.executor.disk": parsed.executor_disk,
         "spark.emr-serverless.driver.disk.type": "SHUFFLE_OPTIMIZED",

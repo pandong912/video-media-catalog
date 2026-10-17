@@ -54,6 +54,7 @@ video-media-catalog-gold-index-plan = "video_media_catalog.gold_index_cli:sizing
 video-media-catalog-iceberg-maintenance = "video_media_catalog.iceberg_maintenance_cli:main"
 video-media-catalog-gold-removal = "video_media_catalog.gold_removal_cli:main"
 video-media-catalog-global-reference = "video_media_catalog.reference_cli:main"
+video-media-catalog-music-release = "video_media_catalog.music_release_cli:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]

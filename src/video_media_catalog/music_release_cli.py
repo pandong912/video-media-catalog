@@ -21,7 +21,8 @@ from video_media_catalog.music_release import (
 from video_media_catalog.object_store import BoundedObjectStore
 
 DEFAULT_BUCKET = "ai-video-platform-dev-media-catalog-209479308066"
-DEFAULT_PREFIX = "landing/research/capture/music-release/v1"
+DEFAULT_CAPTURE_PREFIX = "landing/research/capture/music-release/v1"
+DEFAULT_REQUEST_PREFIX = "landing/research/music/release-requests"
 _AWS_ACCOUNT = re.compile(r"^[0-9]{12}$")
 
 
@@ -113,7 +114,13 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_argument("--source-revision", required=True)
     publish.add_argument("--golden-build-json", required=True, type=Path)
     publish.add_argument("--bucket", default=DEFAULT_BUCKET)
-    publish.add_argument("--prefix", default=DEFAULT_PREFIX)
+    publish.add_argument(
+        "--capture-prefix",
+        "--prefix",
+        dest="capture_prefix",
+        default=DEFAULT_CAPTURE_PREFIX,
+    )
+    publish.add_argument("--request-prefix", default=DEFAULT_REQUEST_PREFIX)
     publish.add_argument("--region", default="us-east-1")
     publish.add_argument("--kms-key-id")
     publish.add_argument(
@@ -189,9 +196,10 @@ def _publish_reviewed(parsed: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("--expected-bucket-owner must be a 12-digit AWS account ID")
     if "/" in parsed.bucket or not parsed.bucket.strip():
         raise ValueError("--bucket must be an S3 bucket name")
-    prefix = parsed.prefix.strip("/")
-    if not prefix:
-        raise ValueError("--prefix must be non-empty")
+    capture_prefix = parsed.capture_prefix.strip("/")
+    request_prefix = parsed.request_prefix.strip("/")
+    if not capture_prefix or not request_prefix:
+        raise ValueError("capture and request prefixes must be non-empty")
 
     import boto3
 
@@ -203,7 +211,8 @@ def _publish_reviewed(parsed: argparse.Namespace) -> dict[str, Any]:
     bundle = publish_reviewed_music_release_bundle(
         source_revision=parsed.source_revision,
         golden_build=golden_build,
-        destination_prefix=f"s3://{parsed.bucket}/{prefix}",
+        destination_prefix=f"s3://{parsed.bucket}/{capture_prefix}",
+        request_destination_prefix=f"s3://{parsed.bucket}/{request_prefix}",
         store=BoundedObjectStore(client=client),
         **fixture_arguments,
     )

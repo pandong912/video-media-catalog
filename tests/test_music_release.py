@@ -268,6 +268,9 @@ def test_reviewed_bundle_is_deterministic_ordered_and_consumable() -> None:
 
     assert first.request == second.request
     assert first.request_object == second.request_object
+    assert first.request_object.uri.startswith(
+        f"{CATALOG_ROOT}/landing/research/music/release-requests/"
+    )
     assert first.captures == second.captures
     assert first.publishable is True
     assert tuple(item.source_product_id for item in first.captures) == SOURCE_ORDER
@@ -370,6 +373,17 @@ def test_reviewed_bundle_is_deterministic_ordered_and_consumable() -> None:
     )
     round_tripped = json.loads(store.payloads[first.request_object.uri])
     assert validate_music_release_request(round_tripped)
+
+
+def test_reviewed_request_destination_is_fail_closed() -> None:
+    with pytest.raises(ValueError, match="production request prefix"):
+        publish_reviewed_music_release_bundle(
+            source_revision=SOURCE_REVISION,
+            golden_build=_golden_build(),
+            destination_prefix=f"{CAPTURE_PREFIX}/music-release/v1",
+            request_destination_prefix=f"{CAPTURE_PREFIX}/wrong",
+            store=_FakeS3Store(),
+        )
 
 
 def test_resolve_is_fail_closed_exact_and_idempotent() -> None:

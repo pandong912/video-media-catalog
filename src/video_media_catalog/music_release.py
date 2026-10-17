@@ -111,6 +111,7 @@ DEFAULT_MATCH_PROFILE = (
 )
 
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+_REQUEST_PREFIX = f"{_CATALOG_ROOT}/landing/research/music/release-requests"
 _REVIEWED_REQUEST_KEYS = frozenset(
     {
         "schemaVersion",
@@ -657,6 +658,25 @@ def _is_capture_destination(destination_prefix: str) -> bool:
     )
 
 
+def _is_request_destination(destination_prefix: str) -> bool:
+    destination = urlsplit(destination_prefix)
+    boundary = urlsplit(_REQUEST_PREFIX)
+    path_segments = destination.path.split("/")
+    return (
+        destination.scheme == "s3"
+        and destination.netloc == boundary.netloc
+        and destination.username is None
+        and destination.password is None
+        and not destination.query
+        and not destination.fragment
+        and not any(segment in {".", ".."} for segment in path_segments)
+        and (
+            destination.path.rstrip("/") == boundary.path.rstrip("/")
+            or destination.path.startswith(boundary.path.rstrip("/") + "/")
+        )
+    )
+
+
 def _local_domain_input(values: dict[str, Any]) -> ResearchDomainInput:
     sources = tuple(
         ResearchSourceProfile(
@@ -741,6 +761,7 @@ def _publish_bundle(
     source_revision: str,
     golden_build: Mapping[str, Any],
     destination_prefix: str,
+    request_destination_prefix: str,
     store: RuntimeObjectStore,
     musicbrainz_fixture_path: Path,
     wikidata_fixture_path: Path,
@@ -752,7 +773,14 @@ def _publish_bundle(
         raise ValueError(
             "Music release destination must stay under the production capture prefix"
         )
-    if not production and urlsplit(destination_prefix).scheme != "file":
+    if production and not _is_request_destination(request_destination_prefix):
+        raise ValueError(
+            "Music release request must stay under the production request prefix"
+        )
+    if not production and (
+        urlsplit(destination_prefix).scheme != "file"
+        or urlsplit(request_destination_prefix).scheme != "file"
+    ):
         raise ValueError("dry-run Music release destination must use file://")
 
     fixtures, profile = _load_release_inputs(
@@ -804,7 +832,7 @@ def _publish_bundle(
     request_payload = canonical_json_bytes(request, newline=True)
     request_object = _publish_addressed(
         store=store,
-        destination_prefix=destination_prefix,
+        destination_prefix=request_destination_prefix,
         source_product_id="music-release",
         category="release-requests",
         suffix=".json",
@@ -827,6 +855,7 @@ def publish_reviewed_music_release_bundle(
     source_revision: str,
     golden_build: Mapping[str, Any],
     destination_prefix: str,
+    request_destination_prefix: str = _REQUEST_PREFIX,
     store: RuntimeObjectStore,
     musicbrainz_fixture_path: Path = DEFAULT_MUSICBRAINZ_FIXTURE,
     wikidata_fixture_path: Path = DEFAULT_WIKIDATA_FIXTURE,
@@ -838,6 +867,7 @@ def publish_reviewed_music_release_bundle(
         source_revision=source_revision,
         golden_build=golden_build,
         destination_prefix=destination_prefix,
+        request_destination_prefix=request_destination_prefix,
         store=store,
         musicbrainz_fixture_path=musicbrainz_fixture_path,
         wikidata_fixture_path=wikidata_fixture_path,
@@ -863,6 +893,7 @@ def publish_local_music_release_bundle(
         source_revision=source_revision,
         golden_build=golden_build,
         destination_prefix=destination_directory.resolve().as_uri(),
+        request_destination_prefix=destination_directory.resolve().as_uri(),
         store=store,
         musicbrainz_fixture_path=musicbrainz_fixture_path,
         wikidata_fixture_path=wikidata_fixture_path,

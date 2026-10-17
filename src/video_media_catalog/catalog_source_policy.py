@@ -28,7 +28,7 @@ _IDENTITY_SOURCE_POLICY_ADDITIVE_COMPATIBILITY = MappingProxyType(
     {
         (
             "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859",
-            CATALOG_SOURCE_POLICY_DIGEST,
+            "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018",
         ): ("musicbrainz-core-dump",),
     }
 )

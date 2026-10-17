@@ -19,6 +19,7 @@ from video_media_catalog.canonical import canonical_json
 from video_media_catalog.catalog_source_policy import (
     CatalogSourceCapability,
     CatalogSourcePolicy,
+    identity_source_policy_added_products,
 )
 from video_media_catalog.community_ingest import CommunityIngestRun, IngestRunKind
 from video_media_catalog.community_release import ReleasePolicyContext
@@ -88,9 +89,11 @@ def _validate_identity_source_policy_provenance(
     ingest_runs: Iterable[CommunityIngestRun],
     *,
     source_policy: CatalogSourcePolicy,
+    compatible_source_policy_digests: tuple[str, ...] = (),
 ) -> None:
+    runs = tuple(ingest_runs)
     identity_runs = tuple(
-        run for run in ingest_runs if run.run_kind == IngestRunKind.IDENTITY_RESOLUTION
+        run for run in runs if run.run_kind == IngestRunKind.IDENTITY_RESOLUTION
     )
     if not identity_runs:
         raise ValueError("Gold source policy requires an Identity resolution run")
@@ -100,6 +103,26 @@ def _validate_identity_source_policy_provenance(
         run.input_manifest.get("sourcePolicyDigest") == source_policy.digest
         for run in identity_runs
     ):
+        for predecessor_digest in compatible_source_policy_digests:
+            added_products = identity_source_policy_added_products(
+                predecessor_digest,
+                source_policy.digest,
+            )
+            if not any(
+                run.input_manifest.get("sourcePolicyDigest") == predecessor_digest
+                for run in identity_runs
+            ):
+                continue
+            if any(
+                run.run_kind == IngestRunKind.SOURCE_ASSERTIONS
+                and run.source_product_id in added_products
+                for run in runs
+            ):
+                raise ValueError(
+                    "compatible predecessor Identity does not cover an added "
+                    "Catalog source"
+                )
+            return
         raise ValueError("Identity run does not bind the current Catalog source policy")
 
 
@@ -1429,6 +1452,7 @@ def build_distributed_gold(
     build_mode: GoldBuildMode = GoldBuildMode.RELEASE,
     termination_fences: tuple[RightsTerminationFence, ...] = (),
     source_policy: CatalogSourcePolicy | None = None,
+    compatible_identity_source_policy_digests: tuple[str, ...] = (),
 ) -> GoldSparkBuild:
     required = {
         "community_ingest_run",
@@ -1554,6 +1578,9 @@ def build_distributed_gold(
         _validate_identity_source_policy_provenance(
             early_ingest_runs,
             source_policy=source_policy,
+            compatible_source_policy_digests=(
+                compatible_identity_source_policy_digests
+            ),
         )
     current_source_envelope_keys = current_upsert_envelope_keys(
         source_records=committed_silver["community_source_record"],

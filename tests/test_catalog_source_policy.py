@@ -15,6 +15,7 @@ from video_media_catalog.catalog_source_policy import (
     CatalogSourceCapability,
     CatalogSourcePolicy,
     default_catalog_source_policy_path,
+    identity_source_policy_added_products,
     load_catalog_source_policy,
 )
 from video_media_catalog.community_ingest import (
@@ -304,6 +305,9 @@ def test_alternate_valid_artifact_cannot_replace_canonical_digest(
 
 def test_gold_rejects_identity_run_from_another_source_policy() -> None:
     policy = load_catalog_source_policy()
+    additive_predecessor = (
+        "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
+    )
 
     def identity_run(source_policy_digest: str):
         return build_community_ingest_run(
@@ -321,6 +325,20 @@ def test_gold_rejects_identity_run_from_another_source_policy() -> None:
             },
         )
 
+    def source_run(source_product_id: str):
+        return build_community_ingest_run(
+            run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+            source_product_id=source_product_id,
+            input_id="sha256:" + ("5" * 64),
+            policy_id="source-policy",
+            policy_digest="sha256:" + ("6" * 64),
+            image_digest="sha256:" + ("7" * 64),
+            config_digest="sha256:" + ("8" * 64),
+            started_at="2026-10-14T00:00:00Z",
+            expected_counts={table: 0 for table in DATA_TABLE_COLUMNS},
+            input_manifest={"sourceProductId": source_product_id},
+        )
+
     _validate_identity_source_policy_provenance(
         (identity_run(policy.digest),),
         source_policy=policy,
@@ -336,4 +354,27 @@ def test_gold_rejects_identity_run_from_another_source_policy() -> None:
         _validate_identity_source_policy_provenance(
             (identity_run("sha256:" + ("0" * 64)),),
             source_policy=policy,
+        )
+    assert identity_source_policy_added_products(
+        additive_predecessor,
+        policy.digest,
+    ) == ("musicbrainz-core-dump",)
+    _validate_identity_source_policy_provenance(
+        (identity_run(additive_predecessor), source_run("tmdb-research")),
+        source_policy=policy,
+        compatible_source_policy_digests=(additive_predecessor,),
+    )
+    with pytest.raises(ValueError, match="does not cover an added Catalog source"):
+        _validate_identity_source_policy_provenance(
+            (
+                identity_run(additive_predecessor),
+                source_run("musicbrainz-core-dump"),
+            ),
+            source_policy=policy,
+            compatible_source_policy_digests=(additive_predecessor,),
+        )
+    with pytest.raises(ValueError, match="approved additive predecessor"):
+        identity_source_policy_added_products(
+            "sha256:" + ("0" * 64),
+            policy.digest,
         )

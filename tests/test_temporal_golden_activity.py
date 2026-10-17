@@ -8,10 +8,12 @@ from typing import Any
 import pytest
 from test_temporal_golden_models import _input, _ref, _run
 
+from video_media_catalog.community_ingest import build_community_ingest_commit
 from video_media_catalog.community_snapshot import (
     SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
 )
+from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.temporal.activities import golden as golden_mod
 from video_media_catalog.temporal.golden_models import (
     GoldenEpochResult,
@@ -260,6 +262,9 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
 ) -> None:
     base = _input()
     source_policy_digest = golden_mod.load_catalog_source_policy().digest
+    historical_source_policy_digest = (
+        "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
+    )
     input_data = replace(
         base,
         env=replace(
@@ -291,7 +296,8 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
         table_counts={"community_entity_ledger": 1},
         table_snapshot_ids={"community_entity_ledger": 1},
         job_run_id="identity-job",
-        source_policy_digest=source_policy_digest,
+        source_policy_digest=historical_source_policy_digest,
+        source_policy_compatibility_target_digest=source_policy_digest,
     )
     epoch = GoldenEpochResult(
         epoch_id=_run(84),
@@ -347,6 +353,13 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
             "--max-unresolved-identity-ratio",
         )
         == "0.12"
+    )
+    assert (
+        golden_mod._single_argument(
+            observed_args,
+            "--compatible-identity-source-policy-digest",
+        )
+        == historical_source_policy_digest
     )
 
 
@@ -544,6 +557,16 @@ def test_golden_emr_stage_resumes_job_from_matching_heartbeat(
         ("receipt-object-mismatch", "EMR Silver ObjectRef differs from the receipt"),
         ("job-object-mismatch", "EMR Silver ObjectRef differs from the receipt"),
         ("snapshot-content-mismatch", "snapshot differs from the planned snapshot"),
+        (
+            "unbound-driver-run-mismatch",
+            "receipt summary differs from the EMR driver summary",
+        ),
+        ("commit-bound-run-correction", None),
+        ("commit-bound-additive-policy-bridge", None),
+        (
+            "commit-evidence-mismatch",
+            "identityCommit evidence differs from the receipt summary",
+        ),
     ],
 )
 def test_golden_preflight_reuses_verified_identity_job(
@@ -622,18 +645,19 @@ def test_golden_preflight_reuses_verified_identity_job(
         }
     )
     monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    driver_summary = {
+        "runId": _run(94),
+        "commitKey": _run(95),
+        "sourceRunIds": list(identity_source_run_ids),
+        "identityGenerationId": input_data.identity_generation_id,
+        "identityMode": "incremental",
+        "tableCounts": {"community_entity_ledger": 1},
+        "tableSnapshotIds": {"community_entity_ledger": 7},
+    }
     monkeypatch.setattr(
         golden_mod,
         "read_driver_json_summary",
-        lambda **_kwargs: {
-            "runId": _run(94),
-            "commitKey": _run(95),
-            "sourceRunIds": list(identity_source_run_ids),
-            "identityGenerationId": input_data.identity_generation_id,
-            "identityMode": "incremental",
-            "tableCounts": {"community_entity_ledger": 1},
-            "tableSnapshotIds": {"community_entity_ledger": 7},
-        },
+        lambda **_kwargs: driver_summary,
     )
     payload = {
         "schemaVersion": "1.0",
@@ -659,6 +683,7 @@ def test_golden_preflight_reuses_verified_identity_job(
         },
     }
     reuse_snapshot = _reuse_snapshot_payload(input_data, preflight)
+    expected_run_id = _run(94)
     if variant == "receipt-object-mismatch":
         payload["silverSnapshot"]["uri"] = "s3://bucket/other-snapshot.json"
     elif variant == "job-object-mismatch":
@@ -666,6 +691,71 @@ def test_golden_preflight_reuses_verified_identity_job(
         arguments[uri_index] = "s3://bucket/other-snapshot.json"
     elif variant == "snapshot-content-mismatch":
         reuse_snapshot["committedRunIds"] = reuse_snapshot["committedRunIds"][:-1]
+    elif variant == "unbound-driver-run-mismatch":
+        driver_summary["runId"] = _run(96)
+    elif variant in {
+        "commit-bound-run-correction",
+        "commit-bound-additive-policy-bridge",
+        "commit-evidence-mismatch",
+    }:
+        table_counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+        table_snapshot_ids = {table: None for table in DATA_TABLE_COLUMNS}
+        table_counts["community_entity_ledger"] = 1
+        table_snapshot_ids["community_entity_ledger"] = 7
+        commit = build_community_ingest_commit(
+            run_id=_run(96),
+            committed_at="2026-10-09T00:00:00Z",
+            table_counts=table_counts,
+            table_snapshot_ids=table_snapshot_ids,
+        )
+        payload["identityCommit"] = commit.model_dump(mode="json", by_alias=True)
+        if variant in {
+            "commit-bound-run-correction",
+            "commit-bound-additive-policy-bridge",
+        }:
+            payload["identitySummary"].update(
+                {
+                    "runId": commit.run_id,
+                    "commitKey": commit.commit_key,
+                    "tableCounts": table_counts,
+                    "tableSnapshotIds": table_snapshot_ids,
+                }
+            )
+            driver_summary.update(
+                {
+                    "commitKey": commit.commit_key,
+                    "tableCounts": table_counts,
+                    "tableSnapshotIds": table_snapshot_ids,
+                }
+            )
+            expected_run_id = commit.run_id
+            if variant == "commit-bound-additive-policy-bridge":
+                historical_policy = (
+                    "sha256:"
+                    "f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
+                )
+                historical_runtime, _, historical_bound = (
+                    golden_mod._identity_config_digests(
+                        source_build_id,
+                        source_policy_digest=historical_policy,
+                    )
+                )
+                arguments[arguments.index("--config-digest") + 1] = historical_runtime
+                arguments[arguments.index("--source-policy-digest") + 1] = (
+                    historical_policy
+                )
+                payload["identitySummary"].update(
+                    {
+                        "configDigest": historical_bound,
+                        "sourcePolicyDigest": historical_policy,
+                    }
+                )
+                payload["sourcePolicyCompatibility"] = {
+                    "mode": "ADDITIVE_SOURCE_EXTENSION",
+                    "sourceDigest": historical_policy,
+                    "targetDigest": source_policy_digest,
+                    "addedSourceProductIds": ["musicbrainz-core-dump"],
+                }
 
     if expected_error is not None:
         with pytest.raises(
@@ -687,10 +777,15 @@ def test_golden_preflight_reuses_verified_identity_job(
         reuse_snapshot=reuse_snapshot,
     )
 
-    assert result.run_id == _run(94)
+    assert result.run_id == expected_run_id
     assert result.job_run_id == job_run_id
     assert result.source_run_ids == identity_source_run_ids
-    assert result.source_policy_digest == source_policy_digest
+    if variant == "commit-bound-additive-policy-bridge":
+        assert result.source_policy_digest == historical_policy
+        assert result.source_policy_compatibility_target_digest == source_policy_digest
+    else:
+        assert result.source_policy_digest == source_policy_digest
+        assert result.source_policy_compatibility_target_digest is None
 
 
 def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
@@ -809,7 +904,7 @@ def test_golden_preflight_rejects_identity_reuse_across_source_policy_digest(
     assert current_policy != historical_policy
     with pytest.raises(
         golden_mod.NonRetryableGoldenBuildError,
-        match="sourcePolicyDigest differs from the current Catalog source policy",
+        match="cross-policy Identity reuse requires commit-bound run evidence",
     ):
         golden_mod._validated_reused_identity(
             input_data,
@@ -1059,7 +1154,7 @@ def test_golden_preflight_rejects_pre_policy_identity_job(
 
     with pytest.raises(
         golden_mod.NonRetryableGoldenBuildError,
-        match="sourcePolicyDigest differs from the current Catalog source policy",
+        match="summary lacks sourcePolicyDigest",
     ):
         golden_mod._validated_reused_identity(
             input_data,

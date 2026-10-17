@@ -11,7 +11,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from video_media_catalog.canonical import canonical_json, sha256_digest
-from video_media_catalog.catalog_source_policy import load_catalog_source_policy
+from video_media_catalog.catalog_source_policy import (
+    identity_source_policy_added_products,
+    load_catalog_source_policy,
+)
 from video_media_catalog.community_iceberg import CommunityCatalogTables
 from video_media_catalog.community_snapshot import (
     CONTROL_MAX_BYTES,
@@ -94,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--spark-packages")
     parser.add_argument("--image-digest", required=True)
     parser.add_argument("--source-policy-digest", default="")
+    parser.add_argument(
+        "--compatible-identity-source-policy-digest",
+        action="append",
+        default=[],
+    )
     parser.add_argument("--territories", default="*")
     parser.add_argument("--max-conflict-ratio", type=float, default=0.05)
     parser.add_argument(
@@ -252,6 +260,16 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(
             "pinned source policy digest differs from the runtime contract"
         )
+    compatible_identity_source_policy_digests = tuple(
+        sorted(
+            {
+                str(digest).lower()
+                for digest in parsed.compatible_identity_source_policy_digest
+            }
+        )
+    )
+    for digest in compatible_identity_source_policy_digests:
+        identity_source_policy_added_products(digest, source_policy.digest)
     termination_fences = tuple(
         _read_termination_fence(path) for path in parsed.termination_fence_json
     )
@@ -334,6 +352,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         "context": context.model_dump(mode="json", by_alias=True),
         "fieldPolicyDigest": policy.digest,
         "sourcePolicyDigest": source_policy.digest,
+        "compatibleIdentitySourcePolicyDigests": (
+            compatible_identity_source_policy_digests
+        ),
         "releaseFreshnessPolicy": freshness_policy.model_dump(
             mode="json",
             by_alias=True,
@@ -481,6 +502,9 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             build_mode=build_mode,
             termination_fences=termination_fences,
             source_policy=source_policy,
+            compatible_identity_source_policy_digests=(
+                compatible_identity_source_policy_digests
+            ),
         )
         plan_prefix = join_uri(
             parsed.output_prefix,

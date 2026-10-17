@@ -1200,7 +1200,7 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         return {
             "context": "research",
             "stage": "identity-resolution",
-            "runId": run.run_id,
+            "runId": commit.run_id,
             "commitKey": commit.commit_key,
             "registryDigest": registry.digest,
             "sourcePolicyDigest": source_policy.digest,

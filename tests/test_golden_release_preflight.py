@@ -11,6 +11,8 @@ import yaml
 from test_temporal_golden_models import _baseline_identity_manifest
 
 from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGEST
+from video_media_catalog.community_ingest import build_community_ingest_commit
+from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 
 
 def _load_preflight() -> ModuleType:
@@ -239,6 +241,7 @@ def test_preflight_checks_identity_reuse_receipt_digest() -> None:
         assert region == "us-east-1"
         return {
             "identitySummary": {
+                "runId": _run(90),
                 "sourcePolicyDigest": CATALOG_SOURCE_POLICY_DIGEST,
             }
         }
@@ -258,6 +261,7 @@ def test_preflight_fails_stale_identity_reuse_digest() -> None:
     def download(_ref: dict[str, Any], *, region: str, s3_client: Any = None) -> dict:
         return {
             "identitySummary": {
+                "runId": _run(90),
                 "sourcePolicyDigest": "sha256:" + ("4" * 64),
             }
         }
@@ -280,7 +284,59 @@ def test_preflight_fails_stale_identity_reuse_digest() -> None:
         item for item in results if item.name == "identityReuse.sourcePolicyDigest"
     )
     assert reuse.passed is False
-    assert "CATALOG_SOURCE_POLICY_DIGEST" in reuse.detail
+    assert "requires commit-bound run evidence" in reuse.detail
+
+
+def test_preflight_accepts_commit_bound_additive_identity_policy_bridge() -> None:
+    predecessor = (
+        "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
+    )
+    counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+    snapshots = {table: None for table in DATA_TABLE_COLUMNS}
+    commit = build_community_ingest_commit(
+        run_id=_run(91),
+        committed_at="2026-10-17T11:14:34Z",
+        table_counts=counts,
+        table_snapshot_ids=snapshots,
+    )
+
+    def download(_ref: dict[str, Any], *, region: str, s3_client: Any = None) -> dict:
+        return {
+            "identityCommit": commit.model_dump(mode="json", by_alias=True),
+            "identitySummary": {
+                "runId": commit.run_id,
+                "commitKey": commit.commit_key,
+                "tableCounts": counts,
+                "tableSnapshotIds": snapshots,
+                "sourcePolicyDigest": predecessor,
+            },
+            "sourcePolicyCompatibility": {
+                "mode": "ADDITIVE_SOURCE_EXTENSION",
+                "sourceDigest": predecessor,
+                "targetDigest": CATALOG_SOURCE_POLICY_DIGEST,
+                "addedSourceProductIds": ["musicbrainz-core-dump"],
+            },
+        }
+
+    results = preflight.evaluate_values(
+        _base_values(
+            build={
+                "identityReuse": {
+                    "uri": "s3://bucket/identity-reuse.json",
+                    "checksum": {
+                        "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+                        "value": "a" * 64,
+                    },
+                }
+            }
+        ),
+        download_receipt=download,
+    )
+    reuse = next(
+        item for item in results if item.name == "identityReuse.sourcePolicyDigest"
+    )
+    assert reuse.passed is True
+    assert reuse.detail == f"{predecessor} -> {CATALOG_SOURCE_POLICY_DIGEST}"
 
 
 def test_runtime_preflight_accepts_fresh_identity_with_tmdb_spine() -> None:

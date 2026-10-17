@@ -11,6 +11,7 @@ from video_media_catalog.community_ingest import (
     CommunityIngestRun,
     IngestRunKind,
     build_community_ingest_commit,
+    build_community_ingest_run,
 )
 from video_media_catalog.community_rows import (
     ingest_commit_row,
@@ -344,6 +345,12 @@ class CommunityCatalogTables:
             self.assert_identity_snapshot_heads(expected_identity_snapshot_ids)
         if identity_mode == "full":
             self.assert_identity_tables_empty()
+        if identity_mode == "incremental":
+            # Insert-only Identity tables cannot rewrite existing logical keys.
+            # Incremental resolution may re-touch existing entities (new sources
+            # binding to known entity_keys); drop those keys before preflight
+            # and rebuild run identity around the filtered counts.
+            run, prepared = self._strip_existing_identity_keys(run, prepared)
         self._preflight_identity_keys(
             run,
             dataframes=prepared,
@@ -507,6 +514,65 @@ class CommunityCatalogTables:
             )
             prepared[table] = frame
         return prepared
+
+    def _strip_existing_identity_keys(
+        self,
+        run: CommunityIngestRun,
+        dataframes: Mapping[str, Any],
+    ) -> tuple[CommunityIngestRun, dict[str, Any]]:
+        """Drop Identity rows whose insert-only keys already exist.
+
+        Incremental Identity may resolve new source nodes onto existing
+        entities. Those entity_keys (and any other colliding insert-only keys)
+        must not be re-inserted; rebuild the run so expected_counts and run_id
+        match the filtered frames.
+        """
+
+        prepared = dict(dataframes)
+        counts = dict(run.expected_counts)
+        changed = False
+        for table in sorted(IDENTITY_TABLES):
+            if counts.get(table, 0) == 0:
+                continue
+            frame = prepared.get(table)
+            if frame is None:
+                raise ValueError(f"{table} dataframe is required for key strip")
+            keys = list(TABLE_MERGE_KEYS[table])
+            existing = self.spark.table(self.table_name(table)).select(*keys)
+            filtered = frame.join(existing, keys, "left_anti")
+            new_count = int(filtered.count())
+            if new_count == counts[table]:
+                continue
+            changed = True
+            prepared[table] = filtered
+            counts[table] = new_count
+        if not changed:
+            return run, prepared
+        rebuilt = build_community_ingest_run(
+            run_kind=run.run_kind,
+            source_product_id=run.source_product_id,
+            input_id=run.input_id,
+            policy_id=run.policy_id,
+            policy_digest=run.policy_digest,
+            image_digest=run.image_digest,
+            config_digest=run.config_digest,
+            started_at=run.started_at,
+            expected_counts=counts,
+            input_manifest=run.input_manifest,
+        )
+        run_id_column: Any = rebuilt.run_id
+        try:
+            from pyspark import SparkContext
+            from pyspark.sql import functions as F
+
+            if SparkContext._active_spark_context is not None:
+                run_id_column = F.lit(rebuilt.run_id)
+        except ImportError:
+            pass
+        for table, frame in list(prepared.items()):
+            if "run_id" in getattr(frame, "columns", ()):
+                prepared[table] = frame.withColumn("run_id", run_id_column)
+        return rebuilt, prepared
 
     def _preflight_identity_keys(
         self,

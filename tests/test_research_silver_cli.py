@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
 
 import pytest
 
+from video_media_catalog import research_silver_cli as silver_cli
 from video_media_catalog.community_ingest import (
     IngestRunKind,
     build_community_ingest_run,
@@ -27,6 +29,7 @@ from video_media_catalog.research_silver_cli import (
     _optional_control_object_ref,
     _parentless_identity_lineage_run_ids,
     _parse_source_watermarks,
+    _require_closed_identity_lineage,
     _require_immutable_snapshot_output,
     _selected_silver_frames,
     _validate_run_generations,
@@ -443,6 +446,135 @@ def test_parentless_epoch_closes_incremental_identity_lineage_only() -> None:
 
     assert lineage == (parent_identity.run_id,)
     assert concurrent_identity.run_id not in lineage
+    with pytest.raises(ValueError, match="omits pinned Identity ancestors"):
+        _require_closed_identity_lineage(
+            (source.run_id, incremental_identity.run_id),
+            lineage,
+        )
+    _require_closed_identity_lineage(
+        (source.run_id, parent_identity.run_id, incremental_identity.run_id),
+        lineage,
+    )
+
+
+def test_snapshot_publication_closes_requested_identity_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generation = "catalog-2026-09"
+    requested_run_id = "sha256:" + ("1" * 64)
+    ancestor_run_id = "sha256:" + ("2" * 64)
+    mapping = build_community_table_mapping(generation)
+    load_calls: list[tuple[str, ...]] = []
+
+    class FakeSpark:
+        def stop(self) -> None:
+            pass
+
+    class FakeTables:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.table_mapping = mapping
+
+        def latest_snapshot_id(self, _table: str) -> int:
+            return 7
+
+    class FakeStore:
+        def upload_bytes(
+            self,
+            body: bytes,
+            uri: str,
+            *,
+            media_type: str,
+            object_format: str,
+            max_bytes: int,
+        ) -> SimpleNamespace:
+            assert object_format == "OBJECT_FORMAT_JSON"
+            assert max_bytes > len(body)
+            return SimpleNamespace(
+                object_ref=ObjectRef(
+                    uri=uri,
+                    format=object_format,
+                    media_type=media_type,
+                    checksum=Checksum(value=hashlib.sha256(body).hexdigest()),
+                    size_bytes=len(body),
+                ),
+                reused=False,
+            )
+
+        def verify(self, _reference: ObjectRef, *, max_bytes: int) -> None:
+            assert max_bytes > 0
+
+    def fake_load_run_state(*_args, run_ids, **_kwargs):
+        normalized = tuple(run_ids)
+        load_calls.append(normalized)
+        return (
+            {
+                run_id: SimpleNamespace(
+                    run_id=run_id,
+                    run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+                )
+                for run_id in normalized
+            },
+            {run_id: SimpleNamespace(run_id=run_id) for run_id in normalized},
+        )
+
+    monkeypatch.setattr(silver_cli, "_spark_session", lambda *_args: FakeSpark())
+    monkeypatch.setattr(silver_cli, "CommunityCatalogTables", FakeTables)
+    monkeypatch.setattr(silver_cli, "_load_run_state", fake_load_run_state)
+    monkeypatch.setattr(
+        silver_cli,
+        "_validate_run_generations",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        silver_cli,
+        "_publication_identity_lineage_run_ids",
+        lambda *_args, **_kwargs: (ancestor_run_id,),
+    )
+    monkeypatch.setattr(
+        silver_cli,
+        "_verify_data_counts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        silver_cli,
+        "_incremental_unprocessed_source_run_ids",
+        lambda _runs: (requested_run_id,),
+    )
+    monkeypatch.setattr(
+        silver_cli,
+        "_object_store",
+        lambda *_args, **_kwargs: FakeStore(),
+    )
+
+    parsed = build_parser().parse_args(
+        [
+            "publish-snapshot",
+            "--run-id",
+            requested_run_id,
+            "--snapshot-uri",
+            "file:///tmp/lineage-closed-snapshot.json",
+            "--created-at",
+            "2026-09-20T00:02:00Z",
+            "--identity-generation-id",
+            generation,
+            "--catalog-type",
+            "hadoop",
+            "--warehouse",
+            "file:///tmp/warehouse",
+        ]
+    )
+    summary = silver_cli._run_snapshot_publication(parsed)
+
+    assert load_calls == [
+        (requested_run_id,),
+        tuple(sorted((requested_run_id, ancestor_run_id))),
+    ]
+    assert summary["requestedRunIds"] == (requested_run_id,)
+    assert summary["identityLineageRunIds"] == (ancestor_run_id,)
+    assert summary["unprocessedIdentitySourceRunIds"] == (requested_run_id,)
+    assert summary["committedRunIds"] == tuple(
+        sorted((requested_run_id, ancestor_run_id))
+    )
 
 
 def test_full_selection_does_not_read_historical_identity_tables() -> None:
@@ -494,6 +626,29 @@ def test_incremental_identity_selects_only_unrepresented_source_runs() -> None:
     }
 
     assert _incremental_unprocessed_source_run_ids(runs) == (second,)
+
+
+def test_incremental_identity_counts_transitive_ancestor_source_coverage() -> None:
+    ancestor_source = "sha256:" + ("a" * 64)
+    head_source = "sha256:" + ("b" * 64)
+    unprocessed_source = "sha256:" + ("c" * 64)
+    runs = {
+        run_id: SimpleNamespace(
+            run_kind=IngestRunKind.SOURCE_ASSERTIONS,
+            input_manifest={},
+        )
+        for run_id in (ancestor_source, head_source, unprocessed_source)
+    }
+    runs["ancestor"] = SimpleNamespace(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        input_manifest={"pinnedInputs": {"sourceRunIds": [ancestor_source]}},
+    )
+    runs["head"] = SimpleNamespace(
+        run_kind=IngestRunKind.IDENTITY_RESOLUTION,
+        input_manifest={"pinnedInputs": {"sourceRunIds": [head_source]}},
+    )
+
+    assert _incremental_unprocessed_source_run_ids(runs) == (unprocessed_source,)
 
 
 def test_incremental_identity_rejects_unpinned_baseline_identity() -> None:

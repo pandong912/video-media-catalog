@@ -563,6 +563,7 @@ def test_golden_emr_stage_resumes_job_from_matching_heartbeat(
         ),
         ("commit-bound-run-correction", None),
         ("commit-bound-additive-policy-bridge", None),
+        ("lineage-closed-source-subset", None),
         (
             "commit-evidence-mismatch",
             "identityCommit evidence differs from the receipt summary",
@@ -684,6 +685,7 @@ def test_golden_preflight_reuses_verified_identity_job(
     }
     reuse_snapshot = _reuse_snapshot_payload(input_data, preflight)
     expected_run_id = _run(94)
+    expected_source_run_ids = identity_source_run_ids
     if variant == "receipt-object-mismatch":
         payload["silverSnapshot"]["uri"] = "s3://bucket/other-snapshot.json"
     elif variant == "job-object-mismatch":
@@ -693,6 +695,17 @@ def test_golden_preflight_reuses_verified_identity_job(
         reuse_snapshot["committedRunIds"] = reuse_snapshot["committedRunIds"][:-1]
     elif variant == "unbound-driver-run-mismatch":
         driver_summary["runId"] = _run(96)
+    elif variant == "lineage-closed-source-subset":
+        lineage_run_id = _run(97)
+        payload["identityLineageRunIds"] = [lineage_run_id]
+        reuse_snapshot["committedRunIds"] = sorted(
+            (*reuse_snapshot["committedRunIds"], lineage_run_id)
+        )
+        source_index = arguments.index("--source-run-id")
+        del arguments[source_index : source_index + 2]
+        expected_source_run_ids = identity_source_run_ids[1:]
+        driver_summary["sourceRunIds"] = list(expected_source_run_ids)
+        payload["identitySummary"]["sourceRunIds"] = list(expected_source_run_ids)
     elif variant in {
         "commit-bound-run-correction",
         "commit-bound-additive-policy-bridge",
@@ -779,7 +792,7 @@ def test_golden_preflight_reuses_verified_identity_job(
 
     assert result.run_id == expected_run_id
     assert result.job_run_id == job_run_id
-    assert result.source_run_ids == identity_source_run_ids
+    assert result.source_run_ids == expected_source_run_ids
     if variant == "commit-bound-additive-policy-bridge":
         assert result.source_policy_digest == historical_policy
         assert result.source_policy_compatibility_target_digest == source_policy_digest
@@ -1240,6 +1253,91 @@ def test_golden_identity_rejects_mismatched_source_policy_digest(
         )
 
     assert "sourcePolicyDigest" in required_keys
+
+
+def test_snapshot_accepts_verified_identity_lineage_closure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    expected = tuple(
+        sorted(
+            (
+                *input_data.baseline_source_run_ids,
+                input_data.baseline_identity_run_id,
+                *input_data.tmdb_source_run_ids,
+            )
+        )
+    )
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=expected,
+        tmdb_source_run_ids=tuple(sorted(input_data.tmdb_source_run_ids)),
+        imdb_age_hours=433.95,
+        tvmaze_age_hours=317.24,
+        imdb_slo_hours=434,
+        tvmaze_slo_hours=318,
+        freshness_policy_digest="sha256:" + ("f" * 64),
+        identity_config_digest="sha256:" + ("e" * 64),
+        identity_resolution_config_digest="sha256:" + ("d" * 64),
+        identity_bound_config_digest="sha256:" + ("c" * 64),
+    )
+    lineage = (_run(104),)
+    committed = tuple(sorted({*expected, *lineage}))
+    unprocessed = golden_mod._incremental_identity_source_run_ids(
+        input_data,
+        preflight,
+    )
+    snapshot_ref = ObjectRefPayload(
+        uri="s3://bucket/pre-identity-snapshot.json",
+        format="OBJECT_FORMAT_JSON",
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+        checksum_algorithm="CHECKSUM_ALGORITHM_SHA256",
+        checksum_value="a" * 64,
+        size_bytes=200,
+        etag="snapshot-etag",
+        object_version="snapshot-v1",
+    )
+    observed_args: list[str] = []
+
+    def fake_stage(**kwargs: Any) -> tuple[dict[str, Any], str]:
+        observed_args.extend(kwargs["entry_args"])
+        assert {
+            "requestedRunIds",
+            "identityLineageRunIds",
+            "unprocessedIdentitySourceRunIds",
+            "committedRunIds",
+        }.issubset(kwargs["required_keys"])
+        return (
+            {
+                "snapshotSetId": _run(105),
+                "requestedRunIds": expected,
+                "identityLineageRunIds": lineage,
+                "unprocessedIdentitySourceRunIds": unprocessed,
+                "committedRunIds": committed,
+                "silverSnapshot": _mapping(snapshot_ref),
+            },
+            "snapshot-job",
+        )
+
+    monkeypatch.setattr(golden_mod, "_run_emr_stage", fake_stage)
+    monkeypatch.setattr(
+        golden_mod.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_run_id="temporal-run-1"),
+    )
+
+    result = golden_mod.publish_golden_snapshot(input_data, preflight)
+
+    requested_values = [
+        observed_args[index + 1]
+        for index, value in enumerate(observed_args)
+        if value == "--run-id"
+    ]
+    assert tuple(requested_values) == expected
+    assert lineage[0] not in requested_values
+    assert result.snapshot_set_id == _run(105)
+    assert result.unprocessed_identity_source_run_ids == unprocessed
 
 
 @pytest.mark.parametrize("reuse_identity", [False, True])

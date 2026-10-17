@@ -1108,6 +1108,8 @@ def _incremental_identity_source_run_ids(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
 ) -> tuple[str, ...]:
+    """Return planned candidates before transitive Identity lineage is closed."""
+
     baseline_identity_sources = {
         _require_sha256(value, label="baseline Identity source run ID")
         for value in input_data.baseline_identity_source_run_ids
@@ -1343,6 +1345,7 @@ def _validated_reused_identity(
 
     resolution = IdentityResolutionConfig()
     summary_source_run_ids = tuple(sorted(summary.get("sourceRunIds") or ()))
+    candidate_identity_source_run_ids = set(identity_source_run_ids)
     # Require a concrete historical registry digest, but do not pin it to the
     # current process registry. Reuse extends an already-committed Identity
     # ledger head; later materialization may run under a newer registry.
@@ -1355,7 +1358,9 @@ def _validated_reused_identity(
         or summary.get("stage") != "identity-resolution"
         or summary.get("identityGenerationId") != input_data.identity_generation_id
         or summary.get("identityMode") != "incremental"
-        or summary_source_run_ids != identity_source_run_ids
+        or not summary_source_run_ids
+        or len(summary_source_run_ids) != len(set(summary_source_run_ids))
+        or not set(summary_source_run_ids).issubset(candidate_identity_source_run_ids)
         or summary.get("identityResolutionConfigDigest") != resolution.digest
         or resolution.digest != preflight.identity_resolution_config_digest
     ):
@@ -1404,12 +1409,31 @@ def _validated_reused_identity(
             }
         )
     )
+    raw_lineage_runs = payload.get("identityLineageRunIds", ())
+    if not isinstance(raw_lineage_runs, list | tuple):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse identityLineageRunIds must be an array"
+        )
+    lineage_runs = tuple(
+        sorted(
+            _require_sha256(
+                str(value),
+                label="reused Identity lineage run ID",
+            )
+            for value in raw_lineage_runs
+        )
+    )
+    expected_snapshot_runs = tuple(
+        sorted({*preflight.all_snapshot_run_ids, *lineage_runs})
+    )
     if (
         reuse_snapshot.get("schemaVersion") != "2.0"
         or reuse_snapshot.get("identityGenerationId")
         != input_data.identity_generation_id
         or len(snapshot_runs) != len(raw_snapshot_runs)
-        or snapshot_runs != tuple(sorted(preflight.all_snapshot_run_ids))
+        or len(lineage_runs) != len(set(lineage_runs))
+        or set(preflight.all_snapshot_run_ids).intersection(lineage_runs)
+        or snapshot_runs != expected_snapshot_runs
         or not isinstance(reuse_snapshot.get("tableMapping"), dict)
         or not reuse_snapshot.get("tableMapping")
         or not isinstance(reuse_snapshot.get("dataSnapshotIds"), dict)
@@ -1475,7 +1499,7 @@ def _validated_reused_identity(
         or not arguments
         or arguments[0] != "resolve-identity"
         or tuple(sorted(_argument_values(arguments, "--source-run-id")))
-        != identity_source_run_ids
+        != summary_source_run_ids
         or _single_argument(arguments, "--identity-generation-id")
         != input_data.identity_generation_id
         or _single_argument(arguments, "--identity-mode") != "incremental"
@@ -1529,7 +1553,7 @@ def _validated_reused_identity(
             str(summary.get("commitKey") or ""),
             label="receipt commitKey",
         )
-        or driver_source_run_ids != identity_source_run_ids
+        or driver_source_run_ids != summary_source_run_ids
         or driver_summary.get("identityGenerationId")
         != input_data.identity_generation_id
         or driver_summary.get("identityMode") != "incremental"
@@ -1645,6 +1669,7 @@ def prepare_golden_build(
             "incrementalIdentitySourceRunIds": list(
                 _incremental_identity_source_run_ids(input_data, preflight)
             ),
+            "identitySourceSelectionMode": "CLOSED_SNAPSHOT_UNPROCESSED_DELTA",
             "allSnapshotRunIds": list(preflight.all_snapshot_run_ids),
             "sourceWatermarks": dict(sorted(input_data.source_watermarks.items())),
             "sourcePolicyDigest": preflight.source_policy_digest,
@@ -2201,15 +2226,65 @@ def publish_golden_snapshot(
             stage="snapshot",
             entry_point=input_data.env.research_silver_entry_point,
             entry_args=args,
-            required_keys=("snapshotSetId", "committedRunIds", "silverSnapshot"),
+            required_keys=(
+                "snapshotSetId",
+                "requestedRunIds",
+                "identityLineageRunIds",
+                "unprocessedIdentitySourceRunIds",
+                "committedRunIds",
+                "silverSnapshot",
+            ),
             workflow_run_id=activity.info().workflow_run_id,
             control_profile=True,
         )
-        if tuple(sorted(summary["committedRunIds"])) != tuple(
-            sorted(preflight.all_snapshot_run_ids)
+        expected_runs = tuple(sorted(preflight.all_snapshot_run_ids))
+        requested_runs = tuple(
+            sorted(
+                _require_sha256(str(run_id), label="snapshot requested run ID")
+                for run_id in summary["requestedRunIds"]
+            )
+        )
+        lineage_runs = tuple(
+            sorted(
+                _require_sha256(str(run_id), label="snapshot Identity lineage run ID")
+                for run_id in summary["identityLineageRunIds"]
+            )
+        )
+        committed_runs = tuple(
+            sorted(
+                _require_sha256(str(run_id), label="snapshot committed run ID")
+                for run_id in summary["committedRunIds"]
+            )
+        )
+        identity_source_run_ids = tuple(
+            sorted(
+                _require_sha256(
+                    str(run_id),
+                    label="snapshot unprocessed Identity source run ID",
+                )
+                for run_id in summary["unprocessedIdentitySourceRunIds"]
+            )
+        )
+        candidate_identity_source_run_ids = set(
+            _incremental_identity_source_run_ids(input_data, preflight)
+        )
+        if (
+            requested_runs != expected_runs
+            or len(requested_runs) != len(set(requested_runs))
+            or len(lineage_runs) != len(set(lineage_runs))
+            or len(committed_runs) != len(set(committed_runs))
+            or not identity_source_run_ids
+            or len(identity_source_run_ids) != len(set(identity_source_run_ids))
+            or not set(identity_source_run_ids).issubset(
+                candidate_identity_source_run_ids
+            )
+            or not set(identity_source_run_ids).issubset(requested_runs)
+            or set(requested_runs).intersection(lineage_runs)
+            or committed_runs != tuple(sorted({*requested_runs, *lineage_runs}))
         ):
             raise NonRetryableGoldenBuildError(
-                "published snapshot run IDs differ from build spec"
+                "published snapshot does not contain the pinned runs and "
+                "Identity lineage closure"
             )
         reference = _validated_object_ref(
             summary["silverSnapshot"],
@@ -2223,6 +2298,7 @@ def publish_golden_snapshot(
             ),
             snapshot=reference,
             job_run_id=job_run_id,
+            unprocessed_identity_source_run_ids=identity_source_run_ids,
         )
     except Exception as exc:
         classified = classify_golden_build_exception(exc)
@@ -2240,9 +2316,12 @@ def resolve_golden_identity(
     committed_at: str,
 ) -> GoldenIdentityResult:
     try:
-        identity_source_run_ids = _incremental_identity_source_run_ids(
-            input_data,
-            preflight,
+        identity_source_run_ids = tuple(
+            getattr(snapshot, "unprocessed_identity_source_run_ids", ())
+            or _incremental_identity_source_run_ids(
+                input_data,
+                preflight,
+            )
         )
         args = [
             "resolve-identity",

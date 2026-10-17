@@ -278,14 +278,30 @@ def _resolved_memberships(
             "source_id",
             "source_referent_kind",
         )
-        .agg(F.countDistinct("resolved_entity_key").alias("entity_count"))
+        .agg(
+            F.countDistinct("resolved_entity_key").alias("entity_count"),
+            F.min("resolved_entity_key").alias("first_entity_key"),
+            F.max("resolved_entity_key").alias("last_entity_key"),
+        )
         .where(F.col("entity_count") > 1)
+        .orderBy(
+            "source_namespace_id",
+            "source_id",
+            "source_referent_kind",
+        )
         .limit(1)
-        .count()
+        .collect()
     )
     if duplicate_membership:
         memberships.unpersist()
-        raise ValueError("source node has multiple active memberships")
+        conflict = duplicate_membership[0]
+        raise ValueError(
+            "source node has multiple active memberships: "
+            f"{conflict['source_namespace_id']}/{conflict['source_id']}/"
+            f"{conflict['source_referent_kind']} maps to "
+            f"{conflict['entity_count']} entities "
+            f"({conflict['first_entity_key']}, {conflict['last_entity_key']})"
+        )
 
     redirects = (
         silver["community_entity_redirect"]
@@ -1582,21 +1598,21 @@ def build_distributed_gold(
                 compatible_identity_source_policy_digests
             ),
         )
-    current_source_envelope_keys = current_upsert_envelope_keys(
-        source_records=committed_silver["community_source_record"],
-        ingest_runs=committed_silver["community_ingest_run"],
-        committed_runs=selected_runs,
-        registry=registry,
+    memberships = _resolved_memberships(
+        silver=committed_silver,
         as_of=policy_context.as_of,
+        max_redirect_hops=max_redirect_hops,
     )
     try:
-        memberships = _resolved_memberships(
-            silver=committed_silver,
+        current_source_envelope_keys = current_upsert_envelope_keys(
+            source_records=committed_silver["community_source_record"],
+            ingest_runs=committed_silver["community_ingest_run"],
+            committed_runs=selected_runs,
+            registry=registry,
             as_of=policy_context.as_of,
-            max_redirect_hops=max_redirect_hops,
         )
     except Exception:
-        current_source_envelope_keys.unpersist()
+        memberships.unpersist()
         raise
     try:
         rights = F.broadcast(

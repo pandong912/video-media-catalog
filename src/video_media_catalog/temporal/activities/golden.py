@@ -112,10 +112,9 @@ _BUILD_MIN_EXECUTOR_DISK_GIB = 400
 # (20g/4g) and executors exited with code 1 within seconds of create.
 _CONTROL_EXECUTOR_MEMORY = "48g"
 _CONTROL_EXECUTOR_MEMORY_OVERHEAD = None
-# Identity keeps 400G shuffle disk; control Snapshot historically only needs
-# modest local shuffle. Prefer a smaller worker disk to avoid EMR Serverless
-# executor create/exit-1 loops when large SHUFFLE_OPTIMIZED disks are scarce.
-_CONTROL_EXECUTOR_DISK = "200G"
+# Match r8l-proven control Snapshot disk. Exit-1 was caused by
+# spark.executor.extraJavaOptions, not SHUFFLE disk size.
+_CONTROL_EXECUTOR_DISK = "400G"
 _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS = 36
 _DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO = 0.05
 _MAX_GOLD_FRESHNESS_SLO_HOURS = 45 * 24

@@ -106,8 +106,7 @@ def test_submit_waits_for_success_with_shuffle_optimized_disk() -> None:
     assert "spark.stage.maxConsecutiveAttempts=20" in parameters
     assert "spark.shuffle.io.maxRetries=16" in parameters
     assert "spark.excludeOnFailure.timeout=24h" in parameters
-    assert "spark.executor.extraJavaOptions=-XX:+UseG1GC" in parameters
-    assert "'spark.executor.extraJavaOptions" not in parameters
+    assert "spark.executor.extraJavaOptions" not in parameters
     tokens = parameters.split()
     assert all(token == "--conf" for token in tokens[::2])
     assert all(token.startswith("spark.") for token in tokens[1::2])

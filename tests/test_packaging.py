@@ -120,7 +120,7 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     ) in publish_workflow
     assert "Verify worker overlay dependency lock" in publish_workflow
     assert (
-        "41cfaa125ba3acaa724b6deb4a5c026a559d908ea24367d3240a0e4b7f9343d9"
+        "6290421a78020fe14ef81505ae96bbc5048511b9ff8120847027f3f1baefa7c6"
         in publish_workflow
     )
     assert (

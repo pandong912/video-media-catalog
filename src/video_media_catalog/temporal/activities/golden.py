@@ -20,7 +20,11 @@ from video_media_catalog.catalog_source_policy import (
     CatalogSourcePolicy,
     load_catalog_source_policy,
 )
-from video_media_catalog.community_ingest import CommunityIngestRun, IngestRunKind
+from video_media_catalog.community_ingest import (
+    CommunityIngestCommit,
+    CommunityIngestRun,
+    IngestRunKind,
+)
 from video_media_catalog.community_snapshot import (
     SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
@@ -1212,6 +1216,51 @@ def _job_silver_snapshot_reference(arguments: list[str]) -> ObjectRefPayload:
     return reference
 
 
+def _validated_reused_identity_run_id(
+    payload: dict[str, Any],
+    summary: dict[str, Any],
+) -> tuple[str, bool]:
+    summary_run_id = _require_sha256(
+        str(summary.get("runId") or ""),
+        label="reused Identity runId",
+    )
+    raw_commit = payload.get("identityCommit")
+    if raw_commit is None:
+        return summary_run_id, False
+    if not isinstance(raw_commit, dict):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse identityCommit evidence must be an object"
+        )
+    try:
+        commit = CommunityIngestCommit.model_validate(raw_commit)
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse identityCommit evidence is invalid"
+        ) from exc
+    summary_counts = {
+        str(key): int(value)
+        for key, value in (summary.get("tableCounts") or {}).items()
+    }
+    summary_snapshots = {
+        str(key): None if value is None else int(value)
+        for key, value in (summary.get("tableSnapshotIds") or {}).items()
+    }
+    if (
+        commit.run_id != summary_run_id
+        or commit.commit_key
+        != _require_sha256(
+            str(summary.get("commitKey") or ""),
+            label="reused Identity commitKey",
+        )
+        or commit.table_counts != summary_counts
+        or commit.table_snapshot_ids != summary_snapshots
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse identityCommit evidence differs from the receipt summary"
+        )
+    return commit.run_id, True
+
+
 def _validated_reused_identity(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
@@ -1267,6 +1316,9 @@ def _validated_reused_identity(
             "reused Identity summary differs from pinned incremental inputs"
         )
     _validate_table_commit(summary, label="reused Identity")
+    reused_run_id, commit_bound_run_correction = _validated_reused_identity_run_id(
+        payload, summary
+    )
 
     job = _emr_client(input_data.env.aws_region).get_job_run(
         applicationId=application_id,
@@ -1418,9 +1470,12 @@ def _validated_reused_identity(
             }
         )
     )
+    driver_run_id = _require_sha256(
+        str(driver_summary.get("runId") or ""),
+        label="driver runId",
+    )
     if (
-        _require_sha256(str(driver_summary.get("runId") or ""), label="driver runId")
-        != _require_sha256(str(summary.get("runId") or ""), label="receipt runId")
+        (driver_run_id != reused_run_id and not commit_bound_run_correction)
         or _require_sha256(
             str(driver_summary.get("commitKey") or ""),
             label="driver commitKey",
@@ -1441,10 +1496,7 @@ def _validated_reused_identity(
         )
 
     return GoldenIdentityResult(
-        run_id=_require_sha256(
-            str(summary.get("runId") or ""),
-            label="reused Identity runId",
-        ),
+        run_id=reused_run_id,
         commit_key=_require_sha256(
             str(summary.get("commitKey") or ""),
             label="reused Identity commitKey",

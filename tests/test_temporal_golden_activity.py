@@ -8,10 +8,12 @@ from typing import Any
 import pytest
 from test_temporal_golden_models import _input, _ref, _run
 
+from video_media_catalog.community_ingest import build_community_ingest_commit
 from video_media_catalog.community_snapshot import (
     SILVER_EPOCH_MEDIA_TYPE,
     SILVER_SNAPSHOT_MEDIA_TYPE,
 )
+from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.temporal.activities import golden as golden_mod
 from video_media_catalog.temporal.golden_models import (
     GoldenEpochResult,
@@ -544,6 +546,15 @@ def test_golden_emr_stage_resumes_job_from_matching_heartbeat(
         ("receipt-object-mismatch", "EMR Silver ObjectRef differs from the receipt"),
         ("job-object-mismatch", "EMR Silver ObjectRef differs from the receipt"),
         ("snapshot-content-mismatch", "snapshot differs from the planned snapshot"),
+        (
+            "unbound-driver-run-mismatch",
+            "receipt summary differs from the EMR driver summary",
+        ),
+        ("commit-bound-run-correction", None),
+        (
+            "commit-evidence-mismatch",
+            "identityCommit evidence differs from the receipt summary",
+        ),
     ],
 )
 def test_golden_preflight_reuses_verified_identity_job(
@@ -622,18 +633,19 @@ def test_golden_preflight_reuses_verified_identity_job(
         }
     )
     monkeypatch.setattr(golden_mod, "_emr_client", lambda _region: fake_emr)
+    driver_summary = {
+        "runId": _run(94),
+        "commitKey": _run(95),
+        "sourceRunIds": list(identity_source_run_ids),
+        "identityGenerationId": input_data.identity_generation_id,
+        "identityMode": "incremental",
+        "tableCounts": {"community_entity_ledger": 1},
+        "tableSnapshotIds": {"community_entity_ledger": 7},
+    }
     monkeypatch.setattr(
         golden_mod,
         "read_driver_json_summary",
-        lambda **_kwargs: {
-            "runId": _run(94),
-            "commitKey": _run(95),
-            "sourceRunIds": list(identity_source_run_ids),
-            "identityGenerationId": input_data.identity_generation_id,
-            "identityMode": "incremental",
-            "tableCounts": {"community_entity_ledger": 1},
-            "tableSnapshotIds": {"community_entity_ledger": 7},
-        },
+        lambda **_kwargs: driver_summary,
     )
     payload = {
         "schemaVersion": "1.0",
@@ -659,6 +671,7 @@ def test_golden_preflight_reuses_verified_identity_job(
         },
     }
     reuse_snapshot = _reuse_snapshot_payload(input_data, preflight)
+    expected_run_id = _run(94)
     if variant == "receipt-object-mismatch":
         payload["silverSnapshot"]["uri"] = "s3://bucket/other-snapshot.json"
     elif variant == "job-object-mismatch":
@@ -666,6 +679,37 @@ def test_golden_preflight_reuses_verified_identity_job(
         arguments[uri_index] = "s3://bucket/other-snapshot.json"
     elif variant == "snapshot-content-mismatch":
         reuse_snapshot["committedRunIds"] = reuse_snapshot["committedRunIds"][:-1]
+    elif variant == "unbound-driver-run-mismatch":
+        driver_summary["runId"] = _run(96)
+    elif variant in {"commit-bound-run-correction", "commit-evidence-mismatch"}:
+        table_counts = {table: 0 for table in DATA_TABLE_COLUMNS}
+        table_snapshot_ids = {table: None for table in DATA_TABLE_COLUMNS}
+        table_counts["community_entity_ledger"] = 1
+        table_snapshot_ids["community_entity_ledger"] = 7
+        commit = build_community_ingest_commit(
+            run_id=_run(96),
+            committed_at="2026-10-09T00:00:00Z",
+            table_counts=table_counts,
+            table_snapshot_ids=table_snapshot_ids,
+        )
+        payload["identityCommit"] = commit.model_dump(mode="json", by_alias=True)
+        if variant == "commit-bound-run-correction":
+            payload["identitySummary"].update(
+                {
+                    "runId": commit.run_id,
+                    "commitKey": commit.commit_key,
+                    "tableCounts": table_counts,
+                    "tableSnapshotIds": table_snapshot_ids,
+                }
+            )
+            driver_summary.update(
+                {
+                    "commitKey": commit.commit_key,
+                    "tableCounts": table_counts,
+                    "tableSnapshotIds": table_snapshot_ids,
+                }
+            )
+            expected_run_id = commit.run_id
 
     if expected_error is not None:
         with pytest.raises(
@@ -687,7 +731,7 @@ def test_golden_preflight_reuses_verified_identity_job(
         reuse_snapshot=reuse_snapshot,
     )
 
-    assert result.run_id == _run(94)
+    assert result.run_id == expected_run_id
     assert result.job_run_id == job_run_id
     assert result.source_run_ids == identity_source_run_ids
     assert result.source_policy_digest == source_policy_digest

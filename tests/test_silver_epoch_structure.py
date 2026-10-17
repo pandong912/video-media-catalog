@@ -53,3 +53,8 @@ def test_identity_snapshot_metadata_preflight_precedes_resolution_actions() -> N
     preflight = source.index("output_tables.preflight_snapshot_metadata(input_id)")
     resolution = source.index("build_identity_resolution_dataframes(")
     assert preflight < resolution
+
+
+def test_identity_summary_reports_the_committed_run_id() -> None:
+    source = inspect.getsource(research_silver_cli._run_identity)
+    assert '"runId": commit.run_id' in source

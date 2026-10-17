@@ -35,14 +35,15 @@ Supported acquisition remains:
 - TVmaze full and delta capture;
 - IMDb official TSV snapshot capture;
 - TMDB daily inventory and changes/detail capture.
+- pre-archived MusicBrainz core CC0 dump capture for the Music reference slice.
 
 Catalog Match activation is a separate versioned decision in
 `contracts/catalog/catalog-source-policy.v1.json`, the same portable canonical
 artifact consumed by Platform and Compute. Implemented connector or namespace
 support does not imply live Identity/Gold enablement: Catalog maps its local
 products to canonical source IDs, then intersects technical support with the
-canonical grants. Wikidata/EIDR may drive Identity/materialization;
-IMDb/TVmaze/TMDB remain retrieval/ranking-only. The canonical policy digest is
+canonical grants. The nine explicitly mapped sources, including MusicBrainz
+core, may drive only the capabilities granted by policy v1. The canonical policy digest is
 pinned by Golden Identity, Gold release, release commit, and search documents;
 there is no implementation-specific authorization digest. Unknown,
 conflicting, pending or excluded mappings fail closed, and rights checks remain
@@ -136,20 +137,22 @@ The batch indexer builds only the research family:
 
 - prefix `media-catalog-research`;
 - read alias `media-catalog-research-read`;
-- strict mapping with projectionVersion `10`;
+- strict mapping with projectionVersion `12`;
 - mapping digest
-  `sha256:dc7e8382ee3a43731a2fc9242639d7c001d29c04d2498b2a1d6ec3cfd247ec16`;
+  `sha256:f7b6e0b42f1daee66aa522faee88f8912f489410a53cc5d9ca856e88d93e416a`;
 - deterministic build identity bound to one Gold release commit;
 - partition receipts, count reconciliation, and independent validation;
   alias promotion remains a separate explicitly authorized operation.
 
-Projection v10 retains nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
+Projection v12 retains nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
 `seasonEntityKey`. It also adds `domains`; bounded Sports competition, season,
 stage, participant, venue and current-result fields; bounded Animation profile,
 studio and character fields; bounded `observationHistory`; and versioned
-CanonicalSubject roots/type concepts with bounded News/Learning reference
-candidates and relations. Every bounded collection has an explicit overflow
-counter, while complete revision history
+CanonicalSubject roots/type concepts with bounded News/Learning/Music reference
+candidates and relations. Music additionally exposes concrete agent kind,
+bounded media objects, exact eligibility, work parents, credits, and explicit
+variant signals. Every bounded collection has an explicit overflow counter,
+while complete revision history
 remains in `community_gold_observation`. Hierarchy keys are derived only from
 rights-filtered Gold relations.
 Ambiguous, missing, malformed, or over-bound parent candidates produce null;
@@ -166,19 +169,19 @@ The Global Reference release boundary is described in
 index but deliberately excludes alias activation and every tenant World write.
 
 The Temporal Golden input must carry normalized `sourceRunStates`. IMDb,
-TVmaze, Wikidata, and TMDB each declare exact committed run
+TVmaze, Wikidata, TMDB, and scheduled domain sources declare exact committed run
 IDs, run status, freshness status, watermark, optional acquisition time, and
-explicit Identity/materialization intent. Both intents default false. The
+explicit Identity, Gold-contribution, and materialization intent. Identity and
+materialization default false. The
 preflight requires the states to cover exactly the pinned source runs and
 rejects stale, pending, failed, excluded, conflicting, or policy-disabled
-materialization. Retrieval-only IMDb/TVmaze/TMDB runs remain visible in the
-orchestration state and freshness evidence but are omitted from the new Silver
-snapshot, incremental Identity input and Gold epoch; Wikidata (and optional
-EIDR) can enter those stages. Legacy payloads remain deserializable, but new
+materialization. Reference-only News/Learning/Music profiles set
+`identitySpine=true`, `goldContribution=true`, and `materialization=false`;
+Music uses both MusicBrainz core and Wikidata pinned runs. Legacy payloads remain deserializable, but new
 preflight fails closed when explicit states are absent; downstream Identity and
 Gold entrypoints independently reject disallowed ingest-run products. IMDb and
-TVmaze override evidence remains explicit without granting either source
-Identity or Gold permission.
+TVmaze override evidence remains explicit and never grants a capability by
+itself; source-policy authorization is still required.
 
 Full rebuild is authoritative. The optional affected-entity path copies an
 immutable base into a new concrete index and never mutates the old index. It

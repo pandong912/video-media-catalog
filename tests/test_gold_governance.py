@@ -164,10 +164,12 @@ def test_release_freshness_tracks_complete_delta_partial_and_slos() -> None:
         item.source_product_id: item
         for item in research_release_freshness_policy().requirements
     }
+    assert research_release_freshness_policy().policy_version == "1.1.0"
     assert defaults["tmdb-research"].slo_hours == 36
     assert defaults["tvmaze-public-api"].slo_hours == 36
     assert defaults["imdb-non-commercial-datasets"].slo_hours == 10 * 24
     assert defaults["wikidata-json-dump"].slo_hours == 45 * 24
+    assert defaults["musicbrainz-core-dump"].slo_hours == 45 * 24
 
 
 def test_bounded_freshness_scope_only_blocks_selected_sources() -> None:
@@ -179,6 +181,18 @@ def test_bounded_freshness_scope_only_blocks_selected_sources() -> None:
     assert requirements["imdb-non-commercial-datasets"].required
     assert not requirements["tmdb-research"].required
     assert requirements["tmdb-research"].feed_freshness_required
+    assert not requirements["musicbrainz-core-dump"].required
+    assert requirements["musicbrainz-core-dump"].feed_freshness_required
+
+    music_scoped = scope_release_freshness_policy(
+        research_release_freshness_policy(),
+        selected_source_product_ids={"musicbrainz-core-dump"},
+    )
+    music_requirements = {
+        item.source_product_id: item for item in music_scoped.requirements
+    }
+    assert music_requirements["musicbrainz-core-dump"].required
+    assert not music_requirements["wikidata-json-dump"].required
 
 
 def test_freshness_override_evidence_is_embedded_without_changing_defaults() -> None:

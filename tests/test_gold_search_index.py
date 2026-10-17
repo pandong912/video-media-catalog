@@ -86,14 +86,14 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     )
     assert digest.startswith("sha256:")
     assert digest == (
-        "sha256:7a4a2e90a0e5de68769e7b8716ee21ebeea3add6e7db41e86d632d6bb616bbb5"
+        "sha256:77432ec3a08f933ca887b91de6a63469d0e840e9e9360c7caf0ed5e80f7bcf7b"
     )
     assert name.startswith("media-catalog-research-")
     assert "sourceBadges" in INDEX_MAPPINGS["properties"]
     assert "winningAssertions" in INDEX_MAPPINGS["properties"]
     assert "rights" in INDEX_MAPPINGS["properties"]
     assert "conflicts" in INDEX_MAPPINGS["properties"]
-    assert INDEX_MAPPINGS["_meta"]["mappingVersion"] == "10"
+    assert INDEX_MAPPINGS["_meta"]["mappingVersion"] == "12"
     assert INDEX_MAPPINGS["properties"]["canonicalSubjectRoot"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["referenceCandidates"]["dynamic"] == "strict"
     assert INDEX_MAPPINGS["properties"]["referenceRelations"]["dynamic"] == "strict"
@@ -104,6 +104,20 @@ def test_research_mapping_and_identity_are_isolated_from_v1() -> None:
     assert INDEX_MAPPINGS["properties"]["parentEntityKey"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["seriesEntityKey"] == {"type": "keyword"}
     assert INDEX_MAPPINGS["properties"]["seasonEntityKey"] == {"type": "keyword"}
+    assert INDEX_MAPPINGS["properties"]["musicExactEligible"] == {"type": "boolean"}
+    assert INDEX_MAPPINGS["properties"]["musicAgentKind"] == {"type": "keyword"}
+    assert INDEX_MAPPINGS["properties"]["musicMediaObjects"] == {
+        "type": "keyword",
+        "ignore_above": 2048,
+    }
+    assert INDEX_MAPPINGS["properties"]["musicWorkParentEntityKeys"] == {
+        "type": "keyword"
+    }
+    assert INDEX_MAPPINGS["properties"]["musicCredits"]["dynamic"] == "strict"
+    assert INDEX_MAPPINGS["properties"]["musicCredits"]["properties"]["agentKind"] == {
+        "type": "keyword"
+    }
+    assert INDEX_MAPPINGS["properties"]["musicVariantSignals"]["dynamic"] == "strict"
     assert INDEX_MAPPINGS["properties"]["overflow"]["properties"][
         "hierarchyRelations"
     ] == {"type": "integer"}

@@ -10,10 +10,14 @@ pytest.importorskip("pyspark")
 
 from pyspark.sql import SparkSession
 
+from video_media_catalog.catalog_source_policy import load_catalog_source_policy
 from video_media_catalog.community_ingest import CommunityIngestRun
 from video_media_catalog.community_rows import external_id_index_row, ingest_run_row
 from video_media_catalog.community_sources import build_community_registry
-from video_media_catalog.community_spark import community_table_schema
+from video_media_catalog.community_spark import (
+    community_table_schema,
+    create_community_dataframes,
+)
 from video_media_catalog.connector import (
     ChangeSemantics,
     Completeness,
@@ -34,7 +38,14 @@ from video_media_catalog.identity_spark import (
 )
 from video_media_catalog.identity_v2 import build_external_id_index_entry
 from video_media_catalog.models import Checksum, ObjectRef
-from video_media_catalog.source_silver import build_source_silver_dataframes
+from video_media_catalog.reference_fixture import (
+    load_reference_fixture,
+    materialize_reference_fixture,
+)
+from video_media_catalog.source_silver import (
+    build_source_silver_dataframes,
+    build_source_silver_rows,
+)
 from video_media_catalog.tvmaze import (
     TVMAZE_CONNECTOR_ID,
     TVMAZE_POLICY_ID,
@@ -138,6 +149,108 @@ def test_exact_blocking_label_propagation_converges_on_long_chain(
     expected_component_id = min(node_ids)
     assert len(rows) == node_count
     assert {row.component_id for row in rows} == {expected_component_id}
+
+
+@pytest.mark.spark
+@pytest.mark.parametrize(
+    ("fixture_names", "source_ids", "expected_entity"),
+    (
+        (
+            (
+                "musicbrainz-music-reference.v1.json",
+                "wikidata-music-reference.v1.json",
+            ),
+            ("df7d1c7f-ef95-425f-8eef-445b3d7bcbd9", "Q208909"),
+            ("MUSIC_LABEL", "MUSIC_LABEL"),
+        ),
+        (
+            (
+                "musicbrainz-music-pilot.v1.json",
+                "wikidata-music-pilot.v1.json",
+            ),
+            ("9aa56ede-83be-44ea-aeb5-d61268972c53", "Q66662496"),
+            ("MUSIC_RECORDING", "MUSIC_RECORDING"),
+        ),
+    ),
+)
+def test_music_authority_crosswalk_shares_exact_identity(
+    spark: SparkSession,
+    fixture_names: tuple[str, str],
+    source_ids: tuple[str, str],
+    expected_entity: tuple[str, str],
+) -> None:
+    registry = build_community_registry()
+    materialized = tuple(
+        materialize_reference_fixture(
+            load_reference_fixture(Path("tests/fixtures/research") / name)
+        )
+        for name in fixture_names
+    )
+    source_runs = []
+    combined_rows: dict[str, list[dict[str, object]]] = {}
+    for fixture in materialized:
+        captured = fixture.captured
+        record_set = build_connector_record_set_manifest(
+            batch_id=captured.batch_manifest.batch_id,
+            source_product_id=captured.batch_manifest.source_product_id,
+            policy_id=captured.batch_manifest.policy_id,
+            policy_digest=captured.batch_manifest.policy_digest,
+            record_objects=captured.pin.raw_objects,
+            record_count=len(captured.envelopes),
+            first_envelope_key=captured.envelopes[0].envelope_key,
+            last_envelope_key=captured.envelopes[-1].envelope_key,
+            created_at=captured.pin.captured_at,
+        )
+        source_run, rows = build_source_silver_rows(
+            registry=registry,
+            batch=captured.batch_manifest,
+            record_set=record_set,
+            envelopes=captured.envelopes,
+        )
+        source_runs.append(source_run)
+        for table, table_rows in rows.items():
+            combined_rows.setdefault(table, []).extend(table_rows)
+    visible = create_community_dataframes(spark, combined_rows)
+    ingest_runs = spark.createDataFrame(
+        [ingest_run_row(run) for run in source_runs],
+        schema=community_table_schema("community_ingest_run"),
+    )
+    identity_frames = None
+    try:
+        _, identity_frames = build_identity_resolution_dataframes(
+            spark,
+            visible_silver=visible,
+            input_id="sha256:" + ("8" * 64),
+            image_digest="sha256:" + ("7" * 64),
+            config_digest="sha256:" + ("6" * 64),
+            started_at="2026-10-17T04:00:00Z",
+            registry=registry,
+            source_policy=load_catalog_source_policy(registry=registry),
+            source_records=visible["community_source_record"],
+            ingest_runs=ingest_runs,
+            committed_source_run_ids=tuple(run.run_id for run in source_runs),
+        )
+        memberships = (
+            identity_frames["community_entity_membership"]
+            .where(f"source_id IN ('{source_ids[0]}', '{source_ids[1]}')")
+            .collect()
+        )
+        assert len(memberships) == 2
+        assert {row.entity_key for row in memberships} == {memberships[0].entity_key}
+        entity = (
+            identity_frames["community_entity_ledger"]
+            .where(f"entity_key = '{memberships[0].entity_key}'")
+            .collect()
+        )
+        assert [(row.entity_level, row.entity_kind) for row in entity] == [
+            expected_entity
+        ]
+    finally:
+        if identity_frames is not None:
+            for frame in identity_frames.values():
+                frame.unpersist()
+        for frame in visible.values():
+            frame.unpersist()
 
 
 @pytest.mark.spark

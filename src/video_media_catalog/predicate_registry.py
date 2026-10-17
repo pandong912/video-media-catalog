@@ -25,6 +25,7 @@ class ResearchDomain(StrEnum):
     JOURNALISM = "JOURNALISM"
     LEARNING = "LEARNING"
     INSTRUCTION = "INSTRUCTION"
+    MUSIC = "MUSIC"
 
 
 class PredicateKind(StrEnum):

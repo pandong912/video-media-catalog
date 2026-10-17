@@ -50,7 +50,12 @@ from video_media_catalog.storage import local_path
 from video_media_catalog.v2_contracts import require_sha256
 
 Mapper = Callable[[ConnectorRecordEnvelope], MappedAssertions]
-_GLOBAL_REFERENCE_SCHEMA_ID = "wikidata-global-reference-entity"
+_GLOBAL_REFERENCE_SCHEMA_IDS = frozenset(
+    {
+        "wikidata-global-reference-entity",
+        "musicbrainz-core-entity",
+    }
+)
 
 
 def _spark_input_uri(uri: str) -> str:
@@ -71,6 +76,7 @@ def mapper_for_product(source_product_id: str) -> Mapper:
         IMDB_SOURCE_PRODUCT_ID,
         map_imdb_record,
     )
+    from video_media_catalog.music_sources import map_musicbrainz_core_record
     from video_media_catalog.source_mappers import (
         EIDR_SOURCE_PRODUCT_ID,
         WIKIDATA_SOURCE_PRODUCT_ID,
@@ -98,6 +104,7 @@ def mapper_for_product(source_product_id: str) -> Mapper:
         TMDB_SOURCE_PRODUCT_ID: map_tmdb_record,
         EUROPEANA_SOURCE_PRODUCT_ID: map_europeana_record,
         "madb-public-data": map_madb_animation_record,
+        "musicbrainz-core-dump": map_musicbrainz_core_record,
         "openfootball-git": map_openfootball_record,
         "statsbomb-open-data": map_statsbomb_match_record,
     }
@@ -176,8 +183,8 @@ def _validate_envelope_registry(
         raise ValueError(
             "record envelope rights policy is absent or changed in the pinned registry"
         )
-    if envelope.payload_schema == _GLOBAL_REFERENCE_SCHEMA_ID and (
-        batch.coverage_scope.get("schemaId") != _GLOBAL_REFERENCE_SCHEMA_ID
+    if envelope.payload_schema in _GLOBAL_REFERENCE_SCHEMA_IDS and (
+        batch.coverage_scope.get("schemaId") != envelope.payload_schema
         or batch.coverage_scope.get("pinId") is None
     ):
         raise ValueError(
@@ -238,7 +245,7 @@ def _build_run(
 ) -> CommunityIngestRun:
     source_snapshot_pin_id = batch.coverage_scope.get("pinId")
     if (
-        batch.coverage_scope.get("schemaId") == _GLOBAL_REFERENCE_SCHEMA_ID
+        batch.coverage_scope.get("schemaId") in _GLOBAL_REFERENCE_SCHEMA_IDS
         and source_snapshot_pin_id is None
     ):
         raise ValueError("global reference batches require a source snapshot pin ID")

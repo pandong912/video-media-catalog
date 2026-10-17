@@ -65,6 +65,9 @@ The bootstrap registry includes:
 
 - Wikidata structured JSON under CC0, including Wikidata-observed external
   identifiers;
+- MusicBrainz offline core database dumps under CC0. Tags, genres, ratings,
+  annotations, supplementary/live feeds, and Cover Art Archive assets are
+  outside the registered product and rights profile;
 - EIDR public-registry records, without a default network search client.
   Discovered-ID exact lookup is a second connector on the same product and
   never treats an unauthorized registry dump as a complete mirror;

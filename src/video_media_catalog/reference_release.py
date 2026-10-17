@@ -56,6 +56,37 @@ class ReferenceCapability(StrEnum):
 class ReferenceSlice(StrEnum):
     NEWS_JOURNALISM = "NEWS/JOURNALISM"
     LEARNING_INSTRUCTION = "LEARNING/INSTRUCTION"
+    MUSIC = "MUSIC"
+
+
+_REFERENCE_SNAPSHOT_COORDINATES = frozenset(
+    {
+        (
+            "wikidata",
+            "wikidata-json-dump",
+            "wikidata-full-media-backfill",
+            "DUMP_OBJECT",
+            "wikidata-global-reference-entity",
+        ),
+        (
+            "musicbrainz",
+            "musicbrainz-core-dump",
+            "musicbrainz-core-dump-snapshot",
+            "DUMP_OBJECT",
+            "musicbrainz-core-entity",
+        ),
+    }
+)
+_SLICE_SOURCE_PRODUCTS = {
+    ReferenceSlice.NEWS_JOURNALISM: frozenset({"wikidata-json-dump"}),
+    ReferenceSlice.LEARNING_INSTRUCTION: frozenset({"wikidata-json-dump"}),
+    ReferenceSlice.MUSIC: frozenset(
+        {
+            "musicbrainz-core-dump",
+            "wikidata-json-dump",
+        }
+    ),
+}
 
 
 class WorldZeroWriteAttestation(V2ContractModel):
@@ -200,7 +231,7 @@ class GlobalReferenceReleaseManifest(V2ContractModel):
         normalized = tuple(sorted(set(value), key=str))
         if set(normalized) != set(ReferenceSlice):
             raise ValueError(
-                "global reference release must contain both reference slices"
+                "global reference release must contain every reference slice"
             )
         return normalized
 
@@ -216,16 +247,17 @@ class GlobalReferenceReleaseManifest(V2ContractModel):
         ):
             raise ValueError("reference release source snapshots must be unique")
         for pin in normalized:
-            if (
-                pin.source_system_id != "wikidata"
-                or pin.source_product_id != "wikidata-json-dump"
-                or pin.connector_id != "wikidata-full-media-backfill"
-                or pin.revision_kind != "DUMP_OBJECT"
-                or pin.schema_id != "wikidata-global-reference-entity"
-            ):
+            coordinates = (
+                pin.source_system_id,
+                pin.source_product_id,
+                pin.connector_id,
+                pin.revision_kind.value,
+                pin.schema_id,
+            )
+            if coordinates not in _REFERENCE_SNAPSHOT_COORDINATES:
                 raise ValueError(
-                    "News/Learning reference slices are restricted to source-policy "
-                    "v1 Wikidata global-reference captures"
+                    "reference slices require reviewed Wikidata or MusicBrainz "
+                    "core captures"
                 )
             for reference in pin.raw_objects:
                 _require_immutable_object(
@@ -240,11 +272,36 @@ class GlobalReferenceReleaseManifest(V2ContractModel):
         cls,
         value: tuple[ReferenceSliceSourcePin, ...],
     ) -> tuple[ReferenceSliceSourcePin, ...]:
-        normalized = tuple(sorted(value, key=lambda item: str(item.reference_slice)))
+        normalized = tuple(
+            sorted(
+                value,
+                key=lambda item: (
+                    str(item.reference_slice),
+                    item.source_snapshot_pin_id,
+                ),
+            )
+        )
         if {item.reference_slice for item in normalized} != set(ReferenceSlice):
-            raise ValueError("each reference slice requires one source snapshot pin")
-        if len(normalized) != len(ReferenceSlice):
+            raise ValueError("each reference slice requires source snapshot pins")
+        keys = {
+            (item.reference_slice, item.source_snapshot_pin_id) for item in normalized
+        }
+        if len(keys) != len(normalized):
             raise ValueError("reference release contains duplicate slice source pins")
+        counts = {
+            reference_slice: sum(
+                item.reference_slice == reference_slice for item in normalized
+            )
+            for reference_slice in ReferenceSlice
+        }
+        if (
+            counts[ReferenceSlice.NEWS_JOURNALISM] != 1
+            or counts[ReferenceSlice.LEARNING_INSTRUCTION] != 1
+            or counts[ReferenceSlice.MUSIC] != 2
+        ):
+            raise ValueError(
+                "News/Learning require one pin and Music requires two source pins"
+            )
         return normalized
 
     @field_validator("created_at")
@@ -268,12 +325,23 @@ class GlobalReferenceReleaseManifest(V2ContractModel):
             raise ValueError("reference release cannot supersede itself")
         if self.validated_index.release_plan_id != self.gold_release_plan_id:
             raise ValueError("validated index does not pin the Gold release plan")
-        source_pin_ids = {item.pin_id for item in self.source_snapshots}
+        source_pins = {item.pin_id: item for item in self.source_snapshots}
+        source_pin_ids = set(source_pins)
         if any(
             item.source_snapshot_pin_id not in source_pin_ids
             for item in self.slice_source_pins
         ):
             raise ValueError("reference slice points outside release source snapshots")
+        for reference_slice in ReferenceSlice:
+            products = {
+                source_pins[item.source_snapshot_pin_id].source_product_id
+                for item in self.slice_source_pins
+                if item.reference_slice == reference_slice
+            }
+            if products != _SLICE_SOURCE_PRODUCTS[reference_slice]:
+                raise ValueError(
+                    f"{reference_slice.value} source snapshot products drifted"
+                )
         if not (info.context or {}).get("skip_identity"):
             ontology = load_global_reference_ontology()
             predicates = load_research_predicate_registry()
@@ -405,8 +473,20 @@ def build_global_reference_release_manifest(
     }
     release_pin_ids = {item.pin_id for item in source_snapshots}
     sliced_pin_ids = {item.source_snapshot_pin_id for item in slice_source_pins}
-    gold_pin_ids = set(gold_plan.source_snapshot_pin_ids.get("wikidata-json-dump", ()))
-    required_domains = {"NEWS", "JOURNALISM", "LEARNING", "INSTRUCTION"}
+    gold_pin_ids_by_source = {
+        source: set(pin_ids)
+        for source, pin_ids in gold_plan.source_snapshot_pin_ids.items()
+    }
+    gold_pin_ids = {
+        pin_id for pin_ids in gold_pin_ids_by_source.values() for pin_id in pin_ids
+    }
+    required_domains = {
+        "NEWS",
+        "JOURNALISM",
+        "LEARNING",
+        "INSTRUCTION",
+        "MUSIC",
+    }
     if (
         gold_commit.release_plan_id != gold_plan.release_plan_id
         or gold_commit.table_counts != gold_plan.expected_counts
@@ -442,12 +522,17 @@ def build_global_reference_release_manifest(
         raise ValueError("Gold plan does not bind the reference ontology registries")
     if not release_pin_ids or not release_pin_ids <= gold_pin_ids:
         raise ValueError("release source snapshots are absent from the Gold plan")
+    if any(
+        pin.pin_id not in gold_pin_ids_by_source.get(pin.source_product_id, set())
+        for pin in source_snapshots
+    ):
+        raise ValueError("release source snapshot is bound to the wrong Gold source")
     if not sliced_pin_ids or sliced_pin_ids != release_pin_ids:
         raise ValueError("reference slice source pins are not release-bound")
     if any(
         gold_plan.domain_coverage.get(domain, 0) <= 0 for domain in required_domains
     ):
-        raise ValueError("Gold plan does not cover both reference slices")
+        raise ValueError("Gold plan does not cover every reference slice")
 
     manifest_values = {
         **values,

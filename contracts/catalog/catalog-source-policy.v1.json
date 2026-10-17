@@ -1,6 +1,6 @@
 {
   "schemaVersion": "video.world.catalog-source-policy-registry.v1",
-  "registryVersion": "1.2.0",
+  "registryVersion": "1.4.0",
   "sources": [
     {
       "sourceId": "wikidata",
@@ -20,6 +20,56 @@
             "hierarchy.series",
             "hierarchy.season"
           ]
+        }
+      ]
+    },
+    {
+      "sourceId": "musicbrainz",
+      "status": "APPROVED_FOR_OFFLINE_IDENTITY",
+      "licenseId": "CC0-1.0",
+      "licenseUri": "https://musicbrainz.org/doc/About/Data_License",
+      "attribution": "MusicBrainz core database contributors",
+      "capabilities": ["RETRIEVAL", "RANKING", "IDENTITY", "MATERIALIZATION", "DISPLAY"],
+      "namespaces": [
+        {
+          "namespace": "musicbrainz.artist",
+          "aliases": ["musicbrainz-artist"],
+          "materializablePredicates": ["identity.title", "identity.alias"]
+        },
+        {
+          "namespace": "musicbrainz.label",
+          "aliases": ["musicbrainz-label"],
+          "materializablePredicates": ["identity.title", "identity.alias"]
+        },
+        {
+          "namespace": "musicbrainz.work",
+          "aliases": ["musicbrainz-work"],
+          "materializablePredicates": ["identity.title", "identity.alias", "hierarchy.parent"]
+        },
+        {
+          "namespace": "musicbrainz.recording",
+          "aliases": ["musicbrainz-recording"],
+          "materializablePredicates": ["identity.title", "identity.alias", "hierarchy.parent"]
+        },
+        {
+          "namespace": "musicbrainz.release-group",
+          "aliases": ["musicbrainz-release-group"],
+          "materializablePredicates": ["identity.title", "identity.alias", "hierarchy.parent"]
+        },
+        {
+          "namespace": "musicbrainz.release",
+          "aliases": ["musicbrainz-release"],
+          "materializablePredicates": ["identity.title", "identity.alias", "hierarchy.parent"]
+        },
+        {
+          "namespace": "musicbrainz.isrc",
+          "aliases": ["isrc"],
+          "materializablePredicates": []
+        },
+        {
+          "namespace": "musicbrainz.iswc",
+          "aliases": ["iswc"],
+          "materializablePredicates": []
         }
       ]
     },

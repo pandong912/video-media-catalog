@@ -1,0 +1,255 @@
+{
+  "schemaVersion": "1.0",
+  "profileId": "sha256:87bac2481db4505b18fc4374e9c617988b5f60f5f7a91f81b2088afaa35d75ff",
+  "cohortId": "music-reference-gold-match-pilot-2026-10-17",
+  "cohortDigest": "sha256:ff44f41739c8967fb5d12471961489263566db9c27534177b0b3f1bc6b67884c",
+  "authorityCoordinateDigest": "sha256:f7acf2518c54acb103b044de38cc72b67cb02a593adfcf31c12a88b17ebe053a",
+  "coordinateKeys": [
+    "MUSICAL_WORK|Q1140459|660d0d25-4253-4d30-a818-61fc94e375bf",
+    "MUSICAL_WORK|Q12860108|ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+    "MUSICAL_WORK|Q138836655|8b3a9214-bbec-311d-a61b-874bf15dfdde",
+    "MUSICAL_WORK|Q17591232|4f5a74d0-d183-37f1-b07a-913652e82667",
+    "MUSICAL_WORK|Q2607570|9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+    "MUSICAL_WORK|Q29117946|8d331505-4d88-39ae-81c7-bec5da77af96",
+    "MUSICAL_WORK|Q908534|a488a020-884d-3349-a7e7-18993ffed13e",
+    "MUSICAL_WORK|Q960586|e9914523-2452-3987-8d4d-08f8e4f3c302",
+    "MUSIC_RECORDING|Q105942412|321d235c-a32a-4f6c-b84d-0e151ffb58be",
+    "MUSIC_RECORDING|Q105978624|e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+    "MUSIC_RECORDING|Q106098098|b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+    "MUSIC_RECORDING|Q106182588|020152a7-172e-45c5-812a-a60d02cb2a27",
+    "MUSIC_RECORDING|Q106435189|61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+    "MUSIC_RECORDING|Q108042886|b70b3468-8f1a-4fa3-b853-122f57d98f92",
+    "MUSIC_RECORDING|Q109795255|c40d7b44-7583-4675-852a-10ddbea8cf46",
+    "MUSIC_RECORDING|Q113148225|7fb6969c-bb00-48ec-84df-151fd56875c2",
+    "MUSIC_RECORDING|Q113151843|d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+    "MUSIC_RECORDING|Q113153791|71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+    "MUSIC_RECORDING|Q66662496|9aa56ede-83be-44ea-aeb5-d61268972c53"
+  ],
+  "coordinates": [
+    {
+      "coordinateKey": "MUSICAL_WORK|Q1140459|660d0d25-4253-4d30-a818-61fc94e375bf",
+      "wikidataQid": "Q1140459",
+      "musicbrainzMbid": "660d0d25-4253-4d30-a818-61fc94e375bf",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:28a3920de804941db8d113ed9d4c1ffdd466708594f41cd70b8863614a5b933b"
+    },
+    {
+      "coordinateKey": "MUSICAL_WORK|Q12860108|ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+      "wikidataQid": "Q12860108",
+      "musicbrainzMbid": "ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "RESEARCH_CANDIDATE_SAME_WORK_PARENT",
+      "reviewStatus": "PENDING",
+      "reviewDigest": "sha256:a4fafeb0060a7c5cc87cf430502b25771ff97ab2708c8b35880aa4cc17143da4"
+    },
+    {
+      "coordinateKey": "MUSICAL_WORK|Q138836655|8b3a9214-bbec-311d-a61b-874bf15dfdde",
+      "wikidataQid": "Q138836655",
+      "musicbrainzMbid": "8b3a9214-bbec-311d-a61b-874bf15dfdde",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "RESEARCH_CANDIDATE_SAME_WORK_PARENT",
+      "reviewStatus": "PENDING",
+      "reviewDigest": "sha256:14aa5ca3779ad257e1677d4fb21201f7f5317841deaa76447f8738febcbe2fba"
+    },
+    {
+      "coordinateKey": "MUSICAL_WORK|Q17591232|4f5a74d0-d183-37f1-b07a-913652e82667",
+      "wikidataQid": "Q17591232",
+      "musicbrainzMbid": "4f5a74d0-d183-37f1-b07a-913652e82667",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:08011ac117e64725c15200a6320f5d8dfaf7fe80603ed2950b20db0b2d611254"
+    },
+    {
+      "coordinateKey": "MUSICAL_WORK|Q2607570|9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+      "wikidataQid": "Q2607570",
+      "musicbrainzMbid": "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:c0f0f924591cc923b2ab225d70ecb2edd1c8e4e7d1f73d65af0d42fadce884bf"
+    },
+    {
+      "coordinateKey": "MUSICAL_WORK|Q29117946|8d331505-4d88-39ae-81c7-bec5da77af96",
+      "wikidataQid": "Q29117946",
+      "musicbrainzMbid": "8d331505-4d88-39ae-81c7-bec5da77af96",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:8b5293f277db82fa8016d40f9820636aaaa5de97b6f904638b0fb25431e02cd7"
+    },
+    {
+      "coordinateKey": "MUSICAL_WORK|Q908534|a488a020-884d-3349-a7e7-18993ffed13e",
+      "wikidataQid": "Q908534",
+      "musicbrainzMbid": "a488a020-884d-3349-a7e7-18993ffed13e",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:ab8d08ae263f8d92aab54661efc7e0acd5719aeb4f09a48b69e6f642cf551af4"
+    },
+    {
+      "coordinateKey": "MUSICAL_WORK|Q960586|e9914523-2452-3987-8d4d-08f8e4f3c302",
+      "wikidataQid": "Q960586",
+      "musicbrainzMbid": "e9914523-2452-3987-8d4d-08f8e4f3c302",
+      "entityType": "MUSICAL_WORK",
+      "disposition": "WORK_PARENT_ONLY",
+      "mappingKind": "RESEARCH_CANDIDATE_SAME_WORK_PARENT",
+      "reviewStatus": "PENDING",
+      "reviewDigest": "sha256:24d4aae53cea6af29a44d3775e7f70a641c38d120a5d76037415a16bb991fd8e"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q105942412|321d235c-a32a-4f6c-b84d-0e151ffb58be",
+      "wikidataQid": "Q105942412",
+      "musicbrainzMbid": "321d235c-a32a-4f6c-b84d-0e151ffb58be",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:b60f56b6a221c63e48f7c087e0bc0cb0c0312eac22579d121e8df3733760003a"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q105978624|e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+      "wikidataQid": "Q105978624",
+      "musicbrainzMbid": "e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:e123627a9359c340fdfee4d4b6f6857b83041358895413ef6ff4ced1a174b7b0"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q106098098|b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+      "wikidataQid": "Q106098098",
+      "musicbrainzMbid": "b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:5588045192d185025da23d13c3d2ef70c085dee0a22766e5399617b07181fb7b"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q106182588|020152a7-172e-45c5-812a-a60d02cb2a27",
+      "wikidataQid": "Q106182588",
+      "musicbrainzMbid": "020152a7-172e-45c5-812a-a60d02cb2a27",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:33933de6f4ce22a627ccdc1d90d45fe11aef51584391d6e721f2cfeeae462075"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q106435189|61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+      "wikidataQid": "Q106435189",
+      "musicbrainzMbid": "61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:35cb046575255f718e611905e4493c461d25bd940c28dd3440e9b1e74e6be111"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q108042886|b70b3468-8f1a-4fa3-b853-122f57d98f92",
+      "wikidataQid": "Q108042886",
+      "musicbrainzMbid": "b70b3468-8f1a-4fa3-b853-122f57d98f92",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "VARIANT_ABSTAIN_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:3226b0e9122575754b09eb8340692f82956b109bec54c4c2af8a20c2acd251ca"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q109795255|c40d7b44-7583-4675-852a-10ddbea8cf46",
+      "wikidataQid": "Q109795255",
+      "musicbrainzMbid": "c40d7b44-7583-4675-852a-10ddbea8cf46",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:c8d3bea1a10a5b25e9457acea5248ebc71926f9739aff943674954574f294b1f"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q113148225|7fb6969c-bb00-48ec-84df-151fd56875c2",
+      "wikidataQid": "Q113148225",
+      "musicbrainzMbid": "7fb6969c-bb00-48ec-84df-151fd56875c2",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:63c53f90bea9680d85ff17d0fbb58fc939a879ead2d72b3538fd10784534aad9"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q113151843|d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+      "wikidataQid": "Q113151843",
+      "musicbrainzMbid": "d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "CONFLICT_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:3408c2059868f5f8729e1654188ccc799f96e1e93fb5611cceb45b2c259cb390"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q113153791|71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+      "wikidataQid": "Q113153791",
+      "musicbrainzMbid": "71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "CONFLICT_ONLY",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:c9917bed3e3d56ee0b02d872252a93122197b0d6314ce9bc00f675b195d0afaf"
+    },
+    {
+      "coordinateKey": "MUSIC_RECORDING|Q66662496|9aa56ede-83be-44ea-aeb5-d61268972c53",
+      "wikidataQid": "Q66662496",
+      "musicbrainzMbid": "9aa56ede-83be-44ea-aeb5-d61268972c53",
+      "entityType": "MUSIC_RECORDING",
+      "disposition": "EXACT_RECORDING",
+      "mappingKind": "AUTHORITY_DECLARED",
+      "reviewStatus": "NOT_REQUIRED",
+      "reviewDigest": "sha256:1392c6a10aeae90784c7ef8994c499546e31505825935fc256b7247bfe667dd5"
+    }
+  ],
+  "sourceSnapshotPinIds": {
+    "musicbrainz-core-dump": "sha256:2df1c74f4d811dbdcaeca44a5c3166115569e10da83e8a79c916963097c79dd9",
+    "wikidata-json-dump": "sha256:ed05bbe2ae011f5b7e2d02bcd75a8a548ba34028ca9025ebc6afdc3377c1016d"
+  },
+  "sourceRevisions": {
+    "musicbrainz-core-dump": "sha256:53af4e3cece1f12d26accd1cfa080e31932a637a3f31435723badc5cf8b3a46f",
+    "wikidata-json-dump": "sha256:48949106cf45ed8ebdc26bdd41060054e5d3b492e934a85b9e83c13f6fad067f"
+  },
+  "sourceFixtureDigests": {
+    "musicbrainz-core-dump": "sha256:78d691a35c29099834342cb810451e185ac9ac6f79f44043718a115cd878249a",
+    "wikidata-json-dump": "sha256:9197cff08d0e822643763df1903fa66462ef23fcc454c61bbcd18531f5e58f90"
+  },
+  "captureImageDigests": {
+    "musicbrainz-core-dump": "sha256:9d3d28f073ad9a9befbfea84f112001208bbe0c4d884cfec8eaaddbf583a5b2f",
+    "wikidata-json-dump": "sha256:9d3d28f073ad9a9befbfea84f112001208bbe0c4d884cfec8eaaddbf583a5b2f"
+  },
+  "sourcePolicyRegistryVersion": "1.4.0",
+  "sourcePolicyDigest": "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018",
+  "ontologyRegistryVersion": "1.4.0",
+  "ontologyDigest": "sha256:6f605eea9acfe9365ada11c45e350a29851f11f613a45f07cc0897ecee000b90",
+  "predicateRegistryVersion": "1.4.0",
+  "predicateDigest": "sha256:c803567e0e0b9ba1b2f1cd4daa6750792c0bc1fc88cca8e2bcffd4216b916588",
+  "goldPolicyVersion": "2.7.0",
+  "goldPolicyDigest": "sha256:3e1ba89f63bc3d9eaaaddb6d3acc307c6db45c116c82a8445c8ea07d3641c590",
+  "mappingVersion": "12",
+  "mappingDigest": "sha256:f7b6e0b42f1daee66aa522faee88f8912f489410a53cc5d9ca856e88d93e416a",
+  "algorithmId": "catalog-asset-match-v1",
+  "algorithmSchemaVersion": "1.0",
+  "algorithmDigest": "sha256:638d10b15510a0d81e224692fdd5d1b9e35112bed1de0b9f289a56f9c233116d",
+  "concreteIndex": "media-catalog-research-33941564af4c70ceaaad3753",
+  "coordinateCount": 19,
+  "validatedIndexManifestRequired": true,
+  "productionActivationAllowed": false,
+  "cutoverAllowed": false,
+  "createdAt": "2026-10-17T03:00:00Z"
+}

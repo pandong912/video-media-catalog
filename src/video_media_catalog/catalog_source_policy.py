@@ -18,11 +18,12 @@ from video_media_catalog.v2_contracts import V2ContractModel, require_slug
 
 CATALOG_SOURCE_POLICY_SCHEMA_VERSION = "video.world.catalog-source-policy-registry.v1"
 CATALOG_SOURCE_POLICY_DIGEST = (
-    "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
+    "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018"
 )
 _REQUIRED_CANONICAL_SOURCE_IDS = frozenset(
     {
         "wikidata",
+        "musicbrainz",
         "eidr",
         "imdb",
         "tvmaze",
@@ -34,6 +35,7 @@ _REQUIRED_CANONICAL_SOURCE_IDS = frozenset(
 )
 _EXPECTED_IMPLEMENTATION_SOURCE_MAP = {
     "wikidata-json-dump": "wikidata",
+    "musicbrainz-core-dump": "musicbrainz",
     "eidr-public-registry": "eidr",
     "imdb-non-commercial-datasets": "imdb",
     "tvmaze-public-api": "tvmaze",
@@ -397,6 +399,28 @@ CATALOG_SOURCE_IMPLEMENTATIONS = (
                 namespace_id="wikidata-item",
                 canonical_namespace="wikidata-item",
             ),
+        ),
+    ),
+    CatalogSourceImplementation(
+        source_product_id="musicbrainz-core-dump",
+        source_id="musicbrainz",
+        rights_policy_id="musicbrainz-core-data-cc0",
+        supported_capabilities=_ALL_TECHNICAL_CAPABILITIES,
+        namespaces=tuple(
+            CatalogNamespaceImplementation(
+                namespace_id=namespace_id,
+                canonical_namespace=namespace_id,
+            )
+            for namespace_id in (
+                "musicbrainz-artist",
+                "musicbrainz-label",
+                "musicbrainz-work",
+                "musicbrainz-recording",
+                "musicbrainz-release-group",
+                "musicbrainz-release",
+                "isrc",
+                "iswc",
+            )
         ),
     ),
     CatalogSourceImplementation(

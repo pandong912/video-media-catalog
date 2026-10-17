@@ -105,38 +105,34 @@ def _golden_input(input_data: ResearchDomainInput):
         **input_data.golden_build.source_watermarks,
         **{source.source_product_id: source.watermark for source in source_results},
     }
-    replacement_states = {
-        source.source_product_id: GoldenSourceRunState(
-            source_product_id=source.source_product_id,
-            run_ids=tuple(sorted(silver.run_id for silver in source.silvers)),
-            run_status=GoldenSourceRunStatus.COMMITTED,
-            freshness_status=GoldenSourceFreshnessStatus.PASS,
-            watermark=source.watermark,
-            acquired_at=source.acquired_at,
-            identity_spine=next(
-                profile.identity_spine
-                for profile in input_data.sources
-                if profile.profile_id == source.profile_id
-            ),
-            materialization=next(
-                profile.materialization
-                for profile in input_data.sources
-                if profile.profile_id == source.profile_id
-            ),
-            gold_contribution=next(
-                profile.gold_contribution
-                for profile in input_data.sources
-                if profile.profile_id == source.profile_id
-            ),
-            capture_reference=source.capture_manifest,
-        )
-        for source in source_results
-    }
     states = {
         state.source_product_id: state
         for state in input_data.golden_build.source_run_states
     }
-    states.update(replacement_states)
+    profiles = {profile.profile_id: profile for profile in input_data.sources}
+    for source in source_results:
+        profile = profiles[source.profile_id]
+        prior = states.get(source.source_product_id)
+        replacement = GoldenSourceRunState(
+            source_product_id=source.source_product_id,
+            run_ids=tuple(
+                sorted(
+                    {
+                        *(prior.run_ids if prior is not None else ()),
+                        *(silver.run_id for silver in source.silvers),
+                    }
+                )
+            ),
+            run_status=GoldenSourceRunStatus.COMMITTED,
+            freshness_status=GoldenSourceFreshnessStatus.PASS,
+            watermark=source.watermark,
+            acquired_at=source.acquired_at,
+            identity_spine=profile.identity_spine,
+            materialization=profile.materialization,
+            gold_contribution=profile.gold_contribution,
+            capture_reference=source.capture_manifest,
+        )
+        states[source.source_product_id] = replacement
     return replace(
         input_data.golden_build,
         supplemental_source_run_ids=tuple(sorted(supplemental)),

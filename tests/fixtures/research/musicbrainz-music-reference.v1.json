@@ -1,0 +1,229 @@
+{
+  "schemaVersion": "video.media-catalog.reference-fixture.v1",
+  "fixtureId": "musicbrainz-music-reference-v1",
+  "domain": "MUSIC",
+  "sourceSystemId": "musicbrainz",
+  "sourceProductId": "musicbrainz-core-dump",
+  "connectorId": "musicbrainz-core-dump-snapshot",
+  "revisionKind": "DUMP_OBJECT",
+  "schemaId": "musicbrainz-core-entity",
+  "sourceRevision": "musicbrainz-core-2026-10-17",
+  "capturedAt": "2026-10-17T00:00:00Z",
+  "rawObject": {
+    "uri": "file:///tests/fixtures/research/musicbrainz-music-reference.v1.jsonl",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/x-ndjson",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    },
+    "sizeBytes": 2554
+  },
+  "imageDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "configDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "citations": [
+    {
+      "citationId": "musicbrainz-radiohead",
+      "sourceRecordId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "sourceUrl": "https://musicbrainz.org/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "title": "Radiohead",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    },
+    {
+      "citationId": "musicbrainz-parlophone",
+      "sourceRecordId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+      "sourceUrl": "https://musicbrainz.org/label/df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+      "title": "Parlophone",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    },
+    {
+      "citationId": "musicbrainz-high-and-dry-work",
+      "sourceRecordId": "cd9694f3-ade2-3ad6-a6e3-34edeb338928",
+      "sourceUrl": "https://musicbrainz.org/work/cd9694f3-ade2-3ad6-a6e3-34edeb338928",
+      "title": "High and Dry",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    },
+    {
+      "citationId": "musicbrainz-high-and-dry-recording",
+      "sourceRecordId": "83cf16bc-01db-4766-9e3e-f3c796639cf2",
+      "sourceUrl": "https://musicbrainz.org/recording/83cf16bc-01db-4766-9e3e-f3c796639cf2",
+      "title": "High and Dry",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    },
+    {
+      "citationId": "musicbrainz-high-and-dry-release-group",
+      "sourceRecordId": "96838f33-94ec-3d55-9147-f158e2247bf3",
+      "sourceUrl": "https://musicbrainz.org/release-group/96838f33-94ec-3d55-9147-f158e2247bf3",
+      "title": "High & Dry",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    },
+    {
+      "citationId": "musicbrainz-high-and-dry-release",
+      "sourceRecordId": "08a5dbf1-e22f-471a-a170-280fa8a4f3ba",
+      "sourceUrl": "https://musicbrainz.org/release/08a5dbf1-e22f-471a-a170-280fa8a4f3ba",
+      "title": "High & Dry / Planet Telex",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:8b9954f560d5f6a85d259ce9394b4a1c8c2d3f2db7d80833765a4da7325caa00"
+    }
+  ],
+  "records": [
+    {
+      "payload": {
+        "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Radiohead",
+        "wikidataQids": ["Q44190"],
+        "relations": []
+      },
+      "citationIds": ["musicbrainz-radiohead"]
+    },
+    {
+      "payload": {
+        "id": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_LABEL",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Parlophone",
+        "wikidataQids": ["Q208909"],
+        "relations": []
+      },
+      "citationIds": ["musicbrainz-parlophone"]
+    },
+    {
+      "payload": {
+        "id": "cd9694f3-ade2-3ad6-a6e3-34edeb338928",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "High and Dry",
+        "iswcs": ["T-010.346.288-9"],
+        "wikidataQids": ["Q2469634"],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {"role": "WRITER"}
+          }
+        ]
+      },
+      "citationIds": ["musicbrainz-high-and-dry-work"]
+    },
+    {
+      "payload": {
+        "id": "83cf16bc-01db-4766-9e3e-f3c796639cf2",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "High and Dry",
+        "isrcs": ["GBAYE9400055"],
+        "relations": [
+          {
+            "predicate": "recording_of",
+            "targetId": "cd9694f3-ade2-3ad6-a6e3-34edeb338928",
+            "targetType": "MUSICAL_WORK"
+          },
+          {
+            "predicate": "release_membership",
+            "targetId": "08a5dbf1-e22f-471a-a170-280fa8a4f3ba",
+            "targetType": "MUSIC_RELEASE",
+            "qualifiers": {"trackPosition": "1"}
+          },
+          {
+            "predicate": "credit",
+            "targetId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {"role": "PERFORMER"}
+          },
+          {
+            "predicate": "performance_link",
+            "targetId": "cd9694f3-ade2-3ad6-a6e3-34edeb338928",
+            "targetType": "MUSICAL_WORK"
+          }
+        ]
+      },
+      "citationIds": ["musicbrainz-high-and-dry-recording"]
+    },
+    {
+      "payload": {
+        "id": "96838f33-94ec-3d55-9147-f158e2247bf3",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RELEASE_GROUP",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "High & Dry",
+        "wikidataQids": ["Q2469634"],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {"role": "PRIMARY_ARTIST"}
+          },
+          {
+            "predicate": "credit",
+            "targetId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            "targetType": "MUSIC_LABEL",
+            "qualifiers": {"role": "LABEL"}
+          }
+        ]
+      },
+      "citationIds": ["musicbrainz-high-and-dry-release-group"]
+    },
+    {
+      "payload": {
+        "id": "08a5dbf1-e22f-471a-a170-280fa8a4f3ba",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RELEASE",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "High & Dry / Planet Telex",
+        "relations": [
+          {
+            "predicate": "release_membership",
+            "targetId": "96838f33-94ec-3d55-9147-f158e2247bf3",
+            "targetType": "MUSIC_RELEASE_GROUP",
+            "qualifiers": {"membershipKind": "RELEASE_GROUP"}
+          },
+          {
+            "predicate": "credit",
+            "targetId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {"role": "PRIMARY_ARTIST"}
+          },
+          {
+            "predicate": "credit",
+            "targetId": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
+            "targetType": "MUSIC_LABEL",
+            "qualifiers": {"role": "LABEL"}
+          }
+        ]
+      },
+      "citationIds": ["musicbrainz-high-and-dry-release"]
+    }
+  ]
+}

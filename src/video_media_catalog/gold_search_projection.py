@@ -45,6 +45,11 @@ MAX_HIERARCHY_RELATION_CANDIDATES = 16
 MAX_SPORTS_PARTICIPANTS = 64
 MAX_CURRENT_RESULTS = 64
 MAX_ANIMATION_RELATIONS = 128
+MAX_MUSIC_CREDITS = 128
+MAX_MUSIC_VARIANT_SIGNALS = 128
+MAX_MUSIC_MEDIA_OBJECTS = 128
+MAX_MUSIC_WORK_PARENTS = 16
+MAX_MUSIC_EXACT_AUTHORITY_RELATION_SIGNALS = 1
 MAX_OBSERVATION_HISTORY = 128
 MAX_REFERENCE_CANDIDATES = 128
 MAX_REFERENCE_RELATIONS = 128
@@ -54,6 +59,7 @@ _NEWS_REFERENCE_DOMAINS = frozenset({ReferenceDomain.NEWS, ReferenceDomain.JOURN
 _LEARNING_REFERENCE_DOMAINS = frozenset(
     {ReferenceDomain.LEARNING, ReferenceDomain.INSTRUCTION}
 )
+_MUSIC_REFERENCE_DOMAINS = frozenset({ReferenceDomain.MUSIC})
 
 _SPORTS_FIELD_PREDICATES = frozenset(
     {
@@ -169,7 +175,18 @@ def _reference_slices(concept: ReferenceTypeConcept | None) -> list[str]:
         slices.append("NEWS/JOURNALISM")
     if domains & _LEARNING_REFERENCE_DOMAINS:
         slices.append("LEARNING/INSTRUCTION")
+    if domains & _MUSIC_REFERENCE_DOMAINS:
+        slices.append("MUSIC")
     return slices
+
+
+def _reference_source_allowed(
+    source_product_id: str,
+    reference_slices: list[str],
+) -> bool:
+    if source_product_id == "wikidata-json-dump":
+        return True
+    return source_product_id == "musicbrainz-core-dump" and "MUSIC" in reference_slices
 
 
 def _external_identifier_url(
@@ -183,6 +200,18 @@ def _external_identifier_url(
         except ValueError:
             return None
         return f"https://doi.org/{normalized}"
+    musicbrainz_entity = {
+        "musicbrainz-artist": "artist",
+        "musicbrainz-label": "label",
+        "musicbrainz-work": "work",
+        "musicbrainz-recording": "recording",
+        "musicbrainz-release-group": "release-group",
+        "musicbrainz-release": "release",
+    }.get(namespace.strip().lower())
+    if musicbrainz_entity is not None:
+        return f"https://musicbrainz.org/{musicbrainz_entity}/{identifier}"
+    if namespace.strip().lower() == "isrc":
+        return f"https://musicbrainz.org/isrc/{identifier}"
     return douban_jump_url(namespace, identifier, referent_kind)
 
 
@@ -524,6 +553,9 @@ def project_gold_entity(
                 "valueJson": str(field["value_json"]),
                 "qualifiersJson": str(field["qualifiers_json"]),
                 "resolutionStatus": str(field["resolution_status"]),
+                "sourceProductIds": sorted(
+                    {field_lineage_by_id[item].source_product_id for item in winner_ids}
+                ),
             }
         )
         for assertion_id in winner_ids:
@@ -715,6 +747,8 @@ def project_gold_entity(
     relation_summary = relation_summary[:MAX_RELATION_TYPES]
     relation_targets: dict[str, set[str]] = defaultdict(set)
     studio_targets: set[str] = set()
+    music_work_parent_candidates: set[str] = set()
+    music_credit_candidates: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     reference_relation_candidates: list[dict[str, Any]] = []
     for raw in value.get("relations") or []:
         relation = _dict(raw)
@@ -743,6 +777,30 @@ def project_gold_entity(
         relation_lineage_by_id = {item.assertion_id: item for item in relation_lineage}
         if set(assertion_ids) - set(relation_lineage_by_id):
             raise ValueError("Gold relation has incomplete assertion lineage")
+        has_music_authority_lineage = any(
+            _reference_source_allowed(item.source_product_id, ["MUSIC"])
+            and source_policy.source(item.source_product_id).allows(
+                CatalogSourceCapability.GOLD_PROJECTION
+            )
+            for item in relation_lineage
+        )
+        if has_music_authority_lineage and predicate == "recording_of":
+            music_work_parent_candidates.add(object_entity_key)
+        if has_music_authority_lineage and predicate == "credit":
+            role = str(qualifiers.get("role") or "UNSPECIFIED").strip().upper()
+            authority_property = str(qualifiers.get("wikidataProperty") or "").strip()
+            agent_kind = str(qualifiers.get("agentKind") or "").strip().upper()
+            if agent_kind and agent_kind not in {"PERSON", "ORGANIZATION"}:
+                raise ValueError("Music credit agentKind is invalid")
+            music_credit_candidates.setdefault(
+                (object_entity_key, role, authority_property, agent_kind),
+                {
+                    "entityKey": object_entity_key,
+                    "role": role,
+                    "authorityProperty": authority_property or None,
+                    "agentKind": agent_kind or None,
+                },
+            )
         relation_value_json = canonical_json({"objectEntityKey": object_entity_key})
         qualifiers_json = canonical_json(dict(qualifiers))
         register_reference_candidate(
@@ -779,9 +837,7 @@ def project_gold_entity(
                 }
             )
             winning_ids.add(assertion_id)
-            if item.source_product_id == "wikidata-json-dump" and source.allows(
-                CatalogSourceCapability.GOLD_PROJECTION
-            ):
+            if source.allows(CatalogSourceCapability.GOLD_PROJECTION):
                 reference_relation_candidates.append(
                     {
                         "predicate": predicate,
@@ -794,6 +850,7 @@ def project_gold_entity(
                             0,
                             len(citations) - MAX_CITATION_KEYS,
                         ),
+                        "_implementationSourceProductId": item.source_product_id,
                     }
                 )
 
@@ -1056,9 +1113,10 @@ def project_gold_entity(
             item = lineage_by_id[assertion_id]
             context = reference_candidate_context[assertion_id]
             source = source_policy.source(item.source_product_id)
-            if item.source_product_id != "wikidata-json-dump" or not source.allows(
-                CatalogSourceCapability.GOLD_PROJECTION
-            ):
+            if not _reference_source_allowed(
+                item.source_product_id,
+                reference_slices,
+            ) or not source.allows(CatalogSourceCapability.GOLD_PROJECTION):
                 continue
             citations = list(item.citation_keys)
             reference_candidates.append(
@@ -1083,6 +1141,18 @@ def project_gold_entity(
                     ),
                 }
             )
+    reference_relation_candidates = [
+        {
+            key: value
+            for key, value in candidate.items()
+            if key != "_implementationSourceProductId"
+        }
+        for candidate in reference_relation_candidates
+        if _reference_source_allowed(
+            str(candidate["_implementationSourceProductId"]),
+            reference_slices,
+        )
+    ]
     reference_relation_candidates.sort(
         key=lambda item: (
             item["predicate"],
@@ -1092,6 +1162,97 @@ def project_gold_entity(
     )
     if not contributes_reference_slice:
         reference_relation_candidates = []
+    is_music = "MUSIC" in domains
+    music_work_parent_keys = sorted(music_work_parent_candidates) if is_music else []
+    music_credits = (
+        [music_credit_candidates[key] for key in sorted(music_credit_candidates)]
+        if is_music
+        else []
+    )
+    music_agent_kind = (
+        _unique_json_scalar(
+            selected_field_values["music_agent_kind"],
+            expected_type=str,
+        )
+        if is_music
+        else None
+    )
+    if music_agent_kind not in {None, "PERSON", "ORGANIZATION"}:
+        raise ValueError("Gold Music agent kind must be PERSON or ORGANIZATION")
+    music_media_objects = []
+    if is_music:
+        music_media_objects = sorted(
+            {
+                str(item["value"])
+                for item in selected_field_values["media_object"]
+                if isinstance(item["value"], str)
+                and any(
+                    _reference_source_allowed(source_product_id, ["MUSIC"])
+                    for source_product_id in item["sourceProductIds"]
+                )
+            }
+        )
+    music_variant_signals = []
+    if is_music:
+        for item in selected_field_values["media_variant"]:
+            if not any(
+                _reference_source_allowed(source_product_id, ["MUSIC"])
+                for source_product_id in item["sourceProductIds"]
+            ):
+                continue
+            qualifiers = json.loads(item["qualifiersJson"])
+            if not isinstance(qualifiers, dict):
+                raise ValueError("Music variant qualifiers must be a JSON object")
+            music_variant_signals.append(
+                {
+                    "value": str(item["value"]),
+                    "authorityProperty": (
+                        str(qualifiers["authorityProperty"])
+                        if qualifiers.get("authorityProperty")
+                        else None
+                    ),
+                    "authorityRelation": (
+                        str(qualifiers["authorityRelation"])
+                        if qualifiers.get("authorityRelation")
+                        else None
+                    ),
+                    "direction": (
+                        str(qualifiers["direction"])
+                        if qualifiers.get("direction")
+                        else None
+                    ),
+                    "targetId": (
+                        str(qualifiers["targetId"])
+                        if qualifiers.get("targetId")
+                        else None
+                    ),
+                    "targetTitle": (
+                        str(qualifiers["targetTitle"])
+                        if qualifiers.get("targetTitle")
+                        else None
+                    ),
+                }
+            )
+    music_variant_signals = sorted(
+        {canonical_json(item): item for item in music_variant_signals}.values(),
+        key=canonical_json,
+    )
+    has_recording_identifier = any(
+        item["referentKind"] == "MUSIC_RECORDING"
+        and item["namespace"]
+        in {
+            "isrc",
+            "musicbrainz-recording",
+            "wikidata-item",
+        }
+        for item in identifier_documents
+    )
+    music_exact_eligible = (
+        entity_kind == "MUSIC_RECORDING"
+        and has_recording_identifier
+        and reported_conflict_count == 0
+        and len(music_variant_signals) <= MAX_MUSIC_EXACT_AUTHORITY_RELATION_SIGNALS
+    )
     reference_candidate_overflow = max(
         0,
         len(reference_candidates) - MAX_REFERENCE_CANDIDATES,
@@ -1182,6 +1343,12 @@ def project_gold_entity(
         )[:MAX_ATTRIBUTE_VALUES],
         "studioEntityKeys": studio_keys[:MAX_ANIMATION_RELATIONS],
         "characterEntityKeys": character_keys[:MAX_ANIMATION_RELATIONS],
+        "musicAgentKind": music_agent_kind,
+        "musicExactEligible": music_exact_eligible if is_music else None,
+        "musicMediaObjects": music_media_objects[:MAX_MUSIC_MEDIA_OBJECTS],
+        "musicWorkParentEntityKeys": music_work_parent_keys[:MAX_MUSIC_WORK_PARENTS],
+        "musicCredits": music_credits[:MAX_MUSIC_CREDITS],
+        "musicVariantSignals": music_variant_signals[:MAX_MUSIC_VARIANT_SIGNALS],
         "titles": titles,
         "attributes": normalized_attributes,
         "externalIdentifiers": identifier_documents,
@@ -1219,6 +1386,22 @@ def project_gold_entity(
             "animationCharacters": max(
                 0,
                 len(character_keys) - MAX_ANIMATION_RELATIONS,
+            ),
+            "musicMediaObjects": max(
+                0,
+                len(music_media_objects) - MAX_MUSIC_MEDIA_OBJECTS,
+            ),
+            "musicWorkParents": max(
+                0,
+                len(music_work_parent_keys) - MAX_MUSIC_WORK_PARENTS,
+            ),
+            "musicCredits": max(
+                0,
+                len(music_credits) - MAX_MUSIC_CREDITS,
+            ),
+            "musicVariantSignals": max(
+                0,
+                len(music_variant_signals) - MAX_MUSIC_VARIANT_SIGNALS,
             ),
             "observationHistory": observation_overflow,
             "referenceCandidates": reference_candidate_overflow,
@@ -1384,6 +1567,50 @@ def projection_schema():
             StructField(
                 "characterEntityKeys",
                 ArrayType(string, False),
+                False,
+            ),
+            StructField("musicAgentKind", string, True),
+            StructField("musicExactEligible", BooleanType(), True),
+            StructField(
+                "musicMediaObjects",
+                ArrayType(string, False),
+                False,
+            ),
+            StructField(
+                "musicWorkParentEntityKeys",
+                ArrayType(string, False),
+                False,
+            ),
+            StructField(
+                "musicCredits",
+                ArrayType(
+                    StructType(
+                        [
+                            StructField("entityKey", string, False),
+                            StructField("role", string, False),
+                            StructField("authorityProperty", string, True),
+                            StructField("agentKind", string, True),
+                        ]
+                    ),
+                    False,
+                ),
+                False,
+            ),
+            StructField(
+                "musicVariantSignals",
+                ArrayType(
+                    StructType(
+                        [
+                            StructField("value", string, False),
+                            StructField("authorityProperty", string, True),
+                            StructField("authorityRelation", string, True),
+                            StructField("direction", string, True),
+                            StructField("targetId", string, True),
+                            StructField("targetTitle", string, True),
+                        ]
+                    ),
+                    False,
+                ),
                 False,
             ),
             StructField(
@@ -1641,6 +1868,26 @@ def projection_schema():
                         ),
                         StructField(
                             "animationCharacters",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "musicMediaObjects",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "musicWorkParents",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "musicCredits",
+                            IntegerType(),
+                            False,
+                        ),
+                        StructField(
+                            "musicVariantSignals",
                             IntegerType(),
                             False,
                         ),

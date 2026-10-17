@@ -25,6 +25,14 @@ _ALGORITHM_CONTRACT = json.loads(
         Path(__file__).parent / "fixtures" / "catalog-gold-match-algorithm.v1.json"
     ).read_text()
 )
+_ASSOCIATION_CONTRACT = json.loads(
+    (
+        Path(__file__).parents[1]
+        / "contracts"
+        / "fixtures"
+        / "research_catalog_asset_association.v1.json"
+    ).read_text()
+)
 
 
 def _manifest(
@@ -90,11 +98,45 @@ def test_parameter_package_pins_concrete_index_and_current_mapping() -> None:
     assert document["concreteIndex"] == index
     assert document["mappingDigest"] == MAPPING_DIGEST
     assert document["algorithmDigest"] == (
-        "sha256:014224280780e1ce61bb381e903b047dfa426b15d9454a25ef4f09d95caf8471"
+        "sha256:638d10b15510a0d81e224692fdd5d1b9e35112bed1de0b9f289a56f9c233116d"
     )
     assert document["algorithmId"] == "catalog-asset-match-v1"
     assert document["searchEndpoint"].endswith(".internal")
     assert document["contextId"] == "research"
+    assert "MUSIC" in document["supportedDomains"]
+    # This contract is byte-for-byte synchronized with the Compute worker.
+    assert document["musicMatchPolicy"] == {
+        "ambiguousExactCandidates": "ABSTAIN",
+        "authorityDigestRequired": True,
+        "exactIdentifierNamespaces": [
+            "isrc",
+            "iswc",
+            "musicbrainz-artist",
+            "musicbrainz-label",
+            "musicbrainz-recording",
+            "musicbrainz-release",
+            "musicbrainz-release-group",
+            "musicbrainz-work",
+            "wikidata-item",
+        ],
+        "parentConstrained": {
+            "decision": "REVIEW_ONLY",
+            "forbidStudioRecordingCollapse": True,
+            "predicates": ["recording_of"],
+            "targetEntityType": "MUSICAL_WORK",
+        },
+        "sourcePolicyDigestRequired": True,
+        "variantHandling": {
+            "authorityProfileDispositionRequired": True,
+            "decision": "REVIEW_ONLY",
+            "exactDisposition": "EXACT_RECORDING",
+            "exactEligibilityField": "musicExactEligible",
+            "maxAuthorityRelationSignalsForExact": 1,
+            "maxMediaObjectSignalsForExact": 3,
+            "signalField": "musicVariantSignals",
+        },
+        "withoutAuthorityCoordinate": "ABSTAIN",
+    }
 
 
 def test_parameter_package_rejects_alias_and_placeholder_endpoint() -> None:
@@ -119,6 +161,53 @@ def test_parameter_package_rejects_unknown_algorithm_contract() -> None:
         catalog_match_algorithm_identity(
             {**_ALGORITHM_CONTRACT, "algorithmId": "catalog-asset-match-v2"}
         )
+
+
+def test_music_match_contract_fails_closed_and_keeps_activation_disabled() -> None:
+    stale_policy = {
+        **_ALGORITHM_CONTRACT,
+        "musicMatchPolicy": {
+            **_ALGORITHM_CONTRACT["musicMatchPolicy"],
+            "ambiguousExactCandidates": "BEST_SCORE",
+        },
+    }
+    with pytest.raises(ValueError, match="fail-closed abstention"):
+        catalog_match_algorithm_identity(stale_policy)
+    missing_label = {
+        **_ALGORITHM_CONTRACT,
+        "musicMatchPolicy": {
+            **_ALGORITHM_CONTRACT["musicMatchPolicy"],
+            "exactIdentifierNamespaces": [
+                namespace
+                for namespace in _ALGORITHM_CONTRACT["musicMatchPolicy"][
+                    "exactIdentifierNamespaces"
+                ]
+                if namespace != "musicbrainz-label"
+            ],
+        },
+    }
+    with pytest.raises(ValueError, match="exact IDs"):
+        catalog_match_algorithm_identity(missing_label)
+
+    music = next(
+        item for item in _ASSOCIATION_CONTRACT["domains"] if item["domain"] == "MUSIC"
+    )
+    assert music["exactIdentifier"] == {
+        "namespace": "musicbrainz-recording",
+        "value": "9aa56ede-83be-44ea-aeb5-d61268972c53",
+    }
+    # Keep the external association fixture unchanged until Compute publishes
+    # the final variant-abstention contract and digest.
+    assert _ASSOCIATION_CONTRACT["reviewOnlyCases"] == [
+        "PARENT_CONSTRAINED",
+        "VARIANT_OR_REMIX",
+        "MULTIPLE_EXACT_CANDIDATES",
+        "GOLD_CONFLICT",
+        "EXISTING_CONFIRMED_LINK",
+    ]
+    assert all(
+        value is False for value in _ASSOCIATION_CONTRACT["closedGates"].values()
+    )
 
 
 def test_parameter_package_rejects_missing_or_stale_source_policy() -> None:

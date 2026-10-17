@@ -32,6 +32,7 @@ from video_media_catalog.temporal.models import ObjectRefPayload
 from video_media_catalog.temporal.names import (
     GOLDEN_WORKFLOW_TASK_QUEUE,
     SCHEDULE_MADB_WEEKLY,
+    SCHEDULE_MUSIC_MONTHLY,
     SCHEDULE_OPENFOOTBALL_DAILY,
     SCHEDULE_STATSBOMB_WEEKLY,
     SCHEDULE_WIKIDATA_ANIMATION_MONTHLY,
@@ -55,6 +56,7 @@ _REQUIRED_DISABLED_GATES = frozenset(
     {
         "sportsPublicationAllowed",
         "animationPublicationAllowed",
+        "musicPublicationAllowed",
         "openSearchAliasActivationAllowed",
         "cutoverAllowed",
         "liveCutoverClaimed",
@@ -119,6 +121,19 @@ _SCHEDULE_COORDINATES = {
                 ScheduleCalendarSpec(
                     day_of_month=(ScheduleRange(4),),
                     hour=(ScheduleRange(3),),
+                    minute=(ScheduleRange(10),),
+                )
+            ]
+        ),
+    ),
+    SCHEDULE_MUSIC_MONTHLY: (
+        "MUSIC",
+        ("musicbrainz-core-dump", "wikidata-json-dump"),
+        ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    day_of_month=(ScheduleRange(5),),
+                    hour=(ScheduleRange(1),),
                     minute=(ScheduleRange(10),),
                 )
             ]
@@ -385,28 +400,40 @@ def _load_schedules(
         for schedule_id, value in payload["schedules"].items()
     }
     if set(schedules) != set(_SCHEDULE_COORDINATES):
-        raise ValueError("research domain config must define all seven schedules")
+        raise ValueError("research domain config must define all eight schedules")
     for schedule_id, input_data in schedules.items():
-        expected_domain, expected_source, _spec = _SCHEDULE_COORDINATES[schedule_id]
-        if input_data.domain != expected_domain or len(input_data.sources) != 1:
-            raise ValueError(f"{schedule_id} must contain one expected domain source")
-        if input_data.sources[0].source_product_id != expected_source:
+        expected_domain, raw_expected_sources, _spec = _SCHEDULE_COORDINATES[
+            schedule_id
+        ]
+        expected_sources = (
+            raw_expected_sources
+            if isinstance(raw_expected_sources, tuple)
+            else (raw_expected_sources,)
+        )
+        actual_sources = tuple(
+            source.source_product_id for source in input_data.sources
+        )
+        if input_data.domain != expected_domain or actual_sources != expected_sources:
             raise ValueError(f"{schedule_id} source product mismatch")
-        if expected_domain in {"NEWS", "LEARNING"} and (
-            not input_data.sources[0].identity_spine
-            or input_data.sources[0].materialization
-            or not input_data.sources[0].gold_contribution
+        if expected_domain in {"NEWS", "LEARNING", "MUSIC"} and any(
+            not source.identity_spine
+            or source.materialization
+            or not source.gold_contribution
+            for source in input_data.sources
         ):
             raise ValueError(
                 f"{schedule_id} must contribute reference-only Gold candidates"
             )
         if "${EMR_IMAGE_DIGEST}" in {
-            input_data.sources[0].env.image_digest,
+            *(source.env.image_digest for source in input_data.sources),
             input_data.golden_build.env.image_digest,
         }:
             raise ValueError("research profile contains an unbound EMR image digest")
         if emr_image_digest and (
-            input_data.sources[0].env.image_digest != emr_image_digest
+            any(
+                source.env.image_digest != emr_image_digest
+                for source in input_data.sources
+            )
             or input_data.golden_build.env.image_digest != emr_image_digest
         ):
             raise ValueError(f"{schedule_id} does not use the GitOps-pinned EMR image")

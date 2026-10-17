@@ -35,15 +35,17 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
     policy = load_catalog_source_policy(registry=build_community_registry())
 
     assert sha256_digest(canonical_json_bytes(payload)) == (
-        "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859"
+        "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018"
     )
     assert policy.digest == CATALOG_SOURCE_POLICY_DIGEST
+    assert policy.canonical_registry.registry_version == "1.4.0"
     assert {
         source.source_product_id: source.source_id for source in policy.sources
     } == {
         "eidr-public-registry": "eidr",
         "imdb-non-commercial-datasets": "imdb",
         "madb-public-data": "madb",
+        "musicbrainz-core-dump": "musicbrainz",
         "openfootball-git": "openfootball",
         "statsbomb-open-data": "statsbomb",
         "tmdb-research": "tmdb",
@@ -59,6 +61,7 @@ def test_live_permissions_are_intersected_with_technical_support() -> None:
         "eidr-public-registry",
         "imdb-non-commercial-datasets",
         "madb-public-data",
+        "musicbrainz-core-dump",
         "openfootball-git",
         "statsbomb-open-data",
         "tmdb-research",
@@ -105,10 +108,18 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         "eidr-content",
         "imdb-title",
         "madb-work",
+        "musicbrainz-artist",
+        "musicbrainz-label",
+        "musicbrainz-recording",
+        "musicbrainz-release",
+        "musicbrainz-release-group",
+        "musicbrainz-work",
         "openfootball-competition",
         "openfootball-event",
         "openfootball-team",
         "statsbomb-match",
+        "isrc",
+        "iswc",
         "tmdb-movie",
         "tmdb-tv",
         "tvmaze-show",
@@ -118,6 +129,10 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         set(policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE))
         == expected_namespaces
     )
+    label = policy.namespace("musicbrainz-label")
+    assert label.canonical.namespace == "musicbrainz.label"
+    assert label.canonical.aliases == ("musicbrainz-label",)
+    assert label.source_product_id == "musicbrainz-core-dump"
     identity_rows = exact_id_namespace_rows(
         build_community_registry(),
         allowed_namespace_ids=policy.enabled_namespace_ids(
@@ -174,6 +189,14 @@ def test_materializable_predicates_are_enforced_per_canonical_source() -> None:
     assert policy.allows_materializable_predicate(
         "madb-public-data",
         "identity.title",
+    )
+    assert policy.allows_materializable_predicate(
+        "musicbrainz-core-dump",
+        "identity.title",
+    )
+    assert not policy.allows_materializable_predicate(
+        "musicbrainz-core-dump",
+        "genre",
     )
     assert not policy.allows_materializable_predicate(
         "statsbomb-open-data",

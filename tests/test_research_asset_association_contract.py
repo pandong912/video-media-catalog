@@ -10,7 +10,7 @@ CONTRACT = (
 )
 SOURCE_FIXTURES = ROOT / "tests" / "fixtures" / "research"
 POLICY = ROOT / "contracts" / "catalog" / "catalog-source-policy.v1.json"
-CONTRACT_SHA256 = "ec6ece781406951bab3ab39c947bb06b2c9589090a546ed08e06253c5598e02b"
+CONTRACT_SHA256 = "8f3f220d682f4efd0ae27e1356e0a51dd865a6b4e6754635565bd50cfcae4aed"
 
 
 def _json(path: Path) -> dict[str, object]:
@@ -74,8 +74,23 @@ def test_contract_exact_identifiers_are_backed_by_source_fixtures_and_policy() -
     assert animation["canonicalEntityKind"] == "WORK"
     assert animation["assetRelationKind"] == "PRESENTATION_OF"
 
+    music = domains["MUSIC"]
+    music_source = _json(SOURCE_FIXTURES / music["sourceFixture"])
+    recording = next(
+        item["payload"]
+        for item in music_source["records"]
+        if item["payload"]["id"] == music["exactIdentifier"]["value"]
+    )
+    assert recording["entityType"] == "MUSIC_RECORDING"
+    assert music["exactIdentifier"]["namespace"] in namespaces
+    assert music["canonicalEntityKind"] == "MUSIC_RECORDING"
+    assert music["assetRelationKind"] == "RECORDING_OF"
+    assert "musicbrainz.label" in namespaces
+    assert "musicbrainz-label" in namespaces
+
     assert set(contract["reviewOnlyCases"]) == {
         "PARENT_CONSTRAINED",
+        "VARIANT_OR_REMIX",
         "MULTIPLE_EXACT_CANDIDATES",
         "GOLD_CONFLICT",
         "EXISTING_CONFIRMED_LINK",

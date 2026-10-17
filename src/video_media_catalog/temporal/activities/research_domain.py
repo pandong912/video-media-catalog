@@ -1,4 +1,4 @@
-"""Activities that admit immutable Sports and Animation capture manifests."""
+"""Activities that admit immutable research-domain capture manifests."""
 
 from __future__ import annotations
 

@@ -955,9 +955,19 @@ def _validate_preflight_documents(
         raise NonRetryableGoldenBuildError(
             "TMDB pipeline summary does not match the pinned 15 Silver runs"
         )
-    if set(input_data.source_watermarks) != _EXPECTED_SOURCE_PRODUCTS:
+    watermark_sources = set(input_data.source_watermarks)
+    state_sources = {
+        state.source_product_id.strip().lower()
+        for state in input_data.source_run_states
+    }
+    if not watermark_sources >= _EXPECTED_SOURCE_PRODUCTS:
         raise NonRetryableGoldenBuildError(
-            "source watermarks must contain TMDB, IMDb, TVmaze, and Wikidata"
+            "source watermarks must contain TMDB, IMDb, TVmaze, and Wikidata; "
+            "pinned research sources may add their own watermarks"
+        )
+    if watermark_sources - _EXPECTED_SOURCE_PRODUCTS - state_sources:
+        raise NonRetryableGoldenBuildError(
+            "additional source watermarks require an explicit source run state"
         )
     override = input_data.freshness_override
     reason = override.reason.strip()
@@ -1074,6 +1084,7 @@ def _validate_preflight_documents(
                 for state in source_run_states
                 if state.identity_spine
                 for run_id in state.run_ids
+                if run_id not in baseline_identity_sources
             )
         )
         if not expected_identity_runs:
@@ -2348,10 +2359,21 @@ def _validate_release_documents(
         raise NonRetryableGoldenBuildError(
             "Gold release plan differs from the verified release evidence"
         )
-    reference_domains = {"NEWS", "JOURNALISM", "LEARNING", "INSTRUCTION"}
+    reference_domains = {
+        "NEWS",
+        "JOURNALISM",
+        "LEARNING",
+        "INSTRUCTION",
+        "MUSIC",
+    }
     has_reference_coverage = any(
         plan.domain_coverage.get(domain, 0) > 0 for domain in reference_domains
     )
+    has_wikidata_reference_coverage = any(
+        plan.domain_coverage.get(domain, 0) > 0
+        for domain in {"NEWS", "JOURNALISM", "LEARNING", "INSTRUCTION"}
+    )
+    has_music_coverage = plan.domain_coverage.get("MUSIC", 0) > 0
     if has_reference_coverage or plan.source_snapshot_pin_ids:
         ontology = load_global_reference_ontology()
         predicates = load_research_predicate_registry()
@@ -2362,11 +2384,21 @@ def _validate_release_documents(
             raise NonRetryableGoldenBuildError(
                 "Gold release plan has unverified reference registry coordinates"
             )
-    if has_reference_coverage and not plan.source_snapshot_pin_ids.get(
+    if has_wikidata_reference_coverage and not plan.source_snapshot_pin_ids.get(
         "wikidata-json-dump"
     ):
         raise NonRetryableGoldenBuildError(
             "Gold reference coverage lacks a pinned Wikidata source snapshot"
+        )
+    if has_music_coverage and any(
+        not plan.source_snapshot_pin_ids.get(source_product_id)
+        for source_product_id in {
+            "musicbrainz-core-dump",
+            "wikidata-json-dump",
+        }
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Gold Music coverage lacks pinned MusicBrainz and Wikidata snapshots"
         )
     quality = _read_ref_json(client, quality_ref, label="Gold quality report")
     if (

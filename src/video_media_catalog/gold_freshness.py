@@ -91,8 +91,10 @@ def research_release_freshness_policy(
     tvmaze_slo_hours: int = 36,
     imdb_slo_hours: int = 10 * 24,
     wikidata_slo_hours: int = 45 * 24,
+    musicbrainz_slo_hours: int = 45 * 24,
 ) -> ReleaseFreshnessPolicy:
     return ReleaseFreshnessPolicy(
+        policy_version="1.1.0",
         requirements=(
             SourceFreshnessRequirement(
                 source_product_id="tmdb-research",
@@ -115,6 +117,11 @@ def research_release_freshness_policy(
                 slo_hours=wikidata_slo_hours,
             ),
             SourceFreshnessRequirement(
+                source_product_id="musicbrainz-core-dump",
+                required=True,
+                slo_hours=musicbrainz_slo_hours,
+            ),
+            SourceFreshnessRequirement(
                 source_product_id="eidr-public-registry",
                 required=False,
                 feed_freshness_required=False,
@@ -128,7 +135,7 @@ def research_release_freshness_policy(
                 slo_hours=None,
                 require_complete_baseline=False,
             ),
-        )
+        ),
     )
 
 

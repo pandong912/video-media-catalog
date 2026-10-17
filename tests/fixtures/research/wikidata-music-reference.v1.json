@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "video.media-catalog.reference-fixture.v1",
+  "fixtureId": "wikidata-music-reference-v1",
+  "domain": "MUSIC",
+  "sourceSystemId": "wikidata",
+  "sourceProductId": "wikidata-json-dump",
+  "connectorId": "wikidata-full-media-backfill",
+  "revisionKind": "DUMP_OBJECT",
+  "schemaId": "wikidata-global-reference-entity",
+  "sourceRevision": "wikidata-20261001-all.json.bz2",
+  "capturedAt": "2026-10-17T00:00:00Z",
+  "rawObject": {
+    "uri": "file:///tests/fixtures/research/wikidata-music-reference.v1.jsonl",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/x-ndjson",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "fdc5ced0cf3a5a08ea10f5fb1efe2ecd57a7f3e7e44bc20d52e8ad217a60adde"
+    },
+    "sizeBytes": 703
+  },
+  "imageDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "configDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "citations": [
+    {
+      "citationId": "wikidata-high-and-dry",
+      "sourceRecordId": "Q2469634",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q2469634",
+      "title": "High and Dry",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:fdc5ced0cf3a5a08ea10f5fb1efe2ecd57a7f3e7e44bc20d52e8ad217a60adde"
+    },
+    {
+      "citationId": "wikidata-parlophone",
+      "sourceRecordId": "Q208909",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q208909",
+      "title": "Parlophone",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T00:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:fdc5ced0cf3a5a08ea10f5fb1efe2ecd57a7f3e7e44bc20d52e8ad217a60adde"
+    }
+  ],
+  "records": [
+    {
+      "payload": {
+        "id": "Q2469634",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RELEASE_GROUP",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "High and Dry"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "High & Dry"
+            }
+          ]
+        },
+        "claims": {
+          "P436": [
+            {
+              "rank": "normal",
+              "mainsnak": {
+                "datavalue": {
+                  "value": "96838f33-94ec-3d55-9147-f158e2247bf3"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q44190",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER"
+            }
+          }
+        ]
+      },
+      "citationIds": ["wikidata-high-and-dry"]
+    },
+    {
+      "payload": {
+        "id": "Q208909",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_LABEL",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Parlophone"
+          }
+        },
+        "aliases": {
+          "en": []
+        },
+        "claims": {
+          "P966": [
+            {
+              "rank": "normal",
+              "mainsnak": {
+                "datavalue": {
+                  "value": "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
+                }
+              }
+            }
+          ]
+        },
+        "relations": []
+      },
+      "citationIds": ["wikidata-parlophone"]
+    }
+  ]
+}

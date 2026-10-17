@@ -1,11 +1,11 @@
 {
   "schemaVersion": "1.0",
   "registryId": "global-reference-ontology",
-  "registryVersion": "1.0.0",
+  "registryVersion": "1.4.0",
   "authority": "GLOBAL_REFERENCE_ONLY",
   "tenantWorldIdentityAuthority": false,
   "predicateRegistryId": "research-predicates",
-  "predicateRegistryVersion": "1.1.0",
+  "predicateRegistryVersion": "1.4.0",
   "rootTypes": [
     "AGENT",
     "PLACE",
@@ -22,6 +22,8 @@
     {"typeConceptId": "PLATFORM_ACCOUNT", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["GENERAL"]},
     {"typeConceptId": "INFORMATION_SOURCE", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["NEWS", "JOURNALISM"]},
     {"typeConceptId": "SPORTS_PARTICIPANT", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["SPORTS"]},
+    {"typeConceptId": "MUSIC_ARTIST", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["MUSIC"]},
+    {"typeConceptId": "MUSIC_LABEL", "conceptVersion": "1.0.0", "canonicalRoot": "AGENT", "domains": ["MUSIC"]},
 
     {"typeConceptId": "PLACE", "conceptVersion": "1.0.0", "canonicalRoot": "PLACE", "domains": ["GENERAL"]},
     {"typeConceptId": "SPORTS_VENUE", "conceptVersion": "1.0.0", "canonicalRoot": "PLACE", "domains": ["SPORTS"]},
@@ -58,6 +60,10 @@
     {"typeConceptId": "MODULE", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["LEARNING", "INSTRUCTION"]},
     {"typeConceptId": "LESSON", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["LEARNING", "INSTRUCTION"]},
     {"typeConceptId": "PROCEDURE_STEP", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["LEARNING", "INSTRUCTION"]},
+    {"typeConceptId": "MUSICAL_WORK", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["MUSIC"]},
+    {"typeConceptId": "MUSIC_RECORDING", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["MUSIC"]},
+    {"typeConceptId": "MUSIC_RELEASE_GROUP", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["MUSIC"]},
+    {"typeConceptId": "MUSIC_RELEASE", "conceptVersion": "1.0.0", "canonicalRoot": "WORK", "domains": ["MUSIC"]},
 
     {"typeConceptId": "CONCEPT", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["GENERAL"]},
     {"typeConceptId": "AVAILABILITY_OFFER", "conceptVersion": "1.0.0", "canonicalRoot": "CONCEPT", "domains": ["FILM_TV"]},

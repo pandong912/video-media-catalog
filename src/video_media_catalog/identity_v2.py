@@ -46,6 +46,12 @@ class EntityLevel(StrEnum):
     SPORTS_ENTRY = "SPORTS_ENTRY"
     SPORTS_VENUE = "SPORTS_VENUE"
     CHARACTER = "CHARACTER"
+    MUSIC_ARTIST = "MUSIC_ARTIST"
+    MUSIC_LABEL = "MUSIC_LABEL"
+    MUSICAL_WORK = "MUSICAL_WORK"
+    MUSIC_RECORDING = "MUSIC_RECORDING"
+    MUSIC_RELEASE_GROUP = "MUSIC_RELEASE_GROUP"
+    MUSIC_RELEASE = "MUSIC_RELEASE"
     NEWS_PROGRAM = "NEWS_PROGRAM"
     NEWS_EDITION = "NEWS_EDITION"
     NEWS_STORY = "NEWS_STORY"
@@ -104,6 +110,12 @@ _HIERARCHY_REFERENT_KINDS = {
     EntityLevel.SPORTS_ENTRY: {"SPORTS_ENTRY"},
     EntityLevel.SPORTS_VENUE: {"SPORTS_VENUE"},
     EntityLevel.CHARACTER: {"CHARACTER"},
+    EntityLevel.MUSIC_ARTIST: {"MUSIC_ARTIST"},
+    EntityLevel.MUSIC_LABEL: {"MUSIC_LABEL"},
+    EntityLevel.MUSICAL_WORK: {"MUSICAL_WORK"},
+    EntityLevel.MUSIC_RECORDING: {"MUSIC_RECORDING"},
+    EntityLevel.MUSIC_RELEASE_GROUP: {"MUSIC_RELEASE_GROUP"},
+    EntityLevel.MUSIC_RELEASE: {"MUSIC_RELEASE"},
 }
 
 
@@ -150,8 +162,6 @@ class ParentConstraint(V2ContractModel):
                 {require_sha256(item, label="ordinal assertion key") for item in value}
             )
         )
-        if not normalized:
-            raise ValueError("parent constraint requires ordinal assertion keys")
         return normalized
 
     @field_validator(
@@ -173,6 +183,15 @@ class ParentConstraint(V2ContractModel):
     def validate_hierarchy(self) -> Self:
         if not _node_matches_level(self.parent_source_node, self.parent_level):
             raise ValueError("parent source node is incompatible with parent level")
+        if (
+            self.child_level
+            not in {
+                EntityLevel.MUSIC_RECORDING,
+                EntityLevel.MUSIC_RELEASE,
+            }
+            and not self.ordinal_assertion_keys
+        ):
+            raise ValueError("parent constraint requires ordinal assertion keys")
         if self.child_level == EntityLevel.SEASON:
             if self.parent_level != EntityLevel.SERIES or self.season_number is None:
                 raise ValueError("season evidence requires a series and season number")
@@ -239,9 +258,23 @@ class ParentConstraint(V2ContractModel):
                 raise ValueError(
                     "sports entry participants require SPORTS_PARTICIPANT nodes"
                 )
+        elif self.child_level == EntityLevel.MUSIC_RECORDING:
+            if self.parent_level not in {
+                EntityLevel.MUSICAL_WORK,
+                EntityLevel.MUSIC_RELEASE,
+            }:
+                raise ValueError(
+                    "music recording evidence requires a work or release parent"
+                )
+        elif self.child_level == EntityLevel.MUSIC_RELEASE:
+            if self.parent_level != EntityLevel.MUSIC_RELEASE_GROUP:
+                raise ValueError(
+                    "music release evidence requires a release-group parent"
+                )
         else:
             raise ValueError(
-                "parent constraints apply only to editorial or sports hierarchy nodes"
+                "parent constraints apply only to editorial, sports, or music "
+                "hierarchy nodes"
             )
         return self
 

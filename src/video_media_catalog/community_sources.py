@@ -45,6 +45,7 @@ EIDR_EXACT_LOOKUP_CONNECTOR_ID = "eidr-discovered-id-exact-lookup"
 OPENFOOTBALL_SNAPSHOT_CONNECTOR_ID = "openfootball-git-snapshot"
 STATSBOMB_SNAPSHOT_CONNECTOR_ID = "statsbomb-open-data-snapshot"
 MADB_SNAPSHOT_CONNECTOR_ID = "madb-public-data-snapshot"
+MUSICBRAINZ_CORE_DUMP_CONNECTOR_ID = "musicbrainz-core-dump-snapshot"
 
 
 def research_source_schema_contracts() -> tuple[SchemaContract, ...]:
@@ -66,7 +67,11 @@ def research_source_schema_contracts() -> tuple[SchemaContract, ...]:
             SchemaCompatibility.ADDITIVE,
             {
                 "required": ["id", "researchDomain", "entityTypeHint"],
-                "profiles": ["news-journalism", "learning-instruction"],
+                "profiles": [
+                    "news-journalism",
+                    "learning-instruction",
+                    "music",
+                ],
             },
         ),
         (
@@ -94,6 +99,25 @@ def research_source_schema_contracts() -> tuple[SchemaContract, ...]:
             {
                 "required": ["id", "title"],
                 "profiles": ["animation"],
+            },
+        ),
+        (
+            "musicbrainz-core-entity",
+            "application/x-ndjson",
+            SchemaCompatibility.ADDITIVE,
+            {
+                "required": ["id", "researchDomain", "entityType", "coreDataset"],
+                "profiles": ["music"],
+                "coreDataset": "MUSICBRAINZ_CORE_CC0",
+                "excluded": [
+                    "annotations",
+                    "cover-art",
+                    "genres",
+                    "live-feed",
+                    "ratings",
+                    "supplementary",
+                    "tags",
+                ],
             },
         ),
     )
@@ -144,6 +168,26 @@ def wikidata_rights_profile() -> RightsProfile:
         notes=(
             "Applies to Wikidata structured data, not linked Wikimedia Commons "
             "files or text from other Wikimedia projects."
+        ),
+    )
+
+
+def musicbrainz_core_rights_profile() -> RightsProfile:
+    return RightsProfile(
+        policy_id="musicbrainz-core-data-cc0",
+        policy_version="2026-10-17",
+        zone=PolicyZone.OPEN_CC0,
+        license_id="CC0-1.0",
+        license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        terms_url="https://musicbrainz.org/doc/About/Data_License",
+        permissions=_open_actions(),
+        audiences=("*",),
+        territories=("*",),
+        attribution_text="MusicBrainz core database contributors",
+        notes=(
+            "Offline MusicBrainz core dump only. User tags, genres, ratings, "
+            "annotations, supplementary/live feeds, and Cover Art Archive assets "
+            "are explicitly outside this profile."
         ),
     )
 
@@ -284,6 +328,12 @@ def build_community_registry() -> SourceRegistrySnapshot:
         operator="Wikimedia Foundation and Wikidata community",
         homepage="https://www.wikidata.org/",
     )
+    musicbrainz_system = SourceSystem(
+        source_system_id="musicbrainz",
+        name="MusicBrainz",
+        operator="MetaBrainz Foundation and MusicBrainz community",
+        homepage="https://musicbrainz.org/",
+    )
     eidr_system = SourceSystem(
         source_system_id="eidr",
         name="Entertainment Identifier Registry",
@@ -326,6 +376,16 @@ def build_community_registry() -> SourceRegistrySnapshot:
             "wikidata-global-reference-entity",
         ),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
+    )
+    musicbrainz_product = SourceProduct(
+        source_product_id="musicbrainz-core-dump",
+        source_system_id="musicbrainz",
+        name="MusicBrainz core database dump",
+        kind=SourceProductKind.COMMUNITY_DATABASE,
+        policy_id="musicbrainz-core-data-cc0",
+        connector_ids=(MUSICBRAINZ_CORE_DUMP_CONNECTOR_ID,),
+        schema_contract_ids=("musicbrainz-core-entity",),
+        documentation_url="https://musicbrainz.org/doc/MusicBrainz_Database/Download",
     )
     eidr_product = SourceProduct(
         source_product_id="eidr-public-registry",
@@ -379,6 +439,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         registry_id="community-catalog-bootstrap",
         source_systems=(
             wikidata_system,
+            musicbrainz_system,
             eidr_system,
             internal_system,
             tvmaze_system,
@@ -391,6 +452,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         ),
         source_products=(
             wikidata_product,
+            musicbrainz_product,
             eidr_product,
             identity_product,
             tvmaze_product,
@@ -436,9 +498,51 @@ def build_community_registry() -> SourceRegistrySnapshot:
                     "PREREQUISITE",
                     "PROCEDURE_STEP",
                     "DEMONSTRATION",
+                    "MUSIC_ARTIST",
+                    "MUSIC_LABEL",
+                    "MUSICAL_WORK",
+                    "MUSIC_RECORDING",
+                    "MUSIC_RELEASE_GROUP",
+                    "MUSIC_RELEASE",
                 ),
                 scheme_aliases=("wikidata",),
                 identifier_pattern=r"Q[1-9][0-9]*",
+            ),
+            *(
+                SourceNamespace(
+                    namespace_id=f"musicbrainz-{suffix}",
+                    source_product_id="musicbrainz-core-dump",
+                    issuer="MusicBrainz",
+                    referent_kinds=(referent_kind,),
+                    identifier_pattern=(
+                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                        r"[0-9a-f]{4}-[0-9a-f]{12}"
+                    ),
+                )
+                for suffix, referent_kind in (
+                    ("artist", "MUSIC_ARTIST"),
+                    ("label", "MUSIC_LABEL"),
+                    ("work", "MUSICAL_WORK"),
+                    ("recording", "MUSIC_RECORDING"),
+                    ("release-group", "MUSIC_RELEASE_GROUP"),
+                    ("release", "MUSIC_RELEASE"),
+                )
+            ),
+            SourceNamespace(
+                namespace_id="isrc",
+                source_product_id="musicbrainz-core-dump",
+                issuer="IFPI",
+                referent_kinds=("MUSIC_RECORDING",),
+                identifier_pattern=r"[A-Z]{2}[A-Z0-9]{3}[0-9]{7}",
+                case_sensitive=False,
+            ),
+            SourceNamespace(
+                namespace_id="iswc",
+                source_product_id="musicbrainz-core-dump",
+                issuer="CISAC",
+                referent_kinds=("MUSICAL_WORK",),
+                identifier_pattern=r"T-[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]",
+                case_sensitive=False,
             ),
             SourceNamespace(
                 namespace_id="eidr-content",
@@ -603,6 +707,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         schema_contracts=research_source_schema_contracts(),
         rights_profiles=(
             wikidata_rights_profile(),
+            musicbrainz_core_rights_profile(),
             eidr_rights_profile(),
             internal_key_continuity_profile(),
             tvmaze_rights_profile(),

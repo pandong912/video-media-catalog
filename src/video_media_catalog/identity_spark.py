@@ -223,11 +223,13 @@ def _materialize_identity_frame(
         # DataFrame. Calling frame.rdd first can freeze an AQE-coalesced hot
         # partition and leave one Python task to spill an entire source run.
         frame = frame.repartition(checkpoint_partitions, *partition_by)
-    elif frame.rdd.getNumPartitions() < checkpoint_partitions:
-        # Several identity graph branches naturally collapse to 5-7 partitions.
-        # At production scale one such partition can spill more than an entire
-        # executor disk. Redistribute before checkpointing so all executors can
-        # share the sort and durable-write work.
+    else:
+        # Always repartition before checkpoint. Do not probe frame.rdd:
+        # EMR AQE PartialExchangeReuse + Iceberg V2 pushdown can throw
+        # NoSuchElementException: key not found: observation_key when converting
+        # a groupBy/agg plan to a Python RDD (r8m15 Identity). Under-partitioned
+        # identity branches also need redistribution so checkpoint writes do not
+        # concentrate on a few executors.
         frame = frame.repartition(checkpoint_partitions)
     materialized = None
     try:

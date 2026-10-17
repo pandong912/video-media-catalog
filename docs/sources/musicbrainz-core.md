@@ -75,6 +75,13 @@ Publication, alias activation, live cutover, reverse dual write, tenant
 canonical writes, and every World materialization/publication gate remain
 false.
 
+The production release build is pinned to one reviewed Catalog source commit.
+It publishes separate Kubernetes-runtime and EMR-runtime images as
+single-platform, scan-compatible image manifests, then records their distinct
+digests, SBOMs, signatures, attestations, and zero-high/zero-critical scan
+results in immutable release evidence. A failed build phase cannot reuse an
+older image tag during receipt generation.
+
 ## Offline verification fixture
 
 `tools/capture_music_pilot_reference.py` performs a read-only, rate-limited

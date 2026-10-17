@@ -68,10 +68,10 @@ jobs:
             tag_prefix: emr-sha
             release_prefix: emr-
             artifact: video-media-catalog-emr
-            # Private EMR base mirror digest was GC/missing; use the pinned
-            # public EMR Serverless base (same digest as Dockerfile.emr default).
+            # Avoid public.ecr.aws rate limits with the immutable private
+            # bootstrap built from the pinned EMR Serverless 7.10 base.
             build_args: >-
-              EMR_BASE_IMAGE=public.ecr.aws/emr-serverless/spark/emr-7.10.0@sha256:c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46
+              EMR_BASE_IMAGE=209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:4d1a8e496e57d4352530ef69835c744489f64d0727c0284a72ae6b9f8f0c113e
     env:
       ECR_REPOSITORY: ${{ matrix.repository }}
     steps:
@@ -223,7 +223,7 @@ jobs:
           # Same private EMR base used by Dockerfile.emr build-args. When AWS
           # Basic Scanning FAILS because the EMR image exceeds inventory limits,
           # Trivy must not introduce CRITICAL findings beyond this baseline.
-          EMR_SCAN_BASELINE_REF: public.ecr.aws/emr-serverless/spark/emr-7.10.0@sha256:c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46
+          EMR_SCAN_BASELINE_REF: 209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:4d1a8e496e57d4352530ef69835c744489f64d0727c0284a72ae6b9f8f0c113e
         run: |
           set -euo pipefail
           status=

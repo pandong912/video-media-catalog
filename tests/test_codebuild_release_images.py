@@ -1,7 +1,11 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EMR_BASE_IMAGE = (
+PRIVATE_EMR_BASE_IMAGE = (
+    "209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@sha256:"
+    "4d1a8e496e57d4352530ef69835c744489f64d0727c0284a72ae6b9f8f0c113e"
+)
+PUBLIC_EMR_BASE_IMAGE = (
     "public.ecr.aws/emr-serverless/spark/emr-7.10.0@sha256:"
     "c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46"
 )
@@ -22,7 +26,7 @@ def test_release_buildspec_signs_both_runtime_images_from_immutable_source() -> 
     assert "cosign verify-attestation" in contract
     assert '"${GRYPE_VERSION:?}" "${GRYPE_SHA256:?}"' in contract
     assert '"${EMR_BASE_IMAGE:?}"' in contract
-    assert EMR_BASE_IMAGE in contract
+    assert PRIVATE_EMR_BASE_IMAGE in contract
     assert "exceeds the maximum supported with Basic Scanning" in contract
     assert "scanner=grype-differential" in contract
     assert 'test "$new_critical" = 0' in contract
@@ -34,5 +38,5 @@ def test_release_buildspec_signs_both_runtime_images_from_immutable_source() -> 
 def test_emr_image_pins_the_scanned_managed_base() -> None:
     dockerfile = (ROOT / "Dockerfile.emr").read_text()
 
-    assert EMR_BASE_IMAGE in dockerfile
+    assert PUBLIC_EMR_BASE_IMAGE in dockerfile
     assert "FROM ${EMR_BASE_IMAGE}" in dockerfile

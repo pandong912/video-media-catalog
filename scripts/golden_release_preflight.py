@@ -25,6 +25,8 @@ from video_media_catalog.temporal.activities.golden import (
     _incremental_identity_source_run_ids,
     _read_ref_json,
     _validate_preflight_documents,
+    _validated_reused_identity_policy_compatibility,
+    _validated_reused_identity_run_id,
 )
 from video_media_catalog.temporal.golden_admin_cli import _input_from_mapping
 
@@ -209,16 +211,25 @@ def evaluate_values(
                 raise ValueError(
                     "identitySummary.sourcePolicyDigest must be a sha256 digest"
                 )
-            if receipt_digest.lower() != CATALOG_SOURCE_POLICY_DIGEST.lower():
-                raise ValueError(
-                    "identitySummary.sourcePolicyDigest differs from "
-                    f"CATALOG_SOURCE_POLICY_DIGEST ({CATALOG_SOURCE_POLICY_DIGEST})"
-                )
+            _, commit_bound_run_correction = _validated_reused_identity_run_id(
+                receipt,
+                summary,
+            )
+            compatibility_target = _validated_reused_identity_policy_compatibility(
+                receipt,
+                source_digest=receipt_digest,
+                target_digest=CATALOG_SOURCE_POLICY_DIGEST,
+                commit_bound_run_correction=commit_bound_run_correction,
+            )
             checks.append(
                 CheckResult(
                     name="identityReuse.sourcePolicyDigest",
                     passed=True,
-                    detail=receipt_digest,
+                    detail=(
+                        receipt_digest
+                        if compatibility_target is None
+                        else f"{receipt_digest} -> {compatibility_target}"
+                    ),
                 )
             )
         except Exception as exc:

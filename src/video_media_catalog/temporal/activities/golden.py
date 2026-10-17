@@ -18,6 +18,7 @@ from video_media_catalog.canonical import canonical_json_bytes
 from video_media_catalog.catalog_source_policy import (
     CatalogSourceCapability,
     CatalogSourcePolicy,
+    identity_source_policy_added_products,
     load_catalog_source_policy,
 )
 from video_media_catalog.community_ingest import (
@@ -1261,6 +1262,52 @@ def _validated_reused_identity_run_id(
     return commit.run_id, True
 
 
+def _validated_reused_identity_policy_compatibility(
+    payload: dict[str, Any],
+    *,
+    source_digest: str,
+    target_digest: str,
+    commit_bound_run_correction: bool,
+) -> str | None:
+    raw_compatibility = payload.get("sourcePolicyCompatibility")
+    if source_digest == target_digest:
+        if raw_compatibility is not None:
+            raise NonRetryableGoldenBuildError(
+                "Identity reuse policy compatibility is unnecessary"
+            )
+        return None
+    if not commit_bound_run_correction:
+        raise NonRetryableGoldenBuildError(
+            "cross-policy Identity reuse requires commit-bound run evidence"
+        )
+    if not isinstance(raw_compatibility, dict):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse lacks sourcePolicyCompatibility evidence"
+        )
+    try:
+        added_products = identity_source_policy_added_products(
+            source_digest,
+            target_digest,
+        )
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(
+            "reused Identity source policy is not an approved additive predecessor"
+        ) from exc
+    raw_added_products = raw_compatibility.get("addedSourceProductIds")
+    if (
+        raw_compatibility.get("mode") != "ADDITIVE_SOURCE_EXTENSION"
+        or raw_compatibility.get("sourceDigest") != source_digest
+        or raw_compatibility.get("targetDigest") != target_digest
+        or not isinstance(raw_added_products, list)
+        or tuple(sorted({str(value) for value in raw_added_products})) != added_products
+        or len(raw_added_products) != len(added_products)
+    ):
+        raise NonRetryableGoldenBuildError(
+            "Identity reuse sourcePolicyCompatibility evidence is invalid"
+        )
+    return target_digest
+
+
 def _validated_reused_identity(
     input_data: GoldenBuildInput,
     preflight: GoldenPreflightResult,
@@ -1399,21 +1446,19 @@ def _validated_reused_identity(
         raise NonRetryableGoldenBuildError(
             "reused Identity sourcePolicyDigest differs between summary and EMR job"
         )
-    # Gold release fail-closes unless Identity binds the current Catalog source
-    # policy. Cross-digest reuse burns a full EMR release before that check.
-    if bool(source_policy_digest) and summary_policy_digest != source_policy_digest:
+    if bool(source_policy_digest) and summary_policy_digest is None:
         raise NonRetryableGoldenBuildError(
-            "reused Identity sourcePolicyDigest differs from the current Catalog "
-            "source policy"
+            "reused Identity summary lacks sourcePolicyDigest"
         )
-    if (
-        bool(source_policy_digest)
-        and job_policy_digests
-        and job_policy_digests[0] != source_policy_digest
-    ):
-        raise NonRetryableGoldenBuildError(
-            "reused Identity EMR --source-policy-digest differs from the current "
-            "Catalog source policy"
+    source_policy_compatibility_target_digest = None
+    if source_policy_digest and summary_policy_digest:
+        source_policy_compatibility_target_digest = (
+            _validated_reused_identity_policy_compatibility(
+                payload,
+                source_digest=summary_policy_digest,
+                target_digest=source_policy_digest,
+                commit_bound_run_correction=commit_bound_run_correction,
+            )
         )
     job_runtime = _single_argument(arguments, "--config-digest")
     if summary.get("configDigest") != resolution.bind_runtime_config(job_runtime):
@@ -1511,6 +1556,9 @@ def _validated_reused_identity(
         },
         job_run_id=job_run_id,
         source_policy_digest=str(summary_policy_digest or source_policy_digest),
+        source_policy_compatibility_target_digest=(
+            source_policy_compatibility_target_digest
+        ),
     )
 
 
@@ -2640,11 +2688,27 @@ def submit_golden_release(
                 "Catalog source policy digest differs from Golden preflight; "
                 "refusing to start Gold EMR"
             )
+        compatible_identity_source_policy_digest = None
         if identity.source_policy_digest != preflight.source_policy_digest:
-            raise NonRetryableGoldenBuildError(
-                "Identity source_policy_digest differs from Golden preflight; "
-                "refusing to start Gold EMR"
-            )
+            if (
+                identity.source_policy_compatibility_target_digest
+                != preflight.source_policy_digest
+            ):
+                raise NonRetryableGoldenBuildError(
+                    "Identity source_policy_digest differs from Golden preflight; "
+                    "refusing to start Gold EMR"
+                )
+            try:
+                identity_source_policy_added_products(
+                    identity.source_policy_digest,
+                    preflight.source_policy_digest,
+                )
+            except ValueError as exc:
+                raise NonRetryableGoldenBuildError(
+                    "Identity source policy compatibility is no longer approved; "
+                    "refusing to start Gold EMR"
+                ) from exc
+            compatible_identity_source_policy_digest = identity.source_policy_digest
         args = [
             *_object_args("silver-snapshot", epoch.epoch),
             "--silver-snapshot-media-type",
@@ -2693,6 +2757,13 @@ def submit_golden_release(
             "--s3-credentials-provider",
             "default",
         ]
+        if compatible_identity_source_policy_digest is not None:
+            args.extend(
+                [
+                    "--compatible-identity-source-policy-digest",
+                    compatible_identity_source_policy_digest,
+                ]
+            )
         summary, job_run_id = _run_emr_stage(
             input_data=input_data,
             stage="release",
@@ -2845,6 +2916,10 @@ def write_golden_build_summary(
                 "tableCounts": result.identity.table_counts,
                 "tableSnapshotIds": result.identity.table_snapshot_ids,
                 "jobRunId": result.identity.job_run_id,
+                "sourcePolicyDigest": result.identity.source_policy_digest,
+                "sourcePolicyCompatibilityTargetDigest": (
+                    result.identity.source_policy_compatibility_target_digest
+                ),
             },
             "epoch": {
                 "epochId": result.epoch.epoch_id,

@@ -148,6 +148,7 @@ class GoldenIdentityResult:
     table_snapshot_ids: dict[str, int | None]
     job_run_id: str
     source_policy_digest: str
+    source_policy_compatibility_target_digest: str | None = None
 
 
 @dataclass(frozen=True)

@@ -14,11 +14,23 @@ from urllib.parse import urlsplit
 from pydantic import Field, field_validator, model_validator
 
 from video_media_catalog.canonical import canonical_json_bytes, sha256_digest
-from video_media_catalog.v2_contracts import V2ContractModel, require_slug
+from video_media_catalog.v2_contracts import (
+    V2ContractModel,
+    require_sha256,
+    require_slug,
+)
 
 CATALOG_SOURCE_POLICY_SCHEMA_VERSION = "video.world.catalog-source-policy-registry.v1"
 CATALOG_SOURCE_POLICY_DIGEST = (
     "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018"
+)
+_IDENTITY_SOURCE_POLICY_ADDITIVE_COMPATIBILITY = MappingProxyType(
+    {
+        (
+            "sha256:f752400d08b822099c77c489d605b21fb72b4b9b325c6bcce681ac31a361c859",
+            CATALOG_SOURCE_POLICY_DIGEST,
+        ): ("musicbrainz-core-dump",),
+    }
 )
 _REQUIRED_CANONICAL_SOURCE_IDS = frozenset(
     {
@@ -44,6 +56,25 @@ _EXPECTED_IMPLEMENTATION_SOURCE_MAP = {
     "statsbomb-open-data": "statsbomb",
     "madb-public-data": "madb",
 }
+
+
+def identity_source_policy_added_products(
+    source_digest: str,
+    target_digest: str,
+) -> tuple[str, ...]:
+    """Return products added by one explicitly reviewed additive policy upgrade."""
+    pair = (
+        require_sha256(source_digest, label="Identity source policy digest"),
+        require_sha256(target_digest, label="target source policy digest"),
+    )
+    try:
+        return _IDENTITY_SOURCE_POLICY_ADDITIVE_COMPATIBILITY[pair]
+    except KeyError as exc:
+        raise ValueError(
+            "Identity source policy is not an approved additive predecessor"
+        ) from exc
+
+
 _TOKEN = re.compile(r"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$")
 _SEMVER = re.compile(r"^[1-9][0-9]*\.[0-9]+\.[0-9]+$")
 

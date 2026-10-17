@@ -1009,9 +1009,7 @@ def _validate_request_shape(
             "bulkChunkSize",
             "bulkMaxChunkBytes",
         }
-        or not str(projection.get("projectionId") or "").startswith(
-            "music-reference-"
-        )
+        or not str(projection.get("projectionId") or "").startswith("music-reference-")
         or projection.get("shards") != 6
         or projection.get("replicas") != 1
         or projection.get("bulkChunkSize") != 500

@@ -299,9 +299,9 @@ The active research index family is:
 - versioned indexes: `media-catalog-research-<build-id>`;
 - read alias: `media-catalog-research-read`;
 - document ID: internal `entityKey`;
-- mapping: strict, projectionVersion `10`, and digest bound;
+- mapping: strict, projectionVersion `12`, and digest bound;
 - mapping digest:
-  `sha256:dc7e8382ee3a43731a2fc9242639d7c001d29c04d2498b2a1d6ec3cfd247ec16`;
+  `sha256:f7b6e0b42f1daee66aa522faee88f8912f489410a53cc5d9ca856e88d93e416a`;
 - source: one immutable Gold release commit and its exact table snapshots.
 
 The default and authoritative publication path is a full rebuild into a new
@@ -337,12 +337,20 @@ from rights-filtered Gold relation rows. A missing, ambiguous, malformed, or
 over-bound hierarchy remains null. Episode-to-series traversal requires both a
 unique episode-to-season edge and a unique season-to-series edge.
 
-Projection v10 also carries `canonicalSubjectRoot`, versioned `typeConcepts`,
+Projection v12 also carries `canonicalSubjectRoot`, versioned `typeConcepts`,
 `referenceSlices`, `authorityScope`, and the exact reference capabilities.
 Bounded `referenceCandidates` retain assertion/source/citation/observed and
 valid-time provenance, while bounded `referenceRelations` retain relation
 targets and citations. Candidate string values are searchable; no candidate
 becomes a tenant canonical fact through this projection.
+
+For Music, v12 derives bounded `musicAgentKind`, `musicExactEligible`,
+`musicMediaObjects`, `musicWorkParentEntityKeys`, `musicCredits`, and
+`musicVariantSignals` from the same generic Gold assertions. Wikidata `P51`
+media objects remain separate from explicit MusicBrainz variant relations.
+Exact eligibility fails closed on Gold conflicts and over-bound variant
+evidence; the validated Music profile remains an additional required authority
+gate.
 
 All serving `sourceProductId` values are canonical source IDs (`wikidata`,
 `eidr`, `imdb`, `tvmaze`, or `tmdb`), even though the field name is retained
@@ -378,11 +386,11 @@ live Douban identifier until a reviewed canonical policy grants it.
 Release commit, index config digest, and index build manifest bind the exact
 research release identity, including `sourcePolicyDigest`. Whole-index
 validation requires every document to carry that release and policy digest.
-Legacy release/manifests without the field remain parseable, but projection v10
+Legacy release/manifests without the field remain parseable, but projection v12
 refuses to build, validate, or promote them; they cannot be relabeled with the
 current policy digest. A release must be rebuilt under the current canonical
 policy. Catalog Gold match-parameter publication likewise requires both the
-current projection-v10 mapping digest and the canonical `sourcePolicyDigest`;
+current projection-v12 mapping digest and the canonical `sourcePolicyDigest`;
 missing or stale manifests cannot publish parameters.
 The batch indexer publishes only the fixed `media-catalog-research-read` alias.
 HTTP serving is outside this repository.

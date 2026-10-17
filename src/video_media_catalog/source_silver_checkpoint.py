@@ -115,7 +115,7 @@ _DEFAULT_MAPPER_IDENTITIES = {
     ),
     "musicbrainz-core-dump": SourceSilverMapperIdentity(
         mapper_id="musicbrainz-core-source-mapper",
-        mapper_version="1.1.0",
+        mapper_version="1.3.0",
     ),
     "tmdb-research": SourceSilverMapperIdentity(
         mapper_id="tmdb-research-mapper",
@@ -135,7 +135,7 @@ _DEFAULT_MAPPER_IDENTITIES = {
     ),
     "wikidata-json-dump": SourceSilverMapperIdentity(
         mapper_id="wikidata-research-dispatcher",
-        mapper_version="2.1.0",
+        mapper_version="2.2.0",
     ),
 }
 

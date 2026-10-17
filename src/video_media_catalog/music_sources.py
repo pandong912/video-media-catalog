@@ -21,9 +21,9 @@ from video_media_catalog.reference_ontology import (
 from video_media_catalog.source_mapper import AssertionBuilder, MappedAssertions
 
 MUSICBRAINZ_CORE_MAPPER_ID = "musicbrainz-core-source-mapper"
-MUSICBRAINZ_CORE_MAPPER_VERSION = "1.1.0"
+MUSICBRAINZ_CORE_MAPPER_VERSION = "1.3.0"
 WIKIDATA_MUSIC_MAPPER_ID = "wikidata-music-source-mapper"
-WIKIDATA_MUSIC_MAPPER_VERSION = "1.1.0"
+WIKIDATA_MUSIC_MAPPER_VERSION = "1.3.0"
 MUSICBRAINZ_CORE_SCHEMA_ID = "musicbrainz-core-entity"
 MUSICBRAINZ_CORE_DATASET = "MUSICBRAINZ_CORE_CC0"
 
@@ -83,6 +83,20 @@ _WIKIDATA_IDENTIFIER_PROPERTIES = {
     "P5813": ("musicbrainz-release", "MUSIC_RELEASE", _MBID),
     "P1243": ("isrc", "MUSIC_RECORDING", _ISRC),
     "P1827": ("iswc", "MUSICAL_WORK", _ISWC),
+}
+_MUSIC_AGENT_KINDS = frozenset({"PERSON", "ORGANIZATION"})
+_MUSICBRAINZ_ARTIST_AGENT_KINDS = {
+    "person": "PERSON",
+    "group": "ORGANIZATION",
+    "orchestra": "ORGANIZATION",
+    "choir": "ORGANIZATION",
+}
+_WIKIDATA_AGENT_INSTANCE_KINDS = {
+    "Q5": "PERSON",
+    "Q215380": "ORGANIZATION",
+    "Q2088357": "ORGANIZATION",
+    "Q43229": "ORGANIZATION",
+    "Q4830453": "ORGANIZATION",
 }
 
 
@@ -254,6 +268,18 @@ def _add_relations(
         qualifiers = relation.get("qualifiers") or {}
         if not isinstance(qualifiers, dict):
             raise ValueError("Music relation qualifiers must be an object")
+        normalized_qualifiers = dict(qualifiers)
+        target_agent_kind = normalized_qualifiers.pop("targetAgentKind", None)
+        if target_type == "MUSIC_LABEL":
+            target_agent_kind = target_agent_kind or "ORGANIZATION"
+        if target_agent_kind is not None:
+            normalized_agent_kind = str(target_agent_kind).strip().upper()
+            if (
+                target_type not in {"MUSIC_ARTIST", "MUSIC_LABEL"}
+                or normalized_agent_kind not in _MUSIC_AGENT_KINDS
+            ):
+                raise ValueError("Music relation target agent kind is invalid")
+            normalized_qualifiers["agentKind"] = normalized_agent_kind
         builder.add_relationship(
             predicate,
             SourceNodeRef(
@@ -262,13 +288,117 @@ def _add_relations(
                 referent_kind=target_type,
             ),
             f"/relations/{index}",
-            qualifiers,
+            normalized_qualifiers,
         )
 
 
 def _musicbrainz_target_namespace(target_type: str, target_id: str) -> str:
     _normalize_mbid(target_id, label="MusicBrainz relation target")
     return musicbrainz_namespace_for_type(target_type)
+
+
+def _add_musicbrainz_recording_variants(
+    builder: AssertionBuilder,
+    payload: dict[str, Any],
+    *,
+    entity_type: str,
+) -> None:
+    variants = payload.get("recordingVariants") or []
+    if not isinstance(variants, list):
+        raise ValueError("MusicBrainz recordingVariants must be an array")
+    if variants and entity_type != "MUSIC_RECORDING":
+        raise ValueError("MusicBrainz recordingVariants require MUSIC_RECORDING")
+    for index, variant in enumerate(variants):
+        if not isinstance(variant, dict):
+            raise ValueError("MusicBrainz recording variant must be an object")
+        target_id = _normalize_mbid(
+            variant.get("targetId"),
+            label="MusicBrainz recording variant target",
+        )
+        relation_type = str(variant.get("relationType") or "").strip().lower()
+        direction = str(variant.get("direction") or "").strip().lower()
+        target_title = str(variant.get("title") or "").strip()
+        if not relation_type or direction not in {"forward", "backward"}:
+            raise ValueError("MusicBrainz recording variant relation is invalid")
+        builder.add_field(
+            "media_variant",
+            ValueType.STRING,
+            relation_type,
+            f"/recordingVariants/{index}/relationType",
+            {
+                "authorityRelation": relation_type,
+                "direction": direction,
+                "targetId": target_id,
+                **({"targetTitle": target_title} if target_title else {}),
+            },
+        )
+
+
+def _wikidata_claim_item_ids(
+    payload: dict[str, Any],
+    property_id: str,
+) -> tuple[str, ...]:
+    claims = payload.get("claims")
+    if not isinstance(claims, dict) or not isinstance(claims.get(property_id), list):
+        return ()
+    values = []
+    for statement in claims[property_id]:
+        if not isinstance(statement, dict) or statement.get("rank") == "deprecated":
+            continue
+        mainsnak = statement.get("mainsnak")
+        datavalue = mainsnak.get("datavalue") if isinstance(mainsnak, dict) else None
+        value = datavalue.get("value") if isinstance(datavalue, dict) else None
+        qid = value.get("id") if isinstance(value, dict) else None
+        if isinstance(qid, str) and _QID.fullmatch(qid):
+            values.append(qid)
+    return tuple(values)
+
+
+def _add_music_agent_kind(
+    builder: AssertionBuilder,
+    payload: dict[str, Any],
+    *,
+    entity_type: str,
+    source_system: str,
+) -> None:
+    if entity_type not in {"MUSIC_ARTIST", "MUSIC_LABEL"}:
+        return
+    explicit = payload.get("agentKind")
+    explicit_kind = str(explicit or "").strip().upper() or None
+    if explicit_kind is not None and explicit_kind not in _MUSIC_AGENT_KINDS:
+        raise ValueError("Music agentKind must be PERSON or ORGANIZATION")
+    if entity_type == "MUSIC_LABEL":
+        derived_kind = "ORGANIZATION"
+        source_path = "/entityType"
+    elif source_system == "musicbrainz":
+        artist_type = str(payload.get("musicBrainzArtistType") or "").strip().lower()
+        derived_kind = _MUSICBRAINZ_ARTIST_AGENT_KINDS.get(artist_type)
+        source_path = "/musicBrainzArtistType"
+    else:
+        derived = {
+            kind
+            for qid in _wikidata_claim_item_ids(payload, "P31")
+            if (kind := _WIKIDATA_AGENT_INSTANCE_KINDS.get(qid)) is not None
+        }
+        if len(derived) > 1:
+            raise ValueError("Wikidata Music artist has conflicting concrete kinds")
+        derived_kind = next(iter(derived), None)
+        source_path = "/claims/P31"
+    if (
+        explicit_kind is not None
+        and derived_kind is not None
+        and explicit_kind != derived_kind
+    ):
+        raise ValueError("Music agentKind differs from authority type evidence")
+    selected = derived_kind or explicit_kind
+    if selected is not None:
+        builder.add_field(
+            "music_agent_kind",
+            ValueType.STRING,
+            selected,
+            source_path if derived_kind is not None else "/agentKind",
+            {"musicRole": entity_type},
+        )
 
 
 def map_musicbrainz_core_record(
@@ -305,6 +435,12 @@ def map_musicbrainz_core_record(
     builder.add_identifier(namespace_id, mbid, "MusicBrainz", entity_type, "/id")
     builder.add_entity_type(entity_type, "/entityType")
     _add_titles(builder, payload)
+    _add_music_agent_kind(
+        builder,
+        payload,
+        entity_type=entity_type,
+        source_system="musicbrainz",
+    )
 
     isrcs = payload.get("isrcs") or []
     if isrcs and entity_type != "MUSIC_RECORDING":
@@ -344,6 +480,11 @@ def map_musicbrainz_core_record(
         payload,
         target_namespace=_musicbrainz_target_namespace,
     )
+    _add_musicbrainz_recording_variants(
+        builder,
+        payload,
+        entity_type=entity_type,
+    )
     return builder.build()
 
 
@@ -364,6 +505,28 @@ def _wikidata_claim_values(
         if isinstance(value, str):
             values.append(value)
     return tuple(values)
+
+
+def _add_wikidata_media_objects(
+    builder: AssertionBuilder,
+    payload: dict[str, Any],
+    *,
+    entity_type: str,
+) -> None:
+    values = _wikidata_claim_values(payload, "P51")
+    if entity_type != "MUSIC_RECORDING":
+        return
+    for index, raw in enumerate(values):
+        value = raw.strip()
+        if not value:
+            raise ValueError("Wikidata P51 media object must be non-empty")
+        builder.add_field(
+            "media_object",
+            ValueType.STRING,
+            value,
+            f"/claims/P51/{index}/mainsnak/datavalue/value",
+            {"authorityProperty": "P51"},
+        )
 
 
 def map_wikidata_music_record(
@@ -396,6 +559,12 @@ def map_wikidata_music_record(
     builder.add_identifier("wikidata-item", qid, "Wikidata", entity_type, "/id")
     builder.add_entity_type(entity_type, "/entityTypeHint")
     _add_titles(builder, payload)
+    _add_music_agent_kind(
+        builder,
+        payload,
+        entity_type=entity_type,
+        source_system="wikidata",
+    )
     for property_id, (
         namespace_id,
         referent_kind,
@@ -429,6 +598,11 @@ def map_wikidata_music_record(
         builder,
         payload,
         target_namespace=_wikidata_target_namespace,
+    )
+    _add_wikidata_media_objects(
+        builder,
+        payload,
+        entity_type=entity_type,
     )
     return builder.build()
 

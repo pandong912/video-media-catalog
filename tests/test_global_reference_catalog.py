@@ -343,17 +343,17 @@ def test_reference_ontology_has_terminal_roots_and_versioned_concepts() -> None:
     predicates = load_research_predicate_registry()
 
     assert set(ontology.root_types) == set(CanonicalSubjectRoot)
-    assert ontology.registry_version == "1.2.0"
+    assert ontology.registry_version == "1.4.0"
     assert ontology.digest == (
-        "sha256:8f82f8998ac3b915340860b6b08d86d053b1257c72a9f49d6d7b6c19d944e584"
+        "sha256:6f605eea9acfe9365ada11c45e350a29851f11f613a45f07cc0897ecee000b90"
     )
-    assert predicates.registry_version == "1.2.0"
+    assert predicates.registry_version == "1.4.0"
     assert predicates.digest == (
-        "sha256:d8942df842d6bb3947f65a6398f5635ccc53b2efd38b2fb970e8a5c53901c927"
+        "sha256:c803567e0e0b9ba1b2f1cd4daa6750792c0bc1fc88cca8e2bcffd4216b916588"
     )
-    assert research_policy().policy_version == "2.5.0"
+    assert research_policy().policy_version == "2.7.0"
     assert research_policy().digest == (
-        "sha256:8b45e7b676f20a1b11e3a5c00b30cf8bed43c5a98dd6a0c39f33f9a42555a1cb"
+        "sha256:3e1ba89f63bc3d9eaaaddb6d3acc307c6db45c116c82a8445c8ea07d3641c590"
     )
     assert ontology.authority == "GLOBAL_REFERENCE_ONLY"
     assert ontology.tenant_world_identity_authority is False
@@ -392,6 +392,11 @@ def test_reference_ontology_has_terminal_roots_and_versioned_concepts() -> None:
     )
     assert predicates.definition_for("recording_of").domains == (ResearchDomain.MUSIC,)
     assert predicates.definition_for("credit").domains == (ResearchDomain.MUSIC,)
+    assert predicates.definition_for("media_variant").domains == (ResearchDomain.MUSIC,)
+    assert predicates.definition_for("media_object").domains == (ResearchDomain.MUSIC,)
+    assert predicates.definition_for("music_agent_kind").domains == (
+        ResearchDomain.MUSIC,
+    )
     assert ontology.root_for("MUSIC_ARTIST") == CanonicalSubjectRoot.AGENT
     assert ontology.root_for("MUSIC_LABEL") == CanonicalSubjectRoot.AGENT
 
@@ -402,12 +407,21 @@ def test_pinned_reference_fixtures_are_deterministic_and_cited() -> None:
         "wikidata-learning-reference.v1.json",
         "musicbrainz-music-reference.v1.json",
         "wikidata-music-reference.v1.json",
+        "musicbrainz-music-pilot.v1.json",
+        "wikidata-music-pilot.v1.json",
     )
     materialized = tuple(_fixture(name) for name in names)
     replayed = tuple(_fixture(name) for name in names)
 
     assert materialized == replayed
-    assert [len(item.captured.envelopes) for item in materialized] == [7, 8, 6, 2]
+    assert [len(item.captured.envelopes) for item in materialized] == [
+        7,
+        8,
+        6,
+        2,
+        42,
+        41,
+    ]
     assert all(
         envelope.citation_keys
         for item in materialized
@@ -719,6 +733,28 @@ def test_reference_slices_contribute_bounded_search_candidates(
     assert "worldPublication" not in document
 
 
+def test_music_artist_projection_preserves_concrete_agent_kind() -> None:
+    person = project_gold_entity(
+        _projection_row(
+            entity_kind="MUSIC_ARTIST",
+            predicate="music_agent_kind",
+            text="PERSON",
+        )
+    )
+    organization = project_gold_entity(
+        _projection_row(
+            entity_kind="MUSIC_ARTIST",
+            predicate="music_agent_kind",
+            text="ORGANIZATION",
+        )
+    )
+
+    assert person["entityKind"] == organization["entityKind"] == "MUSIC_ARTIST"
+    assert person["canonicalSubjectRoot"] == "AGENT"
+    assert person["musicAgentKind"] == "PERSON"
+    assert organization["musicAgentKind"] == "ORGANIZATION"
+
+
 def test_learning_objective_set_union_keeps_all_values() -> None:
     citation = "sha256:" + ("3" * 64)
     payload = {
@@ -804,8 +840,8 @@ def test_reference_release_is_deterministic_validated_and_world_write_free(
 ) -> None:
     news = _fixture("wikidata-news-reference.v1.json")
     learning = _fixture("wikidata-learning-reference.v1.json")
-    musicbrainz_music = _fixture("musicbrainz-music-reference.v1.json")
-    wikidata_music = _fixture("wikidata-music-reference.v1.json")
+    musicbrainz_music = _fixture("musicbrainz-music-pilot.v1.json")
+    wikidata_music = _fixture("wikidata-music-pilot.v1.json")
     source_policy = load_catalog_source_policy()
     ontology = load_global_reference_ontology()
     predicates = load_research_predicate_registry()

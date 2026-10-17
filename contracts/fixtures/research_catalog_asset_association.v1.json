@@ -60,11 +60,11 @@
     },
     {
       "domain": "MUSIC",
-      "sourceFixture": "musicbrainz-music-reference.v1.json",
+      "sourceFixture": "musicbrainz-music-pilot.v1.json",
       "entityKey": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
       "exactIdentifier": {
-        "namespace": "isrc",
-        "value": "GBAYE9400055"
+        "namespace": "musicbrainz-recording",
+        "value": "9aa56ede-83be-44ea-aeb5-d61268972c53"
       },
       "canonicalEntityKind": "MUSIC_RECORDING",
       "assetRelationKind": "RECORDING_OF",
@@ -74,6 +74,7 @@
   ],
   "reviewOnlyCases": [
     "PARENT_CONSTRAINED",
+    "VARIANT_OR_REMIX",
     "MULTIPLE_EXACT_CANDIDATES",
     "GOLD_CONFLICT",
     "EXISTING_CONFIRMED_LINK"

@@ -50,7 +50,7 @@ from video_media_catalog.v2_contracts import (
 
 RESEARCH_READ_ALIAS = "media-catalog-research-read"
 RESEARCH_INDEX_PREFIX = "media-catalog-research"
-PROJECTION_VERSION = "10"
+PROJECTION_VERSION = "12"
 DEFAULT_GOLD_BULK_PARTITIONS = 32
 DEFAULT_GOLD_BULK_WORKERS = 2
 MAX_GOLD_BULK_PARTITIONS = 4096
@@ -179,6 +179,40 @@ _MAPPINGS: dict[str, Any] = {
         "animationTechniques": {"type": "keyword"},
         "studioEntityKeys": {"type": "keyword"},
         "characterEntityKeys": {"type": "keyword"},
+        "musicAgentKind": {"type": "keyword"},
+        "musicExactEligible": {"type": "boolean"},
+        "musicMediaObjects": {"type": "keyword", "ignore_above": 2048},
+        "musicWorkParentEntityKeys": {"type": "keyword"},
+        "musicCredits": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "entityKey": {"type": "keyword"},
+                "role": {"type": "keyword"},
+                "authorityProperty": {"type": "keyword"},
+                "agentKind": {"type": "keyword"},
+            },
+        },
+        "musicVariantSignals": {
+            "type": "nested",
+            "dynamic": "strict",
+            "properties": {
+                "value": {"type": "keyword", "ignore_above": 2048},
+                "authorityProperty": {"type": "keyword"},
+                "authorityRelation": {"type": "keyword"},
+                "direction": {"type": "keyword"},
+                "targetId": {"type": "keyword"},
+                "targetTitle": {
+                    "type": "text",
+                    "fields": {
+                        "keyword": {
+                            "type": "keyword",
+                            "ignore_above": 1024,
+                        }
+                    },
+                },
+            },
+        },
         "titles": {
             "type": "nested",
             "dynamic": "strict",
@@ -335,6 +369,10 @@ _MAPPINGS: dict[str, Any] = {
                 "currentResults": {"type": "integer"},
                 "animationStudios": {"type": "integer"},
                 "animationCharacters": {"type": "integer"},
+                "musicMediaObjects": {"type": "integer"},
+                "musicWorkParents": {"type": "integer"},
+                "musicCredits": {"type": "integer"},
+                "musicVariantSignals": {"type": "integer"},
                 "observationHistory": {"type": "integer"},
                 "referenceCandidates": {"type": "integer"},
                 "referenceRelations": {"type": "integer"},
@@ -368,7 +406,7 @@ def _safe_name(value: str, *, label: str) -> str:
 
 
 class GoldIndexConfigIdentity(V2ContractModel):
-    projection_version: Literal["10"] = PROJECTION_VERSION
+    projection_version: Literal["12"] = PROJECTION_VERSION
     mapping_digest: str = MAPPING_DIGEST
     context_id: Literal["research"] = RESEARCH_CONTEXT_ID
     read_alias: str

@@ -98,14 +98,16 @@ def test_parameter_package_pins_concrete_index_and_current_mapping() -> None:
     assert document["concreteIndex"] == index
     assert document["mappingDigest"] == MAPPING_DIGEST
     assert document["algorithmDigest"] == (
-        "sha256:0dcf5d5aff823f490439b447e60ef4fb3e2752bfb6765bf6ad2ebac282025bba"
+        "sha256:638d10b15510a0d81e224692fdd5d1b9e35112bed1de0b9f289a56f9c233116d"
     )
     assert document["algorithmId"] == "catalog-asset-match-v1"
     assert document["searchEndpoint"].endswith(".internal")
     assert document["contextId"] == "research"
     assert "MUSIC" in document["supportedDomains"]
+    # This contract is byte-for-byte synchronized with the Compute worker.
     assert document["musicMatchPolicy"] == {
         "ambiguousExactCandidates": "ABSTAIN",
+        "authorityDigestRequired": True,
         "exactIdentifierNamespaces": [
             "isrc",
             "iswc",
@@ -119,8 +121,21 @@ def test_parameter_package_pins_concrete_index_and_current_mapping() -> None:
         ],
         "parentConstrained": {
             "decision": "REVIEW_ONLY",
-            "predicates": ["recording_of", "release_membership"],
+            "forbidStudioRecordingCollapse": True,
+            "predicates": ["recording_of"],
+            "targetEntityType": "MUSICAL_WORK",
         },
+        "sourcePolicyDigestRequired": True,
+        "variantHandling": {
+            "authorityProfileDispositionRequired": True,
+            "decision": "REVIEW_ONLY",
+            "exactDisposition": "EXACT_RECORDING",
+            "exactEligibilityField": "musicExactEligible",
+            "maxAuthorityRelationSignalsForExact": 1,
+            "maxMediaObjectSignalsForExact": 3,
+            "signalField": "musicVariantSignals",
+        },
+        "withoutAuthorityCoordinate": "ABSTAIN",
     }
 
 
@@ -156,7 +171,7 @@ def test_music_match_contract_fails_closed_and_keeps_activation_disabled() -> No
             "ambiguousExactCandidates": "BEST_SCORE",
         },
     }
-    with pytest.raises(ValueError, match="ambiguity abstention"):
+    with pytest.raises(ValueError, match="fail-closed abstention"):
         catalog_match_algorithm_identity(stale_policy)
     missing_label = {
         **_ALGORITHM_CONTRACT,
@@ -178,11 +193,14 @@ def test_music_match_contract_fails_closed_and_keeps_activation_disabled() -> No
         item for item in _ASSOCIATION_CONTRACT["domains"] if item["domain"] == "MUSIC"
     )
     assert music["exactIdentifier"] == {
-        "namespace": "isrc",
-        "value": "GBAYE9400055",
+        "namespace": "musicbrainz-recording",
+        "value": "9aa56ede-83be-44ea-aeb5-d61268972c53",
     }
+    # Keep the external association fixture unchanged until Compute publishes
+    # the final variant-abstention contract and digest.
     assert _ASSOCIATION_CONTRACT["reviewOnlyCases"] == [
         "PARENT_CONSTRAINED",
+        "VARIANT_OR_REMIX",
         "MULTIPLE_EXACT_CANDIDATES",
         "GOLD_CONFLICT",
         "EXISTING_CONFIRMED_LINK",

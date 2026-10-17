@@ -152,18 +152,39 @@ def test_exact_blocking_label_propagation_converges_on_long_chain(
 
 
 @pytest.mark.spark
-def test_music_label_p966_crosswalk_shares_exact_identity(
+@pytest.mark.parametrize(
+    ("fixture_names", "source_ids", "expected_entity"),
+    (
+        (
+            (
+                "musicbrainz-music-reference.v1.json",
+                "wikidata-music-reference.v1.json",
+            ),
+            ("df7d1c7f-ef95-425f-8eef-445b3d7bcbd9", "Q208909"),
+            ("MUSIC_LABEL", "MUSIC_LABEL"),
+        ),
+        (
+            (
+                "musicbrainz-music-pilot.v1.json",
+                "wikidata-music-pilot.v1.json",
+            ),
+            ("9aa56ede-83be-44ea-aeb5-d61268972c53", "Q66662496"),
+            ("MUSIC_RECORDING", "MUSIC_RECORDING"),
+        ),
+    ),
+)
+def test_music_authority_crosswalk_shares_exact_identity(
     spark: SparkSession,
+    fixture_names: tuple[str, str],
+    source_ids: tuple[str, str],
+    expected_entity: tuple[str, str],
 ) -> None:
     registry = build_community_registry()
     materialized = tuple(
         materialize_reference_fixture(
             load_reference_fixture(Path("tests/fixtures/research") / name)
         )
-        for name in (
-            "musicbrainz-music-reference.v1.json",
-            "wikidata-music-reference.v1.json",
-        )
+        for name in fixture_names
     )
     source_runs = []
     combined_rows: dict[str, list[dict[str, object]]] = {}
@@ -202,27 +223,27 @@ def test_music_label_p966_crosswalk_shares_exact_identity(
             input_id="sha256:" + ("8" * 64),
             image_digest="sha256:" + ("7" * 64),
             config_digest="sha256:" + ("6" * 64),
-            started_at="2026-10-17T00:00:00Z",
+            started_at="2026-10-17T04:00:00Z",
             registry=registry,
             source_policy=load_catalog_source_policy(registry=registry),
             source_records=visible["community_source_record"],
             ingest_runs=ingest_runs,
             committed_source_run_ids=tuple(run.run_id for run in source_runs),
         )
-        labels = (
+        memberships = (
             identity_frames["community_entity_membership"]
-            .where("source_id IN ('df7d1c7f-ef95-425f-8eef-445b3d7bcbd9', 'Q208909')")
+            .where(f"source_id IN ('{source_ids[0]}', '{source_ids[1]}')")
             .collect()
         )
-        assert len(labels) == 2
-        assert {row.entity_key for row in labels} == {labels[0].entity_key}
+        assert len(memberships) == 2
+        assert {row.entity_key for row in memberships} == {memberships[0].entity_key}
         entity = (
             identity_frames["community_entity_ledger"]
-            .where(f"entity_key = '{labels[0].entity_key}'")
+            .where(f"entity_key = '{memberships[0].entity_key}'")
             .collect()
         )
         assert [(row.entity_level, row.entity_kind) for row in entity] == [
-            ("MUSIC_LABEL", "MUSIC_LABEL")
+            expected_entity
         ]
     finally:
         if identity_frames is not None:

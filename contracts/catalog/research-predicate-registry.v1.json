@@ -1,7 +1,7 @@
 {
   "registryId": "research-predicates",
   "schemaVersion": "1.0",
-  "registryVersion": "1.2.0",
+  "registryVersion": "1.4.0",
   "predicates": [
     {
       "predicate": "discipline",
@@ -455,6 +455,33 @@
       "kind": "RELATIONSHIP",
       "domains": ["INSTRUCTION", "LEARNING"],
       "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "media_object",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["MUSIC"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "media_variant",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["MUSIC"],
+      "resolutionOperator": "SET_UNION",
+      "temporal": false
+    },
+    {
+      "predicate": "music_agent_kind",
+      "predicateVersion": "1.0.0",
+      "kind": "FIELD",
+      "valueType": "STRING",
+      "domains": ["MUSIC"],
+      "resolutionOperator": "SINGLE",
       "temporal": false
     },
     {

@@ -1,11 +1,11 @@
 {
   "schemaVersion": "1.0",
   "registryId": "global-reference-ontology",
-  "registryVersion": "1.2.0",
+  "registryVersion": "1.4.0",
   "authority": "GLOBAL_REFERENCE_ONLY",
   "tenantWorldIdentityAuthority": false,
   "predicateRegistryId": "research-predicates",
-  "predicateRegistryVersion": "1.2.0",
+  "predicateRegistryVersion": "1.4.0",
   "rootTypes": [
     "AGENT",
     "PLACE",

@@ -10,7 +10,7 @@ CONTRACT = (
 )
 SOURCE_FIXTURES = ROOT / "tests" / "fixtures" / "research"
 POLICY = ROOT / "contracts" / "catalog" / "catalog-source-policy.v1.json"
-CONTRACT_SHA256 = "3ecf37b6a44cf7ad269e5fd4931c730199f072bacb738ea672277f9ec416a5d5"
+CONTRACT_SHA256 = "8f3f220d682f4efd0ae27e1356e0a51dd865a6b4e6754635565bd50cfcae4aed"
 
 
 def _json(path: Path) -> dict[str, object]:
@@ -79,23 +79,18 @@ def test_contract_exact_identifiers_are_backed_by_source_fixtures_and_policy() -
     recording = next(
         item["payload"]
         for item in music_source["records"]
-        if item["payload"]["entityType"] == "MUSIC_RECORDING"
+        if item["payload"]["id"] == music["exactIdentifier"]["value"]
     )
-    assert music["exactIdentifier"]["value"] in recording["isrcs"]
+    assert recording["entityType"] == "MUSIC_RECORDING"
     assert music["exactIdentifier"]["namespace"] in namespaces
     assert music["canonicalEntityKind"] == "MUSIC_RECORDING"
     assert music["assetRelationKind"] == "RECORDING_OF"
-    label = next(
-        item["payload"]
-        for item in music_source["records"]
-        if item["payload"]["entityType"] == "MUSIC_LABEL"
-    )
-    assert label["id"] == "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9"
     assert "musicbrainz.label" in namespaces
     assert "musicbrainz-label" in namespaces
 
     assert set(contract["reviewOnlyCases"]) == {
         "PARENT_CONSTRAINED",
+        "VARIANT_OR_REMIX",
         "MULTIPLE_EXACT_CANDIDATES",
         "GOLD_CONFLICT",
         "EXISTING_CONFIRMED_LINK",

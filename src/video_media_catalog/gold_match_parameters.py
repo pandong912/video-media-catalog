@@ -61,6 +61,7 @@ def _music_match_policy(contract: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("catalog match algorithm must declare MUSIC support")
     namespaces = policy.get("exactIdentifierNamespaces")
     parent = policy.get("parentConstrained")
+    variant = policy.get("variantHandling")
     parent_predicates = (
         parent.get("predicates") if isinstance(parent, Mapping) else None
     )
@@ -69,12 +70,26 @@ def _music_match_policy(contract: Mapping[str, Any]) -> dict[str, Any]:
         or namespaces != sorted(_REQUIRED_MUSIC_EXACT_NAMESPACES)
         or not isinstance(parent, Mapping)
         or parent.get("decision") != "REVIEW_ONLY"
+        or parent.get("forbidStudioRecordingCollapse") is not True
+        or parent.get("targetEntityType") != "MUSICAL_WORK"
         or not isinstance(parent_predicates, list)
-        or parent_predicates != ["recording_of", "release_membership"]
+        or parent_predicates != ["recording_of"]
         or policy.get("ambiguousExactCandidates") != "ABSTAIN"
+        or policy.get("authorityDigestRequired") is not True
+        or policy.get("sourcePolicyDigestRequired") is not True
+        or policy.get("withoutAuthorityCoordinate") != "ABSTAIN"
+        or not isinstance(variant, Mapping)
+        or variant.get("authorityProfileDispositionRequired") is not True
+        or variant.get("decision") != "REVIEW_ONLY"
+        or variant.get("exactDisposition") != "EXACT_RECORDING"
+        or variant.get("exactEligibilityField") != "musicExactEligible"
+        or variant.get("maxAuthorityRelationSignalsForExact") != 1
+        or variant.get("maxMediaObjectSignalsForExact") != 3
+        or variant.get("signalField") != "musicVariantSignals"
     ):
         raise ValueError(
-            "MUSIC matching requires exact IDs, parent review, and ambiguity abstention"
+            "MUSIC matching requires governed exact IDs, work-parent/variant review, "
+            "and fail-closed abstention"
         )
     return json.loads(canonical_json(dict(policy)))
 
@@ -113,7 +128,7 @@ def match_parameters_from_manifest(
     if manifest.index == manifest.alias or concrete is None:
         raise ValueError("concreteIndex must be a 24-hex research index, not an alias")
     if manifest.mapping_digest != MAPPING_DIGEST:
-        raise ValueError("index manifest mappingDigest does not match projection v10")
+        raise ValueError("index manifest mappingDigest does not match projection v12")
     if manifest.source_policy_digest != load_catalog_source_policy().digest:
         raise ValueError(
             "index manifest sourcePolicyDigest does not match canonical policy"

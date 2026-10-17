@@ -25,7 +25,7 @@ capture -> Silver -> Identity -> Gold -> OpenSearch build
    versioned OpenSearch concrete index；独立 validation receipt 完成后，alias
    promotion 仍是显式且独立授权的操作。
 
-Gold OpenSearch mapping 固定使用 projectionVersion `10`。该 strict projection
+Gold OpenSearch mapping 固定使用 projectionVersion `12`。该 strict projection
 在 Sports/Animation 字段之外，增加 versioned CanonicalSubject type concept、
 reference slice、reference candidate/relationship 与能力边界；完整 observation
 历史仍以 Gold release 为准。删除旧流水线不会把
@@ -57,9 +57,10 @@ predicate 都有独立版本；其 authority 固定为 `GLOBAL_REFERENCE_ONLY`�
 
 News/Journalism、Learning/Instruction 与 Music 经过 immutable Capture、
 Silver assertion、Identity、Gold 双时态 observation/conflict/citation，再贡献
-到 v10 search projection。Music 同时绑定 MusicBrainz core 与 Wikidata Music
+到 v12 search projection。Music 同时绑定 MusicBrainz core 与 Wikidata Music
 快照，并覆盖 `MUSIC_ARTIST`、`MUSIC_LABEL`、work、recording、release-group
-与 release；Artist/Label 都落在通用 `AGENT` 根。对应生产 profile 必须显式使用
+与 release；Artist/Label 都落在通用 `AGENT` 根，并以 authority-backed
+`musicAgentKind=PERSON|ORGANIZATION` 保留具体 kind。对应生产 profile 必须显式使用
 `identitySpine=true`、`goldContribution=true`、`materialization=false`；
 Gold contribution 不等于 tenant/World materialization。
 Global reference release 只能声明 `RESEARCH`、`DISPLAY`、`IDENTITY`，并强制
@@ -70,6 +71,15 @@ manifest 和 validation receipt；不接受 activation receipt。
 MusicBrainz 离线 core 的范围、排除项与固定 fixture 见
 `docs/sources/musicbrainz-core.md`。
 
+Music Pilot 固定 20 个资产：8 个 reviewed exact recording、8 个只能指向
+`MUSICAL_WORK` 的 live parent、1 个共享媒体对象的 recording ambiguity、
+1 个 remix/variant，以及 2 个无 coordinate 对照。其 authority capture、cohort
+与 concrete profile 位于 `tests/fixtures/research/*music-pilot*`；projection v12
+暴露 `musicAgentKind`、`musicExactEligible`、`musicMediaObjects`、
+`musicWorkParentEntityKeys`、`musicCredits` 与 `musicVariantSignals`。live
+不得折叠到任意 studio recording；conflict、remix/variant 与无 coordinate
+全部 abstain。
+
 本地可复验 ontology、predicate、source-policy 坐标和 pinned fixtures：
 
 ```bash
@@ -77,8 +87,8 @@ video-media-catalog-global-reference coordinates
 video-media-catalog-global-reference validate-fixtures \
   --fixture tests/fixtures/research/wikidata-news-reference.v1.json \
   --fixture tests/fixtures/research/wikidata-learning-reference.v1.json \
-  --fixture tests/fixtures/research/musicbrainz-music-reference.v1.json \
-  --fixture tests/fixtures/research/wikidata-music-reference.v1.json
+  --fixture tests/fixtures/research/musicbrainz-music-pilot.v1.json \
+  --fixture tests/fixtures/research/wikidata-music-pilot.v1.json
 ```
 
 `build-release --bundle <json>` 生成内容寻址的

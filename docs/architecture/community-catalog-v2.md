@@ -137,20 +137,22 @@ The batch indexer builds only the research family:
 
 - prefix `media-catalog-research`;
 - read alias `media-catalog-research-read`;
-- strict mapping with projectionVersion `10`;
+- strict mapping with projectionVersion `12`;
 - mapping digest
-  `sha256:dc7e8382ee3a43731a2fc9242639d7c001d29c04d2498b2a1d6ec3cfd247ec16`;
+  `sha256:f7b6e0b42f1daee66aa522faee88f8912f489410a53cc5d9ca856e88d93e416a`;
 - deterministic build identity bound to one Gold release commit;
 - partition receipts, count reconciliation, and independent validation;
   alias promotion remains a separate explicitly authorized operation.
 
-Projection v10 retains nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
+Projection v12 retains nullable, scalar `parentEntityKey`, `seriesEntityKey`, and
 `seasonEntityKey`. It also adds `domains`; bounded Sports competition, season,
 stage, participant, venue and current-result fields; bounded Animation profile,
 studio and character fields; bounded `observationHistory`; and versioned
 CanonicalSubject roots/type concepts with bounded News/Learning/Music reference
-candidates and relations. Every bounded collection has an explicit overflow
-counter, while complete revision history
+candidates and relations. Music additionally exposes concrete agent kind,
+bounded media objects, exact eligibility, work parents, credits, and explicit
+variant signals. Every bounded collection has an explicit overflow counter,
+while complete revision history
 remains in `community_gold_observation`. Hierarchy keys are derived only from
 rights-filtered Gold relations.
 Ambiguous, missing, malformed, or over-bound parent candidates produce null;

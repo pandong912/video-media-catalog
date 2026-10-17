@@ -12,12 +12,12 @@ The ontology contract is
 predicates are independently versioned. The registry declares
 `authority=GLOBAL_REFERENCE_ONLY` and
 `tenantWorldIdentityAuthority=false`.
-The current ontology registry is `1.2.0`
-(`sha256:8f82f8998ac3b915340860b6b08d86d053b1257c72a9f49d6d7b6c19d944e584`)
-and the predicate registry is `1.2.0`
-(`sha256:d8942df842d6bb3947f65a6398f5635ccc53b2efd38b2fb970e8a5c53901c927`).
-The Label-capable Gold resolution policy is `research-display-v2@2.5.0`
-(`sha256:8b45e7b676f20a1b11e3a5c00b30cf8bed43c5a98dd6a0c39f33f9a42555a1cb`).
+The current ontology registry is `1.4.0`
+(`sha256:6f605eea9acfe9365ada11c45e350a29851f11f613a45f07cc0897ecee000b90`)
+and the predicate registry is `1.4.0`
+(`sha256:c803567e0e0b9ba1b2f1cd4daa6750792c0bc1fc88cca8e2bcffd4216b916588`).
+The Music Pilot-capable Gold resolution policy is `research-display-v2@2.7.0`
+(`sha256:3e1ba89f63bc3d9eaaaddb6d3acc307c6db45c116c82a8445c8ea07d3641c590`).
 
 This extends the existing Sports and Animation Capture → Silver → Identity →
 Gold pipeline; it does not create a parallel authority or a tenant canonical
@@ -62,20 +62,32 @@ the pinned source runs, while the separate materialization flag remains off.
 
 Music adds `MUSIC_ARTIST`, `MUSIC_LABEL`, `MUSICAL_WORK`,
 `MUSIC_RECORDING`, `MUSIC_RELEASE_GROUP`, and `MUSIC_RELEASE` under the existing
-`AGENT` and `WORK` roots. Artist and Label both use `AGENT`. Exact identifiers
+`AGENT` and `WORK` roots. Artist and Label both use `AGENT`;
+`music_agent_kind` preserves the authority-backed concrete `PERSON` or
+`ORGANIZATION` kind. Exact identifiers
 cover the six MusicBrainz MBID namespaces, ISRC, ISWC, and Wikidata QID;
 Wikidata `P966` crosswalks Label QIDs. Generic relationship assertions cover
 `recording_of`, `release_membership`, `credit`, and `performance_link`; Label
-credits reuse `credit` with `role=LABEL`, and no Music-only OpenSearch index
-fields are introduced.
+credits reuse `credit` with `role=LABEL`. `media_variant` preserves explicit
+MusicBrainz variant relations, while Wikidata `P51` uses the separate
+`media_object` predicate. OpenSearch projection v12 derives `musicAgentKind`,
+`musicExactEligible`, `musicMediaObjects`, `musicWorkParentEntityKeys`,
+`musicCredits`, and `musicVariantSignals` from those generic Gold assertions.
 
 The slice requires two immutable captures in one release: MusicBrainz offline
 core CC0 and Wikidata Music. MusicBrainz tags, genres, ratings, annotations,
 supplementary/live feeds, and Cover Art Archive assets are rejected. Both
 Temporal source profiles are Identity/Gold contributors with
-`materialization=false`. One exact identifier may reuse an entity; multiple
-exact candidates abstain, while parent-constrained recording/release matches
-remain review-only.
+`materialization=false`. One exact identifier may reuse an entity only when the
+validated profile disposition and index eligibility both permit it. Multiple
+exact candidates and missing coordinates abstain. Live assets are constrained
+to reviewed `MUSICAL_WORK` parents and cannot collapse to a studio recording;
+remix/media variants abstain.
+
+The Compute-owned algorithm fixture still carries the earlier variant-review
+contract. Its cross-repository digest is deliberately unchanged here; Compute
+must freeze and publish the matching abstention contract before runtime
+parameter publication.
 
 ## Data path
 
@@ -86,15 +98,20 @@ remain review-only.
    when none exists, and abstains on ambiguous exact candidates.
 4. Gold retains current candidates, conflicts, citations, immutable source
    snapshots, and complete double-temporal observations.
-5. OpenSearch projection v10 contributes bounded, searchable reference
+5. OpenSearch projection v12 contributes bounded, searchable reference
    candidates and relations. News/Learning use `wikidata-json-dump`; Music uses
    `musicbrainz-core-dump` plus `wikidata-json-dump`. Every source still
    requires `GOLD_PROJECTION`. Overflow is explicit; Gold remains complete.
 
 The pinned News, Learning, and Music fixtures under `tests/fixtures/research`
-contain small reviewed selections of real Wikidata and MusicBrainz identifiers.
-Their NDJSON sidecars are checksum- and size-bound and exercise the production
-mappers without a runtime public API dependency.
+contain reviewed selections of real Wikidata and MusicBrainz identifiers. The
+20-asset Music Pilot freezes 8 exact recordings, 8 live work reviews, 1 real
+shared-media ambiguity, 1 remix abstention, and 2 no-authority abstentions. It
+retains API capture receipts and explicitly marks the
+three work coordinates whose cross-authority equivalence was approved by human
+review rather than directly asserted by Wikidata. NDJSON sidecars are checksum-
+and size-bound and exercise the production mappers without a runtime public API
+dependency.
 
 ## Release and World boundary
 

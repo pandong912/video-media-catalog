@@ -110,6 +110,67 @@ class ReferenceFixtureRecord(V2ContractModel):
         return self
 
 
+class ReferenceCaptureReceipt(V2ContractModel):
+    """Verifiable receipt for one live response used by a minimal projection."""
+
+    request_url: str
+    retrieved_at: str
+    response_hash: str
+    authority_revision: str
+    source_record_ids: tuple[str, ...]
+    projected_record_ids: tuple[str, ...]
+    projection_paths: tuple[str, ...]
+
+    @field_validator("request_url")
+    @classmethod
+    def validate_request_url(cls, value: str) -> str:
+        return require_https_url(value)
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def validate_retrieved_at(cls, value: str) -> str:
+        return require_rfc3339(value)
+
+    @field_validator("response_hash")
+    @classmethod
+    def validate_response_hash(cls, value: str) -> str:
+        return require_sha256(value, label="capture response hash")
+
+    @field_validator("authority_revision")
+    @classmethod
+    def validate_authority_revision(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 4096:
+            raise ValueError("capture authority revision must be non-empty and bounded")
+        return normalized
+
+    @field_validator("source_record_ids", "projected_record_ids")
+    @classmethod
+    def validate_record_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if (
+            not value
+            or len(value) != len(set(value))
+            or tuple(sorted(value)) != value
+            or any(not item.strip() or len(item) > 2048 for item in value)
+        ):
+            raise ValueError("capture record IDs must be unique, sorted, and bounded")
+        return value
+
+    @field_validator("projection_paths")
+    @classmethod
+    def validate_projection_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if (
+            not value
+            or len(value) != len(set(value))
+            or any(
+                not item.startswith("/") or len(item) > 2048 or item != item.strip()
+                for item in value
+            )
+        ):
+            raise ValueError("capture projection paths must be unique JSON paths")
+        return value
+
+
 class PinnedReferenceFixture(V2ContractModel):
     schema_version: Literal["video.media-catalog.reference-fixture.v1"]
     fixture_id: str
@@ -124,6 +185,7 @@ class PinnedReferenceFixture(V2ContractModel):
     raw_object: ObjectRef
     image_digest: str
     config_digest: str
+    capture_receipts: tuple[ReferenceCaptureReceipt, ...] = ()
     citations: tuple[ReferenceFixtureCitation, ...]
     records: tuple[ReferenceFixtureRecord, ...] = Field(min_length=1, max_length=64)
 
@@ -159,6 +221,17 @@ class PinnedReferenceFixture(V2ContractModel):
         if not normalized or len(normalized) > 1024:
             raise ValueError("fixture source revision must be non-empty and bounded")
         return normalized
+
+    @field_validator("capture_receipts")
+    @classmethod
+    def validate_capture_receipts(
+        cls,
+        value: tuple[ReferenceCaptureReceipt, ...],
+    ) -> tuple[ReferenceCaptureReceipt, ...]:
+        urls = tuple(item.request_url for item in value)
+        if len(urls) != len(set(urls)) or tuple(sorted(urls)) != urls:
+            raise ValueError("capture receipts must have unique, sorted request URLs")
+        return value
 
     @model_validator(mode="after")
     def validate_fixture(self) -> Self:
@@ -201,13 +274,46 @@ class PinnedReferenceFixture(V2ContractModel):
         raw_digest = f"sha256:{self.raw_object.checksum.value}"
         if any(citation.raw_object_hash != raw_digest for citation in self.citations):
             raise ValueError("reference fixture citation does not pin its raw object")
+        if self.capture_receipts:
+            expected_host = (
+                "musicbrainz.org"
+                if self.source_product_id == "musicbrainz-core-dump"
+                else "www.wikidata.org"
+            )
+            if any(
+                urlsplit(item.request_url).hostname != expected_host
+                or item.retrieved_at != self.captured_at
+                or not set(item.source_record_ids) <= set(item.projected_record_ids)
+                for item in self.capture_receipts
+            ):
+                raise ValueError(
+                    "reference fixture capture receipt differs from source boundary"
+                )
+            receipt_payload = [
+                item.model_dump(mode="json", by_alias=True, exclude_none=True)
+                for item in self.capture_receipts
+            ]
+            if self.source_revision != digest_identity(receipt_payload):
+                raise ValueError(
+                    "reference fixture source revision does not bind capture receipts"
+                )
+            projected = {
+                record_id
+                for receipt in self.capture_receipts
+                for record_id in receipt.projected_record_ids
+            }
+            if not set(record_ids) <= projected:
+                raise ValueError(
+                    "reference fixture contains records absent from capture receipts"
+                )
         return self
 
     @property
     def digest(self) -> str:
-        return digest_identity(
-            self.model_dump(mode="json", by_alias=True, exclude_none=True)
-        )
+        material = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if not self.capture_receipts:
+            material.pop("captureReceipts", None)
+        return digest_identity(material)
 
 
 @dataclass(frozen=True)

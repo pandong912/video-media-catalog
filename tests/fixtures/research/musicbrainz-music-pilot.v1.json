@@ -1,0 +1,2904 @@
+{
+  "schemaVersion": "video.media-catalog.reference-fixture.v1",
+  "fixtureId": "musicbrainz-music-pilot-v1",
+  "domain": "MUSIC",
+  "sourceSystemId": "musicbrainz",
+  "sourceProductId": "musicbrainz-core-dump",
+  "connectorId": "musicbrainz-core-dump-snapshot",
+  "revisionKind": "DUMP_OBJECT",
+  "schemaId": "musicbrainz-core-entity",
+  "sourceRevision": "sha256:53af4e3cece1f12d26accd1cfa080e31932a637a3f31435723badc5cf8b3a46f",
+  "capturedAt": "2026-10-17T03:00:00Z",
+  "rawObject": {
+    "uri": "file:///tests/fixtures/research/musicbrainz-music-pilot.v1.jsonl",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/x-ndjson",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    "sizeBytes": 29956
+  },
+  "imageDigest": "sha256:9d3d28f073ad9a9befbfea84f112001208bbe0c4d884cfec8eaaddbf583a5b2f",
+  "configDigest": "sha256:c5b99383a27231eb94d63b27b74ee2bf45558c825e46d12837200d841180dfba",
+  "captureReceipts": [
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/020152a7-172e-45c5-812a-a60d02cb2a27?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:1afdab2f4ebd4c3247df8c0fdfef59c9511522608138ef064682beb888068778",
+      "authorityRevision": "sha256:1afdab2f4ebd4c3247df8c0fdfef59c9511522608138ef064682beb888068778",
+      "sourceRecordIds": [
+        "020152a7-172e-45c5-812a-a60d02cb2a27"
+      ],
+      "projectedRecordIds": [
+        "020152a7-172e-45c5-812a-a60d02cb2a27",
+        "6aa0ec03-d447-45ef-92cb-8627f4eb22ba",
+        "d2062464-9c2e-4d1f-8005-dac138da03e6"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/321d235c-a32a-4f6c-b84d-0e151ffb58be?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:52a1e7cc4bd799fb22528b7e122eb5d4c2f5bded5f8853c76320bb720b18efa0",
+      "authorityRevision": "sha256:52a1e7cc4bd799fb22528b7e122eb5d4c2f5bded5f8853c76320bb720b18efa0",
+      "sourceRecordIds": [
+        "321d235c-a32a-4f6c-b84d-0e151ffb58be"
+      ],
+      "projectedRecordIds": [
+        "321d235c-a32a-4f6c-b84d-0e151ffb58be",
+        "c8e419d0-87f7-4643-9a3a-ca9804def7b0",
+        "d2062464-9c2e-4d1f-8005-dac138da03e6",
+        "f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/61b03fdf-24aa-4c82-b5d6-1e25691e8347?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:c4f5ca6a5e15fd012629895634229bcb43979ca375c1c4c029416f0b1559b9ad",
+      "authorityRevision": "sha256:c4f5ca6a5e15fd012629895634229bcb43979ca375c1c4c029416f0b1559b9ad",
+      "sourceRecordIds": [
+        "61b03fdf-24aa-4c82-b5d6-1e25691e8347"
+      ],
+      "projectedRecordIds": [
+        "1f19b687-b03d-42ec-ae8f-67859521b5bf",
+        "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+        "61b03fdf-24aa-4c82-b5d6-1e25691e8347"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:946460438cde16b00510989bcef9c75fdd0a1a18711d9d9a7324176c10204a9a",
+      "authorityRevision": "sha256:946460438cde16b00510989bcef9c75fdd0a1a18711d9d9a7324176c10204a9a",
+      "sourceRecordIds": [
+        "71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa"
+      ],
+      "projectedRecordIds": [
+        "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+        "71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+        "7ab65141-762c-4232-8d0d-06ca95d426a4"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/7fb6969c-bb00-48ec-84df-151fd56875c2?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:71f9699ecd1573832714698cdd9077678ee891d25892ccf047406a03a0e03096",
+      "authorityRevision": "sha256:71f9699ecd1573832714698cdd9077678ee891d25892ccf047406a03a0e03096",
+      "sourceRecordIds": [
+        "7fb6969c-bb00-48ec-84df-151fd56875c2"
+      ],
+      "projectedRecordIds": [
+        "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+        "7fb6969c-bb00-48ec-84df-151fd56875c2",
+        "8eae3473-9638-4311-a20a-18861f1d27eb"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/9aa56ede-83be-44ea-aeb5-d61268972c53?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:a4b79e726ee657f23a6608902f4a328a167850edd51094367ca51ff2863886d9",
+      "authorityRevision": "sha256:a4b79e726ee657f23a6608902f4a328a167850edd51094367ca51ff2863886d9",
+      "sourceRecordIds": [
+        "9aa56ede-83be-44ea-aeb5-d61268972c53"
+      ],
+      "projectedRecordIds": [
+        "8292bf44-2dd1-4bad-8019-276ec38f28e7",
+        "9aa56ede-83be-44ea-aeb5-d61268972c53"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/b611eecb-2e93-46ad-aaf4-f00f02a913ff?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:c0e5b803e2d3a7e49d6083a7558e7c43932e2ef5b0aa1bd4d8104bcf65fcd480",
+      "authorityRevision": "sha256:c0e5b803e2d3a7e49d6083a7558e7c43932e2ef5b0aa1bd4d8104bcf65fcd480",
+      "sourceRecordIds": [
+        "b611eecb-2e93-46ad-aaf4-f00f02a913ff"
+      ],
+      "projectedRecordIds": [
+        "38152320-495b-43d1-9584-ef55bef37d4f",
+        "763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+        "b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+        "d2062464-9c2e-4d1f-8005-dac138da03e6"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/b70b3468-8f1a-4fa3-b853-122f57d98f92?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:81e359fbcfe2bdb5ddd8f1c093c74d6c39478344e6540f5290afb6c4da89c78c",
+      "authorityRevision": "sha256:81e359fbcfe2bdb5ddd8f1c093c74d6c39478344e6540f5290afb6c4da89c78c",
+      "sourceRecordIds": [
+        "b70b3468-8f1a-4fa3-b853-122f57d98f92"
+      ],
+      "projectedRecordIds": [
+        "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+        "ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf",
+        "b70b3468-8f1a-4fa3-b853-122f57d98f92"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/c40d7b44-7583-4675-852a-10ddbea8cf46?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:774f9b29953cfae26543c3463039602a6c9ddc999ad96fac0d4b056b775bfdb7",
+      "authorityRevision": "sha256:774f9b29953cfae26543c3463039602a6c9ddc999ad96fac0d4b056b775bfdb7",
+      "sourceRecordIds": [
+        "c40d7b44-7583-4675-852a-10ddbea8cf46"
+      ],
+      "projectedRecordIds": [
+        "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+        "c40d7b44-7583-4675-852a-10ddbea8cf46",
+        "c74137fd-9928-4032-971e-5f4a028a0d0c"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/d9da08d3-3c24-4f4c-b1e7-beeee60bab08?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:d3aeaf13fc47a9774d643456d7b5beea5b97a3a2b854c64681cbd2aaf22e446c",
+      "authorityRevision": "sha256:d3aeaf13fc47a9774d643456d7b5beea5b97a3a2b854c64681cbd2aaf22e446c",
+      "sourceRecordIds": [
+        "d9da08d3-3c24-4f4c-b1e7-beeee60bab08"
+      ],
+      "projectedRecordIds": [
+        "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+        "c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e",
+        "d9da08d3-3c24-4f4c-b1e7-beeee60bab08"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/recording/e1ded706-16ec-45c3-87c4-0ae7a26f56d3?inc=aliases%2Bartist-credits%2Bisrcs%2Brecording-rels%2Burl-rels%2Bwork-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:4d878be578b19fa5b37003ec09ccdf8b3d9ceda931917dbbf53eb6ea88d0e891",
+      "authorityRevision": "sha256:4d878be578b19fa5b37003ec09ccdf8b3d9ceda931917dbbf53eb6ea88d0e891",
+      "sourceRecordIds": [
+        "e1ded706-16ec-45c3-87c4-0ae7a26f56d3"
+      ],
+      "projectedRecordIds": [
+        "4e78a33c-004b-4531-a1cd-449af525c39c",
+        "763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+        "cc539b74-cdbb-4477-b36c-b68e0612fc6e",
+        "d2062464-9c2e-4d1f-8005-dac138da03e6",
+        "e1ded706-16ec-45c3-87c4-0ae7a26f56d3"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/1f19b687-b03d-42ec-ae8f-67859521b5bf?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:53eaffdc6ceb62ec44e0db2c9d6f7eb8ec0513a0864b2a53a883831d4c897a99",
+      "authorityRevision": "sha256:53eaffdc6ceb62ec44e0db2c9d6f7eb8ec0513a0864b2a53a883831d4c897a99",
+      "sourceRecordIds": [
+        "1f19b687-b03d-42ec-ae8f-67859521b5bf"
+      ],
+      "projectedRecordIds": [
+        "1f19b687-b03d-42ec-ae8f-67859521b5bf",
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/4f5a74d0-d183-37f1-b07a-913652e82667?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:8dbd16d586c235980f31ea3a827c122aee5d6912473f29b527f9fad5aa97a62f",
+      "authorityRevision": "sha256:8dbd16d586c235980f31ea3a827c122aee5d6912473f29b527f9fad5aa97a62f",
+      "sourceRecordIds": [
+        "4f5a74d0-d183-37f1-b07a-913652e82667"
+      ],
+      "projectedRecordIds": [
+        "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+        "4f5a74d0-d183-37f1-b07a-913652e82667"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/660d0d25-4253-4d30-a818-61fc94e375bf?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:aec839563c5680ad4377a249507653a63b3118f326a9b5764d40da8b4395d006",
+      "authorityRevision": "sha256:aec839563c5680ad4377a249507653a63b3118f326a9b5764d40da8b4395d006",
+      "sourceRecordIds": [
+        "660d0d25-4253-4d30-a818-61fc94e375bf"
+      ],
+      "projectedRecordIds": [
+        "09ff1fe8-d61c-4b98-bb82-18487c74d7b7",
+        "660d0d25-4253-4d30-a818-61fc94e375bf",
+        "e0bdd567-47c9-4572-8abf-bb7d23b5d6f1"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/7ab65141-762c-4232-8d0d-06ca95d426a4?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:fdf89f0189320e52a3ebe20e06e7c5ba2a38a88bb85609dfc81e121f268903ae",
+      "authorityRevision": "sha256:fdf89f0189320e52a3ebe20e06e7c5ba2a38a88bb85609dfc81e121f268903ae",
+      "sourceRecordIds": [
+        "7ab65141-762c-4232-8d0d-06ca95d426a4"
+      ],
+      "projectedRecordIds": [
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "7ab65141-762c-4232-8d0d-06ca95d426a4"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/8b3a9214-bbec-311d-a61b-874bf15dfdde?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:af3d93331d795d6647a2824fae30dbba34a534a83e7faff4f9f8805d4422766e",
+      "authorityRevision": "sha256:af3d93331d795d6647a2824fae30dbba34a534a83e7faff4f9f8805d4422766e",
+      "sourceRecordIds": [
+        "8b3a9214-bbec-311d-a61b-874bf15dfdde"
+      ],
+      "projectedRecordIds": [
+        "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+        "8b3a9214-bbec-311d-a61b-874bf15dfdde"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/8d331505-4d88-39ae-81c7-bec5da77af96?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:a9851e83778577f99e9d47ad2fc6c2eda69a2c635ade41a98cc57ac844145bfd",
+      "authorityRevision": "sha256:a9851e83778577f99e9d47ad2fc6c2eda69a2c635ade41a98cc57ac844145bfd",
+      "sourceRecordIds": [
+        "8d331505-4d88-39ae-81c7-bec5da77af96"
+      ],
+      "projectedRecordIds": [
+        "8d331505-4d88-39ae-81c7-bec5da77af96",
+        "be50643c-0377-4968-b48c-47e06b2e2a3b"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/8eae3473-9638-4311-a20a-18861f1d27eb?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:e6b0a91fdfd20151ac320e4f1df9a3917ade2103f5287494a437faa417d4ba02",
+      "authorityRevision": "sha256:e6b0a91fdfd20151ac320e4f1df9a3917ade2103f5287494a437faa417d4ba02",
+      "sourceRecordIds": [
+        "8eae3473-9638-4311-a20a-18861f1d27eb"
+      ],
+      "projectedRecordIds": [
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "8eae3473-9638-4311-a20a-18861f1d27eb"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:59ad85a3a884bd19286c1f80f52f9bd41c5f8fe1c7e77093b9496fb143a280cf",
+      "authorityRevision": "sha256:59ad85a3a884bd19286c1f80f52f9bd41c5f8fe1c7e77093b9496fb143a280cf",
+      "sourceRecordIds": [
+        "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7"
+      ],
+      "projectedRecordIds": [
+        "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+        "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/a488a020-884d-3349-a7e7-18993ffed13e?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:828dd55e2bc93e89b1aace0ba6f47ffb9bfa0c591a58bb61c2e3b6d375bbe957",
+      "authorityRevision": "sha256:828dd55e2bc93e89b1aace0ba6f47ffb9bfa0c591a58bb61c2e3b6d375bbe957",
+      "sourceRecordIds": [
+        "a488a020-884d-3349-a7e7-18993ffed13e"
+      ],
+      "projectedRecordIds": [
+        "a488a020-884d-3349-a7e7-18993ffed13e",
+        "b972f589-fb0e-474e-b64a-803b0364fa75"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:3f314ddf42649cd546deb73162d4401618fddba4b922cdd8f2593e40a51e4d0f",
+      "authorityRevision": "sha256:3f314ddf42649cd546deb73162d4401618fddba4b922cdd8f2593e40a51e4d0f",
+      "sourceRecordIds": [
+        "ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf"
+      ],
+      "projectedRecordIds": [
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/ba28e7e2-862e-3438-9faa-13ebb6e9030c?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:ee3c5929aa0f609e6b3d573cb8ca6a243b93e2d74296eae4f552d3b06a25a241",
+      "authorityRevision": "sha256:ee3c5929aa0f609e6b3d573cb8ca6a243b93e2d74296eae4f552d3b06a25a241",
+      "sourceRecordIds": [
+        "ba28e7e2-862e-3438-9faa-13ebb6e9030c"
+      ],
+      "projectedRecordIds": [
+        "9ddd7abc-9e1b-471d-8031-583bc6bc8be9",
+        "ba28e7e2-862e-3438-9faa-13ebb6e9030c"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:812c11f49527005c8ab291e560e60e63de6c40c7216124ca5a25253a90489d6c",
+      "authorityRevision": "sha256:812c11f49527005c8ab291e560e60e63de6c40c7216124ca5a25253a90489d6c",
+      "sourceRecordIds": [
+        "c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e"
+      ],
+      "projectedRecordIds": [
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/c74137fd-9928-4032-971e-5f4a028a0d0c?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:f0493f354dc6cb4c5165bc13950469276edfc486067a7382cc3553c2ed527b31",
+      "authorityRevision": "sha256:f0493f354dc6cb4c5165bc13950469276edfc486067a7382cc3553c2ed527b31",
+      "sourceRecordIds": [
+        "c74137fd-9928-4032-971e-5f4a028a0d0c"
+      ],
+      "projectedRecordIds": [
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "c74137fd-9928-4032-971e-5f4a028a0d0c"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/cc539b74-cdbb-4477-b36c-b68e0612fc6e?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:d28aa6bf626119cf6872e1964be412c6fb0ac8e74a80d27bac709ab166f2559b",
+      "authorityRevision": "sha256:d28aa6bf626119cf6872e1964be412c6fb0ac8e74a80d27bac709ab166f2559b",
+      "sourceRecordIds": [
+        "cc539b74-cdbb-4477-b36c-b68e0612fc6e"
+      ],
+      "projectedRecordIds": [
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "4e78a33c-004b-4531-a1cd-449af525c39c",
+        "cc539b74-cdbb-4477-b36c-b68e0612fc6e"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/e9914523-2452-3987-8d4d-08f8e4f3c302?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:3e99588454a2b865b104fcb117b21d11a8e79e5d222644f969ccbdf4b3a65363",
+      "authorityRevision": "sha256:3e99588454a2b865b104fcb117b21d11a8e79e5d222644f969ccbdf4b3a65363",
+      "sourceRecordIds": [
+        "e9914523-2452-3987-8d4d-08f8e4f3c302"
+      ],
+      "projectedRecordIds": [
+        "b972f589-fb0e-474e-b64a-803b0364fa75",
+        "e9914523-2452-3987-8d4d-08f8e4f3c302"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    },
+    {
+      "requestUrl": "https://musicbrainz.org/ws/2/work/f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8?inc=aliases%2Bartist-rels%2Burl-rels&fmt=json",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:6c8cf03c9c3a388100f5c0f5f8157c3b0d0f2f6e20e14be745f1303c8696d073",
+      "authorityRevision": "sha256:6c8cf03c9c3a388100f5c0f5f8157c3b0d0f2f6e20e14be745f1303c8696d073",
+      "sourceRecordIds": [
+        "f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8"
+      ],
+      "projectedRecordIds": [
+        "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/artist-credit",
+        "/first-release-date",
+        "/id",
+        "/isrcs",
+        "/iswcs",
+        "/length",
+        "/name",
+        "/relations",
+        "/title",
+        "/type"
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "citationId": "musicbrainz-1f19b687-b03d-42ec-ae8f-67859521b5bf",
+      "sourceRecordId": "1f19b687-b03d-42ec-ae8f-67859521b5bf",
+      "sourceUrl": "https://musicbrainz.org/work/1f19b687-b03d-42ec-ae8f-67859521b5bf",
+      "title": "Конструируя среду",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-4f5a74d0-d183-37f1-b07a-913652e82667",
+      "sourceRecordId": "4f5a74d0-d183-37f1-b07a-913652e82667",
+      "sourceUrl": "https://musicbrainz.org/work/4f5a74d0-d183-37f1-b07a-913652e82667",
+      "title": "The Well-Tempered Clavier, Book I: Prelude and Fugue no. 23 in B major, BWV 868",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-660d0d25-4253-4d30-a818-61fc94e375bf",
+      "sourceRecordId": "660d0d25-4253-4d30-a818-61fc94e375bf",
+      "sourceUrl": "https://musicbrainz.org/work/660d0d25-4253-4d30-a818-61fc94e375bf",
+      "title": "Nocturnes, op. 9",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-7ab65141-762c-4232-8d0d-06ca95d426a4",
+      "sourceRecordId": "7ab65141-762c-4232-8d0d-06ca95d426a4",
+      "sourceUrl": "https://musicbrainz.org/work/7ab65141-762c-4232-8d0d-06ca95d426a4",
+      "title": "Поверь! (сцена 7 мая)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-8b3a9214-bbec-311d-a61b-874bf15dfdde",
+      "sourceRecordId": "8b3a9214-bbec-311d-a61b-874bf15dfdde",
+      "sourceUrl": "https://musicbrainz.org/work/8b3a9214-bbec-311d-a61b-874bf15dfdde",
+      "title": "Inventio Nr. 2 c-Moll, BWV 773",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-8d331505-4d88-39ae-81c7-bec5da77af96",
+      "sourceRecordId": "8d331505-4d88-39ae-81c7-bec5da77af96",
+      "sourceUrl": "https://musicbrainz.org/work/8d331505-4d88-39ae-81c7-bec5da77af96",
+      "title": "Suite bergamasque, L. 75, CD 82 : III. Clair de lune",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-8eae3473-9638-4311-a20a-18861f1d27eb",
+      "sourceRecordId": "8eae3473-9638-4311-a20a-18861f1d27eb",
+      "sourceUrl": "https://musicbrainz.org/work/8eae3473-9638-4311-a20a-18861f1d27eb",
+      "title": "Сияние (ария Сказочницы)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+      "sourceRecordId": "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+      "sourceUrl": "https://musicbrainz.org/work/9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+      "title": "Fantasie (Praeludium) und Fuge g-Moll, BWV 542",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-a488a020-884d-3349-a7e7-18993ffed13e",
+      "sourceRecordId": "a488a020-884d-3349-a7e7-18993ffed13e",
+      "sourceUrl": "https://musicbrainz.org/work/a488a020-884d-3349-a7e7-18993ffed13e",
+      "title": "Sonata for Piano no. 11 in A major, K. 300i/331 “Alla Turca”",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf",
+      "sourceRecordId": "ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf",
+      "sourceUrl": "https://musicbrainz.org/work/ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf",
+      "title": "Там, за чертой",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+      "sourceRecordId": "ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+      "sourceUrl": "https://musicbrainz.org/work/ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+      "title": "Щелкунчик, op. 71: Действие II, Картина III, no. 13. Вальс цветов",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e",
+      "sourceRecordId": "c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e",
+      "sourceUrl": "https://musicbrainz.org/work/c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e",
+      "title": "Доктор (сцена 7 мая)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-c74137fd-9928-4032-971e-5f4a028a0d0c",
+      "sourceRecordId": "c74137fd-9928-4032-971e-5f4a028a0d0c",
+      "sourceUrl": "https://musicbrainz.org/work/c74137fd-9928-4032-971e-5f4a028a0d0c",
+      "title": "Пролог (монолог Рассказчика)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-cc539b74-cdbb-4477-b36c-b68e0612fc6e",
+      "sourceRecordId": "cc539b74-cdbb-4477-b36c-b68e0612fc6e",
+      "sourceUrl": "https://musicbrainz.org/work/cc539b74-cdbb-4477-b36c-b68e0612fc6e",
+      "title": "Последнее кольцо",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-e9914523-2452-3987-8d4d-08f8e4f3c302",
+      "sourceRecordId": "e9914523-2452-3987-8d4d-08f8e4f3c302",
+      "sourceUrl": "https://musicbrainz.org/work/e9914523-2452-3987-8d4d-08f8e4f3c302",
+      "title": "Divertimento for String Quartet in D major, K. 125a/136 “Salzburg Symphony no. 1”",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8",
+      "sourceRecordId": "f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8",
+      "sourceUrl": "https://musicbrainz.org/work/f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8",
+      "title": "Неизбежность",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-09ff1fe8-d61c-4b98-bb82-18487c74d7b7",
+      "sourceRecordId": "09ff1fe8-d61c-4b98-bb82-18487c74d7b7",
+      "sourceUrl": "https://musicbrainz.org/artist/09ff1fe8-d61c-4b98-bb82-18487c74d7b7",
+      "title": "Fryderyk Chopin",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+      "sourceRecordId": "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+      "sourceUrl": "https://musicbrainz.org/artist/24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+      "title": "Johann Sebastian Bach",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+      "sourceRecordId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+      "sourceUrl": "https://musicbrainz.org/artist/32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+      "title": "Виктор Аргонов",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-38152320-495b-43d1-9584-ef55bef37d4f",
+      "sourceRecordId": "38152320-495b-43d1-9584-ef55bef37d4f",
+      "sourceUrl": "https://musicbrainz.org/artist/38152320-495b-43d1-9584-ef55bef37d4f",
+      "title": "Len",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-41bd3974-9a59-4e74-9c09-7878adbf95a8",
+      "sourceRecordId": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+      "sourceUrl": "https://musicbrainz.org/artist/41bd3974-9a59-4e74-9c09-7878adbf95a8",
+      "title": "Виктор Аргонов Project",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-4e78a33c-004b-4531-a1cd-449af525c39c",
+      "sourceRecordId": "4e78a33c-004b-4531-a1cd-449af525c39c",
+      "sourceUrl": "https://musicbrainz.org/artist/4e78a33c-004b-4531-a1cd-449af525c39c",
+      "title": "Андрей Климковский",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-6aa0ec03-d447-45ef-92cb-8627f4eb22ba",
+      "sourceRecordId": "6aa0ec03-d447-45ef-92cb-8627f4eb22ba",
+      "sourceUrl": "https://musicbrainz.org/artist/6aa0ec03-d447-45ef-92cb-8627f4eb22ba",
+      "title": "Олевия Кибер",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+      "sourceRecordId": "763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+      "sourceUrl": "https://musicbrainz.org/artist/763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+      "title": "Ariel",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-8292bf44-2dd1-4bad-8019-276ec38f28e7",
+      "sourceRecordId": "8292bf44-2dd1-4bad-8019-276ec38f28e7",
+      "sourceUrl": "https://musicbrainz.org/artist/8292bf44-2dd1-4bad-8019-276ec38f28e7",
+      "title": "Kevin MacLeod",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-9ddd7abc-9e1b-471d-8031-583bc6bc8be9",
+      "sourceRecordId": "9ddd7abc-9e1b-471d-8031-583bc6bc8be9",
+      "sourceUrl": "https://musicbrainz.org/artist/9ddd7abc-9e1b-471d-8031-583bc6bc8be9",
+      "title": "Пётр Ильич Чайковский",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-b972f589-fb0e-474e-b64a-803b0364fa75",
+      "sourceRecordId": "b972f589-fb0e-474e-b64a-803b0364fa75",
+      "sourceUrl": "https://musicbrainz.org/artist/b972f589-fb0e-474e-b64a-803b0364fa75",
+      "title": "Wolfgang Amadeus Mozart",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-be50643c-0377-4968-b48c-47e06b2e2a3b",
+      "sourceRecordId": "be50643c-0377-4968-b48c-47e06b2e2a3b",
+      "sourceUrl": "https://musicbrainz.org/artist/be50643c-0377-4968-b48c-47e06b2e2a3b",
+      "title": "Claude Debussy",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-c8e419d0-87f7-4643-9a3a-ca9804def7b0",
+      "sourceRecordId": "c8e419d0-87f7-4643-9a3a-ca9804def7b0",
+      "sourceUrl": "https://musicbrainz.org/artist/c8e419d0-87f7-4643-9a3a-ca9804def7b0",
+      "title": "Наталья Митрофанова",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-d2062464-9c2e-4d1f-8005-dac138da03e6",
+      "sourceRecordId": "d2062464-9c2e-4d1f-8005-dac138da03e6",
+      "sourceUrl": "https://musicbrainz.org/artist/d2062464-9c2e-4d1f-8005-dac138da03e6",
+      "title": "Complex Numbers",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-e0bdd567-47c9-4572-8abf-bb7d23b5d6f1",
+      "sourceRecordId": "e0bdd567-47c9-4572-8abf-bb7d23b5d6f1",
+      "sourceUrl": "https://musicbrainz.org/artist/e0bdd567-47c9-4572-8abf-bb7d23b5d6f1",
+      "title": "Marie Pleyel",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-020152a7-172e-45c5-812a-a60d02cb2a27",
+      "sourceRecordId": "020152a7-172e-45c5-812a-a60d02cb2a27",
+      "sourceUrl": "https://musicbrainz.org/recording/020152a7-172e-45c5-812a-a60d02cb2a27",
+      "title": "Пролегла черта (Меж двух эпох)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-321d235c-a32a-4f6c-b84d-0e151ffb58be",
+      "sourceRecordId": "321d235c-a32a-4f6c-b84d-0e151ffb58be",
+      "sourceUrl": "https://musicbrainz.org/recording/321d235c-a32a-4f6c-b84d-0e151ffb58be",
+      "title": "Неизбежность [Русская версия 2009]",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+      "sourceRecordId": "61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+      "sourceUrl": "https://musicbrainz.org/recording/61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+      "title": "Конструируя среду",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+      "sourceRecordId": "71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+      "sourceUrl": "https://musicbrainz.org/recording/71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+      "title": "Поверь! (сцена 7 мая)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-7fb6969c-bb00-48ec-84df-151fd56875c2",
+      "sourceRecordId": "7fb6969c-bb00-48ec-84df-151fd56875c2",
+      "sourceUrl": "https://musicbrainz.org/recording/7fb6969c-bb00-48ec-84df-151fd56875c2",
+      "title": "Сияние (ария Сказочницы)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-9aa56ede-83be-44ea-aeb5-d61268972c53",
+      "sourceRecordId": "9aa56ede-83be-44ea-aeb5-d61268972c53",
+      "sourceUrl": "https://musicbrainz.org/recording/9aa56ede-83be-44ea-aeb5-d61268972c53",
+      "title": "Big Rock",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+      "sourceRecordId": "b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+      "sourceUrl": "https://musicbrainz.org/recording/b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+      "title": "Время придёт (Изучает прогресс поведение людей)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-b70b3468-8f1a-4fa3-b853-122f57d98f92",
+      "sourceRecordId": "b70b3468-8f1a-4fa3-b853-122f57d98f92",
+      "sourceUrl": "https://musicbrainz.org/recording/b70b3468-8f1a-4fa3-b853-122f57d98f92",
+      "title": "Там, за чертой",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-c40d7b44-7583-4675-852a-10ddbea8cf46",
+      "sourceRecordId": "c40d7b44-7583-4675-852a-10ddbea8cf46",
+      "sourceUrl": "https://musicbrainz.org/recording/c40d7b44-7583-4675-852a-10ddbea8cf46",
+      "title": "Пролог (монолог Рассказчика)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+      "sourceRecordId": "d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+      "sourceUrl": "https://musicbrainz.org/recording/d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+      "title": "Доктор (сцена 7 мая)",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    {
+      "citationId": "musicbrainz-e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+      "sourceRecordId": "e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+      "sourceUrl": "https://musicbrainz.org/recording/e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+      "title": "Последнее кольцо [Вокальная версия]",
+      "publisher": "MusicBrainz",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "MusicBrainz core database contributors",
+      "rawObjectHash": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    }
+  ],
+  "records": [
+    {
+      "payload": {
+        "id": "1f19b687-b03d-42ec-ae8f-67859521b5bf",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Конструируя среду",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:53eaffdc6ceb62ec44e0db2c9d6f7eb8ec0513a0864b2a53a883831d4c897a99"
+      },
+      "citationIds": [
+        "musicbrainz-1f19b687-b03d-42ec-ae8f-67859521b5bf"
+      ]
+    },
+    {
+      "payload": {
+        "id": "4f5a74d0-d183-37f1-b07a-913652e82667",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:8dbd16d586c235980f31ea3a827c122aee5d6912473f29b527f9fad5aa97a62f",
+        "name": "The Well-Tempered Clavier, Book I: Prelude and Fugue no. 23 in B major, BWV 868",
+        "aliases": [
+          {
+            "name": "Book 1 No. 23 in B major, BWV 868",
+            "locale": "und"
+          },
+          {
+            "name": "Das wohltemperierte Klavier, I. Teil: Praeludium und Fuge Nr. 23 H-dur, BWV 868",
+            "locale": "und"
+          },
+          {
+            "name": "No. 23 in B major, BWV 868",
+            "locale": "und"
+          },
+          {
+            "name": "Praeludium & Fuga (a 4 voci) in H-Dur, BWV 868",
+            "locale": "und"
+          },
+          {
+            "name": "Praeludium & Fuge XXIII H-dur",
+            "locale": "und"
+          },
+          {
+            "name": "Prelude and Fugue No. 23 in B major, BWV 868",
+            "locale": "und"
+          },
+          {
+            "name": "Prelude et Fugue No. 23",
+            "locale": "und"
+          },
+          {
+            "name": "Prélude et Fugue en si majeur, BWV 868",
+            "locale": "und"
+          },
+          {
+            "name": "The Well-Tempered Clavier, Book I: Prelude & Fugue No. 23 in B major, BWV 868",
+            "locale": "und"
+          },
+          {
+            "name": "The Well-Tempered Clavier, Book I: XXIII. Prelude and Fugue in B major, BWV 868",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [
+          "Q17591232"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Johann Sebastian Bach",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-4f5a74d0-d183-37f1-b07a-913652e82667"
+      ]
+    },
+    {
+      "payload": {
+        "id": "660d0d25-4253-4d30-a818-61fc94e375bf",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:aec839563c5680ad4377a249507653a63b3118f326a9b5764d40da8b4395d006",
+        "name": "Nocturnes, op. 9",
+        "aliases": [],
+        "wikidataQids": [
+          "Q1140459"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "09ff1fe8-d61c-4b98-bb82-18487c74d7b7",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Fryderyk Chopin",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "e0bdd567-47c9-4572-8abf-bb7d23b5d6f1",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "DEDICATION",
+              "creditedAs": "Marie Pleyel",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-660d0d25-4253-4d30-a818-61fc94e375bf"
+      ]
+    },
+    {
+      "payload": {
+        "id": "7ab65141-762c-4232-8d0d-06ca95d426a4",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Поверь! (сцена 7 мая)",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LIBRETTIST",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:fdf89f0189320e52a3ebe20e06e7c5ba2a38a88bb85609dfc81e121f268903ae"
+      },
+      "citationIds": [
+        "musicbrainz-7ab65141-762c-4232-8d0d-06ca95d426a4"
+      ]
+    },
+    {
+      "payload": {
+        "id": "8b3a9214-bbec-311d-a61b-874bf15dfdde",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:af3d93331d795d6647a2824fae30dbba34a534a83e7faff4f9f8805d4422766e",
+        "name": "Inventio Nr. 2 c-Moll, BWV 773",
+        "aliases": [
+          {
+            "name": "Inventio No. 2 c-Moll, BWV 773",
+            "locale": "und"
+          },
+          {
+            "name": "Inventio No. 2 en Ut mineur, BWV 773",
+            "locale": "und"
+          },
+          {
+            "name": "Inventio No. 2 in c-Moll, BWV 773",
+            "locale": "und"
+          },
+          {
+            "name": "Invention No. 2 in C minor, BWV 733",
+            "locale": "und"
+          },
+          {
+            "name": "Inventionen für Cempalo Nr. 2 in c-Moll, BWV 773",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Johann Sebastian Bach",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-8b3a9214-bbec-311d-a61b-874bf15dfdde"
+      ]
+    },
+    {
+      "payload": {
+        "id": "8d331505-4d88-39ae-81c7-bec5da77af96",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:a9851e83778577f99e9d47ad2fc6c2eda69a2c635ade41a98cc57ac844145bfd",
+        "name": "Suite bergamasque, L. 75, CD 82 : III. Clair de lune",
+        "aliases": [
+          {
+            "name": "Claro de luna",
+            "locale": "es"
+          },
+          {
+            "name": "'Claire de Lune'",
+            "locale": "und"
+          },
+          {
+            "name": "Bergamasque-sarja, L 75: III. Kuutamo",
+            "locale": "und"
+          },
+          {
+            "name": "Clair De Lune (From Suite Bergamasque)",
+            "locale": "und"
+          },
+          {
+            "name": "Clair de Lune (Moonlight)",
+            "locale": "und"
+          },
+          {
+            "name": "Clair de Lune (Suite bergamasque)",
+            "locale": "und"
+          },
+          {
+            "name": "Clair de lune (from suite bergamasque)",
+            "locale": "und"
+          },
+          {
+            "name": "Claire De Lune",
+            "locale": "und"
+          },
+          {
+            "name": "Claire de Lune",
+            "locale": "und"
+          },
+          {
+            "name": "Claire de Lune (1882)?",
+            "locale": "und"
+          },
+          {
+            "name": "Suite Bergamasque - Clair de lune",
+            "locale": "und"
+          },
+          {
+            "name": "Suite Bergamasque: 3. 'Clair de lune'",
+            "locale": "und"
+          },
+          {
+            "name": "Suite Bergamasque: Clair de lune",
+            "locale": "und"
+          },
+          {
+            "name": "Suite bergamasque: III. Moonlight",
+            "locale": "und"
+          },
+          {
+            "name": "ベルガマスク組曲：月の光",
+            "locale": "und"
+          },
+          {
+            "name": "月の光（「ベルガマスク組曲」より）",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [
+          "Q29117946"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "be50643c-0377-4968-b48c-47e06b2e2a3b",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Claude Debussy",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-8d331505-4d88-39ae-81c7-bec5da77af96"
+      ]
+    },
+    {
+      "payload": {
+        "id": "8eae3473-9638-4311-a20a-18861f1d27eb",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Сияние (ария Сказочницы)",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LIBRETTIST",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:e6b0a91fdfd20151ac320e4f1df9a3917ade2103f5287494a437faa417d4ba02"
+      },
+      "citationIds": [
+        "musicbrainz-8eae3473-9638-4311-a20a-18861f1d27eb"
+      ]
+    },
+    {
+      "payload": {
+        "id": "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:59ad85a3a884bd19286c1f80f52f9bd41c5f8fe1c7e77093b9496fb143a280cf",
+        "name": "Fantasie (Praeludium) und Fuge g-Moll, BWV 542",
+        "aliases": [
+          {
+            "name": "Fantasia and Fugue in G minor, BWV 542",
+            "locale": "en"
+          }
+        ],
+        "wikidataQids": [
+          "Q2607570"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Johann Sebastian Bach",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7"
+      ]
+    },
+    {
+      "payload": {
+        "id": "a488a020-884d-3349-a7e7-18993ffed13e",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:828dd55e2bc93e89b1aace0ba6f47ffb9bfa0c591a58bb61c2e3b6d375bbe957",
+        "name": "Sonata for Piano no. 11 in A major, K. 300i/331 “Alla Turca”",
+        "aliases": [
+          {
+            "name": "Piano Sonata in A",
+            "locale": "und"
+          },
+          {
+            "name": "Piano Sonata in A major",
+            "locale": "und"
+          },
+          {
+            "name": "Piano Sonata no. 11 in A major, K. 331",
+            "locale": "und"
+          },
+          {
+            "name": "Piano sonata No. 11 in A major, K.331/300i",
+            "locale": "und"
+          },
+          {
+            "name": "Sonate KV 331 (Alla turca)",
+            "locale": "und"
+          },
+          {
+            "name": "Sonate Nr. 11 A-Dur KV 331",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [
+          "Q908534"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "b972f589-fb0e-474e-b64a-803b0364fa75",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Wolfgang Amadeus Mozart",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-a488a020-884d-3349-a7e7-18993ffed13e"
+      ]
+    },
+    {
+      "payload": {
+        "id": "ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Там, за чертой",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [
+          "Q106435194"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:3f314ddf42649cd546deb73162d4401618fddba4b922cdd8f2593e40a51e4d0f"
+      },
+      "citationIds": [
+        "musicbrainz-ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf"
+      ]
+    },
+    {
+      "payload": {
+        "id": "ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:ee3c5929aa0f609e6b3d573cb8ca6a243b93e2d74296eae4f552d3b06a25a241",
+        "name": "Щелкунчик, op. 71: Действие II, Картина III, no. 13. Вальс цветов",
+        "aliases": [
+          {
+            "name": "The Nutcracker, op. 71: Act II, Scene III. Waltz of the flowers",
+            "locale": "en"
+          },
+          {
+            "name": "Der Nussknacker / The Nutcracker, Ballett / Ballet: 8. Blumenwalzer / Flower Waltz",
+            "locale": "und"
+          },
+          {
+            "name": "The Nutcracker, Op. 71: Waltz of the Flowers",
+            "locale": "und"
+          },
+          {
+            "name": "The Nutcracker: Act II: Waltz of the Flowers",
+            "locale": "und"
+          },
+          {
+            "name": "Valse des fleurs",
+            "locale": "und"
+          },
+          {
+            "name": "Waltz of the Flowers",
+            "locale": "und"
+          },
+          {
+            "name": "花のワルツ",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "9ddd7abc-9e1b-471d-8031-583bc6bc8be9",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Пётр Ильич Чайковский",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-ba28e7e2-862e-3438-9faa-13ebb6e9030c"
+      ]
+    },
+    {
+      "payload": {
+        "id": "c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Доктор (сцена 7 мая)",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LIBRETTIST",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:812c11f49527005c8ab291e560e60e63de6c40c7216124ca5a25253a90489d6c"
+      },
+      "citationIds": [
+        "musicbrainz-c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e"
+      ]
+    },
+    {
+      "payload": {
+        "id": "c74137fd-9928-4032-971e-5f4a028a0d0c",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Пролог (монолог Рассказчика)",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LIBRETTIST",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:f0493f354dc6cb4c5165bc13950469276edfc486067a7382cc3553c2ed527b31"
+      },
+      "citationIds": [
+        "musicbrainz-c74137fd-9928-4032-971e-5f4a028a0d0c"
+      ]
+    },
+    {
+      "payload": {
+        "id": "cc539b74-cdbb-4477-b36c-b68e0612fc6e",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Последнее кольцо",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "4e78a33c-004b-4531-a1cd-449af525c39c",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Андрей Климковский",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:d28aa6bf626119cf6872e1964be412c6fb0ac8e74a80d27bac709ab166f2559b"
+      },
+      "citationIds": [
+        "musicbrainz-cc539b74-cdbb-4477-b36c-b68e0612fc6e"
+      ]
+    },
+    {
+      "payload": {
+        "id": "e9914523-2452-3987-8d4d-08f8e4f3c302",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:3e99588454a2b865b104fcb117b21d11a8e79e5d222644f969ccbdf4b3a65363",
+        "name": "Divertimento for String Quartet in D major, K. 125a/136 “Salzburg Symphony no. 1”",
+        "aliases": [
+          {
+            "name": "Salzberg Symphonie: Divertimento in D Major",
+            "locale": "und"
+          },
+          {
+            "name": "Salzburg Symphony #1",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "b972f589-fb0e-474e-b64a-803b0364fa75",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Wolfgang Amadeus Mozart",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "iswcs": []
+      },
+      "citationIds": [
+        "musicbrainz-e9914523-2452-3987-8d4d-08f8e4f3c302"
+      ]
+    },
+    {
+      "payload": {
+        "id": "f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSICAL_WORK",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Неизбежность",
+        "iswcs": [],
+        "aliases": [],
+        "wikidataQids": [
+          "Q108212504"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "creditedAs": "Виктор Аргонов",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "authorityRevision": "sha256:6c8cf03c9c3a388100f5c0f5f8157c3b0d0f2f6e20e14be745f1303c8696d073"
+      },
+      "citationIds": [
+        "musicbrainz-f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8"
+      ]
+    },
+    {
+      "payload": {
+        "id": "09ff1fe8-d61c-4b98-bb82-18487c74d7b7",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Fryderyk Chopin",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-09ff1fe8-d61c-4b98-bb82-18487c74d7b7"
+      ]
+    },
+    {
+      "payload": {
+        "id": "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Johann Sebastian Bach",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-24f1766e-9635-4d58-a4d4-9413f9f98a4c"
+      ]
+    },
+    {
+      "payload": {
+        "id": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Виктор Аргонов",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-32d22ad6-172a-4b1b-a3cb-05b4ac262f1f"
+      ]
+    },
+    {
+      "payload": {
+        "id": "38152320-495b-43d1-9584-ef55bef37d4f",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Len",
+        "aliases": [
+          {
+            "name": "Alexey Reiss",
+            "locale": "en"
+          },
+          {
+            "name": "Count Ciel",
+            "locale": "en"
+          },
+          {
+            "name": "MrSoundlessVoice",
+            "locale": "en"
+          },
+          {
+            "name": "Ren",
+            "locale": "en"
+          },
+          {
+            "name": "Ren Reiss",
+            "locale": "en"
+          },
+          {
+            "name": "Soundless Voice",
+            "locale": "en"
+          },
+          {
+            "name": "TheSoundlessVoice",
+            "locale": "en"
+          },
+          {
+            "name": "Лен",
+            "locale": "ru"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-38152320-495b-43d1-9584-ef55bef37d4f"
+      ]
+    },
+    {
+      "payload": {
+        "id": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Виктор Аргонов Project",
+        "aliases": [
+          {
+            "name": "Victor Argonov Project",
+            "locale": "en"
+          },
+          {
+            "name": "Viktor Argonov Project",
+            "locale": "en"
+          },
+          {
+            "name": "Виктор Аргонов Project",
+            "locale": "ru"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Group",
+        "agentKind": "ORGANIZATION"
+      },
+      "citationIds": [
+        "musicbrainz-41bd3974-9a59-4e74-9c09-7878adbf95a8"
+      ]
+    },
+    {
+      "payload": {
+        "id": "4e78a33c-004b-4531-a1cd-449af525c39c",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Андрей Климковский",
+        "aliases": [
+          {
+            "name": "Andrey Klimkovsky",
+            "locale": "en"
+          },
+          {
+            "name": "А. Климковский",
+            "locale": "ru"
+          },
+          {
+            "name": "Андрей Климковский",
+            "locale": "ru"
+          },
+          {
+            "name": "Andrei Klimkovskii",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-4e78a33c-004b-4531-a1cd-449af525c39c"
+      ]
+    },
+    {
+      "payload": {
+        "id": "6aa0ec03-d447-45ef-92cb-8627f4eb22ba",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Олевия Кибер",
+        "aliases": [
+          {
+            "name": "Oleviia",
+            "locale": "en"
+          },
+          {
+            "name": "Oleviia Kiber",
+            "locale": "en"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-6aa0ec03-d447-45ef-92cb-8627f4eb22ba"
+      ]
+    },
+    {
+      "payload": {
+        "id": "763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Ariel",
+        "aliases": [
+          {
+            "name": "Ариель",
+            "locale": "ru"
+          },
+          {
+            "name": "Ариэль",
+            "locale": "ru"
+          },
+          {
+            "name": "Ariel W",
+            "locale": "und"
+          },
+          {
+            "name": "Ariel Wright",
+            "locale": "und"
+          },
+          {
+            "name": "IamDiclonius",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-763ea1f8-85f3-4335-bfe8-fe4fd8194512"
+      ]
+    },
+    {
+      "payload": {
+        "id": "8292bf44-2dd1-4bad-8019-276ec38f28e7",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Kevin MacLeod",
+        "aliases": [
+          {
+            "name": "Kevin MacLoud",
+            "locale": "und"
+          },
+          {
+            "name": "Kevin McLeod",
+            "locale": "und"
+          },
+          {
+            "name": "Kevin McLoud",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-8292bf44-2dd1-4bad-8019-276ec38f28e7"
+      ]
+    },
+    {
+      "payload": {
+        "id": "9ddd7abc-9e1b-471d-8031-583bc6bc8be9",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Пётр Ильич Чайковский",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-9ddd7abc-9e1b-471d-8031-583bc6bc8be9"
+      ]
+    },
+    {
+      "payload": {
+        "id": "b972f589-fb0e-474e-b64a-803b0364fa75",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Wolfgang Amadeus Mozart",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-b972f589-fb0e-474e-b64a-803b0364fa75"
+      ]
+    },
+    {
+      "payload": {
+        "id": "be50643c-0377-4968-b48c-47e06b2e2a3b",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Claude Debussy",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-be50643c-0377-4968-b48c-47e06b2e2a3b"
+      ]
+    },
+    {
+      "payload": {
+        "id": "c8e419d0-87f7-4643-9a3a-ca9804def7b0",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Наталья Митрофанова",
+        "aliases": [
+          {
+            "name": "Natalia Mitrofanova",
+            "locale": "en"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-c8e419d0-87f7-4643-9a3a-ca9804def7b0"
+      ]
+    },
+    {
+      "payload": {
+        "id": "d2062464-9c2e-4d1f-8005-dac138da03e6",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Complex Numbers",
+        "aliases": [
+          {
+            "name": "Комплексные числа",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Group",
+        "agentKind": "ORGANIZATION"
+      },
+      "citationIds": [
+        "musicbrainz-d2062464-9c2e-4d1f-8005-dac138da03e6"
+      ]
+    },
+    {
+      "payload": {
+        "id": "e0bdd567-47c9-4572-8abf-bb7d23b5d6f1",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_ARTIST",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "name": "Marie Pleyel",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [],
+        "musicBrainzArtistType": "Person",
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "musicbrainz-e0bdd567-47c9-4572-8abf-bb7d23b5d6f1"
+      ]
+    },
+    {
+      "payload": {
+        "id": "020152a7-172e-45c5-812a-a60d02cb2a27",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:1afdab2f4ebd4c3247df8c0fdfef59c9511522608138ef064682beb888068778",
+        "name": "Пролегла черта (Меж двух эпох)",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "d2062464-9c2e-4d1f-8005-dac138da03e6",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Complex Numbers",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "6aa0ec03-d447-45ef-92cb-8627f4eb22ba",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Олевия Кибер",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "durationMs": 271438,
+        "firstReleaseDate": "2022-12-27",
+        "isrcs": []
+      },
+      "citationIds": [
+        "musicbrainz-020152a7-172e-45c5-812a-a60d02cb2a27"
+      ]
+    },
+    {
+      "payload": {
+        "id": "321d235c-a32a-4f6c-b84d-0e151ffb58be",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:52a1e7cc4bd799fb22528b7e122eb5d4c2f5bded5f8853c76320bb720b18efa0",
+        "name": "Неизбежность [Русская версия 2009]",
+        "aliases": [
+          {
+            "name": "Неизбежность (Russian SE)",
+            "locale": "ru"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "d2062464-9c2e-4d1f-8005-dac138da03e6",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Complex Numbers",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "c8e419d0-87f7-4643-9a3a-ca9804def7b0",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Наталья Митрофанова",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 322000,
+        "firstReleaseDate": "2009-04-23",
+        "isrcs": [
+          "TCACQ1665741"
+        ]
+      },
+      "citationIds": [
+        "musicbrainz-321d235c-a32a-4f6c-b84d-0e151ffb58be"
+      ]
+    },
+    {
+      "payload": {
+        "id": "61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:c4f5ca6a5e15fd012629895634229bcb43979ca375c1c4c029416f0b1559b9ad",
+        "name": "Конструируя среду",
+        "aliases": [
+          {
+            "name": "Constructing the Environment",
+            "locale": "en"
+          },
+          {
+            "name": "Part 1. Constructing the Environment",
+            "locale": "en"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Виктор Аргонов Project",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "1f19b687-b03d-42ec-ae8f-67859521b5bf",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 384000,
+        "firstReleaseDate": "2015-04-19",
+        "isrcs": []
+      },
+      "citationIds": [
+        "musicbrainz-61b03fdf-24aa-4c82-b5d6-1e25691e8347"
+      ]
+    },
+    {
+      "payload": {
+        "id": "71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:946460438cde16b00510989bcef9c75fdd0a1a18711d9d9a7324176c10204a9a",
+        "name": "Поверь! (сцена 7 мая)",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Виктор Аргонов Project",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "7ab65141-762c-4232-8d0d-06ca95d426a4",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 335000,
+        "firstReleaseDate": "2013-07-02",
+        "isrcs": []
+      },
+      "citationIds": [
+        "musicbrainz-71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa"
+      ]
+    },
+    {
+      "payload": {
+        "id": "7fb6969c-bb00-48ec-84df-151fd56875c2",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:71f9699ecd1573832714698cdd9077678ee891d25892ccf047406a03a0e03096",
+        "name": "Сияние (ария Сказочницы)",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Виктор Аргонов Project",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "8eae3473-9638-4311-a20a-18861f1d27eb",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 250000,
+        "firstReleaseDate": "2013-07-02",
+        "isrcs": []
+      },
+      "citationIds": [
+        "musicbrainz-7fb6969c-bb00-48ec-84df-151fd56875c2"
+      ]
+    },
+    {
+      "payload": {
+        "id": "9aa56ede-83be-44ea-aeb5-d61268972c53",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:a4b79e726ee657f23a6608902f4a328a167850edd51094367ca51ff2863886d9",
+        "name": "Big Rock",
+        "aliases": [],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "8292bf44-2dd1-4bad-8019-276ec38f28e7",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Kevin MacLeod",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "durationMs": 230000,
+        "firstReleaseDate": "2009",
+        "isrcs": [
+          "USUAN1100305"
+        ]
+      },
+      "citationIds": [
+        "musicbrainz-9aa56ede-83be-44ea-aeb5-d61268972c53"
+      ]
+    },
+    {
+      "payload": {
+        "id": "b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:c0e5b803e2d3a7e49d6083a7558e7c43932e2ef5b0aa1bd4d8104bcf65fcd480",
+        "name": "Время придёт (Изучает прогресс поведение людей)",
+        "aliases": [
+          {
+            "name": "Время придёт (Изучает прогресс поведенье людей)",
+            "locale": "ru"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Ariel",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "d2062464-9c2e-4d1f-8005-dac138da03e6",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Complex Numbers",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "38152320-495b-43d1-9584-ef55bef37d4f",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Len",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "durationMs": 375457,
+        "firstReleaseDate": "2022-12-27",
+        "isrcs": [],
+        "recordingVariants": [
+          {
+            "targetId": "a257bc46-2906-4352-be71-0821ad98bec8",
+            "title": "Время придёт (Tycoos remix)",
+            "relationType": "remix",
+            "direction": "backward"
+          }
+        ]
+      },
+      "citationIds": [
+        "musicbrainz-b611eecb-2e93-46ad-aaf4-f00f02a913ff"
+      ]
+    },
+    {
+      "payload": {
+        "id": "b70b3468-8f1a-4fa3-b853-122f57d98f92",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:81e359fbcfe2bdb5ddd8f1c093c74d6c39478344e6540f5290afb6c4da89c78c",
+        "name": "Там, за чертой",
+        "aliases": [
+          {
+            "name": "Beyond the Line",
+            "locale": "en"
+          },
+          {
+            "name": "Part 5. Beyond the Line",
+            "locale": "en"
+          },
+          {
+            "name": "Часть 5. Там, за чертой",
+            "locale": "ru"
+          },
+          {
+            "name": "Часть 5: там, за чертой",
+            "locale": "ru"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Виктор Аргонов Project",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 512000,
+        "firstReleaseDate": "2015-04-19",
+        "isrcs": [
+          "TCACI1577309"
+        ],
+        "recordingVariants": [
+          {
+            "targetId": "94f82edf-c156-4327-88c0-42920f990995",
+            "title": "Там за чертой / Диалог (Bananafox house remix)",
+            "relationType": "remix",
+            "direction": "backward"
+          },
+          {
+            "targetId": "fb1eef32-951b-4d25-beea-ba878d826cf7",
+            "title": "Там за чертой / Пролог (Bananafox house remix)",
+            "relationType": "remix",
+            "direction": "backward"
+          },
+          {
+            "targetId": "ae81a568-f6f4-4a69-9da0-b8561247642d",
+            "title": "Там, за чертой / full (DIP Project trance remix)",
+            "relationType": "remix",
+            "direction": "backward"
+          },
+          {
+            "targetId": "31de64e4-adef-4735-86c7-5453885774a7",
+            "title": "Там, за чертой / radio (DIP Project trance remix)",
+            "relationType": "remix",
+            "direction": "backward"
+          }
+        ]
+      },
+      "citationIds": [
+        "musicbrainz-b70b3468-8f1a-4fa3-b853-122f57d98f92"
+      ]
+    },
+    {
+      "payload": {
+        "id": "c40d7b44-7583-4675-852a-10ddbea8cf46",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:774f9b29953cfae26543c3463039602a6c9ddc999ad96fac0d4b056b775bfdb7",
+        "name": "Пролог (монолог Рассказчика)",
+        "aliases": [
+          {
+            "name": "Prologue (Narrator's monologue)",
+            "locale": "en"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Виктор Аргонов Project",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "c74137fd-9928-4032-971e-5f4a028a0d0c",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 125000,
+        "firstReleaseDate": "2007",
+        "isrcs": [
+          "TCABW1413721"
+        ]
+      },
+      "citationIds": [
+        "musicbrainz-c40d7b44-7583-4675-852a-10ddbea8cf46"
+      ]
+    },
+    {
+      "payload": {
+        "id": "d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:d3aeaf13fc47a9774d643456d7b5beea5b97a3a2b854c64681cbd2aaf22e446c",
+        "name": "Доктор (сцена 7 мая)",
+        "aliases": [
+          {
+            "name": "The Doctor (May 7 scene)",
+            "locale": "en"
+          }
+        ],
+        "wikidataQids": [],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Виктор Аргонов Project",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "c1e5e7d9-4a5d-4f51-a6f3-0e732e43e02e",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 194000,
+        "firstReleaseDate": "2013-07-02",
+        "isrcs": [
+          "TCABW1427354"
+        ]
+      },
+      "citationIds": [
+        "musicbrainz-d9da08d3-3c24-4f4c-b1e7-beeee60bab08"
+      ]
+    },
+    {
+      "payload": {
+        "id": "e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+        "researchDomain": "MUSIC",
+        "entityType": "MUSIC_RECORDING",
+        "coreDataset": "MUSICBRAINZ_CORE_CC0",
+        "authorityRevision": "sha256:4d878be578b19fa5b37003ec09ccdf8b3d9ceda931917dbbf53eb6ea88d0e891",
+        "name": "Последнее кольцо [Вокальная версия]",
+        "aliases": [
+          {
+            "name": "Last Ring (vocal edit)",
+            "locale": "en"
+          },
+          {
+            "name": "Last Ring (vocal version)",
+            "locale": "en"
+          },
+          {
+            "name": "Последнее Кольцо (Вокальная Версия)",
+            "locale": "ru"
+          },
+          {
+            "name": "Последнее кольцо (vocal edit)",
+            "locale": "ru"
+          },
+          {
+            "name": "Последнее кольцо (вокальная редакция)",
+            "locale": "und"
+          }
+        ],
+        "wikidataQids": [
+          "Q105978624"
+        ],
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Ariel",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "d2062464-9c2e-4d1f-8005-dac138da03e6",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Complex Numbers",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "4e78a33c-004b-4531-a1cd-449af525c39c",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "creditedAs": "Андрей Климковский",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "cc539b74-cdbb-4477-b36c-b68e0612fc6e",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "musicBrainzRelationType": "performance",
+              "direction": "forward"
+            }
+          }
+        ],
+        "durationMs": 343000,
+        "firstReleaseDate": "2009-04-23",
+        "isrcs": [
+          "TCACQ1665727"
+        ],
+        "recordingVariants": [
+          {
+            "targetId": "7fd4bf1d-c958-4c36-aa92-908b4829e371",
+            "title": "Последнее кольцо [Инструментальная версия]",
+            "relationType": "karaoke",
+            "direction": "forward"
+          }
+        ]
+      },
+      "citationIds": [
+        "musicbrainz-e1ded706-16ec-45c3-87c4-0ae7a26f56d3"
+      ]
+    }
+  ]
+}

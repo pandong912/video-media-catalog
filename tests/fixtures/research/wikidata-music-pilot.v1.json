@@ -1,0 +1,6250 @@
+{
+  "schemaVersion": "video.media-catalog.reference-fixture.v1",
+  "fixtureId": "wikidata-music-pilot-v1",
+  "domain": "MUSIC",
+  "sourceSystemId": "wikidata",
+  "sourceProductId": "wikidata-json-dump",
+  "connectorId": "wikidata-full-media-backfill",
+  "revisionKind": "DUMP_OBJECT",
+  "schemaId": "wikidata-global-reference-entity",
+  "sourceRevision": "sha256:48949106cf45ed8ebdc26bdd41060054e5d3b492e934a85b9e83c13f6fad067f",
+  "capturedAt": "2026-10-17T03:00:00Z",
+  "rawObject": {
+    "uri": "file:///tests/fixtures/research/wikidata-music-pilot.v1.jsonl",
+    "format": "OBJECT_FORMAT_JSON",
+    "mediaType": "application/x-ndjson",
+    "checksum": {
+      "algorithm": "CHECKSUM_ALGORITHM_SHA256",
+      "encoding": "CHECKSUM_ENCODING_HEX",
+      "value": "4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    "sizeBytes": 79768
+  },
+  "imageDigest": "sha256:9d3d28f073ad9a9befbfea84f112001208bbe0c4d884cfec8eaaddbf583a5b2f",
+  "configDigest": "sha256:c5b99383a27231eb94d63b27b74ee2bf45558c825e46d12837200d841180dfba",
+  "captureReceipts": [
+    {
+      "requestUrl": "https://www.wikidata.org/w/api.php?action=wbgetentities&ids=Q100269171%7CQ105755025%7CQ105767535%7CQ105905487%7CQ105906250%7CQ105942454%7CQ105943304%7CQ105943407%7CQ105962641%7CQ106094199%7CQ106182851%7CQ106435194%7CQ108058755%7CQ108212504%7CQ1268%7CQ1339%7CQ16731782%7CQ254%7CQ4223710%7CQ4700%7CQ54874941%7CQ7315&props=info%7Clabels%7Caliases%7Cclaims&languages=en%7Cru&format=json&formatversion=2",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:c0c26fcb78f324a1d147897f17f26b4f492a07a65dd6e9357da6d561a89d08b7",
+      "authorityRevision": "Q100269171@2555348677,Q105755025@2524423823,Q105767535@2434966757,Q105905487@2433879359,Q105906250@2511156336,Q105942454@2524409484,Q105943304@2197144727,Q105943407@2530098469,Q105962641@2524376501,Q106094199@2524725633,Q106182851@2524409489,Q106435194@1481714080,Q108058755@2524419793,Q108212504@1533175027,Q1268@2557123557,Q1339@2557816403,Q16731782@2529444471,Q254@2556283497,Q4223710@2542861529,Q4700@2557845170,Q54874941@2302007720,Q7315@2557198731",
+      "sourceRecordIds": [
+        "Q100269171",
+        "Q105755025",
+        "Q105767535",
+        "Q105905487",
+        "Q105906250",
+        "Q105942454",
+        "Q105943304",
+        "Q105943407",
+        "Q105962641",
+        "Q106094199",
+        "Q106182851",
+        "Q106435194",
+        "Q108058755",
+        "Q108212504",
+        "Q1268",
+        "Q1339",
+        "Q16731782",
+        "Q254",
+        "Q4223710",
+        "Q4700",
+        "Q54874941",
+        "Q7315"
+      ],
+      "projectedRecordIds": [
+        "Q100269171",
+        "Q105755025",
+        "Q105767535",
+        "Q105905487",
+        "Q105906250",
+        "Q105942454",
+        "Q105943304",
+        "Q105943407",
+        "Q105962641",
+        "Q106094199",
+        "Q106182851",
+        "Q106435194",
+        "Q108058755",
+        "Q108212504",
+        "Q1268",
+        "Q1339",
+        "Q16731782",
+        "Q254",
+        "Q4223710",
+        "Q4700",
+        "Q54874941",
+        "Q7315"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/claims/P31",
+        "/claims/P51",
+        "/claims/P86",
+        "/claims/P175",
+        "/claims/P434",
+        "/claims/P435",
+        "/claims/P676",
+        "/claims/P1243",
+        "/claims/P1827",
+        "/claims/P2550",
+        "/claims/P4404",
+        "/id",
+        "/labels",
+        "/lastrevid",
+        "/modified"
+      ]
+    },
+    {
+      "requestUrl": "https://www.wikidata.org/w/api.php?action=wbgetentities&ids=Q105942412%7CQ105978624%7CQ106098098%7CQ106182588%7CQ106435189%7CQ108042886%7CQ109795255%7CQ113148225%7CQ113151843%7CQ113153791%7CQ1140459%7CQ12860108%7CQ138836655%7CQ17591232%7CQ2607570%7CQ29117946%7CQ66662496%7CQ908534%7CQ960586&props=info%7Clabels%7Caliases%7Cclaims&languages=en%7Cru&format=json&formatversion=2",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "responseHash": "sha256:3ee2d8b17d7b0720c60fdfde44410f8b22374cbc44bc29997b7df6d029bfa298",
+      "authorityRevision": "Q105942412@2397375374,Q105978624@2313854151,Q106098098@2261277072,Q106182588@2313933718,Q106435189@2261277764,Q108042886@2261278039,Q109795255@2156286432,Q113148225@2454178161,Q113151843@2323988319,Q113153791@2173405810,Q1140459@2509756763,Q12860108@2450107506,Q138836655@2476397473,Q17591232@2477055740,Q2607570@2480032102,Q29117946@2550669190,Q66662496@2069626011,Q908534@2528459949,Q960586@2543367027",
+      "sourceRecordIds": [
+        "Q105942412",
+        "Q105978624",
+        "Q106098098",
+        "Q106182588",
+        "Q106435189",
+        "Q108042886",
+        "Q109795255",
+        "Q113148225",
+        "Q113151843",
+        "Q113153791",
+        "Q1140459",
+        "Q12860108",
+        "Q138836655",
+        "Q17591232",
+        "Q2607570",
+        "Q29117946",
+        "Q66662496",
+        "Q908534",
+        "Q960586"
+      ],
+      "projectedRecordIds": [
+        "Q105942412",
+        "Q105978624",
+        "Q106098098",
+        "Q106182588",
+        "Q106435189",
+        "Q108042886",
+        "Q109795255",
+        "Q113148225",
+        "Q113151843",
+        "Q113153791",
+        "Q1140459",
+        "Q12860108",
+        "Q138836655",
+        "Q17591232",
+        "Q2607570",
+        "Q29117946",
+        "Q66662496",
+        "Q908534",
+        "Q960586"
+      ],
+      "projectionPaths": [
+        "/aliases",
+        "/claims/P31",
+        "/claims/P51",
+        "/claims/P86",
+        "/claims/P175",
+        "/claims/P434",
+        "/claims/P435",
+        "/claims/P676",
+        "/claims/P1243",
+        "/claims/P1827",
+        "/claims/P2550",
+        "/claims/P4404",
+        "/id",
+        "/labels",
+        "/lastrevid",
+        "/modified"
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "citationId": "wikidata-q106435194",
+      "sourceRecordId": "Q106435194",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q106435194",
+      "title": "Beyond the Line",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q108212504",
+      "sourceRecordId": "Q108212504",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q108212504",
+      "title": "Inevitability",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q1140459",
+      "sourceRecordId": "Q1140459",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q1140459",
+      "title": "Nocturnes, Op. 9",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q12860108",
+      "sourceRecordId": "Q12860108",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q12860108",
+      "title": "Waltz of the Flowers",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q138836655",
+      "sourceRecordId": "Q138836655",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q138836655",
+      "title": "Invention No. 2 in C minor, BWV 773",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q17591232",
+      "sourceRecordId": "Q17591232",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q17591232",
+      "title": "Prelude and Fugue in B major, BWV 868",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q2607570",
+      "sourceRecordId": "Q2607570",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q2607570",
+      "title": "Great Fantasia and Fugue in G minor, BWV 542",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q29117946",
+      "sourceRecordId": "Q29117946",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q29117946",
+      "title": "Clair de lune",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q54874941",
+      "sourceRecordId": "Q54874941",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q54874941",
+      "title": "Big Rock",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q908534",
+      "sourceRecordId": "Q908534",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q908534",
+      "title": "Piano Sonata No. 11",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q960586",
+      "sourceRecordId": "Q960586",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q960586",
+      "title": "Divertimento No. 1",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q100269171",
+      "sourceRecordId": "Q100269171",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q100269171",
+      "title": "Complex Numbers",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105755025",
+      "sourceRecordId": "Q105755025",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105755025",
+      "title": "Victor Argonov",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105767535",
+      "sourceRecordId": "Q105767535",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105767535",
+      "title": "Victor Argonov Project",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105905487",
+      "sourceRecordId": "Q105905487",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105905487",
+      "title": "Ariel",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105906250",
+      "sourceRecordId": "Q105906250",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105906250",
+      "title": "Len",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105942454",
+      "sourceRecordId": "Q105942454",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105942454",
+      "title": "Natalia Mitrofanova",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105943304",
+      "sourceRecordId": "Q105943304",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105943304",
+      "title": "Nikolay Perminov",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105943407",
+      "sourceRecordId": "Q105943407",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105943407",
+      "title": "Aleksandra Pryakha",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105962641",
+      "sourceRecordId": "Q105962641",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105962641",
+      "title": "Elena Yakovets",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q106094199",
+      "sourceRecordId": "Q106094199",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q106094199",
+      "title": "Denis Shamrin",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q106182851",
+      "sourceRecordId": "Q106182851",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q106182851",
+      "title": "Oleviia Kiber",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q108058755",
+      "sourceRecordId": "Q108058755",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q108058755",
+      "title": "George Andriyanov",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q1268",
+      "sourceRecordId": "Q1268",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q1268",
+      "title": "Frédéric Chopin",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q1339",
+      "sourceRecordId": "Q1339",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q1339",
+      "title": "Johann Sebastian Bach",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q16731782",
+      "sourceRecordId": "Q16731782",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q16731782",
+      "title": "Kevin MacLeod",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q254",
+      "sourceRecordId": "Q254",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q254",
+      "title": "Wolfgang Amadeus Mozart",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q4223710",
+      "sourceRecordId": "Q4223710",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q4223710",
+      "title": "Andrey Klimkovsky",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q4700",
+      "sourceRecordId": "Q4700",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q4700",
+      "title": "Claude Debussy",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q7315",
+      "sourceRecordId": "Q7315",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q7315",
+      "title": "Pyotr Ilyich Tchaikovsky",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105942412",
+      "sourceRecordId": "Q105942412",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105942412",
+      "title": "Inevitability",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q105978624",
+      "sourceRecordId": "Q105978624",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q105978624",
+      "title": "Last Ring (vocal version)",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q106098098",
+      "sourceRecordId": "Q106098098",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q106098098",
+      "title": "The Time Will Come (Progress Studies Humans' Behavior)",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q106182588",
+      "sourceRecordId": "Q106182588",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q106182588",
+      "title": "The line has been drawn",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q106435189",
+      "sourceRecordId": "Q106435189",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q106435189",
+      "title": "Constructing the Environment",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q108042886",
+      "sourceRecordId": "Q108042886",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q108042886",
+      "title": "Beyond the Line",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q109795255",
+      "sourceRecordId": "Q109795255",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q109795255",
+      "title": "Prologue",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q113148225",
+      "sourceRecordId": "Q113148225",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q113148225",
+      "title": "Shine",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q113151843",
+      "sourceRecordId": "Q113151843",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q113151843",
+      "title": "The doctor",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q113153791",
+      "sourceRecordId": "Q113153791",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q113153791",
+      "title": "Believe Me! (May 7 scene)",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    },
+    {
+      "citationId": "wikidata-q66662496",
+      "sourceRecordId": "Q66662496",
+      "sourceUrl": "https://www.wikidata.org/wiki/Q66662496",
+      "title": "Big Rock",
+      "publisher": "Wikidata",
+      "retrievedAt": "2026-10-17T03:00:00Z",
+      "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionText": "Wikidata contributors",
+      "rawObjectHash": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    }
+  ],
+  "records": [
+    {
+      "payload": {
+        "id": "Q106435194",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "1481714080",
+        "authorityModifiedAt": "2021-08-16T10:19:54Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Beyond the Line"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Там, за чертой"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Tam, za chertoy"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Часть 5. Там, за чертой (Финальная песня)"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q106435194$43E7440B-0373-4914-9F47-731CD2951A4D",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P435": [
+            {
+              "id": "Q106435194$715a781d-4c3e-b3fd-296a-a3bee41fca6a",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P435",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "ae920dc5-1e9a-4ea2-b9ac-e27f15db2cbf",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P676": [
+            {
+              "id": "Q106435194$4F3A9FBE-7399-45B5-85C5-61303AF721B5",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P676",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q106435194$0FA8BB1B-77A1-48BF-A26F-85B24FAC54FA",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "wikidataProperty": "P676",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ]
+      },
+      "citationIds": [
+        "wikidata-q106435194"
+      ],
+      "sourceModifiedAt": "2021-08-16T10:19:54Z"
+    },
+    {
+      "payload": {
+        "id": "Q108212504",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "1533175027",
+        "authorityModifiedAt": "2021-11-24T08:56:05Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Inevitability"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Неизбежность"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P31": [
+            {
+              "id": "Q108212504$90783ad1-42ee-8628-8bce-d17d2cb46741",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 7366,
+                    "id": "Q7366"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q108212504$4b36e9e5-477e-486a-e2a3-9a3f0729afd5",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P435": [
+            {
+              "id": "Q108212504$98faaab6-4df7-db9e-12a9-3bab8531af5a",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P435",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "f3994e6b-4c2a-4f7e-a6bb-5be2cff339e8",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P676": [
+            {
+              "id": "Q108212504$5EBBE9D7-6A26-4A6F-AB26-D314474850A1",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P676",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q108212504$D4DE2263-4073-423A-8E3A-D74EBCDA0C7F",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "wikidataProperty": "P676",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ]
+      },
+      "citationIds": [
+        "wikidata-q108212504"
+      ],
+      "sourceModifiedAt": "2021-11-24T08:56:05Z"
+    },
+    {
+      "payload": {
+        "id": "Q1140459",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2509756763",
+        "authorityModifiedAt": "2026-06-24T00:46:27Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Nocturnes, Op. 9"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Ноктюрны"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "3 Nocturnes, Op. 9"
+            },
+            {
+              "language": "en",
+              "value": "Three Nocturnes, Op. 9"
+            },
+            {
+              "language": "en",
+              "value": "Nocturnes, piano, op. 9"
+            },
+            {
+              "language": "en",
+              "value": "Nocturnes, piano, B. 54"
+            },
+            {
+              "language": "en",
+              "value": "Nocturnes pour piano"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q1140459$27190D84-E5D0-47FF-BAEC-24C66AEF7EB5",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q1140459$07243256-4508-5bf7-db62-94c69abe1c71",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 7725310,
+                    "id": "Q7725310"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P435": [
+            {
+              "id": "q1140459$BE1E1AB2-08BB-454B-B1E2-011191406128",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P435",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "660d0d25-4253-4d30-a818-61fc94e375bf",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "q1140459$47cd1192-4cd1-7bb4-a693-ede1a47448c5",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1268,
+                    "id": "Q1268"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q1268",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ]
+      },
+      "citationIds": [
+        "wikidata-q1140459"
+      ],
+      "sourceModifiedAt": "2026-06-24T00:46:27Z"
+    },
+    {
+      "payload": {
+        "id": "Q12860108",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2450107506",
+        "authorityModifiedAt": "2026-01-01T08:27:38Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Waltz of the Flowers"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P31": [
+            {
+              "id": "Q12860108$EF7E12D5-75CB-45FD-97E5-8A4FDF81DE61",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q12860108$3437BF1A-F4B1-47AD-A5DF-178F2D31D584",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 7315,
+                    "id": "Q7315"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q7315",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ]
+      },
+      "citationIds": [
+        "wikidata-q12860108"
+      ],
+      "sourceModifiedAt": "2026-01-01T08:27:38Z"
+    },
+    {
+      "payload": {
+        "id": "Q138836655",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2476397473",
+        "authorityModifiedAt": "2026-03-30T13:59:40Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Invention No. 2 in C minor, BWV 773"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Two-part invention No. 2  in C minor, BWV 773"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q138836655$053142A7-D911-473F-9B8B-A1A52B873B2A",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q138836655$a433ec77-4e8c-6bb9-8ca0-24c99316cb9e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "BWV 773.mid",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q138836655$65E420A6-39DC-420F-A3A6-18CD17C23361",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1339,
+                    "id": "Q1339"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q1339",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "BWV 773.mid"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q138836655"
+      ],
+      "sourceModifiedAt": "2026-03-30T13:59:40Z"
+    },
+    {
+      "payload": {
+        "id": "Q17591232",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2477055740",
+        "authorityModifiedAt": "2026-04-01T11:39:36Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Prelude and Fugue in B major, BWV 868"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Прелюдия и фуга си мажор, BWV 868"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P31": [
+            {
+              "id": "Q17591232$1DFBA95A-0F30-4FAE-8549-34EFB6A68477",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P435": [
+            {
+              "id": "Q17591232$925622a1-4e5c-4994-0b31-d935a6764e5f",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P435",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "4f5a74d0-d183-37f1-b07a-913652e82667",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q17591232$28007632-401d-dea0-a78a-00338bcdf241",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Kimiko Ishizaka - Bach - Well-Tempered Clavier, Book 1 - 45 Prelude No. 23 in B major, BWV 868.ogg",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q17591232$140cd09e-4604-0b6a-595b-38aab50b40d8",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Kimiko Ishizaka - Bach - Well-Tempered Clavier, Book 1 - 46 Fugue No. 23 in B major, BWV 868.ogg",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q17591232$B22AD0BD-83DC-4E5F-9655-CEB9EAA7F1F6",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1339,
+                    "id": "Q1339"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q1339",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "Kimiko Ishizaka - Bach - Well-Tempered Clavier, Book 1 - 45 Prelude No. 23 in B major, BWV 868.ogg",
+          "Kimiko Ishizaka - Bach - Well-Tempered Clavier, Book 1 - 46 Fugue No. 23 in B major, BWV 868.ogg"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q17591232"
+      ],
+      "sourceModifiedAt": "2026-04-01T11:39:36Z"
+    },
+    {
+      "payload": {
+        "id": "Q2607570",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2480032102",
+        "authorityModifiedAt": "2026-04-10T10:23:48Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Great Fantasia and Fugue in G minor, BWV 542"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Фантазия и фуга соль минор (BWV 542)"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Fantasia and Fugue in G minor, BWV 542"
+            },
+            {
+              "language": "en",
+              "value": "Fantasy and Fugue in G minor, BWV 542"
+            },
+            {
+              "language": "en",
+              "value": "Great Fantasy and Fugue in G minor, BWV 542"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q2607570$8C2439FE-8F65-46DC-84BD-DA3547AA2C9E",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P435": [
+            {
+              "id": "q2607570$9E2E1FFD-C4F8-4D2E-9C31-76F3E87471C3",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P435",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q2607570$836DA513-00FF-4E69-BEF9-EEF21E32590C",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1339,
+                    "id": "Q1339"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q1339",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ]
+      },
+      "citationIds": [
+        "wikidata-q2607570"
+      ],
+      "sourceModifiedAt": "2026-04-10T10:23:48Z"
+    },
+    {
+      "payload": {
+        "id": "Q29117946",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2550669190",
+        "authorityModifiedAt": "2026-09-28T22:42:21Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Clair de lune"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Clair de lune"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Suite bergamasque: 3. Clair de lune"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q29117946$63C09F3D-5947-4083-8778-D7F6582134C5",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P435": [
+            {
+              "id": "Q29117946$26b9a997-4ff8-e2b1-8e85-4522adf9f804",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P435",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "8d331505-4d88-39ae-81c7-bec5da77af96",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q29117946$57C45723-5C5B-42F3-9605-3A19BD277AE5",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Clair de lune (Claude Debussy) Suite bergamasque.ogg",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q29117946$770A17A1-5F25-4F05-9D24-2F1CF6995158",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 4700,
+                    "id": "Q4700"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q4700",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "Clair de lune (Claude Debussy) Suite bergamasque.ogg"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q29117946"
+      ],
+      "sourceModifiedAt": "2026-09-28T22:42:21Z"
+    },
+    {
+      "payload": {
+        "id": "Q54874941",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2302007720",
+        "authorityModifiedAt": "2025-01-24T19:15:16Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Big Rock"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P175": [
+            {
+              "id": "Q54874941$F3064E47-1B94-4572-8D0F-1754933235B4",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 16731782,
+                    "id": "Q16731782"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q54874941$5F417DB3-03C9-47BC-813B-B74061520E54",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q54874941$65BADCB0-CE16-4059-8C09-66CF18EED05F",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Big Rock (ISRC USUAN1100305).mp3",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q54874941$D37B22AB-E5B3-4B9C-830D-28D268504E08",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 16731782,
+                    "id": "Q16731782"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q16731782",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q16731782",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "Big Rock (ISRC USUAN1100305).mp3"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q54874941"
+      ],
+      "sourceModifiedAt": "2025-01-24T19:15:16Z"
+    },
+    {
+      "payload": {
+        "id": "Q908534",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2528459949",
+        "authorityModifiedAt": "2026-08-07T15:27:51Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Piano Sonata No. 11"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Соната для клавира № 11"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Alla Turca"
+            },
+            {
+              "language": "en",
+              "value": "Piano Sonata No. 11 in A Major"
+            },
+            {
+              "language": "en",
+              "value": "K. 331/300i"
+            },
+            {
+              "language": "en",
+              "value": "K 331"
+            },
+            {
+              "language": "en",
+              "value": "Piano Sonata No. 11 in A Major, K 331 / work by Mozart"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q908534$2423B04B-7D01-4AFE-A6F9-ABF44024B34B",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P435": [
+            {
+              "id": "q908534$F4904218-4686-4E5E-9507-36C6E662781A",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P435",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "a488a020-884d-3349-a7e7-18993ffed13e",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q908534$571ECD28-7A4D-4C51-A6F5-7968E8EE21D2",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 254,
+                    "id": "Q254"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q254",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ]
+      },
+      "citationIds": [
+        "wikidata-q908534"
+      ],
+      "sourceModifiedAt": "2026-08-07T15:27:51Z"
+    },
+    {
+      "payload": {
+        "id": "Q960586",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSICAL_WORK",
+        "authorityRevision": "2543367027",
+        "authorityModifiedAt": "2026-09-10T16:24:22Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Divertimento No. 1"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Salzburg Symphony No. 1"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q960586$f1697cc3-4334-4afb-fd0c-c420a0421f84",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105543609,
+                    "id": "Q105543609"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q960586$7df677f7-4952-0aba-f29f-3315ed12ac56",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 254,
+                    "id": "Q254"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q254",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ]
+      },
+      "citationIds": [
+        "wikidata-q960586"
+      ],
+      "sourceModifiedAt": "2026-09-10T16:24:22Z"
+    },
+    {
+      "payload": {
+        "id": "Q100269171",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2555348677",
+        "authorityModifiedAt": "2026-10-09T15:09:42Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Complex Numbers"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Complex Numbers"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "CN"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "CN"
+            },
+            {
+              "language": "ru",
+              "value": "Комплексные Числа"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q100269171$0a1e4aaf-42bb-d879-c4eb-76014b2035b2",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 215380,
+                    "id": "Q215380"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q100269171$095049ea-4310-e3f9-1133-8168fd6cdeb0",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "d2062464-9c2e-4d1f-8005-dac138da03e6",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "ORGANIZATION"
+      },
+      "citationIds": [
+        "wikidata-q100269171"
+      ],
+      "sourceModifiedAt": "2026-10-09T15:09:42Z"
+    },
+    {
+      "payload": {
+        "id": "Q105755025",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2524423823",
+        "authorityModifiedAt": "2026-07-29T17:54:37Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Victor Argonov"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Виктор Аргонов"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "VY Argonov"
+            },
+            {
+              "language": "en",
+              "value": "V. Yu. Argonov"
+            },
+            {
+              "language": "en",
+              "value": "Viktor Argonov"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Аргонов, Виктор Юрьевич"
+            },
+            {
+              "language": "ru",
+              "value": "Виктор Юрьевич Аргонов"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105755025$4278b223-4e2e-8a0e-3f77-7b4f7c984b2f",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105755025$54489934-4ea1-a731-4d6a-595129c1d1fc",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "32d22ad6-172a-4b1b-a3cb-05b4ac262f1f",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q105755025$0e4f7033-4c8c-e5c1-d190-135089a1a81d",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Victor-argonov-interview-with-vitaly-zdanevich--2020feb.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105755025$04dc0b9a-454d-7faa-2432-d943e0be507b",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Yoba-gaming-ru--argonov-2015year.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON",
+        "mediaObjects": [
+          "Victor-argonov-interview-with-vitaly-zdanevich--2020feb.opus",
+          "Yoba-gaming-ru--argonov-2015year.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q105755025"
+      ],
+      "sourceModifiedAt": "2026-07-29T17:54:37Z"
+    },
+    {
+      "payload": {
+        "id": "Q105767535",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2434966757",
+        "authorityModifiedAt": "2025-11-28T05:13:29Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Victor Argonov Project"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Виктор Аргонов Project"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Viktor Argonov Project"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105767535$d9c1529d-4bf5-d345-70f5-3cf3ad0e1a5c",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 215380,
+                    "id": "Q215380"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105767535$92afe72e-44fc-4e4a-e9b1-7d3a9550168e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "41bd3974-9a59-4e74-9c09-7878adbf95a8",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "ORGANIZATION"
+      },
+      "citationIds": [
+        "wikidata-q105767535"
+      ],
+      "sourceModifiedAt": "2025-11-28T05:13:29Z"
+    },
+    {
+      "payload": {
+        "id": "Q105905487",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2433879359",
+        "authorityModifiedAt": "2025-11-25T16:31:57Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Ariel"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Ariel"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Ariel Wright"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "IamDiclonius"
+            },
+            {
+              "language": "ru",
+              "value": "Ariel Wright"
+            },
+            {
+              "language": "ru",
+              "value": "Ариель"
+            },
+            {
+              "language": "ru",
+              "value": "Ариэль"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105905487$5363b223-4259-d440-b33d-b22ee2e14f42",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105905487$5ee16811-48bd-e345-2d88-7c2837e0b9e4",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "763ea1f8-85f3-4335-bfe8-fe4fd8194512",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q105905487$8b2c6281-4759-8c67-ff80-1d978b637842",
+              "rank": "preferred",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Yoba-gaming-ru--ariel2015.flac",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$353d8833-4446-bd0a-ae18-947415387404",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "01-last-ring-vocal-version.flac",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$abbf4428-4751-134f-0e76-498883f02172",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "05-sezd.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$0c35c8fe-41fa-b8d7-68e9-47e5dea1c681",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "06-a-world-of-unseen-things.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$07ab4a35-4416-b499-6397-0a38cff116ab",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "12-to-the-ghostly-light.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$276bd8d1-4cf9-8d51-f432-f2f61eb0d732",
+              "rank": "deprecated",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "13-sorry.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$86de8943-4c18-da9f-dec8-ee2aaa6cd7d4",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "23-knot.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$7bf3e561-45bb-6e7c-05c7-36829d1963d2",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "25-hospital.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$98b86146-4fd0-2e97-1cf9-e5ee6202fe2a",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "24-continuation-of-yourself.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$eaa729b6-4c73-3cee-0318-a97dda8e6741",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "32-distant-light.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105905487$1b02dc0d-4acb-71a2-9e1f-53661cf1e931",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Complex-numbers--inevitability-french.opus",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON",
+        "mediaObjects": [
+          "01-last-ring-vocal-version.flac",
+          "05-sezd.opus",
+          "06-a-world-of-unseen-things.opus",
+          "12-to-the-ghostly-light.opus",
+          "23-knot.opus",
+          "24-continuation-of-yourself.opus",
+          "25-hospital.opus",
+          "32-distant-light.opus",
+          "Complex-numbers--inevitability-french.opus",
+          "Yoba-gaming-ru--ariel2015.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q105905487"
+      ],
+      "sourceModifiedAt": "2025-11-25T16:31:57Z"
+    },
+    {
+      "payload": {
+        "id": "Q105906250",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2511156336",
+        "authorityModifiedAt": "2026-06-27T16:27:21Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Len"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Лен Райсс"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "MrSoundlessVoice"
+            },
+            {
+              "language": "en",
+              "value": "TheSoundlessVoice"
+            },
+            {
+              "language": "en",
+              "value": "Soundless Voice"
+            },
+            {
+              "language": "en",
+              "value": "Count Ciel"
+            },
+            {
+              "language": "en",
+              "value": "Len (russian singer)"
+            },
+            {
+              "language": "en",
+              "value": "Alexey Reiss"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "MrSoundlessVoice"
+            },
+            {
+              "language": "ru",
+              "value": "Лен"
+            },
+            {
+              "language": "ru",
+              "value": "TheSoundlessVoice"
+            },
+            {
+              "language": "ru",
+              "value": "Soundless Voice"
+            },
+            {
+              "language": "ru",
+              "value": "Count Ciel"
+            },
+            {
+              "language": "ru",
+              "value": "Алексей Райсс"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105906250$2bf0c5c6-462a-6013-52be-2e1de9548c51",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105906250$f4562462-40b9-de5c-097b-e42c71abc579",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "38152320-495b-43d1-9584-ef55bef37d4f",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q105906250"
+      ],
+      "sourceModifiedAt": "2026-06-27T16:27:21Z"
+    },
+    {
+      "payload": {
+        "id": "Q105942454",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2524409484",
+        "authorityModifiedAt": "2026-07-29T17:13:04Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Natalia Mitrofanova"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Наталья Митрофанова"
+          }
+        },
+        "aliases": {
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Митрофанова, Наталья"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105942454$6480cea8-4adf-51fd-6b5a-988279ea095f",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105942454$654a1909-49eb-85bc-a111-b1d6f598d7d8",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "c8e419d0-87f7-4643-9a3a-ca9804def7b0",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q105942454"
+      ],
+      "sourceModifiedAt": "2026-07-29T17:13:04Z"
+    },
+    {
+      "payload": {
+        "id": "Q105943304",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2197144727",
+        "authorityModifiedAt": "2024-07-06T21:11:35Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Nikolay Perminov"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Николай Перминов"
+          }
+        },
+        "aliases": {
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Перминов, Николай"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105943304$acbedfd3-40ee-b1a3-178e-35183b61fcf8",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105943304$a9ba5ef4-41ff-d830-0d10-973bb1888a24",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "2ff5a16d-c843-46c8-b8f1-b1c6b4aab3eb",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q105943304$67ea953f-46cb-18de-1b5a-22aacea3224e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "07-the-second-prince.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON",
+        "mediaObjects": [
+          "07-the-second-prince.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q105943304"
+      ],
+      "sourceModifiedAt": "2024-07-06T21:11:35Z"
+    },
+    {
+      "payload": {
+        "id": "Q105943407",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2530098469",
+        "authorityModifiedAt": "2026-08-11T17:49:25Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Aleksandra Pryakha"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Александра Пряха"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Aleksandra Pryaha"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Пряха, Александра"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105943407$3ef4cdf3-4128-3b0c-3a74-601df76a72e7",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105943407$df0acca8-4b19-b33e-8c02-24275da0b162",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "f1f63f60-6c4d-479b-854e-be586976f961",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q105943407$526b2d91-42e3-3200-7c06-a2c5edc8c5bf",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "02-take-a-step.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105943407$71a69d91-4984-a408-7a34-bd9de9ee02c8",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "08-shine.flac",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105943407$76e3a7ed-4bbc-95bf-8ac2-3a204f0e1b31",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Complex-numbers--to-make-a-step--remix-by-reaktivz.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105943407$fc124a75-453d-a473-816c-f64c1a0a9542",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Свой Путь (Tycoos remix).mp3",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105943407$07315d40-4e11-1ce2-2b98-1d95682d4a5f",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "26-in-that-dream.flac",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105943407$9cbb96d4-4d31-af6d-02b8-fcca0a0918b0",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "35-own-way.flac",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105943407$c5cf9b86-4127-1f89-d01b-ffe0f97a2b3b",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "38-wait-for-that-day.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON",
+        "mediaObjects": [
+          "02-take-a-step.opus",
+          "08-shine.flac",
+          "26-in-that-dream.flac",
+          "35-own-way.flac",
+          "38-wait-for-that-day.flac",
+          "Complex-numbers--to-make-a-step--remix-by-reaktivz.opus",
+          "Свой Путь (Tycoos remix).mp3"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q105943407"
+      ],
+      "sourceModifiedAt": "2026-08-11T17:49:25Z"
+    },
+    {
+      "payload": {
+        "id": "Q105962641",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2524376501",
+        "authorityModifiedAt": "2026-07-29T15:50:37Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Elena Yakovets"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Елена Яковец"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Yelena Yakovets"
+            },
+            {
+              "language": "en",
+              "value": "Elena Yakovec"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Яковец, Елена Александровна"
+            },
+            {
+              "language": "ru",
+              "value": "Елена Александровна Яковец"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q105962641$f4111d75-4026-0058-05cf-537db3072903",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q105962641$5248c4aa-456c-9b96-225e-4f2d12467fc6",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "f0b1d040-ede0-40c7-8097-7cf10d8af505",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q105962641"
+      ],
+      "sourceModifiedAt": "2026-07-29T15:50:37Z"
+    },
+    {
+      "payload": {
+        "id": "Q106094199",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2524725633",
+        "authorityModifiedAt": "2026-07-30T08:01:43Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Denis Shamrin"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Денис Сергеевич Шамрин"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Shamrin, Denis"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Шамрин Денис Сергеевич"
+            },
+            {
+              "language": "ru",
+              "value": "Денис Шамрин"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q106094199$5df99c4d-4999-653f-92b0-67fde0f9beed",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q106094199$7977f9b2-4050-170d-2626-309c6d67ae0a",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "3ac9df81-7504-434f-b083-1fcc2eab1766",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q106094199"
+      ],
+      "sourceModifiedAt": "2026-07-30T08:01:43Z"
+    },
+    {
+      "payload": {
+        "id": "Q106182851",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2524409489",
+        "authorityModifiedAt": "2026-07-29T17:13:05Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Oleviia Kiber"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Олевия Кибер"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Olga Levitskaya"
+            },
+            {
+              "language": "en",
+              "value": "Oleviia Cyber"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Ольга Левицкая"
+            },
+            {
+              "language": "ru",
+              "value": "Левицкая, Ольга"
+            },
+            {
+              "language": "ru",
+              "value": "Кибер, Олевия"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q106182851$3e7615f5-4e07-f5eb-1b18-d98cf176ec1b",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q106182851$85fecb9a-d7e3-4f98-af9f-fb2f69ce47c3",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "6aa0ec03-d447-45ef-92cb-8627f4eb22ba",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q106182851"
+      ],
+      "sourceModifiedAt": "2026-07-29T17:13:05Z"
+    },
+    {
+      "payload": {
+        "id": "Q108058755",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2524419793",
+        "authorityModifiedAt": "2026-07-29T17:40:31Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "George Andriyanov"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Георгий «Саян» Андриянов"
+          }
+        },
+        "aliases": {
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Саян Андриянов"
+            },
+            {
+              "language": "ru",
+              "value": "Георгий Андриянов"
+            },
+            {
+              "language": "ru",
+              "value": "Андриянов, Георгий"
+            },
+            {
+              "language": "ru",
+              "value": "Андриянов, Георгий Юрьевич"
+            },
+            {
+              "language": "ru",
+              "value": "Георгий Юрьевич Андриянов"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q108058755$1c70dfb3-4ee2-c52d-1bf1-14d32735eb20",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q108058755$c76782e9-464e-9763-0af2-536d85e9c45c",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "f1dfb853-ed29-4176-b3b4-49c41eec4e8a",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q108058755"
+      ],
+      "sourceModifiedAt": "2026-07-29T17:40:31Z"
+    },
+    {
+      "payload": {
+        "id": "Q1268",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2557123557",
+        "authorityModifiedAt": "2026-10-15T02:30:46Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Frédéric Chopin"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Фредерик Шопен"
+          }
+        },
+        "aliases": {
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Шопен, Фредерик"
+            },
+            {
+              "language": "ru",
+              "value": "Frédéric Chopin"
+            },
+            {
+              "language": "ru",
+              "value": "Фридерик Шопен"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q1268$709AC50C-EDA0-4CB1-B865-DC2920130A2A",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "q1268$2BF5F082-B05F-4A4C-8040-F62278975ABF",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "09ff1fe8-d61c-4b98-bb82-18487c74d7b7",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q1268"
+      ],
+      "sourceModifiedAt": "2026-10-15T02:30:46Z"
+    },
+    {
+      "payload": {
+        "id": "Q1339",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2557816403",
+        "authorityModifiedAt": "2026-10-17T01:33:44Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Johann Sebastian Bach"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Иоганн Себастьян Бах"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "J S Bach"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Бах, Иоганн Себастьян"
+            },
+            {
+              "language": "ru",
+              "value": "Бах Иоганн Себастьян"
+            },
+            {
+              "language": "ru",
+              "value": "Иоганн Себастиан Бах"
+            },
+            {
+              "language": "ru",
+              "value": "И. С. Бах"
+            },
+            {
+              "language": "ru",
+              "value": "Бах"
+            },
+            {
+              "language": "ru",
+              "value": "Иоганн Бах"
+            },
+            {
+              "language": "ru",
+              "value": "И.С. Бах"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q1339$0C941C06-02C4-4A23-BFAC-E8C50F29AF34",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "q1339$9ed1592c-423b-4ec0-b486-930860104a20",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "24f1766e-9635-4d58-a4d4-9413f9f98a4c",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q1339"
+      ],
+      "sourceModifiedAt": "2026-10-17T01:33:44Z"
+    },
+    {
+      "payload": {
+        "id": "Q16731782",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2529444471",
+        "authorityModifiedAt": "2026-08-10T02:39:53Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Kevin MacLeod"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Кевин МакЛауд"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Incompetech"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Маклауд, Кевин"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q16731782$02833750-7FBB-44E5-B345-8ABE0F0B9583",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "Q16731782$BCA55DD9-964C-47C5-AF65-A27DA493B8C1",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "8292bf44-2dd1-4bad-8019-276ec38f28e7",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q16731782"
+      ],
+      "sourceModifiedAt": "2026-08-10T02:39:53Z"
+    },
+    {
+      "payload": {
+        "id": "Q254",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2556283497",
+        "authorityModifiedAt": "2026-10-12T15:51:33Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Wolfgang Amadeus Mozart"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Вольфганг Амадей Моцарт"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Wolfgang Amadè Mozart"
+            },
+            {
+              "language": "en",
+              "value": "Apollo Mozzart"
+            },
+            {
+              "language": "en",
+              "value": "Wolfgango Amadeo Mozart"
+            },
+            {
+              "language": "en",
+              "value": "Johann Chrysostomos Wolfgang Gottlieb Mozart"
+            },
+            {
+              "language": "en",
+              "value": "Volphnkank Amedaios Motsart"
+            },
+            {
+              "language": "en",
+              "value": "Joannes Chrysostomus Wolfgangus Amadeus Mozart"
+            },
+            {
+              "language": "en",
+              "value": "Mozhate"
+            },
+            {
+              "language": "en",
+              "value": "V. A. Mocartas"
+            },
+            {
+              "language": "en",
+              "value": "Wolfgang Gottlieb Mozart"
+            },
+            {
+              "language": "en",
+              "value": "Wolfgang Amadeus Chrysostom Mozart"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Вольфганг Моцарт"
+            },
+            {
+              "language": "ru",
+              "value": "Моцарт, Вольфганг Амадей"
+            },
+            {
+              "language": "ru",
+              "value": "Амадей Моцарт"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "q254$2605625c-48e9-01f6-a4be-c479c62ba85e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "q254$c5a53599-4fb4-540c-26f0-d99d14d15293",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "b972f589-fb0e-474e-b64a-803b0364fa75",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q254"
+      ],
+      "sourceModifiedAt": "2026-10-12T15:51:33Z"
+    },
+    {
+      "payload": {
+        "id": "Q4223710",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2542861529",
+        "authorityModifiedAt": "2026-09-09T19:32:38Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Andrey Klimkovsky"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Андрей Климковский"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Andrew Klimkovskiy"
+            },
+            {
+              "language": "en",
+              "value": "Andrey Klimkovskiy"
+            },
+            {
+              "language": "en",
+              "value": "Andrei Klimkovskii"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Климковский"
+            },
+            {
+              "language": "ru",
+              "value": "Климковский, Андрей"
+            },
+            {
+              "language": "ru",
+              "value": "Климковский, Андрей Владимирович"
+            },
+            {
+              "language": "ru",
+              "value": "Андрей Владимирович Климковский"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q4223710$8C80D232-A810-4C10-837C-7BB9D94AA306",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "q4223710$6BBEA0E1-4E41-4977-A48B-F01C2F339437",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "4e78a33c-004b-4531-a1cd-449af525c39c",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q4223710"
+      ],
+      "sourceModifiedAt": "2026-09-09T19:32:38Z"
+    },
+    {
+      "payload": {
+        "id": "Q4700",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2557845170",
+        "authorityModifiedAt": "2026-10-17T03:37:35Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Claude Debussy"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Клод Дебюсси"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Achille Claude Debussy"
+            },
+            {
+              "language": "en",
+              "value": "Claude-Achille Debussy"
+            },
+            {
+              "language": "en",
+              "value": "Achille-Claude Debussy"
+            },
+            {
+              "language": "en",
+              "value": "A. Cl. Debussy"
+            },
+            {
+              "language": "en",
+              "value": "Achille-Claude"
+            },
+            {
+              "language": "en",
+              "value": "C. Debussy"
+            },
+            {
+              "language": "en",
+              "value": "Debussy"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Дебюсси, Клод"
+            },
+            {
+              "language": "ru",
+              "value": "Дебюсси Клод"
+            },
+            {
+              "language": "ru",
+              "value": "Дебюсси К."
+            },
+            {
+              "language": "ru",
+              "value": "Claude Debussy"
+            },
+            {
+              "language": "ru",
+              "value": "Ашиль-Клод Дебюсси"
+            },
+            {
+              "language": "ru",
+              "value": "Дебюсси Клод Ашиль"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q4700$78CB139C-163E-4500-9ABC-7A8714495291",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "q4700$D2451B65-BE42-4CB9-9B36-F8B769C81D32",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "be50643c-0377-4968-b48c-47e06b2e2a3b",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q4700"
+      ],
+      "sourceModifiedAt": "2026-10-17T03:37:35Z"
+    },
+    {
+      "payload": {
+        "id": "Q7315",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_ARTIST",
+        "authorityRevision": "2557198731",
+        "authorityModifiedAt": "2026-10-15T06:22:08Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Pyotr Ilyich Tchaikovsky"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Пётр Ильич Чайковский"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Chajkovskij"
+            },
+            {
+              "language": "en",
+              "value": "Piotr Ilyitch Tchaikovsky"
+            },
+            {
+              "language": "en",
+              "value": "Tschaikowsky"
+            },
+            {
+              "language": "en",
+              "value": "Pyotr Il'ich Chaikovskiy"
+            },
+            {
+              "language": "en",
+              "value": "Chaikovsky"
+            },
+            {
+              "language": "en",
+              "value": "Tschaikowski"
+            },
+            {
+              "language": "en",
+              "value": "Pyotr Tchaikovsky"
+            },
+            {
+              "language": "en",
+              "value": "Pyotr Il'yich Tchaikovsky"
+            },
+            {
+              "language": "en",
+              "value": "Peter Tchaikovsky"
+            },
+            {
+              "language": "en",
+              "value": "Peter Ilich Tchaikovsky"
+            },
+            {
+              "language": "en",
+              "value": "Tchaikovsky"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Чайковский"
+            },
+            {
+              "language": "ru",
+              "value": "Чайковский Пётр Ильич"
+            },
+            {
+              "language": "ru",
+              "value": "Пётр Чайковский"
+            },
+            {
+              "language": "ru",
+              "value": "Петръ Ильичъ Чайковскій"
+            },
+            {
+              "language": "ru",
+              "value": "Петр Ильич Чайковский"
+            },
+            {
+              "language": "ru",
+              "value": "Чайковский П. И."
+            },
+            {
+              "language": "ru",
+              "value": "Чайковский, Петр Ильич"
+            },
+            {
+              "language": "ru",
+              "value": "Чайковский, Пётр Ильич"
+            }
+          ]
+        },
+        "claims": {
+          "P31": [
+            {
+              "id": "Q7315$364964CB-0842-402C-AD2B-1608570A747D",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 5,
+                    "id": "Q5"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P434": [
+            {
+              "id": "q7315$c2ce00aa-41fd-0562-b241-845feb51e1e9",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P434",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "9ddd7abc-9e1b-471d-8031-583bc6bc8be9",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [],
+        "agentKind": "PERSON"
+      },
+      "citationIds": [
+        "wikidata-q7315"
+      ],
+      "sourceModifiedAt": "2026-10-15T06:22:08Z"
+    },
+    {
+      "payload": {
+        "id": "Q105942412",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2397375374",
+        "authorityModifiedAt": "2025-08-27T17:59:48Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Inevitability"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Неизбежность"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Neizbeznost"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Неизбежность SE"
+            },
+            {
+              "language": "ru",
+              "value": "Неизбежность (Русская Версия 2009)"
+            },
+            {
+              "language": "ru",
+              "value": "Неизбежность (Russian SE)"
+            }
+          ]
+        },
+        "claims": {
+          "P1243": [
+            {
+              "id": "Q105942412$2AB3F100-B4F6-4743-80A0-93F801498C96",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P1243",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "TCACQ1665741",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P175": [
+            {
+              "id": "Q105942412$25fea2ec-4759-d048-a73b-6905f0df6414",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 100269171,
+                    "id": "Q100269171"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q105942412$0c414155-4c76-4208-3f39-5dd9146582e0",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105942454,
+                    "id": "Q105942454"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P2550": [
+            {
+              "id": "Q105942412$e7d32aef-4fec-e6a8-ce78-b519261a330d",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P2550",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 108212504,
+                    "id": "Q108212504"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q105942412$4af9dd9a-481e-6482-1fdc-6379d80221a9",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q105942412$6c8905c4-45c7-b74b-5ece-34d3016a7542",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 193977,
+                    "id": "Q193977"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q105942412$e0d7ccbf-4a2e-7eb8-2e19-ae589fbb78d1",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "321d235c-a32a-4f6c-b84d-0e151ffb58be",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q105942412$42491177-498d-2508-fd96-1750533f0c7f",
+              "rank": "preferred",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Complex-numbers--inevitability-russian.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105942412$df8cbb67-4549-e1e3-066b-e8cb452997dc",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Complex Numbers - Неизбежность ((Cyber)Melancholy Remix) v0.9.mp3",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105942412$5b00b862-4a58-6d1f-9666-2e9c875dfdbb",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "09-inevitability-2009-russian-version.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P676": [
+            {
+              "id": "Q105942412$651be4f6-4bfa-fd73-d3da-a34ff0e241e8",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P676",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q105942412$c5c5b1c5-40a1-3577-9c9d-2b215515132e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "wikidataProperty": "P676",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q100269171",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105942454",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "Q108212504",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "wikidataProperty": "P2550"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "09-inevitability-2009-russian-version.flac",
+          "Complex Numbers - Неизбежность ((Cyber)Melancholy Remix) v0.9.mp3",
+          "Complex-numbers--inevitability-russian.opus"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q105942412"
+      ],
+      "sourceModifiedAt": "2025-08-27T17:59:48Z"
+    },
+    {
+      "payload": {
+        "id": "Q105978624",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2313854151",
+        "authorityModifiedAt": "2025-02-19T13:56:13Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Last Ring (vocal version)"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Последнее кольцо"
+          }
+        },
+        "aliases": {
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Последнее Кольцо (Вокальная Версия)"
+            },
+            {
+              "language": "ru",
+              "value": "Последнее кольцо (vocal edit)"
+            }
+          ]
+        },
+        "claims": {
+          "P1243": [
+            {
+              "id": "Q105978624$3C622DB0-C8F0-44C4-A289-5200B99E3703",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P1243",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "TCACQ1665727",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P175": [
+            {
+              "id": "Q105978624$1d2592d5-4676-2d1b-d90f-e05e68fa176b",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105905487,
+                    "id": "Q105905487"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q105978624$10eb3b1c-46b9-64fb-30b9-c1c3e8936100",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 100269171,
+                    "id": "Q100269171"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q105978624$63c5eed0-4e0e-da87-5790-58bbfbc4091c",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q105978624$c317b4ce-40cd-30c8-d279-a58f6267d290",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 11315714,
+                    "id": "Q11315714"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q105978624$f3cc0ebb-41c9-7927-d633-a73227a7477b",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q105978624$2ecbf647-43ba-ea52-a3f9-7bba4ecef242",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Complex-numbers--last-ring.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q105978624$4aad00fc-4503-dce8-7459-47907f855aa9",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "01-last-ring-vocal-version.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P676": [
+            {
+              "id": "Q105978624$a11f3263-4bbc-da25-4043-f7a9645e4384",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P676",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q105978624$7cd1b1fa-42f0-e4e0-055b-602c31e8a256",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q105978624$2c973df4-495b-3bef-8abe-c6cf03fd9c9e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 4223710,
+                    "id": "Q4223710"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q4223710",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "wikidataProperty": "P676",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q100269171",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105905487",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "01-last-ring-vocal-version.flac",
+          "Complex-numbers--last-ring.opus"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q105978624"
+      ],
+      "sourceModifiedAt": "2025-02-19T13:56:13Z"
+    },
+    {
+      "payload": {
+        "id": "Q106098098",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2261277072",
+        "authorityModifiedAt": "2024-10-16T04:20:21Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "The Time Will Come (Progress Studies Humans' Behavior)"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Время придёт (Изучает прогресс поведение людей)"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Vremia pridet"
+            },
+            {
+              "language": "en",
+              "value": "The Time Will Come"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Время придёт (Изучает прогресс поведенье людей)"
+            },
+            {
+              "language": "ru",
+              "value": "Время придет"
+            },
+            {
+              "language": "ru",
+              "value": "Время придёт"
+            },
+            {
+              "language": "ru",
+              "value": "Время придет (Изучает прогресс поведенье людей)"
+            },
+            {
+              "language": "ru",
+              "value": "Изучает прогресс поведенье людей"
+            }
+          ]
+        },
+        "claims": {
+          "P175": [
+            {
+              "id": "Q106098098$0509dd7c-43f8-ed8b-d3a6-a0f749d37d0c",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 100269171,
+                    "id": "Q100269171"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q106098098$CF9F533E-F9EF-47D8-B4FB-461FD5EAC935",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105906250,
+                    "id": "Q105906250"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q106098098$878AAE16-FB10-46EA-8A79-8CB2E9837F4C",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105905487,
+                    "id": "Q105905487"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q106098098$12686c65-430b-3b42-78d1-3676f718c4bc",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q106098098$64d3b2bc-4598-6404-c581-014bb46d9e75",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q106098098$c32c2152-43b0-7eaa-b11c-84b80f03d9e0",
+              "rank": "preferred",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "The-time-will-come.flac",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q106098098$3ac4f59f-4557-a6dc-f7ac-14c07c8e44ed",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Время придет (Tycoos remix).mp3",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q106098098$a3b31dfe-48ea-9e43-3729-387d9900ca38",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "11-time-will-come-2022-version.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P676": [
+            {
+              "id": "Q106098098$ff6e8950-4389-e77b-cce1-e045b645c0c7",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P676",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q106098098$f47ecd57-4d02-a298-d104-441daba4f4e2",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "wikidataProperty": "P676",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q100269171",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105905487",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105906250",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "11-time-will-come-2022-version.flac",
+          "The-time-will-come.flac",
+          "Время придет (Tycoos remix).mp3"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q106098098"
+      ],
+      "sourceModifiedAt": "2024-10-16T04:20:21Z"
+    },
+    {
+      "payload": {
+        "id": "Q106182588",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2313933718",
+        "authorityModifiedAt": "2025-02-19T17:29:13Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "The line has been drawn"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Пролегла черта (Меж двух эпох)"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P175": [
+            {
+              "id": "Q106182588$ed0681be-43f7-d479-879a-23f2fe2068b3",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 100269171,
+                    "id": "Q100269171"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q106182588$2d86263f-45af-2fe7-69e0-ecb0d29a0064",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 106182851,
+                    "id": "Q106182851"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q106182588$1d7436e0-4cdd-fcf0-0c0e-fda76b1a27a1",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q106182588$6fa2e8d3-4178-3d9d-8349-75cefab6d68f",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "020152a7-172e-45c5-812a-a60d02cb2a27",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q106182588$d75c005a-4435-a578-d50a-fd717599fe16",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "The-line-has-been-drawn.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q106182588$c8e16266-4eb2-45ab-3480-61cb86b23f66",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q100269171",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q106182851",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "The-line-has-been-drawn.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q106182588"
+      ],
+      "sourceModifiedAt": "2025-02-19T17:29:13Z"
+    },
+    {
+      "payload": {
+        "id": "Q106435189",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2261277764",
+        "authorityModifiedAt": "2024-10-16T04:23:20Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Constructing the Environment"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Конструируя среду"
+          }
+        },
+        "aliases": {
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Часть 1. Конструируя среду"
+            }
+          ]
+        },
+        "claims": {
+          "P1243": [
+            {
+              "id": "Q106435189$5E307B7F-3A2F-413E-ACE6-53317960B0A4",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P1243",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "TCACI1577297",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P175": [
+            {
+              "id": "Q106435189$D2967ADD-148D-435C-8B40-5BB0B84AC6F9",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105767535,
+                    "id": "Q105767535"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q106435189$762CF3E0-BBC9-4945-97FA-BAEDC7681506",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850643,
+                    "id": "Q55850643"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q106435189$2B94929E-CBA3-4A9C-814E-3C5B338182E9",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q106435189$1f20b19d-4efb-aa73-9b96-51baba89778e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "01-constructing-environment.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q106435189$3C470F90-E1A6-47F0-849B-046A9577F9B1",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105767535",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "01-constructing-environment.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q106435189"
+      ],
+      "sourceModifiedAt": "2024-10-16T04:23:20Z"
+    },
+    {
+      "payload": {
+        "id": "Q108042886",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2261278039",
+        "authorityModifiedAt": "2024-10-16T04:24:45Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Beyond the Line"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Там, за чертой"
+          }
+        },
+        "aliases": {
+          "en": [
+            {
+              "language": "en",
+              "value": "Tam, za chertoy"
+            }
+          ],
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Часть 5. Там, за чертой (Финальная песня)"
+            }
+          ]
+        },
+        "claims": {
+          "P1243": [
+            {
+              "id": "Q108042886$DDBD75DE-5D24-4E19-8CB0-D616CBEDC190",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P1243",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "TCACI1577309",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P175": [
+            {
+              "id": "Q108042886$D17DFB8F-6AFF-4E7F-86E1-DB4FBCAA1AB3",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105767535,
+                    "id": "Q105767535"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$49754b0b-463e-d117-3027-5fd4abdb3b53",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105767535,
+                    "id": "Q105767535"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$1b3648dc-4d80-bf39-6f69-206baec36a72",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 108058755,
+                    "id": "Q108058755"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$8ee1a0f7-465a-a8bc-0a34-50797a89ce2e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105962641,
+                    "id": "Q105962641"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$2baf23ae-4f56-9514-0bb1-3e40329d0cba",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105906250,
+                    "id": "Q105906250"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$4bd7c5e9-4ac0-191b-7eac-d5fff2459d86",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105905487,
+                    "id": "Q105905487"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P2550": [
+            {
+              "id": "Q108042886$2a3205f2-4f7c-0559-11cf-b1b425dc3e0c",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P2550",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 106435194,
+                    "id": "Q106435194"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q108042886$456CD858-338C-400A-9055-1BC925C348D4",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q108042886$BB62F0FC-57B5-4911-95B3-1C53AC7713C5",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "b70b3468-8f1a-4fa3-b853-122f57d98f92",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q108042886$d4de09cc-458c-d7d4-93c8-91e54f424e22",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Там, за чертой (DIP Project remix full version).mp3",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$5133b359-4c64-ab02-85d2-8e7cf801529e",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Complex-numbers--tam-za-chertoy--remix-by-bananafox.opus",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$e6eb68b7-4e89-de88-0ab0-6f228a77ef6c",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Complex-numbers--tam-za-chertoy-dialog--remix-by-bananafox.mp3",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$cd311a20-43e9-4c31-850d-7e4a6032a609",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Там, за чертой (DIP Project remix radio version).mp3",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$ebf3bb12-4b37-df16-6a10-2ed4947da048",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Там, за чертой (Sonar Spray cover Children version).mp3",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "id": "Q108042886$94c6346e-4148-5351-0ebe-a802a8d36db7",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "05-beyond-the-line.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P676": [
+            {
+              "id": "Q108042886$705969A4-1821-482E-A093-EF15290898EE",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P676",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P86": [
+            {
+              "id": "Q108042886$78C95164-0CDF-4B67-B820-03DD6D212DE3",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P86",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "COMPOSER",
+              "wikidataProperty": "P86",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "LYRICIST",
+              "wikidataProperty": "P676",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105767535",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105905487",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105906250",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105962641",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q108058755",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "Q106435194",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "wikidataProperty": "P2550"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "05-beyond-the-line.flac",
+          "Complex-numbers--tam-za-chertoy--remix-by-bananafox.opus",
+          "Complex-numbers--tam-za-chertoy-dialog--remix-by-bananafox.mp3",
+          "Там, за чертой (DIP Project remix full version).mp3",
+          "Там, за чертой (DIP Project remix radio version).mp3",
+          "Там, за чертой (Sonar Spray cover Children version).mp3"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q108042886"
+      ],
+      "sourceModifiedAt": "2024-10-16T04:24:45Z"
+    },
+    {
+      "payload": {
+        "id": "Q109795255",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2156286432",
+        "authorityModifiedAt": "2024-05-16T20:23:22Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Prologue"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Пролог (монолог Рассказчика)"
+          }
+        },
+        "aliases": {
+          "ru": [
+            {
+              "language": "ru",
+              "value": "Пролог"
+            }
+          ]
+        },
+        "claims": {
+          "P175": [
+            {
+              "id": "Q109795255$EBFA191A-0465-449C-9F80-0EDF829068B1",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105767535,
+                    "id": "Q105767535"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q109795255$26a5cd58-4403-b50d-8452-6f24e5308d02",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 106094199,
+                    "id": "Q106094199"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q109795255$56A58B63-1B7B-48E9-B0CD-5D1878A53944",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q109795255$A10FBA17-C0E8-41A2-8318-C7AC5806E587",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "c40d7b44-7583-4675-852a-10ddbea8cf46",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q109795255$3E4B2337-CAA7-49A7-87A0-B921C3474896",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "02-prolog.opus",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105767535",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q106094199",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "02-prolog.opus"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q109795255"
+      ],
+      "sourceModifiedAt": "2024-05-16T20:23:22Z"
+    },
+    {
+      "payload": {
+        "id": "Q113148225",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2454178161",
+        "authorityModifiedAt": "2026-01-12T10:31:10Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Shine"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Сияние (ария Сказочницы)"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P175": [
+            {
+              "id": "Q113148225$abe98e6a-4518-dafc-e748-69ae51b15dfd",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105767535,
+                    "id": "Q105767535"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q113148225$23f1300a-4ec9-0834-6e3d-efe23145fb46",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105943407,
+                    "id": "Q105943407"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q113148225$4883ea8c-4d31-c3b4-2a2c-c9e49c8286b7",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q113148225$e16b688d-486c-1947-4561-a6c70fe1fd12",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "7fb6969c-bb00-48ec-84df-151fd56875c2",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q113148225$c754d8c4-4066-68d2-aefb-f438668c86be",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "08-shine.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105767535",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105943407",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "08-shine.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q113148225"
+      ],
+      "sourceModifiedAt": "2026-01-12T10:31:10Z"
+    },
+    {
+      "payload": {
+        "id": "Q113151843",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2323988319",
+        "authorityModifiedAt": "2025-03-13T09:07:36Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "The doctor"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Доктор"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P175": [
+            {
+              "id": "Q113151843$fd6fb731-41f2-7889-98f4-4aaa5c9fe52a",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105767535,
+                    "id": "Q105767535"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q113151843$7cda7691-41a1-27db-fb1b-90ddc4fffd75",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105755025,
+                    "id": "Q105755025"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q113151843$c6c702bd-4fb9-0733-2924-d4c226229422",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105905487,
+                    "id": "Q105905487"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q113151843$8b78a56a-4e17-6f15-9469-e9de508a0f76",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105943304,
+                    "id": "Q105943304"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q113151843$a4940a3b-4672-a750-fb43-65d0f598fd9a",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q113151843$06edd8e5-42fa-8bbc-32c0-c9fcf28417d8",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q113151843$57c1dd05-419c-3fbc-7778-12aafe1439ae",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "12-the-doctor.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105767535",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105755025",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105905487",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105943304",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "12-the-doctor.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q113151843"
+      ],
+      "sourceModifiedAt": "2025-03-13T09:07:36Z"
+    },
+    {
+      "payload": {
+        "id": "Q113153791",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2173405810",
+        "authorityModifiedAt": "2024-06-06T19:44:15Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Believe Me! (May 7 scene)"
+          },
+          "ru": {
+            "language": "ru",
+            "value": "Поверь (сцена 7 мая)"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P175": [
+            {
+              "id": "Q113153791$aed03867-461c-c4c9-fc9c-b67b5b50c5eb",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105767535,
+                    "id": "Q105767535"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q113153791$3e43c09c-4808-20f8-6597-5986c0743f10",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105943304,
+                    "id": "Q105943304"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            },
+            {
+              "id": "Q113153791$79f1e4d0-44f6-9d7b-2235-0bac5dc4f5d1",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 105905487,
+                    "id": "Q105905487"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q113153791$dc86d6c9-46fe-02bd-f8fa-6451b1e25dc4",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850593,
+                    "id": "Q55850593"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q113153791$74f8b4ec-4536-cc3b-e5f1-b03df01077f9",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q113153791$f3f926b2-45b7-6c50-f4f4-2b68ba2eda1b",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "12-the-doctor.flac",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q105767535",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "ORGANIZATION"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105905487",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "credit",
+            "targetId": "Q105943304",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "12-the-doctor.flac"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q113153791"
+      ],
+      "sourceModifiedAt": "2024-06-06T19:44:15Z"
+    },
+    {
+      "payload": {
+        "id": "Q66662496",
+        "researchDomain": "MUSIC",
+        "entityTypeHint": "MUSIC_RECORDING",
+        "authorityRevision": "2069626011",
+        "authorityModifiedAt": "2024-02-05T14:21:12Z",
+        "labels": {
+          "en": {
+            "language": "en",
+            "value": "Big Rock"
+          }
+        },
+        "aliases": {},
+        "claims": {
+          "P1243": [
+            {
+              "id": "Q66662496$A9BBD9DE-3C80-4747-8EC2-6D7D37CB4F63",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P1243",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "USUAN1100305",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P175": [
+            {
+              "id": "Q66662496$088D9F4C-2853-4375-81C4-4D4B82D7C6CA",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P175",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 16731782,
+                    "id": "Q16731782"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P2550": [
+            {
+              "id": "Q66662496$9CA6D3CA-3863-4C28-B748-EDDBEC9F2FC4",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P2550",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 54874941,
+                    "id": "Q54874941"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P31": [
+            {
+              "id": "Q66662496$8C6F40C3-69EE-4B74-B3BE-72AF7933CDEE",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "datatype": "wikibase-item",
+                "datavalue": {
+                  "value": {
+                    "entity-type": "item",
+                    "numeric-id": 55850643,
+                    "id": "Q55850643"
+                  },
+                  "type": "wikibase-entityid"
+                }
+              }
+            }
+          ],
+          "P4404": [
+            {
+              "id": "Q66662496$9C467CCD-3C40-4409-BFB7-A7BFFC8A3C15",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P4404",
+                "datatype": "external-id",
+                "datavalue": {
+                  "value": "9aa56ede-83be-44ea-aeb5-d61268972c53",
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "P51": [
+            {
+              "id": "Q66662496$036234FA-2202-4469-A331-EE42834360CD",
+              "rank": "normal",
+              "mainsnak": {
+                "snaktype": "value",
+                "property": "P51",
+                "datatype": "commonsMedia",
+                "datavalue": {
+                  "value": "Big Rock (ISRC USUAN1100305).mp3",
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "relations": [
+          {
+            "predicate": "credit",
+            "targetId": "Q16731782",
+            "targetType": "MUSIC_ARTIST",
+            "qualifiers": {
+              "role": "PERFORMER",
+              "wikidataProperty": "P175",
+              "targetAgentKind": "PERSON"
+            }
+          },
+          {
+            "predicate": "recording_of",
+            "targetId": "Q54874941",
+            "targetType": "MUSICAL_WORK",
+            "qualifiers": {
+              "wikidataProperty": "P2550"
+            }
+          }
+        ],
+        "mediaObjects": [
+          "Big Rock (ISRC USUAN1100305).mp3"
+        ]
+      },
+      "citationIds": [
+        "wikidata-q66662496"
+      ],
+      "sourceModifiedAt": "2024-02-05T14:21:12Z"
+    }
+  ]
+}

@@ -68,7 +68,7 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
         assertion.provenance.mapper_version
         for mapped in musicbrainz.mapped
         for assertion in mapped.entity_type_assertions
-    } == {"1.1.0"}
+    } == {"1.3.0"}
     assert {
         assertion.provenance.mapper_id
         for mapped in wikidata.mapped
@@ -78,7 +78,7 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
         assertion.provenance.mapper_version
         for mapped in wikidata.mapped
         for assertion in mapped.entity_type_assertions
-    } == {"1.1.0"}
+    } == {"1.3.0"}
     assert {
         assertion.entity_type
         for mapped in musicbrainz.mapped
@@ -145,6 +145,11 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
         ("wikidata-item", "Q208909", "MUSIC_LABEL"),
     }
     assert {
+        (assertion.predicate, json.loads(assertion.value_json))
+        for assertion in wikidata_label.field_assertions
+        if assertion.predicate == "music_agent_kind"
+    } == {("music_agent_kind", "ORGANIZATION")}
+    assert {
         assertion.predicate
         for mapped in musicbrainz.mapped
         for assertion in mapped.relationship_assertions
@@ -160,6 +165,7 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
             assertion.object.source_id,
             assertion.object.referent_kind,
             assertion.qualifiers.get("role"),
+            assertion.qualifiers.get("agentKind"),
         )
         for mapped in musicbrainz.mapped
         for assertion in mapped.relationship_assertions
@@ -170,6 +176,7 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
             "df7d1c7f-ef95-425f-8eef-445b3d7bcbd9",
             "MUSIC_LABEL",
             "LABEL",
+            "ORGANIZATION",
         )
     }
     assert all(
@@ -243,11 +250,11 @@ def test_music_uses_generic_gold_identifier_and_relationship_rules() -> None:
 
     assert mapper_identity_for_product("musicbrainz-core-dump").model_dump() == {
         "mapper_id": "musicbrainz-core-source-mapper",
-        "mapper_version": "1.1.0",
+        "mapper_version": "1.3.0",
     }
     assert mapper_identity_for_product("wikidata-json-dump").model_dump() == {
         "mapper_id": "wikidata-research-dispatcher",
-        "mapper_version": "2.1.0",
+        "mapper_version": "2.2.0",
     }
     for namespace in (
         "musicbrainz-artist",

@@ -1,6 +1,28 @@
 {
   "algorithmId": "catalog-asset-match-v1",
   "ambiguityMargin": 50,
+  "autoExact": {
+    "allowedRecallLane": "EXACT",
+    "requireNoNegativeEvidence": true,
+    "requirePolicyIdentityAndMaterialization": true,
+    "requireUniqueCandidate": true
+  },
+  "calibration": {
+    "method": "piecewise-linear-permille-v1",
+    "points": [
+      {"confidencePermille": 0, "score": 0},
+      {"confidencePermille": 150, "score": 250},
+      {"confidencePermille": 500, "score": 500},
+      {"confidencePermille": 800, "score": 750},
+      {"confidencePermille": 950, "score": 900},
+      {"confidencePermille": 990, "score": 1000}
+    ],
+    "version": "catalog-match-calibration-v2"
+  },
+  "conflictThresholds": {
+    "durationDeltaRatio": 0.35
+  },
+  "contractVersion": "2.1.0",
   "domainIdentityAuthority": {
     "authoritySchemaVersion": "1.1",
     "exactIdentifierScore": 900,
@@ -27,6 +49,7 @@
   "minimumScore": 250,
   "musicMatchPolicy": {
     "ambiguousExactCandidates": "ABSTAIN",
+    "authorityDigestRequired": true,
     "exactIdentifierNamespaces": [
       "isrc",
       "iswc",
@@ -40,11 +63,38 @@
     ],
     "parentConstrained": {
       "decision": "REVIEW_ONLY",
+      "forbidStudioRecordingCollapse": true,
       "predicates": [
-        "recording_of",
-        "release_membership"
-      ]
-    }
+        "recording_of"
+      ],
+      "targetEntityType": "MUSICAL_WORK"
+    },
+    "sourcePolicyDigestRequired": true,
+    "variantHandling": {
+      "authorityProfileDispositionRequired": true,
+      "decision": "REVIEW_ONLY",
+      "exactDisposition": "EXACT_RECORDING",
+      "exactEligibilityField": "musicExactEligible",
+      "maxAuthorityRelationSignalsForExact": 1,
+      "maxMediaObjectSignalsForExact": 3,
+      "signalField": "musicVariantSignals"
+    },
+    "withoutAuthorityCoordinate": "ABSTAIN"
+  },
+  "negativeEvidenceWeights": {
+    "durationConflict": 250,
+    "hierarchyConflict": 500,
+    "identifierConflict": 700,
+    "typeConflict": 400
+  },
+  "recall": {
+    "lanes": [
+      "EXACT",
+      "STRUCTURED",
+      "HIERARCHY",
+      "MULTILINGUAL_LEXICAL"
+    ],
+    "vectorRetrievalEnabled": false
   },
   "retrieval": {
     "exactIdentifierBoost": 1000
@@ -59,6 +109,12 @@
     "publicEnrichmentAllowed": false,
     "version": "world-source-authority-policy-v1"
   },
+  "sourcePolicyRegistry": {
+    "path": "contracts/catalog/catalog-source-policy.v1.json",
+    "registryVersion": "1.4.0",
+    "semanticDigest": "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018",
+    "schemaVersion": "video.world.catalog-source-policy-registry.v1"
+  },
   "sort": [
     "score:desc",
     "entityKey:asc"
@@ -67,9 +123,11 @@
     "duration": 80,
     "episode": 50,
     "externalIdentifier": 600,
+    "hierarchy": 180,
     "language": 20,
     "season": 50,
     "title": 300,
+    "titleEntity": 80,
     "type": 80,
     "year": 100
   }

@@ -296,7 +296,7 @@ def research_policy() -> GoldResolutionPolicy:
     )
     return GoldResolutionPolicy(
         policy_id="research-display-v2",
-        policy_version="2.5.0",
+        policy_version="2.7.0",
         requested_actions=(
             UsageAction.STORE,
             UsageAction.TRANSFORM,
@@ -434,6 +434,8 @@ def research_policy() -> GoldResolutionPolicy:
                     "animation_technique",
                     "objective_text",
                     "demonstration_kind",
+                    "media_object",
+                    "media_variant",
                 )
             ),
             *(
@@ -492,6 +494,7 @@ def research_policy() -> GoldResolutionPolicy:
                     "learning_level",
                     "learning_duration",
                     "step_ordinal",
+                    "music_agent_kind",
                 )
             ),
             *(

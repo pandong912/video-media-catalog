@@ -1,0 +1,777 @@
+{
+  "schemaVersion": "video.media-catalog.music-pilot.v1",
+  "cohortId": "music-reference-gold-match-pilot-2026-10-17",
+  "capturedAt": "2026-10-17T03:00:00Z",
+  "authorityScope": "GLOBAL_REFERENCE_ONLY",
+  "tenantWorldIdentityAuthority": false,
+  "sourcePolicyVersion": "1.4.0",
+  "sourceFixtures": {
+    "musicbrainz": {
+      "path": "musicbrainz-music-pilot.v1.json",
+      "sourceRevision": "sha256:53af4e3cece1f12d26accd1cfa080e31932a637a3f31435723badc5cf8b3a46f",
+      "rawProjectionDigest": "sha256:ea9c718dcad1f6b94035453b9395a7f5d966ca2788cf304825b910bd6add9250"
+    },
+    "wikidata": {
+      "path": "wikidata-music-pilot.v1.json",
+      "sourceRevision": "sha256:48949106cf45ed8ebdc26bdd41060054e5d3b492e934a85b9e83c13f6fad067f",
+      "rawProjectionDigest": "sha256:4410abd25356c2887da72922adc5697b53f85e13ca12e59433468c51d680bcdc"
+    }
+  },
+  "configDigest": "sha256:c5b99383a27231eb94d63b27b74ee2bf45558c825e46d12837200d841180dfba",
+  "assets": [
+    {
+      "assetId": "music-pilot-exact-01",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Big Rock",
+        "artists": [
+          "Kevin MacLeod"
+        ],
+        "durationMs": 230000,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q66662496",
+            "musicbrainzMbid": "9aa56ede-83be-44ea-aeb5-d61268972c53",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q66662496$9C467CCD-3C40-4409-BFB7-A7BFFC8A3C15",
+                  "authorityRevision": "2069626011"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "9aa56ede-83be-44ea-aeb5-d61268972c53",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-exact-02",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Неизбежность [Русская версия 2009]",
+        "artists": [
+          "Complex Numbers",
+          "Наталья Митрофанова"
+        ],
+        "durationMs": 322000,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q105942412",
+            "musicbrainzMbid": "321d235c-a32a-4f6c-b84d-0e151ffb58be",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q105942412$e0d7ccbf-4a2e-7eb8-2e19-ae589fbb78d1",
+                  "authorityRevision": "2397375374"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "321d235c-a32a-4f6c-b84d-0e151ffb58be",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-exact-03",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Последнее кольцо [Вокальная версия]",
+        "artists": [
+          "Ariel",
+          "Complex Numbers",
+          "Андрей Климковский"
+        ],
+        "durationMs": 343000,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q105978624",
+            "musicbrainzMbid": "e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q105978624$f3cc0ebb-41c9-7927-d633-a73227a7477b",
+                  "authorityRevision": "2313854151"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "e1ded706-16ec-45c3-87c4-0ae7a26f56d3",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-exact-04",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Время придёт (Изучает прогресс поведение людей)",
+        "artists": [
+          "Ariel",
+          "Complex Numbers",
+          "Len"
+        ],
+        "durationMs": 375457,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q106098098",
+            "musicbrainzMbid": "b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q106098098$64d3b2bc-4598-6404-c581-014bb46d9e75",
+                  "authorityRevision": "2261277072"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "b611eecb-2e93-46ad-aaf4-f00f02a913ff",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-exact-05",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Пролегла черта (Меж двух эпох)",
+        "artists": [
+          "Complex Numbers",
+          "Олевия Кибер"
+        ],
+        "durationMs": 271438,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q106182588",
+            "musicbrainzMbid": "020152a7-172e-45c5-812a-a60d02cb2a27",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q106182588$6fa2e8d3-4178-3d9d-8349-75cefab6d68f",
+                  "authorityRevision": "2313933718"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "020152a7-172e-45c5-812a-a60d02cb2a27",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-exact-06",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Конструируя среду",
+        "artists": [
+          "Виктор Аргонов Project"
+        ],
+        "durationMs": 384000,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q106435189",
+            "musicbrainzMbid": "61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q106435189$2B94929E-CBA3-4A9C-814E-3C5B338182E9",
+                  "authorityRevision": "2261277764"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "61b03fdf-24aa-4c82-b5d6-1e25691e8347",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-exact-07",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Пролог (монолог Рассказчика)",
+        "artists": [
+          "Виктор Аргонов Project"
+        ],
+        "durationMs": 125000,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q109795255",
+            "musicbrainzMbid": "c40d7b44-7583-4675-852a-10ddbea8cf46",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q109795255$A10FBA17-C0E8-41A2-8318-C7AC5806E587",
+                  "authorityRevision": "2156286432"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "c40d7b44-7583-4675-852a-10ddbea8cf46",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-exact-08",
+      "case": "EXACT_RECORDING",
+      "features": {
+        "title": "Сияние (ария Сказочницы)",
+        "artists": [
+          "Виктор Аргонов Project"
+        ],
+        "durationMs": 250000,
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q113148225",
+            "musicbrainzMbid": "7fb6969c-bb00-48ec-84df-151fd56875c2",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q113148225$e16b688d-486c-1947-4561-a6c70fe1fd12",
+                  "authorityRevision": "2454178161"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "EXACT",
+        "candidateEntityType": "MUSIC_RECORDING",
+        "candidateNamespace": "musicbrainz-recording",
+        "candidateId": "7fb6969c-bb00-48ec-84df-151fd56875c2",
+        "reason": "UNIQUE_REVIEWED_EXACT_RECORDING_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-01",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "Fantasie (Praeludium) und Fuge g-Moll, BWV 542",
+        "artists": [
+          "Johann Sebastian Bach"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q2607570",
+            "musicbrainzMbid": "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P435",
+                  "statementId": "q2607570$9E2E1FFD-C4F8-4D2E-9C31-76F3E87471C3",
+                  "authorityRevision": "2480032102"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "9dc29ea6-7a6f-3cc5-aa37-560b04afb0d7",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-02",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "The Well-Tempered Clavier, Book I: Prelude and Fugue no. 23 in B major, BWV 868",
+        "artists": [
+          "Johann Sebastian Bach"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q17591232",
+            "musicbrainzMbid": "4f5a74d0-d183-37f1-b07a-913652e82667",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P435",
+                  "statementId": "Q17591232$925622a1-4e5c-4994-0b31-d935a6764e5f",
+                  "authorityRevision": "2477055740"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "4f5a74d0-d183-37f1-b07a-913652e82667",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-03",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "Inventio Nr. 2 c-Moll, BWV 773",
+        "artists": [
+          "Johann Sebastian Bach"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q138836655",
+            "musicbrainzMbid": "8b3a9214-bbec-311d-a61b-874bf15dfdde",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "RESEARCH_CANDIDATE_SAME_WORK_PARENT",
+              "reviewStatus": "PENDING",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_REVISION_AND_LABEL",
+                  "authorityRevision": "2476397473",
+                  "title": "Invention No. 2 in C minor, BWV 773"
+                },
+                {
+                  "kind": "MUSICBRAINZ_CAPTURE_AND_TITLE",
+                  "authorityRevision": "sha256:af3d93331d795d6647a2824fae30dbba34a534a83e7faff4f9f8805d4422766e",
+                  "title": "Inventio Nr. 2 c-Moll, BWV 773"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "8b3a9214-bbec-311d-a61b-874bf15dfdde",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-04",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "Sonata for Piano no. 11 in A major, K. 300i/331 “Alla Turca”",
+        "artists": [
+          "Wolfgang Amadeus Mozart"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q908534",
+            "musicbrainzMbid": "a488a020-884d-3349-a7e7-18993ffed13e",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P435",
+                  "statementId": "q908534$F4904218-4686-4E5E-9507-36C6E662781A",
+                  "authorityRevision": "2528459949"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "a488a020-884d-3349-a7e7-18993ffed13e",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-05",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "Divertimento for String Quartet in D major, K. 125a/136 “Salzburg Symphony no. 1”",
+        "artists": [
+          "Wolfgang Amadeus Mozart"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q960586",
+            "musicbrainzMbid": "e9914523-2452-3987-8d4d-08f8e4f3c302",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "RESEARCH_CANDIDATE_SAME_WORK_PARENT",
+              "reviewStatus": "PENDING",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_REVISION_AND_LABEL",
+                  "authorityRevision": "2543367027",
+                  "title": "Divertimento No. 1"
+                },
+                {
+                  "kind": "MUSICBRAINZ_CAPTURE_AND_TITLE",
+                  "authorityRevision": "sha256:3e99588454a2b865b104fcb117b21d11a8e79e5d222644f969ccbdf4b3a65363",
+                  "title": "Divertimento for String Quartet in D major, K. 125a/136 “Salzburg Symphony no. 1”"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "e9914523-2452-3987-8d4d-08f8e4f3c302",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-06",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "Nocturnes, op. 9",
+        "artists": [
+          "Fryderyk Chopin",
+          "Marie Pleyel"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q1140459",
+            "musicbrainzMbid": "660d0d25-4253-4d30-a818-61fc94e375bf",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P435",
+                  "statementId": "q1140459$BE1E1AB2-08BB-454B-B1E2-011191406128",
+                  "authorityRevision": "2509756763"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "660d0d25-4253-4d30-a818-61fc94e375bf",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-07",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "Щелкунчик, op. 71: Действие II, Картина III, no. 13. Вальс цветов",
+        "artists": [
+          "Пётр Ильич Чайковский"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q12860108",
+            "musicbrainzMbid": "ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "RESEARCH_CANDIDATE_SAME_WORK_PARENT",
+              "reviewStatus": "PENDING",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_REVISION_AND_LABEL",
+                  "authorityRevision": "2450107506",
+                  "title": "Waltz of the Flowers"
+                },
+                {
+                  "kind": "MUSICBRAINZ_CAPTURE_AND_TITLE",
+                  "authorityRevision": "sha256:ee3c5929aa0f609e6b3d573cb8ca6a243b93e2d74296eae4f552d3b06a25a241",
+                  "title": "Щелкунчик, op. 71: Действие II, Картина III, no. 13. Вальс цветов"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "ba28e7e2-862e-3438-9faa-13ebb6e9030c",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-live-08",
+      "case": "LIVE_WORK_PARENT",
+      "features": {
+        "title": "Suite bergamasque, L. 75, CD 82 : III. Clair de lune",
+        "artists": [
+          "Claude Debussy"
+        ],
+        "performanceType": "LIVE",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q29117946",
+            "musicbrainzMbid": "8d331505-4d88-39ae-81c7-bec5da77af96",
+            "entityType": "MUSICAL_WORK",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P435",
+                  "statementId": "Q29117946$26b9a997-4ff8-e2b1-8e85-4522adf9f804",
+                  "authorityRevision": "2550669190"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "candidateEntityType": "MUSICAL_WORK",
+        "candidateNamespace": "musicbrainz-work",
+        "candidateId": "8d331505-4d88-39ae-81c7-bec5da77af96",
+        "reason": "PARENT_CONSTRAINED_WORK_ONLY",
+        "forbidEntityType": "MUSIC_RECORDING"
+      }
+    },
+    {
+      "assetId": "music-pilot-conflict-01",
+      "case": "CONFLICTING_RECORDINGS",
+      "features": {
+        "title": "12-the-doctor.flac",
+        "artists": [
+          "Виктор Аргонов Project"
+        ],
+        "performanceType": "RECORDED",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q113151843",
+            "musicbrainzMbid": "d9da08d3-3c24-4f4c-b1e7-beeee60bab08",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q113151843$06edd8e5-42fa-8bbc-32c0-c9fcf28417d8",
+                  "authorityRevision": "2323988319"
+                }
+              ]
+            }
+          },
+          {
+            "wikidataQid": "Q113153791",
+            "musicbrainzMbid": "71d7fa30-ae9e-431b-9fce-a6ecb63f3cfa",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q113153791$74f8b4ec-4536-cc3b-e5f1-b03df01077f9",
+                  "authorityRevision": "2173405810"
+                }
+              ]
+            }
+          }
+        ],
+        "conflictEvidence": {
+          "wikidataSharedMediaObject": "12-the-doctor.flac"
+        }
+      },
+      "expected": {
+        "decision": "ABSTAIN",
+        "reason": "MULTIPLE_EXACT_IDENTIFIER_CANDIDATES"
+      }
+    },
+    {
+      "assetId": "music-pilot-variant-01",
+      "case": "REMIX_OR_MEDIA_VARIANT",
+      "features": {
+        "title": "Там, за чертой (DIP Project remix full version).mp3",
+        "artists": [],
+        "performanceType": "VARIANT",
+        "authorityCoordinates": [
+          {
+            "wikidataQid": "Q108042886",
+            "musicbrainzMbid": "b70b3468-8f1a-4fa3-b853-122f57d98f92",
+            "entityType": "MUSIC_RECORDING",
+            "coordinateReview": {
+              "mappingKind": "AUTHORITY_DECLARED",
+              "reviewStatus": "NOT_REQUIRED",
+              "evidence": [
+                {
+                  "kind": "WIKIDATA_DIRECT_CROSS_ID",
+                  "property": "P4404",
+                  "statementId": "Q108042886$BB62F0FC-57B5-4911-95B3-1C53AC7713C5",
+                  "authorityRevision": "2261278039"
+                }
+              ]
+            }
+          }
+        ],
+        "variantEvidence": {
+          "wikidataMediaObject": "Там, за чертой (DIP Project remix full version).mp3",
+          "musicbrainzRecordingRelation": {
+            "targetId": "ae81a568-f6f4-4a69-9da0-b8561247642d",
+            "title": "Там, за чертой / full (DIP Project trance remix)",
+            "relationType": "remix",
+            "direction": "backward"
+          }
+        }
+      },
+      "expected": {
+        "decision": "ABSTAIN",
+        "reason": "REMIX_OR_VARIANT_REQUIRES_DISTINCT_RECORDING_AUTHORITY",
+        "forbidDecision": "EXACT"
+      }
+    },
+    {
+      "assetId": "music-pilot-no-coordinate-01",
+      "case": "NO_AUTHORITY_COORDINATE",
+      "featureProvenance": "NEGATIVE_CONTROL",
+      "features": {
+        "title": "Annette Hanshaw Big City Blues.ogg",
+        "artists": [],
+        "performanceType": "UNKNOWN",
+        "authorityCoordinates": []
+      },
+      "expected": {
+        "decision": "ABSTAIN",
+        "reason": "NO_AUTHORITY_COORDINATE"
+      }
+    },
+    {
+      "assetId": "music-pilot-no-coordinate-02",
+      "case": "NO_AUTHORITY_COORDINATE",
+      "featureProvenance": "NEGATIVE_CONTROL",
+      "features": {
+        "title": "1925 (USA) Archives 1925 03 19 Ben Bernie Orchestra - Sweet Georgia Brown.mp3",
+        "artists": [],
+        "performanceType": "UNKNOWN",
+        "authorityCoordinates": []
+      },
+      "expected": {
+        "decision": "ABSTAIN",
+        "reason": "NO_AUTHORITY_COORDINATE"
+      }
+    }
+  ],
+  "cohortDigest": "sha256:ff44f41739c8967fb5d12471961489263566db9c27534177b0b3f1bc6b67884c"
+}

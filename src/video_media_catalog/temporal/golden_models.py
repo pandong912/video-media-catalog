@@ -137,6 +137,7 @@ class GoldenSnapshotResult:
     snapshot_set_id: str
     snapshot: ObjectRefPayload
     job_run_id: str
+    unprocessed_identity_source_run_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

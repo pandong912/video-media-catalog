@@ -894,6 +894,80 @@ def _parentless_identity_lineage_run_ids(
     return tuple(sorted(lineage_ids))
 
 
+def _publication_identity_lineage_run_ids(
+    seed_runs: Mapping[str, CommunityIngestRun],
+    *,
+    parsed: argparse.Namespace,
+    spark: Any,
+    config: CatalogConfig,
+    identity_generation_id: str | None,
+    table_mapping: Mapping[str, str],
+) -> tuple[str, ...]:
+    """Close a publication's requested runs over pinned Identity ancestors."""
+
+    if identity_generation_id is None or not seed_runs:
+        return ()
+    manifest_cache: dict[str, CommunitySilverManifest] = {}
+
+    def read_lineage_manifest(reference: ObjectRef) -> CommunitySilverManifest:
+        cache_key = canonical_json(
+            reference.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            )
+        )
+        cached = manifest_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        lineage_store = _object_store(
+            parsed,
+            local_only=urlsplit(reference.uri).scheme == "file",
+        )
+        loaded = _read_silver_manifest(lineage_store, reference)
+        manifest_cache[cache_key] = loaded
+        return loaded
+
+    def load_lineage_runs(
+        manifest: CommunitySilverManifest,
+        run_ids: tuple[str, ...],
+    ) -> Mapping[str, CommunityIngestRun]:
+        lineage_tables = _tables_for_silver_manifest(
+            spark,
+            config,
+            manifest,
+        )
+        runs, _ = _load_run_state(
+            spark,
+            tables=lineage_tables,
+            run_snapshot_id=manifest.run_snapshot_id,
+            commit_snapshot_id=manifest.commit_snapshot_id,
+            run_ids=run_ids,
+        )
+        return runs
+
+    return _parentless_identity_lineage_run_ids(
+        seed_runs,
+        identity_generation_id=identity_generation_id,
+        table_mapping=table_mapping,
+        read_manifest=read_lineage_manifest,
+        load_runs=load_lineage_runs,
+    )
+
+
+def _require_closed_identity_lineage(
+    committed_run_ids: Sequence[str],
+    identity_lineage_run_ids: Sequence[str],
+) -> None:
+    """Reject a Silver input that omits an Identity run's pinned ancestors."""
+
+    missing = sorted(set(identity_lineage_run_ids) - set(committed_run_ids))
+    if missing:
+        raise ValueError(
+            "Silver snapshot omits pinned Identity ancestors: " + ", ".join(missing)
+        )
+
+
 def _manifest_committed_runs(
     spark: Any,
     *,
@@ -1097,6 +1171,21 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             commit_snapshot_id=silver_snapshot.commit_snapshot_id,
             run_ids=state_run_ids,
         )
+        if identity_mode == "incremental" and isinstance(
+            silver_snapshot, CommunitySilverSnapshotSet
+        ):
+            identity_lineage_run_ids = _publication_identity_lineage_run_ids(
+                runs,
+                parsed=parsed,
+                spark=spark,
+                config=config,
+                identity_generation_id=identity_generation_id,
+                table_mapping=input_tables.table_mapping,
+            )
+            _require_closed_identity_lineage(
+                silver_snapshot.committed_run_ids,
+                identity_lineage_run_ids,
+            )
         wrong_kind = [
             run_id
             for run_id in source_run_ids
@@ -1451,58 +1540,14 @@ def _run_epoch_publication(
             )
             baseline_epoch_ref = parent.baseline_epoch or parent_epoch_ref
         identity_lineage_run_ids: tuple[str, ...] = ()
-        if (
-            parent is None
-            and identity_generation_id is not None
-            and requested_delta_runs
-        ):
-            manifest_cache: dict[str, CommunitySilverManifest] = {}
-
-            def read_lineage_manifest(
-                reference: ObjectRef,
-            ) -> CommunitySilverManifest:
-                cache_key = canonical_json(
-                    reference.model_dump(
-                        mode="json",
-                        by_alias=True,
-                        exclude_none=True,
-                    )
-                )
-                cached = manifest_cache.get(cache_key)
-                if cached is not None:
-                    return cached
-                lineage_store = _object_store(
-                    parsed,
-                    local_only=urlsplit(reference.uri).scheme == "file",
-                )
-                loaded = _read_silver_manifest(lineage_store, reference)
-                manifest_cache[cache_key] = loaded
-                return loaded
-
-            def load_lineage_runs(
-                manifest: CommunitySilverManifest,
-                run_ids: tuple[str, ...],
-            ) -> Mapping[str, CommunityIngestRun]:
-                lineage_tables = _tables_for_silver_manifest(
-                    spark,
-                    config,
-                    manifest,
-                )
-                runs, _ = _load_run_state(
-                    spark,
-                    tables=lineage_tables,
-                    run_snapshot_id=manifest.run_snapshot_id,
-                    commit_snapshot_id=manifest.commit_snapshot_id,
-                    run_ids=run_ids,
-                )
-                return runs
-
-            identity_lineage_run_ids = _parentless_identity_lineage_run_ids(
+        if parent is None:
+            identity_lineage_run_ids = _publication_identity_lineage_run_ids(
                 requested_delta_runs,
+                parsed=parsed,
+                spark=spark,
+                config=config,
                 identity_generation_id=identity_generation_id,
                 table_mapping=tables.table_mapping,
-                read_manifest=read_lineage_manifest,
-                load_runs=load_lineage_runs,
             )
         delta_run_ids = tuple(
             sorted({*requested_delta_run_ids, *identity_lineage_run_ids})
@@ -1639,7 +1684,7 @@ def _run_snapshot_publication(
     identity_generation_id = _optional_identity_generation_id(
         parsed.identity_generation_id
     )
-    run_ids = _normalize_run_ids(
+    requested_run_ids = _normalize_run_ids(
         parsed.run_ids,
         label="publish-snapshot",
     )
@@ -1665,17 +1710,53 @@ def _run_snapshot_publication(
         data_snapshot_ids = {
             table: tables.latest_snapshot_id(table) for table in DATA_TABLE_COLUMNS
         }
-        runs, commits = _load_run_state(
+        requested_runs, commits = _load_run_state(
             spark,
             tables=tables,
             run_snapshot_id=run_snapshot_id,
             commit_snapshot_id=commit_snapshot_id,
-            run_ids=run_ids,
+            run_ids=requested_run_ids,
         )
         _validate_run_generations(
-            runs,
+            requested_runs,
             identity_generation_id=identity_generation_id,
             table_mapping=tables.table_mapping,
+        )
+        identity_lineage_run_ids = _publication_identity_lineage_run_ids(
+            requested_runs,
+            parsed=parsed,
+            spark=spark,
+            config=config,
+            identity_generation_id=identity_generation_id,
+            table_mapping=tables.table_mapping,
+        )
+        run_ids = tuple(sorted({*requested_run_ids, *identity_lineage_run_ids}))
+        if len(run_ids) > MAX_EXPLICIT_RUN_IDS:
+            raise ValueError(
+                "publish-snapshot Identity lineage exceeds "
+                f"{MAX_EXPLICIT_RUN_IDS} run IDs"
+            )
+        runs = requested_runs
+        if identity_lineage_run_ids:
+            runs, commits = _load_run_state(
+                spark,
+                tables=tables,
+                run_snapshot_id=run_snapshot_id,
+                commit_snapshot_id=commit_snapshot_id,
+                run_ids=run_ids,
+            )
+            _validate_run_generations(
+                runs,
+                identity_generation_id=identity_generation_id,
+                table_mapping=tables.table_mapping,
+            )
+        unprocessed_identity_source_run_ids = (
+            _incremental_unprocessed_source_run_ids(runs)
+            if any(
+                run.run_kind == IngestRunKind.IDENTITY_RESOLUTION
+                for run in runs.values()
+            )
+            else ()
         )
         _verify_data_counts(
             spark,
@@ -1713,6 +1794,9 @@ def _run_snapshot_publication(
             "context": "research",
             "stage": "silver-snapshot-publication",
             "snapshotSetId": snapshot.snapshot_set_id,
+            "requestedRunIds": requested_run_ids,
+            "identityLineageRunIds": identity_lineage_run_ids,
+            "unprocessedIdentitySourceRunIds": (unprocessed_identity_source_run_ids),
             "committedRunIds": snapshot.committed_run_ids,
             "runSnapshotId": snapshot.run_snapshot_id,
             "commitSnapshotId": snapshot.commit_snapshot_id,

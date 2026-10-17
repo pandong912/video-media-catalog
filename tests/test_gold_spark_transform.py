@@ -1150,6 +1150,66 @@ def test_resolved_memberships_reject_conflicting_closure_times(
 
 
 @pytest.mark.spark
+def test_resolved_memberships_reports_conflicting_source_node(
+    spark: SparkSession,
+) -> None:
+    run_id = "sha256:" + ("1" * 64)
+    first_entity_key = "sha256:" + ("2" * 64)
+    last_entity_key = "sha256:" + ("3" * 64)
+    memberships = spark.createDataFrame(
+        [
+            {
+                "membership_key": "sha256:" + ("4" * 64),
+                "run_id": run_id,
+                "source_namespace_id": "imdb-name",
+                "source_id": "nm0017855",
+                "source_referent_kind": "PERSON",
+                "entity_key": first_entity_key,
+                "decision_id": "sha256:" + ("5" * 64),
+                "valid_from": "2026-09-20T00:00:00Z",
+                "valid_to": None,
+            },
+            {
+                "membership_key": "sha256:" + ("6" * 64),
+                "run_id": run_id,
+                "source_namespace_id": "imdb-name",
+                "source_id": "nm0017855",
+                "source_referent_kind": "PERSON",
+                "entity_key": last_entity_key,
+                "decision_id": "sha256:" + ("7" * 64),
+                "valid_from": "2026-09-20T00:00:00Z",
+                "valid_to": None,
+            },
+        ],
+        schema=community_table_schema("community_entity_membership"),
+    )
+    ledger = spark.createDataFrame(
+        [],
+        schema=community_table_schema("community_entity_ledger"),
+    )
+    redirects = spark.createDataFrame(
+        [],
+        schema=community_table_schema("community_entity_redirect"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"imdb-name/nm0017855/PERSON maps to 2 entities",
+    ) as raised:
+        _resolved_memberships(
+            silver={
+                "community_entity_membership": memberships,
+                "community_entity_ledger": ledger,
+                "community_entity_redirect": redirects,
+            },
+            as_of="2026-10-17T00:00:00Z",
+            max_redirect_hops=4,
+        )
+    assert first_entity_key in str(raised.value)
+    assert last_entity_key in str(raised.value)
+
+
+@pytest.mark.spark
 def test_membership_closure_supersedes_open_version(
     spark: SparkSession,
 ) -> None:

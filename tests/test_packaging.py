@@ -43,6 +43,10 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
         "209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@"
         "sha256:362d556ba623d5ed44f3e9600de0cd223ae860b777ca3706e13fbffa88fd8028"
     )
+    private_emr_base = (
+        "209479308066.dkr.ecr.us-east-1.amazonaws.com/video-media-catalog@"
+        "sha256:4d1a8e496e57d4352530ef69835c744489f64d0727c0284a72ae6b9f8f0c113e"
+    )
     assert release_dockerfile.startswith(f"ARG WORKER_BASE_IMAGE={private_worker_base}")
     assert "FROM ${WORKER_BASE_IMAGE}" in release_dockerfile
     assert "WORKDIR /opt/video-media-catalog-release" in release_dockerfile
@@ -108,16 +112,11 @@ def test_batch_images_and_entrypoints_match_processing_scope() -> None:
     assert "file: Dockerfile.emr" in ci_workflow
     assert "container-emr:" in ci_workflow
     assert "EMR_BASE_IMAGE=" in ci_workflow
-    assert (
-        "public.ecr.aws/emr-serverless/spark/emr-7.10.0@"
-        "sha256:c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46"
-    ) in ci_workflow
+    assert f"EMR_BASE_IMAGE={private_emr_base}" in ci_workflow
     assert "dockerfile: Dockerfile.release" in publish_workflow
     assert f"WORKER_BASE_IMAGE={private_worker_base}" in publish_workflow
-    assert (
-        "EMR_BASE_IMAGE=public.ecr.aws/emr-serverless/spark/emr-7.10.0@"
-        "sha256:c612b1190b418da1163d1676c8c6903280d598e4c0d5ecccfbd8ebd8d228fd46"
-    ) in publish_workflow
+    assert f"EMR_BASE_IMAGE={private_emr_base}" in publish_workflow
+    assert f"EMR_SCAN_BASELINE_REF: {private_emr_base}" in publish_workflow
     assert "Verify worker overlay dependency lock" in publish_workflow
     assert (
         "6290421a78020fe14ef81505ae96bbc5048511b9ff8120847027f3f1baefa7c6"

@@ -355,6 +355,23 @@ def test_runtime_preflight_accepts_fresh_identity_with_tmdb_spine() -> None:
     assert "identityExecutorProfile=7x8c/36g+20g/400G" in result.detail
 
 
+def test_runtime_preflight_accepts_full_identity_on_fresh_generation() -> None:
+    values = _runtime_values(tmdb_identity_spine=True)
+    documents = values.pop("_testDocuments")
+    values["build"]["identityMode"] = "full"
+    values["build"]["identityGenerationId"] = "pure-source-2026-09-r2"
+
+    result = preflight.evaluate_runtime_input(
+        values,
+        documents=documents,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert result.passed is True
+    assert "identityMode=full" in result.detail
+    assert "fullIdentityRuns=17" in result.detail
+
+
 def test_runtime_preflight_rejects_fresh_identity_without_tmdb_spine() -> None:
     values = _runtime_values(tmdb_identity_spine=False)
     documents = values.pop("_testDocuments")

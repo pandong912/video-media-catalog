@@ -52,6 +52,7 @@ from video_media_catalog.identity_resolution import (
     resolve_or_allocate_source_node,
     resolve_parent_constrained_source_node,
     resolve_shared_blocking_member,
+    resolve_source_scoped_imdb_episode,
     revoke_identity_membership,
 )
 from video_media_catalog.identity_v2 import (
@@ -652,6 +653,14 @@ def build_parent_constrained_work(
             "episode_number",
             F.coalesce("qualifier_episode_number", "field_episode_number"),
         )
+        .withColumn(
+            "ordinal_evidence_absent",
+            (F.col("field_season_value_count") == 0)
+            & (F.col("field_episode_value_count") == 0)
+            & F.get_json_object("qualifiers_json", "$.seasonNumber").isNull()
+            & F.get_json_object("qualifiers_json", "$.episodeNumber").isNull()
+            & F.get_json_object("qualifiers_json", "$.ordinal").isNull(),
+        )
     )
     if child_level == EntityLevel.SEASON:
         type_compatible = (F.col("parent_level") == EntityLevel.SERIES.value) & F.col(
@@ -661,7 +670,10 @@ def build_parent_constrained_work(
             "season_of",
         )
         ordinal_compatible = (
-            F.col("season_number").isNotNull()
+            (
+                F.col("season_number").isNotNull()
+                & (F.length(F.trim("season_number")) > 0)
+            )
             & (F.col("field_season_value_count") <= 1)
             & (
                 F.col("qualifier_season_number").isNull()
@@ -698,11 +710,18 @@ def build_parent_constrained_work(
             | (F.col("qualifier_season_number") == F.col("field_season_number"))
         )
         ordinal_compatible = (
-            F.col("episode_number").isNotNull()
+            (
+                F.col("episode_number").isNotNull()
+                & (F.length(F.trim("episode_number")) > 0)
+            )
             & episode_number_consistent
             & (
                 (F.col("parent_level") == EntityLevel.SEASON.value)
-                | (F.col("season_number").isNotNull() & season_number_consistent)
+                | (
+                    F.col("season_number").isNotNull()
+                    & (F.length(F.trim("season_number")) > 0)
+                    & season_number_consistent
+                )
             )
         )
         relevant_field_assertions = F.array_union(
@@ -718,9 +737,33 @@ def build_parent_constrained_work(
     else:
         raise ValueError("parent-constrained work supports only season or episode")
 
+    source_scoped_fallback_scope = (
+        (F.lit(child_level.value) == EntityLevel.EPISODE.value)
+        & (F.col("subject_namespace_id") == "imdb-title")
+        & F.col("subject_source_id").rlike(r"^tt[0-9]+$")
+        & (F.col("parent_namespace_id") == "imdb-title")
+        & F.col("parent_source_id").rlike(r"^tt[0-9]+$")
+    )
+    source_scoped_fallback_base = (
+        source_scoped_fallback_scope
+        & F.col("type_compatible")
+        & F.col("ordinal_evidence_absent")
+    )
+    source_scoped_fallback_binding = (
+        F.col("source_scoped_fallback_base")
+        & F.col("parent_membership_key").isNotNull()
+    )
     relation_rows = (
         relation_rows.withColumn("type_compatible", type_compatible)
         .withColumn("ordinal_compatible", ordinal_compatible)
+        .withColumn(
+            "source_scoped_fallback_base",
+            source_scoped_fallback_base,
+        )
+        .withColumn(
+            "source_scoped_fallback_binding",
+            source_scoped_fallback_binding,
+        )
         .withColumn(
             "ordinal_assertion_ids",
             F.array_sort(
@@ -752,7 +795,32 @@ def build_parent_constrained_work(
         "season_number",
         "episode_number",
     )
+    source_scoped_parent_identity = F.struct(
+        "parent_namespace_id",
+        "parent_source_id",
+        "parent_referent_kind",
+        "parent_entity_key",
+        "parent_membership_key",
+        "parent_level",
+    )
+    type_compatible_parent_source = F.struct(
+        "parent_namespace_id",
+        "parent_source_id",
+        "parent_referent_kind",
+    )
     binding_choice = F.struct(
+        "parent_namespace_id",
+        "parent_source_id",
+        "parent_referent_kind",
+        "parent_entity_key",
+        "parent_membership_key",
+        "parent_level",
+        F.col("relationship_assertion_id").alias("relationship_assertion_key"),
+        "ordinal_assertion_ids",
+        "season_number",
+        "episode_number",
+    )
+    source_scoped_parent_choice = F.struct(
         "parent_namespace_id",
         "parent_source_id",
         "parent_referent_kind",
@@ -786,6 +854,18 @@ def build_parent_constrained_work(
         ).alias("type_compatible_relationship_count"),
         F.countDistinct(
             F.when(
+                F.col("source_scoped_fallback_base"),
+                F.col("relationship_assertion_id"),
+            )
+        ).alias("source_scoped_fallback_relationship_count"),
+        F.countDistinct(
+            F.when(
+                F.col("type_compatible"),
+                type_compatible_parent_source,
+            )
+        ).alias("type_compatible_parent_source_count"),
+        F.countDistinct(
+            F.when(
                 F.col("type_compatible") & F.col("ordinal_compatible"),
                 F.col("relationship_assertion_id"),
             )
@@ -796,13 +876,35 @@ def build_parent_constrained_work(
                 F.col("parent_membership_key"),
             )
         ).alias("resolved_parent_membership_count"),
+        F.countDistinct(
+            F.when(
+                F.col("source_scoped_fallback_binding"),
+                F.col("parent_membership_key"),
+            )
+        ).alias("source_scoped_parent_membership_count"),
         F.countDistinct(F.when(valid_binding, binding_identity)).alias(
             "parent_choice_count"
         ),
+        F.countDistinct(
+            F.when(
+                F.col("source_scoped_fallback_binding"),
+                source_scoped_parent_identity,
+            )
+        ).alias("source_scoped_parent_choice_count"),
         F.min_by(
             F.when(valid_binding, binding_choice),
             F.when(valid_binding, binding_order),
         ).alias("parent_choice"),
+        F.min_by(
+            F.when(
+                F.col("source_scoped_fallback_binding"),
+                source_scoped_parent_choice,
+            ),
+            F.when(
+                F.col("source_scoped_fallback_binding"),
+                binding_order,
+            ),
+        ).alias("source_scoped_parent_choice"),
         F.max(
             F.when(
                 F.col("type_compatible") & F.col("ordinal_compatible"),
@@ -812,50 +914,97 @@ def build_parent_constrained_work(
                 ),
             ).otherwise(F.lit(0))
         ).alias("max_parent_membership_candidate_count"),
+        F.max(
+            F.when(
+                F.col("source_scoped_fallback_base"),
+                F.coalesce(
+                    F.col("parent_membership_candidate_count"),
+                    F.lit(0),
+                ),
+            ).otherwise(F.lit(0))
+        ).alias("max_source_scoped_parent_membership_candidate_count"),
         F.min("relationship_assertion_id").alias("first_relationship_assertion_id"),
+    )
+    source_scoped_fallback_applicable = (
+        (F.col("source_scoped_fallback_relationship_count") > 0)
+        & (
+            F.col("source_scoped_fallback_relationship_count")
+            == F.col("type_compatible_relationship_count")
+        )
+        & (
+            F.col("source_scoped_fallback_relationship_count")
+            == F.col("relationship_count")
+        )
+        & (F.col("relationship_count") == 1)
     )
     prepared = (
         children.join(relation_summary, source_columns, "left")
+        .fillna(
+            0,
+            subset=[
+                "relationship_count",
+                "type_compatible_relationship_count",
+                "source_scoped_fallback_relationship_count",
+                "type_compatible_parent_source_count",
+                "ordinal_compatible_relationship_count",
+                "resolved_parent_membership_count",
+                "source_scoped_parent_membership_count",
+                "parent_choice_count",
+                "source_scoped_parent_choice_count",
+                "max_parent_membership_candidate_count",
+                "max_source_scoped_parent_membership_candidate_count",
+            ],
+        )
         .withColumn(
-            "parent_choice_count",
-            F.coalesce(F.col("parent_choice_count"), F.lit(0)),
+            "source_scoped_fallback_applicable",
+            source_scoped_fallback_applicable,
         )
         .withColumn(
             "parent_resolution_mode",
             F.when(
-                F.coalesce(F.col("relationship_count"), F.lit(0)) == 0,
+                F.col("relationship_count") == 0,
                 F.lit("CONFLICT_PARENT_UNRESOLVED"),
             )
             .when(
-                F.coalesce(
-                    F.col("type_compatible_relationship_count"),
-                    F.lit(0),
-                )
-                == 0,
+                F.col("type_compatible_relationship_count") == 0,
                 F.lit("CONFLICT_PARENT_TYPE"),
             )
             .when(
-                F.coalesce(
-                    F.col("ordinal_compatible_relationship_count"),
-                    F.lit(0),
-                )
-                == 0,
-                F.lit("CONFLICT_PARENT_ORDINAL"),
-            )
-            .when(
-                F.coalesce(
-                    F.col("max_parent_membership_candidate_count"),
-                    F.lit(0),
-                )
-                > 1,
+                (F.col("ordinal_compatible_relationship_count") == 0)
+                & F.col("source_scoped_fallback_applicable")
+                & (F.col("max_source_scoped_parent_membership_candidate_count") > 1),
                 F.lit("CONFLICT_PARENT_AMBIGUOUS"),
             )
             .when(
-                F.coalesce(
-                    F.col("resolved_parent_membership_count"),
-                    F.lit(0),
-                )
-                == 0,
+                (F.col("ordinal_compatible_relationship_count") == 0)
+                & F.col("source_scoped_fallback_applicable")
+                & (F.col("source_scoped_parent_membership_count") == 0),
+                F.lit("CONFLICT_PARENT_UNRESOLVED"),
+            )
+            .when(
+                (F.col("ordinal_compatible_relationship_count") == 0)
+                & F.col("source_scoped_fallback_applicable")
+                & (
+                    (F.col("type_compatible_parent_source_count") != 1)
+                    | (F.col("source_scoped_parent_choice_count") != 1)
+                ),
+                F.lit("CONFLICT_PARENT_AMBIGUOUS"),
+            )
+            .when(
+                (F.col("ordinal_compatible_relationship_count") == 0)
+                & F.col("source_scoped_fallback_applicable"),
+                F.lit("SOURCE_SCOPED_FALLBACK"),
+            )
+            .when(
+                F.col("ordinal_compatible_relationship_count") == 0,
+                F.lit("CONFLICT_PARENT_ORDINAL"),
+            )
+            .when(
+                F.col("max_parent_membership_candidate_count") > 1,
+                F.lit("CONFLICT_PARENT_AMBIGUOUS"),
+            )
+            .when(
+                F.col("resolved_parent_membership_count") == 0,
                 F.lit("CONFLICT_PARENT_UNRESOLVED"),
             )
             .when(
@@ -864,27 +1013,35 @@ def build_parent_constrained_work(
             )
             .otherwise(F.lit("READY")),
         )
+        .withColumn(
+            "source_scoped_fallback",
+            F.col("parent_resolution_mode") == "SOURCE_SCOPED_FALLBACK",
+        )
+        .withColumn(
+            "effective_parent_choice",
+            F.when(
+                F.col("source_scoped_fallback"),
+                F.col("source_scoped_parent_choice"),
+            ).otherwise(F.col("parent_choice")),
+        )
+        .withColumn(
+            "parent_choice_count",
+            F.when(
+                F.col("source_scoped_fallback"),
+                F.col("source_scoped_parent_choice_count"),
+            ).otherwise(F.col("parent_choice_count")),
+        )
         .select(
             *children.columns,
-            F.coalesce(F.col("relationship_count"), F.lit(0)).alias(
-                "relationship_count"
-            ),
-            F.coalesce(
-                F.col("type_compatible_relationship_count"),
-                F.lit(0),
-            ).alias("type_compatible_relationship_count"),
-            F.coalesce(
-                F.col("ordinal_compatible_relationship_count"),
-                F.lit(0),
-            ).alias("ordinal_compatible_relationship_count"),
-            F.coalesce(
-                F.col("resolved_parent_membership_count"),
-                F.lit(0),
-            ).alias("resolved_parent_membership_count"),
-            F.coalesce(
-                F.col("max_parent_membership_candidate_count"),
-                F.lit(0),
-            ).alias("max_parent_membership_candidate_count"),
+            "relationship_count",
+            "type_compatible_relationship_count",
+            "source_scoped_fallback_relationship_count",
+            "type_compatible_parent_source_count",
+            "ordinal_compatible_relationship_count",
+            "resolved_parent_membership_count",
+            "source_scoped_parent_membership_count",
+            "max_parent_membership_candidate_count",
+            "max_source_scoped_parent_membership_candidate_count",
             F.coalesce(
                 F.when(
                     F.col("first_relationship_assertion_id").isNotNull(),
@@ -893,21 +1050,30 @@ def build_parent_constrained_work(
                 empty_strings,
             ).alias("relationship_assertion_ids"),
             "parent_choice_count",
-            F.col("parent_choice.parent_namespace_id").alias("parent_namespace_id"),
-            F.col("parent_choice.parent_source_id").alias("parent_source_id"),
-            F.col("parent_choice.parent_referent_kind").alias("parent_referent_kind"),
-            F.col("parent_choice.parent_entity_key").alias("parent_entity_key"),
-            F.col("parent_choice.parent_membership_key").alias("parent_membership_key"),
-            F.col("parent_choice.parent_level").alias("parent_level"),
-            F.col("parent_choice.relationship_assertion_key").alias(
+            F.col("effective_parent_choice.parent_namespace_id").alias(
+                "parent_namespace_id"
+            ),
+            F.col("effective_parent_choice.parent_source_id").alias("parent_source_id"),
+            F.col("effective_parent_choice.parent_referent_kind").alias(
+                "parent_referent_kind"
+            ),
+            F.col("effective_parent_choice.parent_entity_key").alias(
+                "parent_entity_key"
+            ),
+            F.col("effective_parent_choice.parent_membership_key").alias(
+                "parent_membership_key"
+            ),
+            F.col("effective_parent_choice.parent_level").alias("parent_level"),
+            F.col("effective_parent_choice.relationship_assertion_key").alias(
                 "relationship_assertion_key"
             ),
             F.coalesce(
-                F.col("parent_choice.ordinal_assertion_ids"),
+                F.col("effective_parent_choice.ordinal_assertion_ids"),
                 empty_strings,
             ).alias("ordinal_assertion_ids"),
-            F.col("parent_choice.season_number").alias("season_number"),
-            F.col("parent_choice.episode_number").alias("episode_number"),
+            F.col("effective_parent_choice.season_number").alias("season_number"),
+            F.col("effective_parent_choice.episode_number").alias("episode_number"),
+            "source_scoped_fallback",
             "parent_resolution_mode",
         )
         .withColumn("node_id", node_id)
@@ -953,20 +1119,40 @@ def build_parent_constrained_work(
         )
     )
     ready = (
-        prepared.where(F.col("parent_resolution_mode") == "READY")
+        prepared.where(
+            F.col("parent_resolution_mode").isin(
+                "READY",
+                "SOURCE_SCOPED_FALLBACK",
+            )
+        )
         .withColumn(
             "component_id",
-            F.sha2(
-                F.concat_ws(
-                    "\x1f",
-                    F.lit("parent-constrained-v1"),
-                    F.lit(child_level.value),
-                    "parent_entity_key",
-                    "parent_level",
-                    F.coalesce("season_number", F.lit("")),
-                    F.coalesce("episode_number", F.lit("")),
+            F.when(
+                F.col("source_scoped_fallback"),
+                F.sha2(
+                    F.concat_ws(
+                        "\x1f",
+                        F.lit("source-scoped-hierarchy-fallback-v1"),
+                        F.lit(child_level.value),
+                        "subject_namespace_id",
+                        "subject_source_id",
+                        "subject_referent_kind",
+                    ),
+                    256,
                 ),
-                256,
+            ).otherwise(
+                F.sha2(
+                    F.concat_ws(
+                        "\x1f",
+                        F.lit("parent-constrained-v1"),
+                        F.lit(child_level.value),
+                        "parent_entity_key",
+                        "parent_level",
+                        F.coalesce("season_number", F.lit("")),
+                        F.coalesce("episode_number", F.lit("")),
+                    ),
+                    256,
+                )
             ),
         )
         .withColumn(
@@ -997,7 +1183,12 @@ def build_parent_constrained_work(
         .otherwise(F.lit("BOOTSTRAP")),
     )
     not_ready = (
-        prepared.where(F.col("parent_resolution_mode") != "READY")
+        prepared.where(
+            ~F.col("parent_resolution_mode").isin(
+                "READY",
+                "SOURCE_SCOPED_FALLBACK",
+            )
+        )
         .withColumn("component_id", F.col("node_id"))
         .withColumn("component_node_count", F.lit(1).cast("long"))
         .withColumn("component_candidate_count", F.lit(0).cast("long"))
@@ -1986,6 +2177,7 @@ def build_identity_resolution_dataframes(
     def _attach_parent_anchor_keys(parent_work: Any) -> Any:
         parent_anchors = parent_work.where(
             (F.col("resolution_mode") == "BOOTSTRAP")
+            & ~F.col("source_scoped_fallback")
             & (F.col("node_id") == F.col("allocation_anchor_id"))
         )
 
@@ -2129,6 +2321,47 @@ def build_identity_resolution_dataframes(
                 )
             ).require_consistent()
             return result, ()
+        if row["source_scoped_fallback"]:
+            if mode not in {"ACCEPT", "BOOTSTRAP"}:
+                raise RuntimeError(
+                    "source-scoped hierarchy fallback has an invalid resolution mode"
+                )
+            if mode == "ACCEPT":
+                result = resolve_or_allocate_source_node(
+                    source_node=source_node,
+                    entity_level=resolution_input.entity_level,
+                    entity_kind=resolution_input.entity_kind,
+                    exact_candidate_entity_keys=(row["component_candidate_keys"][0],),
+                    assertion_keys=resolution_input.assertion_keys,
+                    observed_at=row["observed_at"],
+                    policy_id=row["policy_id"],
+                    policy_digest=row["policy_digest"],
+                    decision_policy_version="exact-identity-v2",
+                    decided_by="community-identity-spark-v2",
+                    materialization_id=materialization_id,
+                )
+            else:
+                result = resolve_source_scoped_imdb_episode(
+                    source_node=source_node,
+                    entity_kind=resolution_input.entity_kind,
+                    parent_level=EntityLevel(row["parent_level"]),
+                    parent_source_node=SourceNodeRef(
+                        namespace_id=row["parent_namespace_id"],
+                        source_id=row["parent_source_id"],
+                        referent_kind=row["parent_referent_kind"],
+                    ),
+                    parent_entity_key=row["parent_entity_key"],
+                    parent_membership_key=row["parent_membership_key"],
+                    relationship_assertion_key=row["relationship_assertion_key"],
+                    assertion_keys=resolution_input.assertion_keys,
+                    observed_at=row["observed_at"],
+                    policy_id=row["policy_id"],
+                    policy_digest=row["policy_digest"],
+                    decision_policy_version="source-scoped-hierarchy-fallback-v1",
+                    decided_by="community-identity-spark-v2",
+                )
+            resolved_key = result.memberships[0].entity_key
+            return result, _index_entries(row, resolved_key)
         constraint = ParentConstraint(
             child_level=resolution_input.entity_level,
             parent_level=EntityLevel(row["parent_level"]),

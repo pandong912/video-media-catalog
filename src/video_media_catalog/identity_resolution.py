@@ -684,6 +684,115 @@ def resolve_or_allocate_source_node(
     )
 
 
+def resolve_source_scoped_imdb_episode(
+    *,
+    source_node: SourceNodeRef,
+    entity_kind: str,
+    parent_level: EntityLevel,
+    parent_source_node: SourceNodeRef,
+    parent_entity_key: str,
+    parent_membership_key: str,
+    relationship_assertion_key: str,
+    assertion_keys: tuple[str, ...],
+    observed_at: str,
+    policy_id: str,
+    policy_digest: str,
+    decision_policy_version: str,
+    decided_by: str,
+) -> IdentityResolutionResult:
+    """Resolve one ordinal-free IMDb episode only within its source-node scope."""
+
+    if entity_kind.strip().upper() != "TV_EPISODE":
+        raise ValueError("IMDb episode fallback requires entity kind TV_EPISODE")
+    if (
+        source_node.namespace_id != "imdb-title"
+        or not source_node.source_id.startswith("tt")
+        or not source_node.source_id[2:].isdigit()
+    ):
+        raise ValueError("source-scoped hierarchy fallback requires an IMDb tconst")
+    if source_node.referent_kind.strip().upper() not in {
+        "EDITORIAL_WORK",
+        "EPISODE",
+        "TV_EPISODE",
+    }:
+        raise ValueError("IMDb episode fallback requires an episode source node")
+    if (
+        parent_source_node.namespace_id != "imdb-title"
+        or not parent_source_node.source_id.startswith("tt")
+        or not parent_source_node.source_id[2:].isdigit()
+    ):
+        raise ValueError("IMDb episode fallback requires an IMDb tconst parent")
+    if parent_level not in {EntityLevel.SERIES, EntityLevel.SEASON}:
+        raise ValueError("IMDb episode fallback requires a series or season parent")
+    compatible_parent_kinds = {
+        EntityLevel.SERIES: {"EDITORIAL_WORK", "SERIES", "TV_SERIES"},
+        EntityLevel.SEASON: {"EDITORIAL_WORK", "SEASON", "TV_SEASON"},
+    }
+    if (
+        parent_source_node.referent_kind.strip().upper()
+        not in compatible_parent_kinds[parent_level]
+    ):
+        raise ValueError("IMDb episode fallback parent is incompatible with its level")
+    parent_entity_key = require_sha256(
+        parent_entity_key,
+        label="parent entity key",
+    )
+    parent_membership_key = require_sha256(
+        parent_membership_key,
+        label="parent membership key",
+    )
+    relationship_assertion_key = require_sha256(
+        relationship_assertion_key,
+        label="relationship assertion key",
+    )
+    entity = allocate_source_entity(
+        source_node=source_node,
+        entity_level=EntityLevel.EPISODE,
+        entity_kind=entity_kind,
+        first_observed_at=observed_at,
+    )
+    entity_key = entity.entity_key
+    evidence = build_identity_evidence(
+        kind=EvidenceKind.SOURCE_ENTITY_BOOTSTRAP,
+        source_node=source_node,
+        candidate_entity_key=entity_key,
+        assertion_keys=tuple(sorted({*assertion_keys, relationship_assertion_key})),
+        observed_at=observed_at,
+        policy_id=policy_id,
+        policy_digest=policy_digest,
+        confidence=None,
+        details={
+            "hierarchyFallback": {
+                "mode": "SOURCE_SCOPED_MISSING_ORDINAL",
+                "scope": "SOURCE_NODE",
+                "ordinalEvidenceStatus": "ABSENT",
+                "parentLevel": parent_level.value,
+                "parentSourceNode": parent_source_node.model_dump(
+                    mode="json",
+                    by_alias=True,
+                ),
+                "parentEntityKey": parent_entity_key,
+                "parentMembershipKey": parent_membership_key,
+                "relationshipAssertionKey": relationship_assertion_key,
+            }
+        },
+    )
+    return accept_identity_candidate(
+        source_node=source_node,
+        entity_key=entity_key,
+        evidence_keys=(evidence.evidence_key,),
+        policy_version=decision_policy_version,
+        decided_by=decided_by,
+        decided_at=observed_at,
+        reason=(
+            "source-scoped IMDb episode fallback with no ordinal evidence "
+            "and one resolved parent membership"
+        ),
+        entities=(entity,),
+        evidence=(evidence,),
+    )
+
+
 def resolve_parent_constrained_source_node(
     *,
     source_node: SourceNodeRef,

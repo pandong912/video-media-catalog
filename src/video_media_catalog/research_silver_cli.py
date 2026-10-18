@@ -199,6 +199,10 @@ def build_parser() -> argparse.ArgumentParser:
     publication.add_argument("--snapshot-uri", required=True)
     publication.add_argument("--created-at", required=True)
     publication.add_argument("--identity-generation-id")
+    publication.add_argument(
+        "--initialize-identity-generation",
+        action="store_true",
+    )
     _add_catalog_args(
         publication,
         app_name="media-catalog-research-snapshot-publication",
@@ -1058,6 +1062,53 @@ def _incremental_unprocessed_source_run_ids(
     return tuple(sorted(source_run_ids - represented_source_run_ids))
 
 
+def _incremental_unprocessed_source_runs_dataframe(runs: Any) -> Any:
+    """Return an epoch's unprocessed Source runs without collecting its history."""
+
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import ArrayType, StringType
+
+    required = {"run_id", "run_kind", "manifest_json"}
+    if not required.issubset(getattr(runs, "columns", ())):
+        raise ValueError("epoch run metadata is missing required columns")
+    source_runs = runs.where(
+        F.col("run_kind") == IngestRunKind.SOURCE_ASSERTIONS.value
+    ).select("run_id")
+    identity_runs = runs.where(
+        F.col("run_kind") == IngestRunKind.IDENTITY_RESOLUTION.value
+    ).withColumn(
+        "_source_run_ids",
+        F.from_json(
+            F.get_json_object(
+                "manifest_json",
+                "$.inputManifest.pinnedInputs.sourceRunIds",
+            ),
+            ArrayType(StringType(), containsNull=False),
+        ),
+    )
+    if not identity_runs.limit(1).count():
+        raise ValueError("incremental Identity requires a baseline Identity run")
+    if identity_runs.where(F.col("_source_run_ids").isNull()).limit(1).count():
+        raise ValueError("baseline Identity run lacks pinned sourceRunIds")
+    represented = identity_runs.select(
+        F.explode("_source_run_ids").alias("run_id")
+    ).dropDuplicates(["run_id"])
+    if (
+        represented.where(
+            F.col("run_id").isNull() | ~F.col("run_id").rlike(r"^sha256:[0-9a-f]{64}$")
+        )
+        .limit(1)
+        .count()
+    ):
+        raise ValueError("baseline Identity run has an invalid pinned source run ID")
+    if represented.join(source_runs, "run_id", "left_anti").limit(1).count():
+        raise ValueError(
+            "baseline Identity references source runs absent from the pinned "
+            "Silver epoch"
+        )
+    return source_runs.join(represented, "run_id", "left_anti")
+
+
 def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
     source_run_ids = _normalize_run_ids(
         parsed.source_run_ids,
@@ -1145,6 +1196,14 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
             tables=input_tables,
             manifest=silver_snapshot,
         )
+        epoch_runs = (
+            input_tables.visible_run_dataframe(
+                run_snapshot_id=silver_snapshot.run_snapshot_id,
+                committed_runs=committed_runs,
+            )
+            if isinstance(silver_snapshot, CommunitySilverEpochManifest)
+            else None
+        )
         source_runs_frame = spark.createDataFrame(
             [(run_id,) for run_id in source_run_ids],
             "run_id STRING",
@@ -1197,8 +1256,31 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
                 + ", ".join(wrong_kind)
             )
         if identity_mode == "incremental":
-            expected_delta = _incremental_unprocessed_source_run_ids(runs)
-            if source_run_ids != expected_delta:
+            if epoch_runs is None:
+                delta_mismatch = (
+                    source_run_ids != _incremental_unprocessed_source_run_ids(runs)
+                )
+            else:
+                expected_delta = _incremental_unprocessed_source_runs_dataframe(
+                    epoch_runs
+                )
+                delta_mismatch = bool(
+                    expected_delta.join(
+                        source_runs_frame,
+                        "run_id",
+                        "left_anti",
+                    )
+                    .limit(1)
+                    .count()
+                    or source_runs_frame.join(
+                        expected_delta,
+                        "run_id",
+                        "left_anti",
+                    )
+                    .limit(1)
+                    .count()
+                )
+            if delta_mismatch:
                 raise ValueError(
                     "incremental Identity source runs differ from the unprocessed "
                     "Silver delta"
@@ -1253,10 +1335,15 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
         # Exercise the exact Iceberg snapshot/history metadata reads before
         # Identity resolution triggers checkpoints, shuffles, or counts.
         output_tables.preflight_snapshot_metadata(input_id)
-        ingest_runs = input_tables.visible_run_dataframe(
-            run_snapshot_id=silver_snapshot.run_snapshot_id,
-            committed_runs=committed_runs,
-        ).join(source_runs_frame, "run_id", "inner")
+        visible_runs = (
+            epoch_runs
+            if epoch_runs is not None
+            else input_tables.visible_run_dataframe(
+                run_snapshot_id=silver_snapshot.run_snapshot_id,
+                committed_runs=committed_runs,
+            )
+        )
+        ingest_runs = visible_runs.join(source_runs_frame, "run_id", "inner")
         run, frames = build_identity_resolution_dataframes(
             spark,
             visible_silver=visible,
@@ -1284,6 +1371,9 @@ def _run_identity(parsed: argparse.Namespace) -> dict[str, Any]:
                 silver_snapshot.data_snapshot_ids
                 if identity_mode == "incremental"
                 else None
+            ),
+            pinned_identity_runs=(
+                committed_runs if identity_mode == "incremental" else None
             ),
         )
         return {
@@ -1701,6 +1791,13 @@ def _run_snapshot_publication(
             config,
             identity_generation_id=identity_generation_id,
         )
+        if parsed.initialize_identity_generation:
+            if identity_generation_id is None:
+                raise ValueError(
+                    "Identity generation initialization requires a generation ID"
+                )
+            tables.create_tables()
+            tables.assert_identity_tables_empty()
         commit_snapshot_id = tables.latest_snapshot_id("community_ingest_commit")
         if commit_snapshot_id is None:
             raise ValueError("community_ingest_commit has no committed snapshot")
@@ -1797,6 +1894,9 @@ def _run_snapshot_publication(
             "requestedRunIds": requested_run_ids,
             "identityLineageRunIds": identity_lineage_run_ids,
             "unprocessedIdentitySourceRunIds": (unprocessed_identity_source_run_ids),
+            "identityGenerationInitialized": bool(
+                parsed.initialize_identity_generation
+            ),
             "committedRunIds": snapshot.committed_run_ids,
             "runSnapshotId": snapshot.run_snapshot_id,
             "commitSnapshotId": snapshot.commit_snapshot_id,

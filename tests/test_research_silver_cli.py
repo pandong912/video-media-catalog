@@ -102,6 +102,7 @@ def test_parser_exposes_all_research_stages_with_existing_namespace() -> None:
     assert publication.command == "publish-snapshot"
     assert publication.namespace == "video_media_catalog"
     assert publication.identity_generation_id is None
+    assert publication.initialize_identity_generation is False
 
     epoch = build_parser().parse_args(
         [
@@ -457,14 +458,17 @@ def test_parentless_epoch_closes_incremental_identity_lineage_only() -> None:
     )
 
 
+@pytest.mark.parametrize("initialize_generation", [False, True])
 def test_snapshot_publication_closes_requested_identity_lineage(
     monkeypatch: pytest.MonkeyPatch,
+    initialize_generation: bool,
 ) -> None:
     generation = "catalog-2026-09"
     requested_run_id = "sha256:" + ("1" * 64)
     ancestor_run_id = "sha256:" + ("2" * 64)
     mapping = build_community_table_mapping(generation)
     load_calls: list[tuple[str, ...]] = []
+    initialization_calls: list[str] = []
 
     class FakeSpark:
         def stop(self) -> None:
@@ -476,6 +480,12 @@ def test_snapshot_publication_closes_requested_identity_lineage(
 
         def latest_snapshot_id(self, _table: str) -> int:
             return 7
+
+        def create_tables(self) -> None:
+            initialization_calls.append("create")
+
+        def assert_identity_tables_empty(self) -> None:
+            initialization_calls.append("assert-empty")
 
     class FakeStore:
         def upload_bytes(
@@ -546,23 +556,24 @@ def test_snapshot_publication_closes_requested_identity_lineage(
         lambda *_args, **_kwargs: FakeStore(),
     )
 
-    parsed = build_parser().parse_args(
-        [
-            "publish-snapshot",
-            "--run-id",
-            requested_run_id,
-            "--snapshot-uri",
-            "file:///tmp/lineage-closed-snapshot.json",
-            "--created-at",
-            "2026-09-20T00:02:00Z",
-            "--identity-generation-id",
-            generation,
-            "--catalog-type",
-            "hadoop",
-            "--warehouse",
-            "file:///tmp/warehouse",
-        ]
-    )
+    arguments = [
+        "publish-snapshot",
+        "--run-id",
+        requested_run_id,
+        "--snapshot-uri",
+        "file:///tmp/lineage-closed-snapshot.json",
+        "--created-at",
+        "2026-09-20T00:02:00Z",
+        "--identity-generation-id",
+        generation,
+        "--catalog-type",
+        "hadoop",
+        "--warehouse",
+        "file:///tmp/warehouse",
+    ]
+    if initialize_generation:
+        arguments.append("--initialize-identity-generation")
+    parsed = build_parser().parse_args(arguments)
     summary = silver_cli._run_snapshot_publication(parsed)
 
     assert load_calls == [
@@ -572,6 +583,10 @@ def test_snapshot_publication_closes_requested_identity_lineage(
     assert summary["requestedRunIds"] == (requested_run_id,)
     assert summary["identityLineageRunIds"] == (ancestor_run_id,)
     assert summary["unprocessedIdentitySourceRunIds"] == (requested_run_id,)
+    assert summary["identityGenerationInitialized"] is initialize_generation
+    assert initialization_calls == (
+        ["create", "assert-empty"] if initialize_generation else []
+    )
     assert summary["committedRunIds"] == tuple(
         sorted((requested_run_id, ancestor_run_id))
     )

@@ -69,6 +69,7 @@ from video_media_catalog.temporal.golden_models import (
     GoldenBuildInput,
     GoldenBuildResult,
     GoldenEpochResult,
+    GoldenIdentityMode,
     GoldenIdentityResult,
     GoldenPreflightResult,
     GoldenReleaseResult,
@@ -576,6 +577,7 @@ def _identity_config_digests(
     build_id: str,
     *,
     source_policy_digest: str | None = None,
+    identity_mode: GoldenIdentityMode = GoldenIdentityMode.INCREMENTAL,
 ) -> tuple[str, str, str]:
     resolution = IdentityResolutionConfig()
     source_digest = (
@@ -591,8 +593,8 @@ def _identity_config_digests(
             {
                 "schemaVersion": "1.0",
                 "buildId": build_id,
-                "stage": "golden-incremental-identity",
-                "identityMode": "incremental",
+                "stage": f"golden-{identity_mode.value}-identity",
+                "identityMode": identity_mode.value,
                 "sourcePolicyDigest": source_digest,
             }
         )
@@ -667,8 +669,14 @@ def _validate_baseline_identity_manifest(
     payload: dict[str, Any],
     identity_run_id: str,
     identity_source_run_ids: tuple[str, ...],
+    expected_identity_generation_id: str | None = None,
     client: Any | None = None,
 ) -> None:
+    expected_identity_generation_id = (
+        input_data.identity_generation_id
+        if expected_identity_generation_id is None
+        else expected_identity_generation_id
+    )
     reference = input_data.baseline_identity_manifest
     if (
         reference.format != "OBJECT_FORMAT_JSON"
@@ -725,8 +733,8 @@ def _validate_baseline_identity_manifest(
         )
     identity_mode = str(pinned.get("identityMode") or "")
     if (
-        pinned.get("identityGenerationId") != input_data.identity_generation_id
-        or manifest.get("identityGenerationId") != input_data.identity_generation_id
+        pinned.get("identityGenerationId") != expected_identity_generation_id
+        or manifest.get("identityGenerationId") != expected_identity_generation_id
         or identity_mode not in {"full", "incremental"}
         or manifest.get("identityMode") != identity_mode
         or manifest.get("inputId") != run.input_id
@@ -808,7 +816,7 @@ def _validate_baseline_identity_manifest(
             silver_reference,
             expected_manifest_id=expected_manifest_id,
             baseline=baseline,
-            identity_generation_id=input_data.identity_generation_id,
+            identity_generation_id=expected_identity_generation_id,
         )
 
 
@@ -823,6 +831,19 @@ def _validate_preflight_documents(
 ) -> GoldenPreflightResult:
     if not _BUILD_ID.fullmatch(input_data.build_id):
         raise NonRetryableGoldenBuildError("build_id must be a lower-case slug")
+    try:
+        identity_mode = GoldenIdentityMode(input_data.identity_mode)
+    except ValueError as exc:
+        raise NonRetryableGoldenBuildError(
+            "Identity mode must be full or incremental"
+        ) from exc
+    if (
+        identity_mode == GoldenIdentityMode.FULL
+        and input_data.identity_reuse is not None
+    ):
+        raise NonRetryableGoldenBuildError(
+            "full Identity rebuild cannot reuse Identity"
+        )
     env = input_data.env
     if not (1 <= env.gold_tmdb_freshness_slo_hours <= _MAX_GOLD_FRESHNESS_SLO_HOURS):
         raise NonRetryableGoldenBuildError(
@@ -927,9 +948,20 @@ def _validate_preflight_documents(
     expected_baseline_runs = set(baseline_sources) | {identity_run}
     if baseline.get("schemaVersion") != "2.0":
         raise NonRetryableGoldenBuildError("baseline snapshot must use schema v2")
-    if baseline.get("identityGenerationId") != input_data.identity_generation_id:
+    baseline_identity_generation_id = str(baseline.get("identityGenerationId") or "")
+    if (
+        identity_mode == GoldenIdentityMode.INCREMENTAL
+        and baseline_identity_generation_id != input_data.identity_generation_id
+    ):
         raise NonRetryableGoldenBuildError(
             "baseline snapshot belongs to another Identity generation"
+        )
+    if identity_mode == GoldenIdentityMode.FULL and (
+        not baseline_identity_generation_id
+        or baseline_identity_generation_id == input_data.identity_generation_id
+    ):
+        raise NonRetryableGoldenBuildError(
+            "full Identity rebuild requires a fresh Identity generation"
         )
     if set(baseline.get("committedRunIds") or []) != expected_baseline_runs:
         raise NonRetryableGoldenBuildError(
@@ -944,6 +976,7 @@ def _validate_preflight_documents(
         payload=baseline_identity_manifest,
         identity_run_id=identity_run,
         identity_source_run_ids=baseline_identity_sources,
+        expected_identity_generation_id=baseline_identity_generation_id,
         client=client,
     )
     summary_runs = tuple(
@@ -1016,22 +1049,25 @@ def _validate_preflight_documents(
         if not state.gold_contribution
         for run_id in state.run_ids
     )
-    if non_contributing_baseline_identity_runs:
+    if (
+        identity_mode == GoldenIdentityMode.INCREMENTAL
+        and non_contributing_baseline_identity_runs
+    ):
         raise NonRetryableGoldenBuildError(
             "baseline Identity coverage contains source runs excluded from Gold; "
             "a scoped Gold epoch is required before this routing is supported"
         )
+    contributing_source_runs = {
+        run_id
+        for state in source_run_states
+        if state.gold_contribution
+        for run_id in state.run_ids
+    }
     all_runs = tuple(
         sorted(
-            (
-                {identity_run, *baseline_identity_sources}
-                | {
-                    run_id
-                    for state in source_run_states
-                    if state.gold_contribution
-                    for run_id in state.run_ids
-                }
-            )
+            contributing_source_runs
+            if identity_mode == GoldenIdentityMode.FULL
+            else ({identity_run, *baseline_identity_sources} | contributing_source_runs)
             if source_run_states
             else expected_baseline_runs | set(tmdb_runs) | set(supplemental_runs)
         )
@@ -1039,6 +1075,7 @@ def _validate_preflight_documents(
     runtime_digest, resolution_digest, bound_digest = _identity_config_digests(
         input_data.build_id,
         source_policy_digest=source_policy.digest,
+        identity_mode=identity_mode,
     )
     freshness_policy = research_release_freshness_policy(
         tmdb_slo_hours=input_data.env.gold_tmdb_freshness_slo_hours,
@@ -1079,27 +1116,32 @@ def _validate_preflight_documents(
         source_run_states=source_run_states,
     )
     if input_data.identity_reuse is None:
-        expected_identity_runs = _incremental_identity_source_run_ids(
-            input_data,
-            result,
-        )
+        expected_identity_runs = _identity_source_run_ids(input_data, result)
         selected_identity_runs = tuple(
             sorted(
                 run_id
                 for state in source_run_states
                 if state.identity_spine
                 for run_id in state.run_ids
-                if run_id not in baseline_identity_sources
+                if (
+                    identity_mode == GoldenIdentityMode.FULL
+                    or run_id not in baseline_identity_sources
+                )
             )
         )
         if not expected_identity_runs:
             raise NonRetryableGoldenBuildError(
-                "fresh incremental Identity requires an unprocessed source run"
+                f"fresh {identity_mode.value} Identity requires a source run"
             )
         if selected_identity_runs != expected_identity_runs:
+            if identity_mode == GoldenIdentityMode.INCREMENTAL:
+                raise NonRetryableGoldenBuildError(
+                    "fresh incremental Identity source states differ from the pinned "
+                    "unprocessed Silver delta"
+                )
             raise NonRetryableGoldenBuildError(
-                "fresh incremental Identity source states differ from the pinned "
-                "unprocessed Silver delta"
+                "fresh full Identity source states differ from the pinned "
+                "Silver selection"
             )
     return result
 
@@ -1121,6 +1163,24 @@ def _incremental_identity_source_run_ids(
         )
     }
     return tuple(sorted(snapshot_source_runs - baseline_identity_sources))
+
+
+def _identity_source_run_ids(
+    input_data: GoldenBuildInput,
+    preflight: GoldenPreflightResult,
+) -> tuple[str, ...]:
+    if GoldenIdentityMode(input_data.identity_mode) == GoldenIdentityMode.FULL:
+        snapshot_runs = set(preflight.all_snapshot_run_ids)
+        return tuple(
+            sorted(
+                run_id
+                for state in preflight.source_run_states
+                if state.identity_spine
+                for run_id in state.run_ids
+                if run_id in snapshot_runs
+            )
+        )
+    return _incremental_identity_source_run_ids(input_data, preflight)
 
 
 def _argument_values(arguments: list[str], flag: str) -> tuple[str, ...]:
@@ -1647,11 +1707,13 @@ def prepare_golden_build(
                     reuse_snapshot=reuse_snapshot,
                 ),
             )
+        identity_mode = GoldenIdentityMode(input_data.identity_mode)
         payload = {
             "schemaVersion": "1.0",
             "buildId": input_data.build_id,
             "plannedAt": planned_at,
             "identityGenerationId": input_data.identity_generation_id,
+            "identityMode": identity_mode.value,
             "baselineSnapshot": _object_ref_payload(input_data.baseline_snapshot),
             "tmdbPipelineSummary": _object_ref_payload(
                 input_data.tmdb_pipeline_summary
@@ -1666,10 +1728,23 @@ def prepare_golden_build(
             ),
             "tmdbSourceRunIds": list(preflight.tmdb_source_run_ids),
             "supplementalSourceRunIds": list(input_data.supplemental_source_run_ids),
-            "incrementalIdentitySourceRunIds": list(
-                _incremental_identity_source_run_ids(input_data, preflight)
+            "identitySourceRunIds": list(
+                _identity_source_run_ids(input_data, preflight)
             ),
-            "identitySourceSelectionMode": "CLOSED_SNAPSHOT_UNPROCESSED_DELTA",
+            **(
+                {
+                    "incrementalIdentitySourceRunIds": list(
+                        _incremental_identity_source_run_ids(input_data, preflight)
+                    )
+                }
+                if identity_mode == GoldenIdentityMode.INCREMENTAL
+                else {}
+            ),
+            "identitySourceSelectionMode": (
+                "FULL_IDENTITY_SPINE"
+                if identity_mode == GoldenIdentityMode.FULL
+                else "CLOSED_SNAPSHOT_UNPROCESSED_DELTA"
+            ),
             "allSnapshotRunIds": list(preflight.all_snapshot_run_ids),
             "sourceWatermarks": dict(sorted(input_data.source_watermarks.items())),
             "sourcePolicyDigest": preflight.source_policy_digest,
@@ -2218,6 +2293,11 @@ def publish_golden_snapshot(
                 preflight.planned_at,
                 "--identity-generation-id",
                 input_data.identity_generation_id,
+                *(
+                    ["--initialize-identity-generation"]
+                    if input_data.identity_mode == "full"
+                    else []
+                ),
                 *_catalog_args(input_data),
             ]
         )
@@ -2231,6 +2311,7 @@ def publish_golden_snapshot(
                 "requestedRunIds",
                 "identityLineageRunIds",
                 "unprocessedIdentitySourceRunIds",
+                "identityGenerationInitialized",
                 "committedRunIds",
                 "silverSnapshot",
             ),
@@ -2265,20 +2346,31 @@ def publish_golden_snapshot(
                 for run_id in summary["unprocessedIdentitySourceRunIds"]
             )
         )
+        identity_mode = GoldenIdentityMode(input_data.identity_mode)
+        identity_generation_initialized = summary["identityGenerationInitialized"]
         candidate_identity_source_run_ids = set(
-            _incremental_identity_source_run_ids(input_data, preflight)
+            _identity_source_run_ids(input_data, preflight)
+        )
+        identity_selection_valid = (
+            not identity_source_run_ids and not lineage_runs
+            if identity_mode == GoldenIdentityMode.FULL
+            else (
+                bool(identity_source_run_ids)
+                and set(identity_source_run_ids).issubset(
+                    candidate_identity_source_run_ids
+                )
+                and set(identity_source_run_ids).issubset(requested_runs)
+            )
         )
         if (
             requested_runs != expected_runs
             or len(requested_runs) != len(set(requested_runs))
             or len(lineage_runs) != len(set(lineage_runs))
             or len(committed_runs) != len(set(committed_runs))
-            or not identity_source_run_ids
             or len(identity_source_run_ids) != len(set(identity_source_run_ids))
-            or not set(identity_source_run_ids).issubset(
-                candidate_identity_source_run_ids
-            )
-            or not set(identity_source_run_ids).issubset(requested_runs)
+            or identity_generation_initialized
+            is not (identity_mode == GoldenIdentityMode.FULL)
+            or not identity_selection_valid
             or set(requested_runs).intersection(lineage_runs)
             or committed_runs != tuple(sorted({*requested_runs, *lineage_runs}))
         ):
@@ -2298,7 +2390,13 @@ def publish_golden_snapshot(
             ),
             snapshot=reference,
             job_run_id=job_run_id,
-            unprocessed_identity_source_run_ids=identity_source_run_ids,
+            unprocessed_identity_source_run_ids=tuple(
+                sorted(
+                    candidate_identity_source_run_ids
+                    if identity_mode == GoldenIdentityMode.FULL
+                    else identity_source_run_ids
+                )
+            ),
         )
     except Exception as exc:
         classified = classify_golden_build_exception(exc)
@@ -2318,11 +2416,12 @@ def resolve_golden_identity(
     try:
         identity_source_run_ids = tuple(
             getattr(snapshot, "unprocessed_identity_source_run_ids", ())
-            or _incremental_identity_source_run_ids(
+            or _identity_source_run_ids(
                 input_data,
                 preflight,
             )
         )
+        identity_mode = GoldenIdentityMode(input_data.identity_mode)
         args = [
             "resolve-identity",
             *_object_args("silver-snapshot", snapshot.snapshot),
@@ -2336,7 +2435,7 @@ def resolve_golden_identity(
                 "--identity-generation-id",
                 input_data.identity_generation_id,
                 "--identity-mode",
-                "incremental",
+                identity_mode.value,
                 "--image-digest",
                 input_data.env.image_digest,
                 "--config-digest",
@@ -2369,7 +2468,7 @@ def resolve_golden_identity(
         )
         if (
             summary.get("identityGenerationId") != input_data.identity_generation_id
-            or summary.get("identityMode") != "incremental"
+            or summary.get("identityMode") != identity_mode.value
             or tuple(sorted(summary.get("sourceRunIds") or ()))
             != identity_source_run_ids
             or summary.get("configDigest") != preflight.identity_bound_config_digest
@@ -2378,7 +2477,7 @@ def resolve_golden_identity(
             or summary.get("sourcePolicyDigest") != preflight.source_policy_digest
         ):
             raise NonRetryableGoldenBuildError(
-                "Identity summary differs from pinned incremental inputs"
+                f"Identity summary differs from pinned {identity_mode.value} inputs"
             )
         _validate_table_commit(summary, label="Identity")
         return GoldenIdentityResult(

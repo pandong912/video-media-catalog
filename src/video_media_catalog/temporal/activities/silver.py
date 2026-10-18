@@ -73,6 +73,28 @@ def _bundle_job_name(plan_digest: str) -> str:
     return f"ss-bundle-{digest}"[:64]
 
 
+def _resume_job_run_id(
+    *,
+    phase: str,
+    identity_key: str,
+    identity_value: str,
+) -> str | None:
+    if not activity.in_activity():
+        return None
+    heartbeat_details = getattr(activity.info(), "heartbeat_details", ())
+    if isinstance(heartbeat_details, dict):
+        heartbeat_details = (heartbeat_details,)
+    for details in reversed(tuple(heartbeat_details)):
+        if (
+            isinstance(details, dict)
+            and details.get("phase") == phase
+            and details.get(identity_key) == identity_value
+            and details.get("jobRunId")
+        ):
+            return str(details["jobRunId"])
+    return None
+
+
 def _object_args(prefix: str, ref: Any) -> list[str]:
     args = [
         f"--{prefix}-uri",
@@ -232,6 +254,11 @@ def submit_source_silver(
             parsed,
             progress_callback=on_progress,
             should_cancel=should_cancel,
+            resume_job_run_id=_resume_job_run_id(
+                phase="emr-source-silver",
+                identity_key="batchId",
+                identity_value=capture.batch_id,
+            ),
         )
         application_id = str(job_run["applicationId"])
         job_run_id = str(job_run["jobRunId"])
@@ -421,6 +448,11 @@ def submit_source_silver_bundle(
             parsed,
             progress_callback=on_progress,
             should_cancel=should_cancel,
+            resume_job_run_id=_resume_job_run_id(
+                phase="emr-source-silver-bundle",
+                identity_key="planDigest",
+                identity_value=plan_digest,
+            ),
         )
         application_id = str(job_run["applicationId"])
         job_run_id = str(job_run["jobRunId"])

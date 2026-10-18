@@ -391,6 +391,72 @@ def test_golden_release_passes_pinned_temporary_quality_policy(
     )
 
 
+@pytest.mark.parametrize("contributing", [True, False])
+def test_golden_observe_only_records_freshness_failures_without_blocking(
+    contributing: bool,
+) -> None:
+    golden_mod._validate_freshness_source_row(
+        source_product_id="imdb-non-commercial-datasets",
+        row={
+            "sloHours": 2,
+            "effectiveAgeHours": 24,
+            "status": "FAILED",
+            "required": True,
+        },
+        slo_hours=2,
+        contributing=contributing,
+        quality_gate_enabled=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("contributing", "expected_error"),
+    [
+        (True, "freshness override was not applied correctly"),
+        (False, "non-contributing freshness source was not scoped out"),
+    ],
+)
+def test_golden_enforced_quality_gate_rejects_freshness_failures(
+    contributing: bool,
+    expected_error: str,
+) -> None:
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match=expected_error,
+    ):
+        golden_mod._validate_freshness_source_row(
+            source_product_id="imdb-non-commercial-datasets",
+            row={
+                "sloHours": 2,
+                "effectiveAgeHours": 24,
+                "status": "FAILED",
+                "required": True,
+            },
+            slo_hours=2,
+            contributing=contributing,
+            quality_gate_enabled=True,
+        )
+
+
+def test_golden_observe_only_still_requires_pinned_freshness_slo() -> None:
+    with pytest.raises(
+        golden_mod.NonRetryableGoldenBuildError,
+        match="freshness override was not applied correctly",
+    ):
+        golden_mod._validate_freshness_source_row(
+            source_product_id="imdb-non-commercial-datasets",
+            row={
+                "sloHours": 3,
+                "effectiveAgeHours": 24,
+                "status": "FAILED",
+                "required": True,
+            },
+            slo_hours=2,
+            contributing=False,
+            quality_gate_enabled=False,
+        )
+
+
 def test_golden_release_refuses_mismatched_identity_source_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

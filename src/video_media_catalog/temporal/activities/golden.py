@@ -2624,6 +2624,36 @@ def publish_golden_epoch(
         raise classified from exc
 
 
+def _validate_freshness_source_row(
+    *,
+    source_product_id: str,
+    row: dict[str, Any],
+    slo_hours: int,
+    contributing: bool,
+    quality_gate_enabled: bool,
+) -> None:
+    if int(row.get("sloHours") or 0) != slo_hours:
+        raise NonRetryableGoldenBuildError(
+            f"freshness override was not applied correctly for {source_product_id}"
+        )
+    if not quality_gate_enabled:
+        return
+    if contributing:
+        if row.get("status") != "PASS" or (
+            float(row.get("effectiveAgeHours") or 0) > slo_hours
+        ):
+            raise NonRetryableGoldenBuildError(
+                f"freshness override was not applied correctly for {source_product_id}"
+            )
+    elif (
+        row.get("status") not in {"OPTIONAL", "PASS"}
+        or row.get("required") is not False
+    ):
+        raise NonRetryableGoldenBuildError(
+            f"non-contributing freshness source was not scoped out: {source_product_id}"
+        )
+
+
 def _validate_release_documents(
     *,
     client: Any,
@@ -2807,25 +2837,13 @@ def _validate_release_documents(
         "tvmaze-public-api": preflight.tvmaze_slo_hours,
     }
     for source, slo in expected_slos.items():
-        row = sources[source]
-        if int(row.get("sloHours") or 0) != slo:
-            raise NonRetryableGoldenBuildError(
-                f"freshness override was not applied correctly for {source}"
-            )
-        if source in gold_sources and input_data.env.gold_quality_gate_enabled:
-            if row.get("status") != "PASS" or (
-                float(row.get("effectiveAgeHours") or 0) > slo
-            ):
-                raise NonRetryableGoldenBuildError(
-                    f"freshness override was not applied correctly for {source}"
-                )
-        elif (
-            row.get("status") not in {"OPTIONAL", "PASS"}
-            or row.get("required") is not False
-        ):
-            raise NonRetryableGoldenBuildError(
-                f"non-contributing freshness source was not scoped out: {source}"
-            )
+        _validate_freshness_source_row(
+            source_product_id=source,
+            row=sources[source],
+            slo_hours=slo,
+            contributing=source in gold_sources,
+            quality_gate_enabled=input_data.env.gold_quality_gate_enabled,
+        )
     attribution = _read_ref_json(
         client,
         attribution_ref,

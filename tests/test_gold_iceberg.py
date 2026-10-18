@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -344,3 +345,66 @@ def test_gold_commit_pins_own_snapshot_after_foreign_write_and_is_quality_gated(
         "video-media-catalog.release-plan-id": plan.release_plan_id
     }
     assert tables.events[-1] == "community_gold_release_commit"
+
+
+def test_gold_commit_can_record_failed_quality_in_observe_only_mode() -> None:
+    plan = _plan()
+    policy = research_policy()
+    failed_quality = build_gold_quality_report(
+        plan=plan,
+        draft=replace(_draft(), unresolved_identity_count=1),
+        policy=policy,
+        created_at=TIMESTAMP,
+    )
+    assert failed_quality.status.value == "FAILED"
+    attribution = build_attribution_manifest(
+        release_id=plan.release_plan_id,
+        entries=(
+            AttributionEntry(
+                source_product_id="tvmaze-public-api",
+                policy_id="tvmaze-api-cc-by-sa",
+                attribution_text="TV data provided by TVmaze.",
+                license_id="CC-BY-SA",
+                source_url="https://www.tvmaze.com/",
+                claim_count=1,
+            ),
+        ),
+        created_at=TIMESTAMP,
+    )
+    frames = {
+        table: StageFrame(count, plan.release_plan_id)
+        for table, count in plan.expected_counts.items()
+    }
+    quality_ref = _control_ref(
+        failed_quality.json_bytes(),
+        GOLD_QUALITY_MEDIA_TYPE,
+        "failed-quality.json",
+    )
+    attribution_ref = _control_ref(
+        attribution.json_bytes(),
+        ATTRIBUTION_MEDIA_TYPE,
+        "attribution.json",
+    )
+
+    with pytest.raises(ValueError, match="admission mode"):
+        RecordingGoldTables(plan.expected_counts).stage_and_commit(
+            plan=plan,
+            dataframes=frames,
+            quality_report=failed_quality,
+            quality_report_ref=quality_ref,
+            attribution_manifest=attribution,
+            attribution_manifest_ref=attribution_ref,
+            committed_at=TIMESTAMP,
+        )
+
+    commit = RecordingGoldTables(plan.expected_counts).stage_and_commit(
+        plan=plan,
+        dataframes=frames,
+        quality_report=failed_quality,
+        quality_report_ref=quality_ref,
+        attribution_manifest=attribution,
+        attribution_manifest_ref=attribution_ref,
+        committed_at=TIMESTAMP,
+        quality_gate_enforced=False,
+    )
+    assert commit.release_plan_id == plan.release_plan_id

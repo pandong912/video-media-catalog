@@ -1003,6 +1003,53 @@ def test_preflight_requires_audit_reason_for_non_default_quality_thresholds() ->
         )
 
 
+def test_preflight_allows_observe_only_quality_with_audit_reason() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        env=replace(
+            base.env,
+            gold_quality_gate_enabled=False,
+            gold_quality_override_reason=(
+                "Temporary research-only observe mode while quality is remediated."
+            ),
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert result.tmdb_source_run_ids == input_data.tmdb_source_run_ids
+
+
+def test_preflight_requires_audit_reason_when_quality_gate_is_disabled() -> None:
+    base = _input()
+    input_data = replace(
+        base,
+        env=replace(
+            base.env,
+            gold_quality_gate_enabled=False,
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="requires an audit reason",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
 def test_preflight_rejects_identity_profile_without_python_memory_room() -> None:
     base = _with_source_states(_input())
     input_data = replace(
@@ -1080,4 +1127,5 @@ def test_golden_input_is_temporal_serializable() -> None:
     assert payload["supplemental_source_run_ids"] == ()
     assert payload["env"]["gold_tmdb_freshness_slo_hours"] == 36
     assert payload["env"]["gold_max_unresolved_identity_ratio"] == 0.05
+    assert payload["env"]["gold_quality_gate_enabled"] is True
     assert payload["env"]["gold_quality_override_reason"] == ""

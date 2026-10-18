@@ -155,8 +155,11 @@ class CommunityGoldTables:
         attribution_manifest: AttributionManifest,
         attribution_manifest_ref: ObjectRef,
         committed_at: str,
+        quality_gate_enforced: bool = True,
     ) -> GoldReleaseCommit:
         committed = require_rfc3339(committed_at, label="committed_at")
+        if not isinstance(quality_gate_enforced, bool):
+            raise ValueError("quality_gate_enforced must be a boolean")
         if set(dataframes) != set(GOLD_DATA_COLUMNS):
             raise ValueError("all Gold dataframes are required")
         if (
@@ -165,9 +168,14 @@ class CommunityGoldTables:
             or quality_report.config_digest != plan.config_digest
             or quality_report.release_freshness.as_of != plan.policy_context.as_of
             or quality_report.table_counts != plan.expected_counts
-            or quality_report.status != GoldQualityStatus.PASS
+            or (
+                quality_gate_enforced
+                and quality_report.status != GoldQualityStatus.PASS
+            )
         ):
-            raise ValueError("Gold quality report does not approve this plan")
+            raise ValueError(
+                "Gold quality report does not satisfy this plan's admission mode"
+            )
         if attribution_manifest.release_id != plan.release_plan_id:
             raise ValueError("attribution manifest does not bind this plan")
         attribution_coverage = attribution_manifest.claim_counts_by_policy

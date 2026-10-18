@@ -41,6 +41,8 @@ def test_gold_cli_builds_local_snapshot_reference() -> None:
     assert parsed.s3_credentials_provider == "web-identity"
     assert parsed.build_mode == "release"
     assert not parsed.return_failed_quality_summary
+    assert parsed.quality_gate_mode == "enforce"
+    assert parsed.quality_gate_override_reason == ""
     assert parsed.tmdb_freshness_slo_hours == 36
     assert parsed.tvmaze_freshness_slo_hours == 36
     assert parsed.imdb_freshness_slo_hours == 10 * 24
@@ -53,6 +55,21 @@ def test_gold_cli_builds_local_snapshot_reference() -> None:
         [*_arguments(), "--s3-credentials-provider", "default"]
     )
     assert emr.s3_credentials_provider == "default"
+
+    observe_only = build_parser().parse_args(
+        [
+            *_arguments(),
+            "--quality-gate-mode",
+            "observe-only",
+            "--quality-gate-override-reason",
+            "Temporary research measurement only.",
+        ]
+    )
+    assert observe_only.quality_gate_mode == "observe-only"
+    assert (
+        observe_only.quality_gate_override_reason
+        == "Temporary research measurement only."
+    )
 
 
 def test_gold_cli_requires_immutable_s3_snapshot() -> None:

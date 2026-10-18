@@ -88,6 +88,7 @@ class GoldenBuildEnv:
     gold_shuffle_partitions: int = 1152
     gold_tmdb_freshness_slo_hours: int = 36
     gold_max_unresolved_identity_ratio: float = 0.05
+    gold_quality_gate_enabled: bool = True
     gold_quality_override_reason: str = ""
 
 
@@ -179,6 +180,9 @@ class GoldenReleaseResult:
     table_counts: dict[str, int]
     table_snapshot_ids: dict[str, int | None]
     job_run_id: str
+    quality_status: str = "PASS"
+    quality_gate_enforced: bool = True
+    quality_gate_override_reason: str = ""
 
 
 @dataclass(frozen=True)

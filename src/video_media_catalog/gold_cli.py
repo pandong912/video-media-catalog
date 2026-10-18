@@ -123,6 +123,16 @@ def build_parser() -> argparse.ArgumentParser:
             "intended for an external fail-closed orchestrator"
         ),
     )
+    parser.add_argument(
+        "--quality-gate-mode",
+        choices=("enforce", "observe-only"),
+        default="enforce",
+        help=(
+            "Keep measuring every quality rule but allow a research release to "
+            "commit when set to observe-only"
+        ),
+    )
+    parser.add_argument("--quality-gate-override-reason", default="")
     parser.add_argument("--tmdb-freshness-slo-hours", type=int, default=36)
     parser.add_argument("--tvmaze-freshness-slo-hours", type=int, default=36)
     parser.add_argument("--imdb-freshness-slo-hours", type=int, default=10 * 24)
@@ -232,6 +242,11 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("max-unresolved-identity-ratio must be between 0 and 1")
     if parsed.max_redirect_hops < 1:
         raise ValueError("max-redirect-hops must be positive")
+    quality_gate_override_reason = parsed.quality_gate_override_reason.strip()
+    if parsed.quality_gate_mode == "observe-only" and not quality_gate_override_reason:
+        raise ValueError("observe-only quality mode requires an audit reason")
+    if len(quality_gate_override_reason) > 512:
+        raise ValueError("quality gate override reason exceeds 512 characters")
     if urlsplit(parsed.output_prefix).scheme not in {"file", "s3"}:
         raise ValueError("output-prefix must use file:// or s3://")
     reference = _snapshot_ref(parsed)
@@ -372,6 +387,15 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
         ],
         "maxRedirectHops": parsed.max_redirect_hops,
     }
+    if parsed.quality_gate_mode != "enforce" or quality_gate_override_reason:
+        nonsecret_config["qualityGate"] = {
+            "mode": parsed.quality_gate_mode,
+            **(
+                {"temporaryOverrideReason": quality_gate_override_reason}
+                if quality_gate_override_reason
+                else {}
+            ),
+        }
     if freshness_override is not None:
         nonsecret_config["releaseFreshnessOverride"] = freshness_override.model_dump(
             mode="json",
@@ -525,15 +549,17 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             object_format="OBJECT_FORMAT_JSON",
             max_bytes=CONTROL_MAX_BYTES,
         ).object_ref
+        quality_gate_enforced = parsed.quality_gate_mode == "enforce"
         if build.quality_report.status != GoldQualityStatus.PASS:
-            if (
-                build_mode == GoldBuildMode.CANDIDATE_BACKFILL
-                or parsed.return_failed_quality_summary
+            if build_mode == GoldBuildMode.CANDIDATE_BACKFILL or (
+                quality_gate_enforced and parsed.return_failed_quality_summary
             ):
                 return {
                     "releasePlanId": build.plan.release_plan_id,
                     "buildMode": build_mode.value,
                     "qualityStatus": build.quality_report.status.value,
+                    "qualityGateEnforced": quality_gate_enforced,
+                    "qualityGateOverrideReason": quality_gate_override_reason,
                     "releasePlan": plan_ref.model_dump(
                         mode="json",
                         by_alias=True,
@@ -547,7 +573,8 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
                     "violations": build.quality_report.violations,
                     "committed": False,
                 }
-            raise ValueError("Gold quality gate failed")
+            if quality_gate_enforced:
+                raise ValueError("Gold quality gate failed")
         attribution_ref = store.upload_bytes(
             build.attribution_manifest.json_bytes(),
             join_uri(plan_prefix, "attribution-manifest.json"),
@@ -563,6 +590,7 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             attribution_manifest=build.attribution_manifest,
             attribution_manifest_ref=attribution_ref,
             committed_at=parsed.committed_at,
+            quality_gate_enforced=quality_gate_enforced,
         )
         commit_ref = store.upload_bytes(
             commit.json_bytes(),
@@ -575,6 +603,8 @@ def run(parsed: argparse.Namespace) -> dict[str, Any]:
             "releasePlanId": build.plan.release_plan_id,
             "buildMode": build_mode.value,
             "qualityStatus": build.quality_report.status.value,
+            "qualityGateEnforced": quality_gate_enforced,
+            "qualityGateOverrideReason": quality_gate_override_reason,
             "committed": True,
             "commitKey": commit.commit_key,
             "releasePlan": plan_ref.model_dump(

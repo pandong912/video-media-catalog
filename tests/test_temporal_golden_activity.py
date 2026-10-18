@@ -261,8 +261,17 @@ def test_golden_release_rejects_capacity_without_replacement_headroom() -> None:
         )
 
 
-def test_golden_release_passes_pinned_temporary_quality_thresholds(
+@pytest.mark.parametrize(
+    ("quality_gate_enabled", "expected_quality_mode"),
+    [
+        (True, "enforce"),
+        (False, "observe-only"),
+    ],
+)
+def test_golden_release_passes_pinned_temporary_quality_policy(
     monkeypatch: pytest.MonkeyPatch,
+    quality_gate_enabled: bool,
+    expected_quality_mode: str,
 ) -> None:
     base = _input()
     source_policy_digest = golden_mod.load_catalog_source_policy().digest
@@ -275,6 +284,7 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
             base.env,
             gold_tmdb_freshness_slo_hours=72,
             gold_max_unresolved_identity_ratio=0.12,
+            gold_quality_gate_enabled=quality_gate_enabled,
             gold_quality_override_reason="One-time r15 publication authorization.",
         ),
     )
@@ -357,6 +367,20 @@ def test_golden_release_passes_pinned_temporary_quality_thresholds(
             "--max-unresolved-identity-ratio",
         )
         == "0.12"
+    )
+    assert (
+        golden_mod._single_argument(
+            observed_args,
+            "--quality-gate-mode",
+        )
+        == expected_quality_mode
+    )
+    assert (
+        golden_mod._single_argument(
+            observed_args,
+            "--quality-gate-override-reason",
+        )
+        == "One-time r15 publication authorization."
     )
     assert (
         golden_mod._single_argument(

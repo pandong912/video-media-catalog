@@ -57,6 +57,7 @@ from video_media_catalog.gold_ingest import (
     GOLD_RELEASE_COMMIT_MEDIA_TYPE,
     GoldReleaseCommit,
 )
+from video_media_catalog.gold_quality import GoldQualityReport, GoldQualityStatus
 from video_media_catalog.identity_spark import IdentityResolutionConfig
 from video_media_catalog.predicate_registry import load_research_predicate_registry
 from video_media_catalog.reference_ontology import load_global_reference_ontology
@@ -853,8 +854,13 @@ def _validate_preflight_documents(
         raise NonRetryableGoldenBuildError(
             "Gold unresolved identity ratio threshold must be between 0 and 1"
         )
+    if not isinstance(env.gold_quality_gate_enabled, bool):
+        raise NonRetryableGoldenBuildError(
+            "Gold quality gate enabled flag must be a boolean"
+        )
     quality_override_enabled = (
-        env.gold_tmdb_freshness_slo_hours != _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS
+        not env.gold_quality_gate_enabled
+        or env.gold_tmdb_freshness_slo_hours != _DEFAULT_GOLD_TMDB_FRESHNESS_SLO_HOURS
         or env.gold_max_unresolved_identity_ratio
         != _DEFAULT_GOLD_MAX_UNRESOLVED_IDENTITY_RATIO
     )
@@ -1770,6 +1776,7 @@ def prepare_golden_build(
             ),
             "freshnessPolicyDigest": preflight.freshness_policy_digest,
             "goldQualityThresholds": {
+                "gateEnabled": input_data.env.gold_quality_gate_enabled,
                 "tmdbFreshnessSloHours": (input_data.env.gold_tmdb_freshness_slo_hours),
                 "maxUnresolvedIdentityRatio": (
                     input_data.env.gold_max_unresolved_identity_ratio
@@ -2630,6 +2637,7 @@ def _validate_release_documents(
     commit_key: str,
     table_counts: dict[str, int],
     table_snapshot_ids: dict[str, int | None],
+    quality_status: str,
 ) -> None:
     plan_payload = _read_ref_json(client, plan_ref, label="Gold release plan")
     try:
@@ -2685,14 +2693,22 @@ def _validate_release_documents(
             "Gold Music coverage lacks pinned MusicBrainz and Wikidata snapshots"
         )
     quality = _read_ref_json(client, quality_ref, label="Gold quality report")
+    try:
+        quality_model = GoldQualityReport.model_validate(quality)
+    except (TypeError, ValueError) as exc:
+        raise NonRetryableGoldenBuildError("Gold quality report is invalid") from exc
     if (
-        quality.get("status") != "PASS"
-        or quality.get("buildMode") != "RELEASE"
-        or quality.get("releasePlanId") != release_plan_id
-        or quality.get("violations") not in ([], ())
-        or int(quality.get("duplicateExternalIdCount", -1)) != 0
+        quality_model.build_mode.value != "RELEASE"
+        or quality_model.release_plan_id != release_plan_id
+        or quality_model.status.value != quality_status
+        or (
+            input_data.env.gold_quality_gate_enabled
+            and quality_model.status != GoldQualityStatus.PASS
+        )
     ):
-        raise NonRetryableGoldenBuildError("Gold quality report did not pass")
+        raise NonRetryableGoldenBuildError(
+            "Gold quality report does not satisfy the configured admission mode"
+        )
     freshness = quality.get("releaseFreshness") or {}
     if (
         str(freshness.get("policyDigest", "")).lower()
@@ -2733,22 +2749,33 @@ def _validate_release_documents(
             )
             else {"NOT_REQUIRED"}
         )
-        if sources.get(source_product_id, {}).get("status") not in expected_status:
+        if (
+            input_data.env.gold_quality_gate_enabled
+            and sources.get(source_product_id, {}).get("status") not in expected_status
+        ):
             raise NonRetryableGoldenBuildError(
                 "Gold quality report contains a non-passing contributing source"
             )
     tmdb = sources["tmdb-research"]
     if "tmdb-research" in gold_sources and (
         int(tmdb.get("sloHours") or 0) != input_data.env.gold_tmdb_freshness_slo_hours
-        or tmdb.get("status") != "PASS"
-        or float(tmdb.get("effectiveAgeHours") or 0)
-        >= input_data.env.gold_tmdb_freshness_slo_hours
+        or (
+            input_data.env.gold_quality_gate_enabled
+            and (
+                tmdb.get("status") != "PASS"
+                or float(tmdb.get("effectiveAgeHours") or 0)
+                >= input_data.env.gold_tmdb_freshness_slo_hours
+            )
+        )
     ):
         raise NonRetryableGoldenBuildError(
             "Gold quality report lacks the pinned TMDB freshness threshold"
         )
     unresolved_ratio = float(quality.get("unresolvedIdentityRatio", -1))
-    if not (0 <= unresolved_ratio <= input_data.env.gold_max_unresolved_identity_ratio):
+    if not 0 <= unresolved_ratio <= 1 or (
+        input_data.env.gold_quality_gate_enabled
+        and unresolved_ratio > input_data.env.gold_max_unresolved_identity_ratio
+    ):
         raise NonRetryableGoldenBuildError(
             "Gold quality report exceeds the pinned unresolved identity threshold"
         )
@@ -2785,7 +2812,7 @@ def _validate_release_documents(
             raise NonRetryableGoldenBuildError(
                 f"freshness override was not applied correctly for {source}"
             )
-        if source in gold_sources:
+        if source in gold_sources and input_data.env.gold_quality_gate_enabled:
             if row.get("status") != "PASS" or (
                 float(row.get("effectiveAgeHours") or 0) > slo
             ):
@@ -2906,6 +2933,8 @@ def submit_golden_release(
             "--build-mode",
             "release",
             "--return-failed-quality-summary",
+            "--quality-gate-mode",
+            ("enforce" if env.gold_quality_gate_enabled else "observe-only"),
             "--image-digest",
             env.image_digest,
             "--source-policy-digest",
@@ -2941,6 +2970,13 @@ def submit_golden_release(
             "--s3-credentials-provider",
             "default",
         ]
+        if env.gold_quality_override_reason.strip():
+            args.extend(
+                [
+                    "--quality-gate-override-reason",
+                    env.gold_quality_override_reason.strip(),
+                ]
+            )
         if compatible_identity_source_policy_digest is not None:
             args.extend(
                 [
@@ -2958,6 +2994,8 @@ def submit_golden_release(
                 "releasePlan",
                 "buildMode",
                 "qualityStatus",
+                "qualityGateEnforced",
+                "qualityGateOverrideReason",
                 "qualityReport",
                 "committed",
             ),
@@ -2987,12 +3025,18 @@ def submit_golden_release(
                     "Gold returned malformed failed quality evidence"
                 )
             raise NonRetryableGoldenBuildError(
-                "Gold quality gate failed for "
+                "Gold returned uncommitted quality evidence for "
                 f"{summary['releasePlanId']}: {', '.join(map(str, violations))}"
             )
         if (
             summary.get("buildMode") != "RELEASE"
-            or summary.get("qualityStatus") != "PASS"
+            or summary.get("qualityStatus") not in {"PASS", "FAILED"}
+            or summary.get("qualityGateEnforced") is not env.gold_quality_gate_enabled
+            or summary.get("qualityGateOverrideReason")
+            != env.gold_quality_override_reason.strip()
+            or (
+                env.gold_quality_gate_enabled and summary.get("qualityStatus") != "PASS"
+            )
         ):
             raise NonRetryableGoldenBuildError("Gold release was not committed")
         missing_success_keys = {
@@ -3056,6 +3100,7 @@ def submit_golden_release(
             commit_key=commit_key,
             table_counts=table_counts,
             table_snapshot_ids=table_snapshot_ids,
+            quality_status=str(summary["qualityStatus"]),
         )
         return GoldenReleaseResult(
             release_plan_id=release_plan_id,
@@ -3067,6 +3112,9 @@ def submit_golden_release(
             table_counts=table_counts,
             table_snapshot_ids=table_snapshot_ids,
             job_run_id=job_run_id,
+            quality_status=str(summary["qualityStatus"]),
+            quality_gate_enforced=env.gold_quality_gate_enabled,
+            quality_gate_override_reason=env.gold_quality_override_reason.strip(),
         )
     except Exception as exc:
         classified = classify_golden_build_exception(exc)
@@ -3125,6 +3173,11 @@ def write_golden_build_summary(
                 "tableCounts": result.release.table_counts,
                 "tableSnapshotIds": result.release.table_snapshot_ids,
                 "jobRunId": result.release.job_run_id,
+                "qualityStatus": result.release.quality_status,
+                "qualityGateEnforced": result.release.quality_gate_enforced,
+                "qualityGateOverrideReason": (
+                    result.release.quality_gate_override_reason
+                ),
             },
             "publication": result.publication_status,
         }

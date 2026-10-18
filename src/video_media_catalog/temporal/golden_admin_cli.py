@@ -30,6 +30,19 @@ from video_media_catalog.temporal.names import (
 from video_media_catalog.temporal.workflows.golden_build import GoldenBuildWorkflow
 
 
+def _mapping_bool(
+    values: dict[str, Any],
+    key: str,
+    *,
+    default: bool,
+    label: str,
+) -> bool:
+    value = values.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{label}.{key} must be a boolean")
+    return value
+
+
 def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
     return GoldenBuildEnv(
         aws_region=str(values["awsRegion"]),
@@ -72,15 +85,23 @@ def _env_from_mapping(values: dict[str, Any]) -> GoldenBuildEnv:
         gold_max_unresolved_identity_ratio=float(
             values.get("goldMaxUnresolvedIdentityRatio", 0.05)
         ),
+        gold_quality_gate_enabled=_mapping_bool(
+            values,
+            "goldQualityGateEnabled",
+            default=True,
+            label="env",
+        ),
         gold_quality_override_reason=str(values.get("goldQualityOverrideReason", "")),
     )
 
 
 def _state_bool(values: dict[str, Any], key: str, *, default: bool) -> bool:
-    value = values.get(key, default)
-    if not isinstance(value, bool):
-        raise ValueError(f"sourceRunStates.{key} must be a boolean")
-    return value
+    return _mapping_bool(
+        values,
+        key,
+        default=default,
+        label="sourceRunStates",
+    )
 
 
 def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:

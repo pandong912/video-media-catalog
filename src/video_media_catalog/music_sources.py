@@ -23,7 +23,10 @@ from video_media_catalog.source_mapper import AssertionBuilder, MappedAssertions
 MUSICBRAINZ_CORE_MAPPER_ID = "musicbrainz-core-source-mapper"
 MUSICBRAINZ_CORE_MAPPER_VERSION = "1.3.0"
 WIKIDATA_MUSIC_MAPPER_ID = "wikidata-music-source-mapper"
-WIKIDATA_MUSIC_MAPPER_VERSION = "1.3.0"
+WIKIDATA_MUSIC_MAPPER_VERSION = "1.4.0"
+WIKIDATA_MUSIC_SOURCE_PRODUCT_ID = "wikidata-music-reference"
+WIKIDATA_MUSIC_NAMESPACE_ID = "wikidata-music-item"
+WIKIDATA_MUSIC_CONNECTOR_ID = "wikidata-music-reference-snapshot"
 MUSICBRAINZ_CORE_SCHEMA_ID = "musicbrainz-core-entity"
 MUSICBRAINZ_CORE_DATASET = "MUSICBRAINZ_CORE_CC0"
 
@@ -534,11 +537,14 @@ def map_wikidata_music_record(
 ) -> MappedAssertions:
     """Map one reviewed Wikidata Music record without mutable lookups."""
 
-    if (
-        envelope.source_system_id != "wikidata"
-        or envelope.source_product_id != "wikidata-json-dump"
-        or envelope.source_namespace_id != "wikidata-item"
-    ):
+    supported_coordinate = (
+        envelope.source_product_id == WIKIDATA_MUSIC_SOURCE_PRODUCT_ID
+        and envelope.source_namespace_id == WIKIDATA_MUSIC_NAMESPACE_ID
+    ) or (
+        envelope.source_product_id == "wikidata-json-dump"
+        and envelope.source_namespace_id == "wikidata-item"
+    )
+    if envelope.source_system_id != "wikidata" or not supported_coordinate:
         raise ValueError("record is not a Wikidata Music envelope")
     payload = _payload(envelope)
     entity_type = _entity_type(payload)

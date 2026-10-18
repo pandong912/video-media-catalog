@@ -19,7 +19,11 @@ from video_media_catalog.community_sources import (
 from video_media_catalog.connector import Serialization
 from video_media_catalog.models import ObjectRef
 from video_media_catalog.music_sources import (
+    WIKIDATA_MUSIC_CONNECTOR_ID,
+    WIKIDATA_MUSIC_NAMESPACE_ID,
+    WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
     map_musicbrainz_core_record,
+    map_wikidata_music_record,
     musicbrainz_namespace_for_type,
 )
 from video_media_catalog.research_snapshot import (
@@ -254,9 +258,18 @@ class PinnedReferenceFixture(V2ContractModel):
             "musicbrainz-core-dump-snapshot",
             "musicbrainz-core-entity",
         )
+        wikidata_music = (
+            "wikidata",
+            WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
+            WIKIDATA_MUSIC_CONNECTOR_ID,
+            "wikidata-global-reference-entity",
+        )
         if self.domain in {"NEWS", "LEARNING"} and coordinates != wikidata:
             raise ValueError("News/Learning fixtures require pinned Wikidata")
-        if self.domain == "MUSIC" and coordinates not in {wikidata, musicbrainz}:
+        if self.domain == "MUSIC" and coordinates not in {
+            wikidata_music,
+            musicbrainz,
+        }:
             raise ValueError(
                 "Music fixtures require pinned Wikidata or MusicBrainz core"
             )
@@ -375,6 +388,8 @@ def materialize_reference_fixture(
         source_namespace=lambda record: (
             musicbrainz_namespace_for_type(str(record.get("entityType") or ""))
             if fixture.source_product_id == "musicbrainz-core-dump"
+            else WIKIDATA_MUSIC_NAMESPACE_ID
+            if fixture.source_product_id == WIKIDATA_MUSIC_SOURCE_PRODUCT_ID
             else "wikidata-item"
         ),
         source_record_id=lambda record: str(record["id"]),
@@ -396,6 +411,10 @@ def materialize_reference_fixture(
     if fixture.source_product_id == "musicbrainz-core-dump":
         mapped = tuple(
             map_musicbrainz_core_record(envelope) for envelope in captured.envelopes
+        )
+    elif fixture.source_product_id == WIKIDATA_MUSIC_SOURCE_PRODUCT_ID:
+        mapped = tuple(
+            map_wikidata_music_record(envelope) for envelope in captured.envelopes
         )
     else:
         from video_media_catalog.source_mappers import map_wikidata_research_record

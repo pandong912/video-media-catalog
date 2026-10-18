@@ -180,7 +180,7 @@ def test_music_profiles_feed_two_reference_only_golden_source_states() -> None:
         )
         for source_product_id, marker in (
             ("musicbrainz-core-dump", "a"),
-            ("wikidata-json-dump", "b"),
+            ("wikidata-music-reference", "b"),
         )
     )
     fixtures = (
@@ -252,25 +252,30 @@ def test_music_profiles_feed_two_reference_only_golden_source_states() -> None:
     )
 
     states = {state.source_product_id: state for state in golden.source_run_states}
-    assert set(states) == {"musicbrainz-core-dump", "wikidata-json-dump"}
+    assert set(states) == {
+        "musicbrainz-core-dump",
+        "wikidata-json-dump",
+        "wikidata-music-reference",
+    }
     assert set(golden.supplemental_source_run_ids) == {
         "sha256:" + ("a" * 64),
         "sha256:" + ("b" * 64),
     }
-    assert states["wikidata-json-dump"].run_ids == tuple(
-        sorted(
-            {
-                baseline.baseline_source_run_ids[2],
-                "sha256:" + ("b" * 64),
-            }
-        )
+    assert states["wikidata-json-dump"].run_ids == (
+        baseline.baseline_source_run_ids[2],
     )
+    assert not states["wikidata-json-dump"].identity_spine
+    assert states["wikidata-json-dump"].materialization
+    assert states["wikidata-json-dump"].gold_contribution
+    assert states["wikidata-json-dump"].capture_reference is None
+    assert states["wikidata-music-reference"].run_ids == ("sha256:" + ("b" * 64),)
     assert all(
         state.identity_spine
         and state.gold_contribution
         and not state.materialization
         and state.capture_reference is not None
-        for state in states.values()
+        for source_product_id, state in states.items()
+        if source_product_id in {"musicbrainz-core-dump", "wikidata-music-reference"}
     )
     with pytest.raises(ValueError, match="requires ordered MusicBrainz"):
         ResearchDomainInput(

@@ -138,7 +138,8 @@
             "openfootball-git",
             "statsbomb-open-data",
             "madb-public-data",
-            "musicbrainz-core-dump"
+            "musicbrainz-core-dump",
+            "wikidata-music-reference"
           ]
         },
         "captureManifest": {"$ref": "#/$defs/objectRef"},
@@ -392,7 +393,7 @@
                     {
                       "properties": {
                         "domain": {"const": "MUSIC"},
-                        "sourceProductId": {"const": "wikidata-json-dump"},
+                        "sourceProductId": {"const": "wikidata-music-reference"},
                         "identitySpine": {"const": true},
                         "materialization": {"const": false},
                         "goldContribution": {"const": true}

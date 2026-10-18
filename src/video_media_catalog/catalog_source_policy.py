@@ -47,6 +47,7 @@ _REQUIRED_CANONICAL_SOURCE_IDS = frozenset(
 )
 _EXPECTED_IMPLEMENTATION_SOURCE_MAP = {
     "wikidata-json-dump": "wikidata",
+    "wikidata-music-reference": "wikidata",
     "musicbrainz-core-dump": "musicbrainz",
     "eidr-public-registry": "eidr",
     "imdb-non-commercial-datasets": "imdb",
@@ -433,6 +434,18 @@ CATALOG_SOURCE_IMPLEMENTATIONS = (
         ),
     ),
     CatalogSourceImplementation(
+        source_product_id="wikidata-music-reference",
+        source_id="wikidata",
+        rights_policy_id="wikidata-structured-data-cc0",
+        supported_capabilities=_ALL_TECHNICAL_CAPABILITIES,
+        namespaces=(
+            CatalogNamespaceImplementation(
+                namespace_id="wikidata-music-item",
+                canonical_namespace="wikidata.item",
+            ),
+        ),
+    ),
+    CatalogSourceImplementation(
         source_product_id="musicbrainz-core-dump",
         source_id="musicbrainz",
         rights_policy_id="musicbrainz-core-data-cc0",
@@ -654,8 +667,6 @@ class CatalogSourcePolicy:
         source_ids = [item.source_id for item in self.implementations]
         if len(products) != len(set(products)):
             raise ValueError("Catalog source-product mapping is duplicated")
-        if len(source_ids) != len(set(source_ids)):
-            raise ValueError("canonical Catalog source mapping is conflicting")
         if set(source_ids) != _REQUIRED_CANONICAL_SOURCE_IDS:
             raise ValueError(
                 "Catalog implementation mapping must cover exactly the required "

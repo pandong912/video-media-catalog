@@ -75,7 +75,7 @@ CONNECTOR_ENVELOPE_MEDIA_TYPE = (
     "application/vnd.video-media-catalog.connector-record-envelope.v2+ndjson"
 )
 ZERO_IMAGE_DIGEST = "sha256:" + ("0" * 64)
-SOURCE_ORDER = ("musicbrainz-core-dump", "wikidata-json-dump")
+SOURCE_ORDER = ("musicbrainz-core-dump", "wikidata-music-reference")
 MUSIC_RELEASE_GATES = (
     "cutoverAllowed",
     "datasetPublicationEnabled",

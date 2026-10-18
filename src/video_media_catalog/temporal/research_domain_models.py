@@ -48,7 +48,7 @@ _DOMAIN_SOURCES = {
     "MUSIC": frozenset(
         {
             "musicbrainz-core-dump",
-            "wikidata-json-dump",
+            "wikidata-music-reference",
         }
     ),
 }
@@ -179,7 +179,7 @@ class ResearchDomainInput:
             raise ValueError("research domain source products must be unique")
         if self.domain == "MUSIC" and source_products != (
             "musicbrainz-core-dump",
-            "wikidata-json-dump",
+            "wikidata-music-reference",
         ):
             raise ValueError(
                 "MUSIC workflow requires ordered MusicBrainz core and Wikidata sources"

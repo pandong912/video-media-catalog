@@ -223,11 +223,16 @@
         "pinId": {"$ref": "#/$defs/sha256"},
         "sourceSystemId": {"enum": ["wikidata", "musicbrainz"]},
         "sourceProductId": {
-          "enum": ["wikidata-json-dump", "musicbrainz-core-dump"]
+          "enum": [
+            "wikidata-json-dump",
+            "wikidata-music-reference",
+            "musicbrainz-core-dump"
+          ]
         },
         "connectorId": {
           "enum": [
             "wikidata-full-media-backfill",
+            "wikidata-music-reference-snapshot",
             "musicbrainz-core-dump-snapshot"
           ]
         },
@@ -261,6 +266,14 @@
             "sourceProductId": {"const": "musicbrainz-core-dump"},
             "connectorId": {"const": "musicbrainz-core-dump-snapshot"},
             "schemaId": {"const": "musicbrainz-core-entity"}
+          }
+        },
+        {
+          "properties": {
+            "sourceSystemId": {"const": "wikidata"},
+            "sourceProductId": {"const": "wikidata-music-reference"},
+            "connectorId": {"const": "wikidata-music-reference-snapshot"},
+            "schemaId": {"const": "wikidata-global-reference-entity"}
           }
         }
       ]

@@ -2672,7 +2672,7 @@ def _validate_release_documents(
         not plan.source_snapshot_pin_ids.get(source_product_id)
         for source_product_id in {
             "musicbrainz-core-dump",
-            "wikidata-json-dump",
+            "wikidata-music-reference",
         }
     ):
         raise NonRetryableGoldenBuildError(

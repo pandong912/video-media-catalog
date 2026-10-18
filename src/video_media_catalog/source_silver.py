@@ -76,7 +76,11 @@ def mapper_for_product(source_product_id: str) -> Mapper:
         IMDB_SOURCE_PRODUCT_ID,
         map_imdb_record,
     )
-    from video_media_catalog.music_sources import map_musicbrainz_core_record
+    from video_media_catalog.music_sources import (
+        WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
+        map_musicbrainz_core_record,
+        map_wikidata_music_record,
+    )
     from video_media_catalog.source_mappers import (
         EIDR_SOURCE_PRODUCT_ID,
         WIKIDATA_SOURCE_PRODUCT_ID,
@@ -105,6 +109,7 @@ def mapper_for_product(source_product_id: str) -> Mapper:
         EUROPEANA_SOURCE_PRODUCT_ID: map_europeana_record,
         "madb-public-data": map_madb_animation_record,
         "musicbrainz-core-dump": map_musicbrainz_core_record,
+        WIKIDATA_MUSIC_SOURCE_PRODUCT_ID: map_wikidata_music_record,
         "openfootball-git": map_openfootball_record,
         "statsbomb-open-data": map_statsbomb_match_record,
     }

@@ -155,6 +155,9 @@ def test_research_source_products_pin_schema_contracts() -> None:
         "wikidata-global-reference-entity",
         "wikidata-research-entity",
     )
+    assert products["wikidata-music-reference"].schema_contract_ids == (
+        "wikidata-global-reference-entity",
+    )
     assert products["openfootball-git"].schema_contract_ids == ("openfootball-event",)
     assert products["statsbomb-open-data"].schema_contract_ids == (
         "statsbomb-open-data",

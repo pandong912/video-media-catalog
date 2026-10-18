@@ -117,6 +117,10 @@ _DEFAULT_MAPPER_IDENTITIES = {
         mapper_id="musicbrainz-core-source-mapper",
         mapper_version="1.3.0",
     ),
+    "wikidata-music-reference": SourceSilverMapperIdentity(
+        mapper_id="wikidata-music-source-mapper",
+        mapper_version="1.4.0",
+    ),
     "tmdb-research": SourceSilverMapperIdentity(
         mapper_id="tmdb-research-mapper",
         mapper_version="1.0.0",

@@ -20,6 +20,11 @@ from video_media_catalog.imdb import (
     imdb_registry_entries,
     imdb_rights_profile,
 )
+from video_media_catalog.music_sources import (
+    WIKIDATA_MUSIC_CONNECTOR_ID,
+    WIKIDATA_MUSIC_NAMESPACE_ID,
+    WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
+)
 from video_media_catalog.rights import PolicyZone, RightsProfile, UsageAction
 from video_media_catalog.source_mappers import WIKIDATA_FULL_MEDIA_CONNECTOR_ID
 from video_media_catalog.source_registry import (
@@ -377,6 +382,16 @@ def build_community_registry() -> SourceRegistrySnapshot:
         ),
         documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
     )
+    wikidata_music_product = SourceProduct(
+        source_product_id=WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
+        source_system_id="wikidata",
+        name="Wikidata curated Music reference slice",
+        kind=SourceProductKind.KNOWLEDGE_GRAPH,
+        policy_id="wikidata-structured-data-cc0",
+        connector_ids=(WIKIDATA_MUSIC_CONNECTOR_ID,),
+        schema_contract_ids=("wikidata-global-reference-entity",),
+        documentation_url=("https://www.wikidata.org/wiki/Wikidata:Database_download"),
+    )
     musicbrainz_product = SourceProduct(
         source_product_id="musicbrainz-core-dump",
         source_system_id="musicbrainz",
@@ -452,6 +467,7 @@ def build_community_registry() -> SourceRegistrySnapshot:
         ),
         source_products=(
             wikidata_product,
+            wikidata_music_product,
             musicbrainz_product,
             eidr_product,
             identity_product,
@@ -464,6 +480,20 @@ def build_community_registry() -> SourceRegistrySnapshot:
             madb_product,
         ),
         source_namespaces=(
+            SourceNamespace(
+                namespace_id=WIKIDATA_MUSIC_NAMESPACE_ID,
+                source_product_id=WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
+                issuer="Wikidata",
+                referent_kinds=(
+                    "MUSIC_ARTIST",
+                    "MUSIC_LABEL",
+                    "MUSICAL_WORK",
+                    "MUSIC_RECORDING",
+                    "MUSIC_RELEASE_GROUP",
+                    "MUSIC_RELEASE",
+                ),
+                identifier_pattern=r"Q[1-9][0-9]*",
+            ),
             SourceNamespace(
                 namespace_id="wikidata-item",
                 source_product_id="wikidata-json-dump",

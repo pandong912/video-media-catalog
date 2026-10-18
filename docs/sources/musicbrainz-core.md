@@ -49,17 +49,20 @@ fields. Label participation in a
 release or release group uses the existing
 `credit` relation with `role=LABEL`, not a Label-specific predicate.
 The Label-capable MusicBrainz and Wikidata Music mappers are versioned
-`1.3.0`; Source Silver checkpoints bind MusicBrainz mapper `1.3.0` and the
-Wikidata research dispatcher `2.2.0`.
+`1.3.0` and `1.4.0`; Source Silver checkpoints bind MusicBrainz mapper `1.3.0`
+and the dedicated Wikidata Music mapper `1.4.0`.
 
 ## Release and matching
 
 The Music reference slice requires both a MusicBrainz core pin and a Wikidata
-Music pin. Both Temporal profiles use `identitySpine=true`,
+Music pin. Wikidata Music uses the distinct
+`wikidata-music-reference` / `wikidata-music-reference-snapshot` coordinates,
+so its run state cannot absorb the global `wikidata-json-dump` lineage. Both
+Temporal profiles use `identitySpine=true`,
 `goldContribution=true`, and `materialization=false`; the monthly MusicBrainz
 core profile includes Label records, so Label does not introduce a third source
 or a Music-specific workflow. The capture uses the bounded 45-day Gold
-freshness SLO in `research-gold-source-freshness-v1@1.1.0`. The local Pilot
+freshness SLO in `research-gold-source-freshness-v1@1.2.0`. The local Pilot
 accepts one exact ID only when both the v12 eligibility field and its pinned
 profile disposition permit it. It returns `REVIEW_REQUIRED` only for
 parent-constrained live work candidates, abstains on multiple exact candidates,

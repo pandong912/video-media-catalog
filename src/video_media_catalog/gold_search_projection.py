@@ -186,7 +186,10 @@ def _reference_source_allowed(
 ) -> bool:
     if source_product_id == "wikidata-json-dump":
         return True
-    return source_product_id == "musicbrainz-core-dump" and "MUSIC" in reference_slices
+    return (
+        source_product_id in {"musicbrainz-core-dump", "wikidata-music-reference"}
+        and "MUSIC" in reference_slices
+    )
 
 
 def _external_identifier_url(
@@ -662,7 +665,7 @@ def project_gold_entity(
                 namespace = source_policy.namespace(str(identifier["namespace_id"]))
             except ValueError:
                 continue
-            if namespace.source.source_product_id != item.source_product_id:
+            if namespace.source.source_id != source.source_id:
                 continue
             citations = list(item.citation_keys)
             citation_overflow += max(0, len(citations) - MAX_CITATION_KEYS)

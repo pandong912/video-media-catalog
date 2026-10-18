@@ -141,16 +141,16 @@ def test_real_authority_capture_is_pinned_complete_and_replayable() -> None:
         wikidata.fixture.config_digest,
     } == {"sha256:c5b99383a27231eb94d63b27b74ee2bf45558c825e46d12837200d841180dfba"}
     assert musicbrainz.fixture.digest == (
-        "sha256:78d691a35c29099834342cb810451e185ac9ac6f79f44043718a115cd878249a"
+        "sha256:64ba951e8d2991f3b5923572d79a5d79e917ebbc2b690e6630222a820fa3db7b"
     )
     assert wikidata.fixture.digest == (
-        "sha256:9197cff08d0e822643763df1903fa66462ef23fcc454c61bbcd18531f5e58f90"
+        "sha256:e3d56e2e2ca6dd0b715b9dca802e4288b80714f3b8462d4cbdd2b7022b7b726b"
     )
     assert musicbrainz.captured.pin.pin_id == (
         "sha256:2df1c74f4d811dbdcaeca44a5c3166115569e10da83e8a79c916963097c79dd9"
     )
     assert wikidata.captured.pin.pin_id == (
-        "sha256:ed05bbe2ae011f5b7e2d02bcd75a8a548ba34028ca9025ebc6afdc3377c1016d"
+        "sha256:c34666ea9c95931dd8afd36ca293f59c4aa548c294868ed3547d3a55a6f44d65"
     )
     capture_tool_digest = (
         "sha256:" + hashlib.sha256(CAPTURE_TOOL.read_bytes()).hexdigest()
@@ -377,7 +377,7 @@ def test_concrete_profile_and_twenty_asset_match_baseline_are_deterministic() ->
 
     assert profile == replayed_profile == pinned_profile
     assert profile.profile_id == (
-        "sha256:87bac2481db4505b18fc4374e9c617988b5f60f5f7a91f81b2088afaa35d75ff"
+        "sha256:b9b5e83d8676f5bd99d923c4f052ea74500e2df3fd00f7336f6f62b62fdb5a61"
     )
     assert profile.authority_coordinate_digest == (
         "sha256:f7acf2518c54acb103b044de38cc72b67cb02a593adfcf31c12a88b17ebe053a"
@@ -392,7 +392,7 @@ def test_concrete_profile_and_twenty_asset_match_baseline_are_deterministic() ->
     assert profile.coordinate_count == 19
     assert profile.source_fixture_digests == {
         "musicbrainz-core-dump": musicbrainz.fixture.digest,
-        "wikidata-json-dump": wikidata.fixture.digest,
+        "wikidata-music-reference": wikidata.fixture.digest,
     }
     assert set(profile.capture_image_digests.values()) == {
         musicbrainz.fixture.image_digest
@@ -587,7 +587,7 @@ def _trace(
     source_record_id: str,
     source_path: str,
 ) -> str:
-    wikidata = source_product_id == "wikidata-json-dump"
+    wikidata = source_product_id == "wikidata-music-reference"
     return canonical_json(
         {
             "assertions": [
@@ -668,7 +668,7 @@ def _project_recording_coordinate(
     ]
     for source_product_id, source_record_id, mapped in (
         ("musicbrainz-core-dump", mbid, musicbrainz_record),
-        ("wikidata-json-dump", qid, wikidata_record),
+        ("wikidata-music-reference", qid, wikidata_record),
     ):
         for assertion in mapped.field_assertions:
             if (
@@ -714,6 +714,11 @@ def _project_recording_coordinate(
         for item in musicbrainz_record.identifier_assertions
         if item.namespace_id == "musicbrainz-recording"
     )
+    wikidata_identifier = next(
+        item
+        for item in wikidata_record.identifier_assertions
+        if item.namespace_id == "wikidata-item"
+    )
     identifiers = [
         {
             "namespace_id": recording_identifier.namespace_id,
@@ -727,12 +732,25 @@ def _project_recording_coordinate(
                 source_record_id=mbid,
                 source_path=recording_identifier.provenance.source_path,
             ),
-        }
+        },
+        {
+            "namespace_id": wikidata_identifier.namespace_id,
+            "value": wikidata_identifier.value,
+            "issuer": wikidata_identifier.issuer,
+            "referent_kind": wikidata_identifier.referent_kind,
+            "assertion_ids_json": canonical_json([wikidata_identifier.assertion_id]),
+            "trace_json": _trace(
+                wikidata_identifier.assertion_id,
+                source_product_id="wikidata-music-reference",
+                source_record_id=qid,
+                source_path=wikidata_identifier.provenance.source_path,
+            ),
+        },
     ]
     relations = []
     for source_product_id, source_record_id, mapped in (
         ("musicbrainz-core-dump", mbid, musicbrainz_record),
-        ("wikidata-json-dump", qid, wikidata_record),
+        ("wikidata-music-reference", qid, wikidata_record),
     ):
         for assertion in mapped.relationship_assertions:
             if assertion.predicate not in {"recording_of", "credit"}:
@@ -813,6 +831,13 @@ def test_real_authority_facts_generate_music_gold_match_fields() -> None:
     assert all(
         any(
             identifier["namespace"] == "musicbrainz-recording"
+            for identifier in item["externalIdentifiers"]
+        )
+        for item in exact_documents
+    )
+    assert all(
+        any(
+            identifier["namespace"] == "wikidata-item"
             for identifier in item["externalIdentifiers"]
         )
         for item in exact_documents

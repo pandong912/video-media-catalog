@@ -199,6 +199,7 @@ def research_policy() -> GoldResolutionPolicy:
         "tmdb-research",
         "tvmaze-public-api",
         "musicbrainz-core-dump",
+        "wikidata-music-reference",
         "openfootball-git",
         "statsbomb-open-data",
         "wikidata-json-dump",
@@ -208,6 +209,7 @@ def research_policy() -> GoldResolutionPolicy:
     )
     fact_priority = (
         "musicbrainz-core-dump",
+        "wikidata-music-reference",
         "openfootball-git",
         "statsbomb-open-data",
         "madb-public-data",
@@ -296,7 +298,7 @@ def research_policy() -> GoldResolutionPolicy:
     )
     return GoldResolutionPolicy(
         policy_id="research-display-v2",
-        policy_version="2.7.0",
+        policy_version="2.8.0",
         requested_actions=(
             UsageAction.STORE,
             UsageAction.TRANSFORM,

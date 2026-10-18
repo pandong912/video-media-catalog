@@ -75,6 +75,13 @@ _REFERENCE_SNAPSHOT_COORDINATES = frozenset(
             "DUMP_OBJECT",
             "musicbrainz-core-entity",
         ),
+        (
+            "wikidata",
+            "wikidata-music-reference",
+            "wikidata-music-reference-snapshot",
+            "DUMP_OBJECT",
+            "wikidata-global-reference-entity",
+        ),
     }
 )
 _SLICE_SOURCE_PRODUCTS = {
@@ -83,7 +90,7 @@ _SLICE_SOURCE_PRODUCTS = {
     ReferenceSlice.MUSIC: frozenset(
         {
             "musicbrainz-core-dump",
-            "wikidata-json-dump",
+            "wikidata-music-reference",
         }
     ),
 }

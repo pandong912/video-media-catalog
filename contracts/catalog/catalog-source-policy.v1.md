@@ -55,6 +55,7 @@ A pending or excluded source cannot grant canonical `IDENTITY` or
 The explicit implementation mapping is:
 
 - `wikidata-json-dump` → `wikidata`
+- `wikidata-music-reference` → `wikidata`
 - `musicbrainz-core-dump` → `musicbrainz`
 - `eidr-public-registry` → `eidr`
 - `imdb-non-commercial-datasets` → `imdb`
@@ -73,6 +74,12 @@ whose input manifest does not bind the current canonical digest. Temporal
 `sourceRunStates` are mandatory for new Golden preflights. All nine canonical
 sources are eligible; each build selects and pins its exact committed source
 runs for snapshot, Identity and Gold inputs.
+
+Multiple bounded products may map to one canonical source. The dedicated
+`wikidata-music-reference` product and its ingest-only
+`wikidata-music-item` namespace keep Music workflow state separate from the
+global `wikidata-json-dump` lineage; mapped assertions still use the canonical
+`wikidata.item` identity namespace.
 
 Gold serving documents retain the compatibility field name `sourceProductId`
 but write the canonical `sourceId` value. External identifiers additionally

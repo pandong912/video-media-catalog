@@ -40,6 +40,7 @@ def test_bootstrap_community_registry_is_deterministic_and_referenced() -> None:
         "statsbomb-open-data",
         "tmdb-research",
         "tvmaze-public-api",
+        "wikidata-music-reference",
     }
     wikidata = next(
         item for item in first.source_namespaces if item.namespace_id == "wikidata-item"
@@ -138,6 +139,7 @@ def test_registry_drives_supported_exact_id_namespaces() -> None:
     }
     assert {
         "wikidata-item",
+        "wikidata-music-item",
         "douban-work",
         "douban-person",
         "imdb-title",

@@ -23,7 +23,10 @@ from video_media_catalog.identity_v2 import (
     EntityLevel,
     ParentConstraint,
 )
-from video_media_catalog.music_sources import map_musicbrainz_core_record
+from video_media_catalog.music_sources import (
+    map_musicbrainz_core_record,
+    map_wikidata_music_record,
+)
 from video_media_catalog.reference_fixture import (
     load_reference_fixture,
     materialize_reference_fixture,
@@ -52,10 +55,10 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
         "sha256:dcdad6140f498eac0a569a8212ec96835fecc33d76666c6b542c65778ac8b7e7"
     )
     assert wikidata.fixture.digest == (
-        "sha256:629828cb6f46a2cd68e21d032e95fa39fa8610ac7d7f9294487b50d167eb285c"
+        "sha256:8adb608c2737772eec5272ccf2ce9a984bdf44c9e8cf6049085fe3285c220630"
     )
     assert wikidata.captured.pin.pin_id == (
-        "sha256:946966b7efd21408500156ac7afd6a449a5d8e4f45d5ad22e2a274bc2df0d1fb"
+        "sha256:bb0b882d7ea534d1a15f92d36a9567eddfc3d0e3ed808fc410d219740432abc9"
     )
     assert len(musicbrainz.captured.envelopes) == 6
     assert len(wikidata.captured.envelopes) == 2
@@ -78,7 +81,7 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
         assertion.provenance.mapper_version
         for mapped in wikidata.mapped
         for assertion in mapped.entity_type_assertions
-    } == {"1.3.0"}
+    } == {"1.4.0"}
     assert {
         assertion.entity_type
         for mapped in musicbrainz.mapped
@@ -192,6 +195,29 @@ def test_music_reference_capture_and_mapper_replay_are_immutable() -> None:
     )
 
 
+def test_legacy_wikidata_music_envelope_remains_replayable() -> None:
+    wikidata = _materialize("wikidata-music-reference.v1.json")
+    legacy = wikidata.captured.envelopes[0].model_copy(
+        update={
+            "source_product_id": "wikidata-json-dump",
+            "source_namespace_id": "wikidata-item",
+        }
+    )
+
+    mapped = map_wikidata_music_record(legacy)
+
+    assert mapped.source_node.namespace_id == "wikidata-item"
+    assert {
+        assertion.provenance.mapper_version
+        for assertion in mapped.entity_type_assertions
+    } == {"1.4.0"}
+    namespace_ids = {
+        assertion.namespace_id for assertion in mapped.identifier_assertions
+    }
+    assert "wikidata-item" in namespace_ids
+    assert "wikidata-music-item" not in namespace_ids
+
+
 @pytest.mark.parametrize(
     "excluded_key",
     (
@@ -252,9 +278,9 @@ def test_music_uses_generic_gold_identifier_and_relationship_rules() -> None:
         "mapper_id": "musicbrainz-core-source-mapper",
         "mapper_version": "1.3.0",
     }
-    assert mapper_identity_for_product("wikidata-json-dump").model_dump() == {
-        "mapper_id": "wikidata-research-dispatcher",
-        "mapper_version": "2.2.0",
+    assert mapper_identity_for_product("wikidata-music-reference").model_dump() == {
+        "mapper_id": "wikidata-music-source-mapper",
+        "mapper_version": "1.4.0",
     }
     for namespace in (
         "musicbrainz-artist",

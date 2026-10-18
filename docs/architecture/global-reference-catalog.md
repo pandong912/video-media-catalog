@@ -16,7 +16,7 @@ The current ontology registry is `1.4.0`
 (`sha256:6f605eea9acfe9365ada11c45e350a29851f11f613a45f07cc0897ecee000b90`)
 and the predicate registry is `1.4.0`
 (`sha256:c803567e0e0b9ba1b2f1cd4daa6750792c0bc1fc88cca8e2bcffd4216b916588`).
-The Music Pilot-capable Gold resolution policy is `research-display-v2@2.7.0`
+The Music Pilot-capable Gold resolution policy is `research-display-v2@2.8.0`
 (`sha256:3e1ba89f63bc3d9eaaaddb6d3acc307c6db45c116c82a8445c8ea07d3641c590`).
 
 This extends the existing Sports and Animation Capture → Silver → Identity →
@@ -75,7 +75,10 @@ MusicBrainz variant relations, while Wikidata `P51` uses the separate
 `musicCredits`, and `musicVariantSignals` from those generic Gold assertions.
 
 The slice requires two immutable captures in one release: MusicBrainz offline
-core CC0 and Wikidata Music. MusicBrainz tags, genres, ratings, annotations,
+core CC0 and the dedicated `wikidata-music-reference` Wikidata slice. The
+distinct product ID prevents Temporal source-state merging with the global
+`wikidata-json-dump`; both products remain authorized by the same canonical
+Wikidata entry in source-policy v1. MusicBrainz tags, genres, ratings, annotations,
 supplementary/live feeds, and Cover Art Archive assets are rejected. Both
 Temporal source profiles are Identity/Gold contributors with
 `materialization=false`. One exact identifier may reuse an entity only when the
@@ -100,7 +103,7 @@ parameter publication.
    snapshots, and complete double-temporal observations.
 5. OpenSearch projection v12 contributes bounded, searchable reference
    candidates and relations. News/Learning use `wikidata-json-dump`; Music uses
-   `musicbrainz-core-dump` plus `wikidata-json-dump`. Every source still
+   `musicbrainz-core-dump` plus `wikidata-music-reference`. Every source still
    requires `GOLD_PROJECTION`. Overflow is explicit; Gold remains complete.
 
 The pinned News, Learning, and Music fixtures under `tests/fixtures/research`

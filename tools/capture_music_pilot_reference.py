@@ -30,6 +30,8 @@ USER_AGENT = (
 CC0_URI = "https://creativecommons.org/publicdomain/zero/1.0/"
 FIXTURE_SCHEMA = "video.media-catalog.reference-fixture.v1"
 CAPTURED_AT_DEFAULT = "2026-10-17T03:00:00Z"
+WIKIDATA_MUSIC_SOURCE_PRODUCT_ID = "wikidata-music-reference"
+WIKIDATA_MUSIC_CONNECTOR_ID = "wikidata-music-reference-snapshot"
 
 EXACT_RECORDINGS = (
     ("Q66662496", "9aa56ede-83be-44ea-aeb5-d61268972c53"),
@@ -1304,8 +1306,8 @@ def main() -> None:
         stem="wikidata-music-pilot.v1",
         fixture_id="wikidata-music-pilot-v1",
         source_system_id="wikidata",
-        source_product_id="wikidata-json-dump",
-        connector_id="wikidata-full-media-backfill",
+        source_product_id=WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
+        connector_id=WIKIDATA_MUSIC_CONNECTOR_ID,
         schema_id="wikidata-global-reference-entity",
         records=wikidata_records,
         receipts=wikidata_receipts,

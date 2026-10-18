@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "profileId": "sha256:87bac2481db4505b18fc4374e9c617988b5f60f5f7a91f81b2088afaa35d75ff",
+  "profileId": "sha256:b9b5e83d8676f5bd99d923c4f052ea74500e2df3fd00f7336f6f62b62fdb5a61",
   "cohortId": "music-reference-gold-match-pilot-2026-10-17",
   "cohortDigest": "sha256:ff44f41739c8967fb5d12471961489263566db9c27534177b0b3f1bc6b67884c",
   "authorityCoordinateDigest": "sha256:f7acf2518c54acb103b044de38cc72b67cb02a593adfcf31c12a88b17ebe053a",
@@ -219,19 +219,19 @@
   ],
   "sourceSnapshotPinIds": {
     "musicbrainz-core-dump": "sha256:2df1c74f4d811dbdcaeca44a5c3166115569e10da83e8a79c916963097c79dd9",
-    "wikidata-json-dump": "sha256:ed05bbe2ae011f5b7e2d02bcd75a8a548ba34028ca9025ebc6afdc3377c1016d"
+    "wikidata-music-reference": "sha256:c34666ea9c95931dd8afd36ca293f59c4aa548c294868ed3547d3a55a6f44d65"
   },
   "sourceRevisions": {
     "musicbrainz-core-dump": "sha256:53af4e3cece1f12d26accd1cfa080e31932a637a3f31435723badc5cf8b3a46f",
-    "wikidata-json-dump": "sha256:48949106cf45ed8ebdc26bdd41060054e5d3b492e934a85b9e83c13f6fad067f"
+    "wikidata-music-reference": "sha256:48949106cf45ed8ebdc26bdd41060054e5d3b492e934a85b9e83c13f6fad067f"
   },
   "sourceFixtureDigests": {
-    "musicbrainz-core-dump": "sha256:78d691a35c29099834342cb810451e185ac9ac6f79f44043718a115cd878249a",
-    "wikidata-json-dump": "sha256:9197cff08d0e822643763df1903fa66462ef23fcc454c61bbcd18531f5e58f90"
+    "musicbrainz-core-dump": "sha256:64ba951e8d2991f3b5923572d79a5d79e917ebbc2b690e6630222a820fa3db7b",
+    "wikidata-music-reference": "sha256:e3d56e2e2ca6dd0b715b9dca802e4288b80714f3b8462d4cbdd2b7022b7b726b"
   },
   "captureImageDigests": {
-    "musicbrainz-core-dump": "sha256:9d3d28f073ad9a9befbfea84f112001208bbe0c4d884cfec8eaaddbf583a5b2f",
-    "wikidata-json-dump": "sha256:9d3d28f073ad9a9befbfea84f112001208bbe0c4d884cfec8eaaddbf583a5b2f"
+    "musicbrainz-core-dump": "sha256:4cb7946dac874d51e5c31b721431e5358e67685778fb931cb70725161b7d0937",
+    "wikidata-music-reference": "sha256:4cb7946dac874d51e5c31b721431e5358e67685778fb931cb70725161b7d0937"
   },
   "sourcePolicyRegistryVersion": "1.4.0",
   "sourcePolicyDigest": "sha256:6f41f4786996179cda7912e69a8a1eacd841abca77029d97ce328fcad23ab018",
@@ -239,14 +239,14 @@
   "ontologyDigest": "sha256:6f605eea9acfe9365ada11c45e350a29851f11f613a45f07cc0897ecee000b90",
   "predicateRegistryVersion": "1.4.0",
   "predicateDigest": "sha256:c803567e0e0b9ba1b2f1cd4daa6750792c0bc1fc88cca8e2bcffd4216b916588",
-  "goldPolicyVersion": "2.7.0",
-  "goldPolicyDigest": "sha256:3e1ba89f63bc3d9eaaaddb6d3acc307c6db45c116c82a8445c8ea07d3641c590",
+  "goldPolicyVersion": "2.8.0",
+  "goldPolicyDigest": "sha256:19200a7b3653650d038a442b09e4e93135071634508b24be0f6ef6beaaad4c96",
   "mappingVersion": "12",
   "mappingDigest": "sha256:f7b6e0b42f1daee66aa522faee88f8912f489410a53cc5d9ca856e88d93e416a",
   "algorithmId": "catalog-asset-match-v1",
   "algorithmSchemaVersion": "1.0",
   "algorithmDigest": "sha256:638d10b15510a0d81e224692fdd5d1b9e35112bed1de0b9f289a56f9c233116d",
-  "concreteIndex": "media-catalog-research-33941564af4c70ceaaad3753",
+  "concreteIndex": "media-catalog-research-1ef953c12bb3a43ed50874dd",
   "coordinateCount": 19,
   "validatedIndexManifestRequired": true,
   "productionActivationAllowed": false,

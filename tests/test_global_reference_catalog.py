@@ -351,9 +351,9 @@ def test_reference_ontology_has_terminal_roots_and_versioned_concepts() -> None:
     assert predicates.digest == (
         "sha256:c803567e0e0b9ba1b2f1cd4daa6750792c0bc1fc88cca8e2bcffd4216b916588"
     )
-    assert research_policy().policy_version == "2.7.0"
+    assert research_policy().policy_version == "2.8.0"
     assert research_policy().digest == (
-        "sha256:3e1ba89f63bc3d9eaaaddb6d3acc307c6db45c116c82a8445c8ea07d3641c590"
+        "sha256:19200a7b3653650d038a442b09e4e93135071634508b24be0f6ef6beaaad4c96"
     )
     assert ontology.authority == "GLOBAL_REFERENCE_ONLY"
     assert ontology.tenant_world_identity_authority is False
@@ -875,14 +875,15 @@ def test_reference_release_is_deterministic_validated_and_world_write_free(
         },
         source_snapshot_digests={
             "wikidata-json-dump": "sha256:" + ("6" * 64),
+            "wikidata-music-reference": "sha256:" + ("d" * 64),
             "musicbrainz-core-dump": "sha256:" + ("a" * 64),
         },
         source_snapshot_pin_ids={
             "wikidata-json-dump": (
                 news.captured.pin.pin_id,
                 learning.captured.pin.pin_id,
-                wikidata_music.captured.pin.pin_id,
             ),
+            "wikidata-music-reference": (wikidata_music.captured.pin.pin_id,),
             "musicbrainz-core-dump": (musicbrainz_music.captured.pin.pin_id,),
         },
         reference_ontology_digest=ontology.digest,

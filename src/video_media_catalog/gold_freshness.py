@@ -94,7 +94,7 @@ def research_release_freshness_policy(
     musicbrainz_slo_hours: int = 45 * 24,
 ) -> ReleaseFreshnessPolicy:
     return ReleaseFreshnessPolicy(
-        policy_version="1.1.0",
+        policy_version="1.2.0",
         requirements=(
             SourceFreshnessRequirement(
                 source_product_id="tmdb-research",
@@ -113,6 +113,11 @@ def research_release_freshness_policy(
             ),
             SourceFreshnessRequirement(
                 source_product_id="wikidata-json-dump",
+                required=True,
+                slo_hours=wikidata_slo_hours,
+            ),
+            SourceFreshnessRequirement(
+                source_product_id="wikidata-music-reference",
                 required=True,
                 slo_hours=wikidata_slo_hours,
             ),

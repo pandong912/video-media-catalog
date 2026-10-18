@@ -52,6 +52,7 @@ def test_canonical_policy_digest_and_source_mapping_are_exact() -> None:
         "tmdb-research": "tmdb",
         "tvmaze-public-api": "tvmaze",
         "wikidata-json-dump": "wikidata",
+        "wikidata-music-reference": "wikidata",
     }
 
 
@@ -68,6 +69,7 @@ def test_live_permissions_are_intersected_with_technical_support() -> None:
         "tmdb-research",
         "tvmaze-public-api",
         "wikidata-json-dump",
+        "wikidata-music-reference",
     }
     for capability in (
         CatalogSourceCapability.IDENTITY_SPINE,
@@ -125,6 +127,7 @@ def test_only_canonical_namespaces_can_drive_exact_identity() -> None:
         "tmdb-tv",
         "tvmaze-show",
         "wikidata-item",
+        "wikidata-music-item",
     }
     assert (
         set(policy.enabled_namespace_ids(CatalogSourceCapability.IDENTITY_SPINE))
@@ -252,7 +255,7 @@ def test_conflicting_source_and_namespace_mappings_fail_closed() -> None:
         else implementation
         for implementation in CATALOG_SOURCE_IMPLEMENTATIONS
     )
-    with pytest.raises(ValueError, match="mapping is conflicting"):
+    with pytest.raises(ValueError, match="cover exactly"):
         CatalogSourcePolicy(
             canonical_registry=policy.canonical_registry,
             implementations=conflicting_source,

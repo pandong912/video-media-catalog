@@ -58,7 +58,9 @@ predicate 都有独立版本；其 authority 固定为 `GLOBAL_REFERENCE_ONLY`�
 News/Journalism、Learning/Instruction 与 Music 经过 immutable Capture、
 Silver assertion、Identity、Gold 双时态 observation/conflict/citation，再贡献
 到 v12 search projection。Music 同时绑定 MusicBrainz core 与 Wikidata Music
-快照，并覆盖 `MUSIC_ARTIST`、`MUSIC_LABEL`、work、recording、release-group
+快照；后者使用独立 `wikidata-music-reference` 产品，避免与全局
+`wikidata-json-dump` 的 Temporal 来源状态合并。Music 覆盖
+`MUSIC_ARTIST`、`MUSIC_LABEL`、work、recording、release-group
 与 release；Artist/Label 都落在通用 `AGENT` 根，并以 authority-backed
 `musicAgentKind=PERSON|ORGANIZATION` 保留具体 kind。对应生产 profile 必须显式使用
 `identitySpine=true`、`goldContribution=true`、`materialization=false`；

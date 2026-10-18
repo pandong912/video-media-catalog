@@ -128,7 +128,7 @@ _SCHEDULE_COORDINATES = {
     ),
     SCHEDULE_MUSIC_MONTHLY: (
         "MUSIC",
-        ("musicbrainz-core-dump", "wikidata-json-dump"),
+        ("musicbrainz-core-dump", "wikidata-music-reference"),
         ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(

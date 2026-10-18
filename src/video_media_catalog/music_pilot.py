@@ -23,6 +23,7 @@ from video_media_catalog.gold_search_index import (
     gold_index_name,
 )
 from video_media_catalog.identity_v2 import IdentityConflict, build_identity_conflict
+from video_media_catalog.music_sources import WIKIDATA_MUSIC_SOURCE_PRODUCT_ID
 from video_media_catalog.predicate_registry import (
     load_research_predicate_registry,
 )
@@ -513,7 +514,10 @@ class MusicPilotMatchProfile(V2ContractModel):
     )
     @classmethod
     def validate_source_coordinates(cls, value: dict[str, str]) -> dict[str, str]:
-        if set(value) != {"musicbrainz-core-dump", "wikidata-json-dump"}:
+        if set(value) != {
+            "musicbrainz-core-dump",
+            WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
+        }:
             raise ValueError("Music Pilot profile requires both authority sources")
         return dict(sorted(value.items()))
 
@@ -806,7 +810,7 @@ def build_music_pilot_match_profile(
     _require_fixture_binding(
         cohort=cohort,
         name="wikidata",
-        source_product_id="wikidata-json-dump",
+        source_product_id=WIKIDATA_MUSIC_SOURCE_PRODUCT_ID,
         fixture=wikidata,
     )
     _require_authority_coordinate_facts(
@@ -871,15 +875,15 @@ def build_music_pilot_match_profile(
         "authorityCoordinateDigest": cohort.authority_coordinate_digest,
         "sourcePins": {
             "musicbrainz-core-dump": musicbrainz.captured.pin.pin_id,
-            "wikidata-json-dump": wikidata.captured.pin.pin_id,
+            WIKIDATA_MUSIC_SOURCE_PRODUCT_ID: wikidata.captured.pin.pin_id,
         },
         "sourceFixtureDigests": {
             "musicbrainz-core-dump": musicbrainz.fixture.digest,
-            "wikidata-json-dump": wikidata.fixture.digest,
+            WIKIDATA_MUSIC_SOURCE_PRODUCT_ID: wikidata.fixture.digest,
         },
         "captureImageDigests": {
             "musicbrainz-core-dump": musicbrainz.fixture.image_digest,
-            "wikidata-json-dump": wikidata.fixture.image_digest,
+            WIKIDATA_MUSIC_SOURCE_PRODUCT_ID: wikidata.fixture.image_digest,
         },
         "sourcePolicyDigest": source_policy.digest,
         "ontologyDigest": ontology.digest,
@@ -902,7 +906,7 @@ def build_music_pilot_match_profile(
         "source_snapshot_pin_ids": build_material["sourcePins"],
         "source_revisions": {
             "musicbrainz-core-dump": musicbrainz.fixture.source_revision,
-            "wikidata-json-dump": wikidata.fixture.source_revision,
+            WIKIDATA_MUSIC_SOURCE_PRODUCT_ID: wikidata.fixture.source_revision,
         },
         "source_fixture_digests": build_material["sourceFixtureDigests"],
         "capture_image_digests": build_material["captureImageDigests"],

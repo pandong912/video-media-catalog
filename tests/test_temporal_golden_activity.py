@@ -17,8 +17,12 @@ from video_media_catalog.community_tables import DATA_TABLE_COLUMNS
 from video_media_catalog.temporal.activities import golden as golden_mod
 from video_media_catalog.temporal.golden_models import (
     GoldenEpochResult,
+    GoldenIdentityMode,
     GoldenIdentityResult,
     GoldenPreflightResult,
+    GoldenSourceFreshnessStatus,
+    GoldenSourceRunState,
+    GoldenSourceRunStatus,
 )
 from video_media_catalog.temporal.models import ObjectRefPayload
 
@@ -1306,6 +1310,7 @@ def test_snapshot_accepts_verified_identity_lineage_closure(
             "requestedRunIds",
             "identityLineageRunIds",
             "unprocessedIdentitySourceRunIds",
+            "identityGenerationInitialized",
             "committedRunIds",
         }.issubset(kwargs["required_keys"])
         return (
@@ -1314,6 +1319,7 @@ def test_snapshot_accepts_verified_identity_lineage_closure(
                 "requestedRunIds": expected,
                 "identityLineageRunIds": lineage,
                 "unprocessedIdentitySourceRunIds": unprocessed,
+                "identityGenerationInitialized": False,
                 "committedRunIds": committed,
                 "silverSnapshot": _mapping(snapshot_ref),
             },
@@ -1338,6 +1344,113 @@ def test_snapshot_accepts_verified_identity_lineage_closure(
     assert lineage[0] not in requested_values
     assert result.snapshot_set_id == _run(105)
     assert result.unprocessed_identity_source_run_ids == unprocessed
+
+
+def test_full_identity_snapshot_and_resolution_use_all_spine_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = replace(
+        _input(),
+        identity_generation_id="pure-source-2026-09-r2",
+        identity_mode=GoldenIdentityMode.FULL,
+    )
+    expected_sources = tuple(
+        sorted((*input_data.baseline_source_run_ids, *input_data.tmdb_source_run_ids))
+    )
+    source_policy_digest = golden_mod.load_catalog_source_policy().digest
+    preflight = GoldenPreflightResult(
+        build_spec=_ref("s3://bucket/build-spec.json"),
+        planned_at="2026-10-09T00:00:00Z",
+        all_snapshot_run_ids=expected_sources,
+        tmdb_source_run_ids=tuple(sorted(input_data.tmdb_source_run_ids)),
+        imdb_age_hours=1.0,
+        tvmaze_age_hours=1.0,
+        imdb_slo_hours=2,
+        tvmaze_slo_hours=2,
+        freshness_policy_digest=_run(90),
+        identity_config_digest=_run(91),
+        identity_resolution_config_digest=_run(92),
+        identity_bound_config_digest=_run(93),
+        source_policy_digest=source_policy_digest,
+        source_run_states=(
+            GoldenSourceRunState(
+                source_product_id="tmdb-research",
+                run_ids=expected_sources,
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.PASS,
+                identity_spine=True,
+                materialization=True,
+            ),
+        ),
+    )
+    snapshot_ref = replace(
+        _ref("s3://bucket/full-pre-identity-snapshot.json"),
+        media_type=SILVER_SNAPSHOT_MEDIA_TYPE,
+    )
+    observed_snapshot_args: list[str] = []
+    observed_identity_args: list[str] = []
+
+    def fake_stage(**kwargs: Any) -> tuple[dict[str, Any], str]:
+        if kwargs["stage"] == "snapshot":
+            observed_snapshot_args.extend(kwargs["entry_args"])
+            return (
+                {
+                    "snapshotSetId": _run(94),
+                    "requestedRunIds": expected_sources,
+                    "identityLineageRunIds": (),
+                    "unprocessedIdentitySourceRunIds": (),
+                    "identityGenerationInitialized": True,
+                    "committedRunIds": expected_sources,
+                    "silverSnapshot": _mapping(snapshot_ref),
+                },
+                "snapshot-job",
+            )
+        observed_identity_args.extend(kwargs["entry_args"])
+        return (
+            {
+                "runId": _run(95),
+                "commitKey": _run(96),
+                "configDigest": preflight.identity_bound_config_digest,
+                "identityResolutionConfigDigest": (
+                    preflight.identity_resolution_config_digest
+                ),
+                "sourcePolicyDigest": source_policy_digest,
+                "identityGenerationId": input_data.identity_generation_id,
+                "identityMode": "full",
+                "sourceRunIds": expected_sources,
+                "tableCounts": {"community_entity_ledger": 1},
+                "tableSnapshotIds": {"community_entity_ledger": 7},
+            },
+            "identity-job",
+        )
+
+    monkeypatch.setattr(golden_mod, "_run_emr_stage", fake_stage)
+    monkeypatch.setattr(
+        golden_mod.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_run_id="temporal-run-1"),
+    )
+
+    snapshot = golden_mod.publish_golden_snapshot(input_data, preflight)
+    identity = golden_mod.resolve_golden_identity(
+        input_data,
+        preflight,
+        snapshot,
+        "2026-10-09T00:00:00Z",
+        "2026-10-09T00:00:00Z",
+    )
+
+    assert snapshot.unprocessed_identity_source_run_ids == expected_sources
+    assert "--initialize-identity-generation" in observed_snapshot_args
+    assert identity.source_run_ids == expected_sources
+    mode_index = observed_identity_args.index("--identity-mode")
+    assert observed_identity_args[mode_index + 1] == "full"
+    selected = tuple(
+        observed_identity_args[index + 1]
+        for index, value in enumerate(observed_identity_args)
+        if value == "--source-run-id"
+    )
+    assert selected == expected_sources
 
 
 @pytest.mark.parametrize("reuse_identity", [False, True])

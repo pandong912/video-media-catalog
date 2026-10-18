@@ -203,16 +203,18 @@ class CommunityCatalogTables:
         return self.spark.table(self.table_name(table)).limit(0)
 
     def assert_identity_tables_empty(self) -> None:
-        """Fail closed unless every mapped Identity table is currently empty."""
+        """Fail closed unless every mapped Identity table is pristine."""
 
         for table in sorted(IDENTITY_TABLES):
+            snapshot_id = self._latest_snapshot_id(table)
             rows = self.spark.sql(
                 f"SELECT 1 AS present FROM {self.table_identifier(table)} LIMIT 1"
             ).collect()
-            if rows:
+            if snapshot_id is not None or rows:
                 raise RuntimeError(
-                    "full Identity generation requires empty physical tables; "
-                    f"{table} maps to {self.table_mapping[table]!r} and is non-empty"
+                    "full Identity generation requires pristine physical tables; "
+                    f"{table} maps to {self.table_mapping[table]!r}, "
+                    f"snapshot={snapshot_id}, rowsPresent={bool(rows)}"
                 )
 
     def assert_identity_snapshot_heads(
@@ -302,6 +304,7 @@ class CommunityCatalogTables:
         dataframe_factory: Callable[[str], Any] | None = None,
         identity_mode: Literal["full", "incremental"] | None = None,
         expected_identity_snapshot_ids: Mapping[str, int | None] | None = None,
+        pinned_identity_runs: Any | None = None,
     ) -> CommunityIngestCommit:
         """Stage all rows and publish one immutable run commit last."""
 
@@ -323,6 +326,20 @@ class CommunityCatalogTables:
                 )
             if identity_mode == "full" and expected_identity_snapshot_ids is not None:
                 raise ValueError("full generation writes cannot pin Identity heads")
+        if identity_mode == "incremental" and pinned_identity_runs is None:
+            raise ValueError(
+                "incremental Identity writes require pinned Identity lineage"
+            )
+        if identity_mode != "incremental" and pinned_identity_runs is not None:
+            raise ValueError(
+                "only incremental Identity writes can pin Identity lineage"
+            )
+        if pinned_identity_runs is not None and "run_id" not in getattr(
+            pinned_identity_runs,
+            "columns",
+            (),
+        ):
+            raise ValueError("pinned Identity lineage must contain run_id")
         self.create_tables()
         existing = self.read_commit(run.run_id)
         if existing is not None:
@@ -341,16 +358,37 @@ class CommunityCatalogTables:
             dataframe_factory=dataframe_factory,
             allow_completed_reuse=not generation_write,
         )
-        if expected_identity_snapshot_ids is not None:
-            self.assert_identity_snapshot_heads(expected_identity_snapshot_ids)
         if identity_mode == "full":
             self.assert_identity_tables_empty()
+        foreign_owner_tables: tuple[str, ...] = ()
         if identity_mode == "incremental":
             # Insert-only Identity tables cannot rewrite existing logical keys.
             # Incremental resolution may re-touch existing entities (new sources
             # binding to known entity_keys); drop those keys before preflight
             # and rebuild run identity around the filtered counts.
-            run, prepared = self._strip_existing_identity_keys(run, prepared)
+            original_run_id = run.run_id
+            run, prepared, foreign_owner_tables = self._strip_existing_identity_keys(
+                run,
+                prepared,
+                pinned_identity_runs=pinned_identity_runs,
+            )
+            if run.run_id != original_run_id:
+                existing = self.read_commit(run.run_id)
+                if existing is not None:
+                    return self._reuse_existing_commit(run, existing)
+                self.preflight_snapshot_metadata(run.run_id)
+                if generation_write:
+                    self._assert_no_partial_run_state(run.run_id)
+                stored_run = self._read_run_manifest(run.run_id)
+                if stored_run is not None and stored_run != run:
+                    raise RuntimeError("community ingest run manifest conflicts")
+        if expected_identity_snapshot_ids is not None:
+            self.assert_identity_snapshot_heads(expected_identity_snapshot_ids)
+        if foreign_owner_tables:
+            raise RuntimeError(
+                "Identity keys are owned outside the pinned lineage in: "
+                + ", ".join(foreign_owner_tables)
+            )
         self._preflight_identity_keys(
             run,
             dataframes=prepared,
@@ -519,18 +557,24 @@ class CommunityCatalogTables:
         self,
         run: CommunityIngestRun,
         dataframes: Mapping[str, Any],
-    ) -> tuple[CommunityIngestRun, dict[str, Any]]:
-        """Drop Identity rows whose insert-only keys already exist.
+        *,
+        pinned_identity_runs: Any,
+    ) -> tuple[CommunityIngestRun, dict[str, Any], tuple[str, ...]]:
+        """Drop Identity rows whose keys exist in the pinned lineage.
 
         Incremental Identity may resolve new source nodes onto existing
-        entities. Those entity_keys (and any other colliding insert-only keys)
-        must not be re-inserted; rebuild the run so expected_counts and run_id
-        match the filtered frames.
+        entities. Keys owned by the pinned lineage must not be re-inserted.
+        Report collisions owned outside that lineage so the caller can first
+        recognize an exact retry or partial write under the rebuilt run ID.
         """
 
+        if "run_id" not in getattr(pinned_identity_runs, "columns", ()):
+            raise ValueError("pinned Identity lineage must contain run_id")
+        pinned_runs = pinned_identity_runs.select("run_id").dropDuplicates(["run_id"])
         prepared = dict(dataframes)
         counts = dict(run.expected_counts)
         changed = False
+        foreign_owner_tables: list[str] = []
         for table in sorted(IDENTITY_TABLES):
             if counts.get(table, 0) == 0:
                 continue
@@ -538,8 +582,29 @@ class CommunityCatalogTables:
             if frame is None:
                 raise ValueError(f"{table} dataframe is required for key strip")
             keys = list(TABLE_MERGE_KEYS[table])
-            existing = self.spark.table(self.table_name(table)).select(*keys)
-            filtered = frame.join(existing, keys, "left_anti")
+            incoming_keys = frame.select(*keys).dropDuplicates(keys)
+            existing = self.spark.table(self.table_name(table)).select(
+                "run_id",
+                *keys,
+            )
+            colliding_existing = existing.join(
+                incoming_keys,
+                keys,
+                "left_semi",
+            )
+            foreign_keys = (
+                colliding_existing.join(pinned_runs, "run_id", "left_anti")
+                .select(*keys)
+                .dropDuplicates(keys)
+            )
+            if incoming_keys.join(foreign_keys, keys, "inner").limit(1).count():
+                foreign_owner_tables.append(table)
+            reusable_keys = (
+                colliding_existing.join(pinned_runs, "run_id", "left_semi")
+                .select(*keys)
+                .dropDuplicates(keys)
+            )
+            filtered = frame.join(reusable_keys, keys, "left_anti")
             new_count = int(filtered.count())
             if new_count == counts[table]:
                 continue
@@ -547,7 +612,7 @@ class CommunityCatalogTables:
             prepared[table] = filtered
             counts[table] = new_count
         if not changed:
-            return run, prepared
+            return run, prepared, tuple(foreign_owner_tables)
         rebuilt = build_community_ingest_run(
             run_kind=run.run_kind,
             source_product_id=run.source_product_id,
@@ -572,7 +637,7 @@ class CommunityCatalogTables:
         for table, frame in list(prepared.items()):
             if "run_id" in getattr(frame, "columns", ()):
                 prepared[table] = frame.withColumn("run_id", run_id_column)
-        return rebuilt, prepared
+        return rebuilt, prepared, tuple(foreign_owner_tables)
 
     def _preflight_identity_keys(
         self,

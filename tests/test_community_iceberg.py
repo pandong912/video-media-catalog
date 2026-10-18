@@ -298,7 +298,33 @@ def test_full_generation_rejects_any_nonempty_identity_table(
         ),
         identity_generation_id="catalog-2026-09",
     )
-    with pytest.raises(RuntimeError, match="requires empty physical tables"):
+    with pytest.raises(RuntimeError, match="requires pristine physical tables"):
+        tables.assert_identity_tables_empty()
+
+
+def test_full_generation_rejects_empty_table_with_snapshot_history(
+    tmp_path: Path,
+) -> None:
+    class HistoricalIdentitySpark(FakeSpark):
+        def sql(self, statement: str):
+            self.statements.append(statement)
+            if ".history" in statement and "__g_" in statement:
+                return FakeResult([{"snapshot_id": 41}])
+            return FakeResult()
+
+    tables = CommunityCatalogTables(
+        HistoricalIdentitySpark(),
+        CatalogConfig(
+            catalog_name="media",
+            namespace="community_v2",
+            warehouse=(tmp_path / "warehouse").as_uri(),
+        ),
+        identity_generation_id="catalog-2026-09",
+    )
+    with pytest.raises(
+        RuntimeError,
+        match=r"requires pristine physical tables.*snapshot=41, rowsPresent=False",
+    ):
         tables.assert_identity_tables_empty()
 
 
@@ -449,10 +475,14 @@ class RecordingTables(CommunityCatalogTables):
 
     def read_commit(self, run_id: str):
         self.events.append("read-commit")
+        if self.commit is None or self.commit.run_id != run_id:
+            return None
         return self.commit
 
     def _read_run_manifest(self, run_id: str):
         self.events.append("read-run")
+        if self.manifest is None or self.manifest.run_id != run_id:
+            return None
         return self.manifest
 
     def merge_insert_only(
@@ -586,6 +616,43 @@ def _frames_for(run: CommunityIngestRun) -> dict[str, StageFrame]:
     }
 
 
+class RebuildingIdentityTables(RecordingTables):
+    def __init__(
+        self,
+        final_run: CommunityIngestRun,
+        *,
+        partial_final_run: bool = False,
+    ) -> None:
+        super().__init__(identity_generation_id="catalog-2026-09")
+        self.final_run = final_run
+        self.partial_final_run = partial_final_run
+
+    def _strip_existing_identity_keys(
+        self,
+        run: CommunityIngestRun,
+        dataframes,
+        *,
+        pinned_identity_runs,
+    ):
+        del run, pinned_identity_runs
+        prepared = dict(dataframes)
+        prepared["community_entity_ledger"] = StageFrame(
+            "community_entity_ledger",
+            self.final_run.expected_counts["community_entity_ledger"],
+            self.final_run.run_id,
+        )
+        return self.final_run, prepared, ()
+
+    def _run_row_count(self, table: str, run_id: str) -> int:
+        self.events.append(f"count:{table}")
+        if self.partial_final_run and run_id == self.final_run.run_id:
+            return self.final_run.expected_counts[table]
+        return 0
+
+    def assert_identity_snapshot_heads(self, _expected) -> None:
+        raise AssertionError("exact retry or partial write must be recognized first")
+
+
 def test_legacy_partial_run_resumes_for_source_ingestion_compatibility() -> None:
     run = _run_with_counts(
         community_source_record=1,
@@ -626,8 +693,57 @@ def test_generation_partial_run_must_be_rolled_back_before_retry() -> None:
             committed_at="2026-09-19T00:01:00Z",
             identity_mode="incremental",
             expected_identity_snapshot_ids=snapshots,
+            pinned_identity_runs=_pinned_identity_runs(),
         )
     assert frames["community_entity_ledger"].count_calls == 0
+    assert tables.merge_events == []
+
+
+def test_filtered_incremental_exact_retry_reuses_final_run_commit() -> None:
+    original = _identity_run_with_counts(community_entity_ledger=2)
+    final = _identity_run_with_counts(community_entity_ledger=1)
+    tables = RebuildingIdentityTables(final)
+    tables.manifest = final
+    tables.commit = build_community_ingest_commit(
+        run_id=final.run_id,
+        committed_at="2026-09-19T00:01:00Z",
+        table_counts=final.expected_counts,
+        table_snapshot_ids={
+            table: (41 if table == "community_entity_ledger" else None)
+            for table in DATA_TABLE_COLUMNS
+        },
+    )
+
+    commit = tables.stage_and_commit(
+        run=original,
+        dataframes=_frames_for(original),
+        committed_at="2026-09-19T00:02:00Z",
+        identity_mode="incremental",
+        expected_identity_snapshot_ids={table: None for table in DATA_TABLE_COLUMNS},
+        pinned_identity_runs=_pinned_identity_runs(),
+    )
+
+    assert commit == tables.commit
+    assert tables.merge_events == []
+
+
+def test_filtered_incremental_partial_run_requires_rollback_before_head_check() -> None:
+    original = _identity_run_with_counts(community_entity_ledger=2)
+    final = _identity_run_with_counts(community_entity_ledger=1)
+    tables = RebuildingIdentityTables(final, partial_final_run=True)
+
+    with pytest.raises(RuntimeError, match="rollback-failed-run"):
+        tables.stage_and_commit(
+            run=original,
+            dataframes=_frames_for(original),
+            committed_at="2026-09-19T00:02:00Z",
+            identity_mode="incremental",
+            expected_identity_snapshot_ids={
+                table: None for table in DATA_TABLE_COLUMNS
+            },
+            pinned_identity_runs=_pinned_identity_runs(),
+        )
+
     assert tables.merge_events == []
 
 
@@ -640,6 +756,24 @@ def test_generation_resolution_requires_explicit_mode() -> None:
             run=run,
             dataframes=_frames_for(run),
             committed_at="2026-09-19T00:01:00Z",
+        )
+
+    assert tables.events == []
+
+
+def test_incremental_generation_requires_pinned_identity_lineage() -> None:
+    run = _identity_run_with_counts()
+    tables = RecordingTables(identity_generation_id="catalog-2026-09")
+
+    with pytest.raises(ValueError, match="require pinned Identity lineage"):
+        tables.stage_and_commit(
+            run=run,
+            dataframes=_frames_for(run),
+            committed_at="2026-09-19T00:01:00Z",
+            identity_mode="incremental",
+            expected_identity_snapshot_ids={
+                table: None for table in DATA_TABLE_COLUMNS
+            },
         )
 
     assert tables.events == []
@@ -815,47 +949,131 @@ def test_identity_existing_new_key_collision_fails_preflight() -> None:
         )
 
 
-def test_incremental_strips_existing_identity_keys_and_rebuilds_run() -> None:
-    class StripFrame:
-        def __init__(self, *, count: int, columns: list[str]) -> None:
-            self._count = count
-            self.columns = list(columns)
+class StripFrame:
+    def __init__(
+        self,
+        *,
+        count: int,
+        columns: list[str],
+        role: str,
+        foreign_count: int = 0,
+        reusable_count: int = 0,
+    ) -> None:
+        self._count = count
+        self.columns = list(columns)
+        self.role = role
+        self.foreign_count = foreign_count
+        self.reusable_count = reusable_count
 
-        def select(self, *columns: str):
-            return StripFrame(count=self._count, columns=list(columns))
+    def select(self, *columns: str):
+        return StripFrame(
+            count=self._count,
+            columns=list(columns),
+            role=self.role,
+            foreign_count=self.foreign_count,
+            reusable_count=self.reusable_count,
+        )
 
-        def join(self, _other, _keys, how: str):
-            assert how == "left_anti"
-            return StripFrame(count=0, columns=self.columns)
+    def dropDuplicates(self, _keys: list[str]):
+        return self
 
-        def count(self) -> int:
-            return self._count
-
-        def withColumn(self, name: str, _value):
-            assert name == "run_id"
+    def join(self, other, _keys, how: str):
+        if self.role == "existing" and other.role == "incoming" and how == "left_semi":
             return self
+        if self.role == "existing" and how in {"left_anti", "left_semi"}:
+            count = self.foreign_count if how == "left_anti" else self.reusable_count
+            return StripFrame(
+                count=count,
+                columns=self.columns,
+                role="foreign" if how == "left_anti" else "reusable",
+            )
+        if how == "inner":
+            return StripFrame(
+                count=int(self._count > 0 and other._count > 0),
+                columns=self.columns,
+                role="collision",
+            )
+        if how == "left_anti":
+            return StripFrame(
+                count=0 if other._count else self._count,
+                columns=self.columns,
+                role=self.role,
+            )
+        raise AssertionError(f"unexpected join mode: {how}")
 
-    class StripSpark(StageSpark):
-        def table(self, _name):
-            return StripFrame(count=1, columns=["entity_key"])
+    def limit(self, count: int):
+        assert count == 1
+        return self
 
-    run = _run_with_counts(community_entity_ledger=3)
+    def count(self) -> int:
+        return self._count
+
+    def withColumn(self, name: str, _value):
+        assert name == "run_id"
+        return self
+
+
+class StripSpark(StageSpark):
+    def __init__(self, *, foreign_count: int, reusable_count: int) -> None:
+        super().__init__()
+        self.foreign_count = foreign_count
+        self.reusable_count = reusable_count
+
+    def table(self, _name):
+        return StripFrame(
+            count=self.foreign_count + self.reusable_count,
+            columns=["run_id", "entity_key"],
+            role="existing",
+            foreign_count=self.foreign_count,
+            reusable_count=self.reusable_count,
+        )
+
+
+def _pinned_identity_runs() -> StripFrame:
+    return StripFrame(count=1, columns=["run_id"], role="pinned")
+
+
+def test_incremental_strips_pinned_identity_keys_and_rebuilds_run() -> None:
+    run = _identity_run_with_counts(community_entity_ledger=3)
     original_run_id = run.run_id
     tables = RecordingTables()
-    tables.spark = StripSpark()
+    tables.spark = StripSpark(foreign_count=0, reusable_count=1)
     frame = StripFrame(
         count=3,
         columns=list(TABLE_COLUMNS["community_entity_ledger"]),
+        role="incoming",
     )
 
-    rebuilt, prepared = tables._strip_existing_identity_keys(
+    rebuilt, prepared, foreign_owner_tables = tables._strip_existing_identity_keys(
         run,
         {"community_entity_ledger": frame},
+        pinned_identity_runs=_pinned_identity_runs(),
     )
 
     assert rebuilt.run_id != original_run_id
     assert rebuilt.expected_counts["community_entity_ledger"] == 0
     assert prepared["community_entity_ledger"].count() == 0
+    assert foreign_owner_tables == ()
+
+
+def test_incremental_rejects_identity_key_owned_outside_pinned_lineage() -> None:
+    run = _identity_run_with_counts(community_entity_ledger=3)
+    tables = RecordingTables()
+    tables.spark = StripSpark(foreign_count=1, reusable_count=0)
+    frame = StripFrame(
+        count=3,
+        columns=list(TABLE_COLUMNS["community_entity_ledger"]),
+        role="incoming",
+    )
+
+    rebuilt, _, foreign_owner_tables = tables._strip_existing_identity_keys(
+        run,
+        {"community_entity_ledger": frame},
+        pinned_identity_runs=_pinned_identity_runs(),
+    )
+
+    assert rebuilt.run_id == run.run_id
+    assert foreign_owner_tables == ("community_entity_ledger",)
 
 
 @pytest.mark.parametrize(

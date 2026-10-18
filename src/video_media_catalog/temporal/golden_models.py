@@ -23,6 +23,11 @@ class GoldenSourceFreshnessStatus(StrEnum):
     NOT_REQUIRED = "NOT_REQUIRED"
 
 
+class GoldenIdentityMode(StrEnum):
+    INCREMENTAL = "incremental"
+    FULL = "full"
+
+
 @dataclass(frozen=True)
 class GoldenSourceRunState:
     """Pinned capture/Silver state consumed by one Golden Build."""
@@ -107,6 +112,7 @@ class GoldenBuildInput:
     source_watermarks: dict[str, str]
     freshness_override: FreshnessOverrideInput
     env: GoldenBuildEnv
+    identity_mode: GoldenIdentityMode = GoldenIdentityMode.INCREMENTAL
     baseline_identity_source_run_ids: tuple[str, ...] = ()
     supplemental_source_run_ids: tuple[str, ...] = ()
     identity_reuse: ObjectRefPayload | None = None

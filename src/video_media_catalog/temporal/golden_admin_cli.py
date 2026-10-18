@@ -17,6 +17,7 @@ from video_media_catalog.temporal.golden_models import (
     FreshnessOverrideInput,
     GoldenBuildEnv,
     GoldenBuildInput,
+    GoldenIdentityMode,
     GoldenSourceFreshnessStatus,
     GoldenSourceRunState,
     GoldenSourceRunStatus,
@@ -148,6 +149,9 @@ def _input_from_mapping(values: dict[str, Any]) -> GoldenBuildInput:
             max_slo_hours=int(override.get("maxSloHours", 720)),
         ),
         env=_env_from_mapping(values["env"]),
+        identity_mode=GoldenIdentityMode(
+            str(values.get("identityMode", GoldenIdentityMode.INCREMENTAL.value))
+        ),
         baseline_identity_source_run_ids=tuple(
             str(value) for value in values["baselineIdentitySourceRunIds"]
         ),

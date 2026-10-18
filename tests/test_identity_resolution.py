@@ -18,11 +18,13 @@ from video_media_catalog.identity_resolution import (
     reject_identity_candidate,
     resolve_exact_blocking_component,
     resolve_or_allocate_source_node,
+    resolve_source_scoped_imdb_episode,
     revoke_identity_membership,
 )
 from video_media_catalog.identity_v2 import (
     DecisionStatus,
     EntityLevel,
+    EvidenceKind,
     allocate_entity,
     build_entity_membership,
     build_entity_redirect,
@@ -95,6 +97,93 @@ def test_identity_resolution_allocates_unmatched_source_once() -> None:
     )
     assert first == second
     assert first.entities[0].entity_key == first.memberships[0].entity_key
+
+
+def test_source_scoped_imdb_episode_fallback_is_tconst_specific() -> None:
+    arguments = {
+        "entity_kind": "TV_EPISODE",
+        "parent_level": EntityLevel.SERIES,
+        "parent_source_node": SourceNodeRef(
+            namespace_id="imdb-title",
+            source_id="tt9000001",
+            referent_kind="EDITORIAL_WORK",
+        ),
+        "parent_entity_key": "sha256:" + ("1" * 64),
+        "parent_membership_key": "sha256:" + ("2" * 64),
+        "relationship_assertion_key": "sha256:" + ("3" * 64),
+        "assertion_keys": ("sha256:" + ("4" * 64),),
+        "observed_at": TIMESTAMP,
+        "policy_id": "imdb-datasets-non-commercial",
+        "policy_digest": "sha256:" + ("5" * 64),
+        "decision_policy_version": "source-scoped-hierarchy-fallback-v1",
+        "decided_by": "community-identity-spark-v2",
+    }
+
+    first = resolve_source_scoped_imdb_episode(
+        source_node=SourceNodeRef(
+            namespace_id="imdb-title",
+            source_id="tt0000001",
+            referent_kind="EDITORIAL_WORK",
+        ),
+        **arguments,
+    )
+    second = resolve_source_scoped_imdb_episode(
+        source_node=SourceNodeRef(
+            namespace_id="imdb-title",
+            source_id="tt0000002",
+            referent_kind="EDITORIAL_WORK",
+        ),
+        **arguments,
+    )
+
+    assert first.memberships[0].entity_key != second.memberships[0].entity_key
+    assert (
+        first.evidence[0].details["hierarchyFallback"]["mode"]
+        == "SOURCE_SCOPED_MISSING_ORDINAL"
+    )
+    assert first.evidence[0].details["hierarchyFallback"]["scope"] == "SOURCE_NODE"
+    assert first.evidence[0].kind == EvidenceKind.SOURCE_ENTITY_BOOTSTRAP
+    assert first.evidence[0].confidence is None
+    assert first.decisions[0].reason.startswith("source-scoped IMDb episode fallback")
+    assert arguments["relationship_assertion_key"] in first.evidence[0].assertion_keys
+
+
+@pytest.mark.parametrize(
+    ("source_id", "entity_kind", "message"),
+    [
+        ("episode-1", "TV_EPISODE", "requires an IMDb tconst"),
+        ("tt0000001", "MOVIE", "requires entity kind TV_EPISODE"),
+    ],
+)
+def test_source_scoped_imdb_episode_fallback_rejects_invalid_scope(
+    source_id: str,
+    entity_kind: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        resolve_source_scoped_imdb_episode(
+            source_node=SourceNodeRef(
+                namespace_id="imdb-title",
+                source_id=source_id,
+                referent_kind="EDITORIAL_WORK",
+            ),
+            entity_kind=entity_kind,
+            parent_level=EntityLevel.SERIES,
+            parent_source_node=SourceNodeRef(
+                namespace_id="imdb-title",
+                source_id="tt9000001",
+                referent_kind="EDITORIAL_WORK",
+            ),
+            parent_entity_key="sha256:" + ("1" * 64),
+            parent_membership_key="sha256:" + ("2" * 64),
+            relationship_assertion_key="sha256:" + ("3" * 64),
+            assertion_keys=("sha256:" + ("4" * 64),),
+            observed_at=TIMESTAMP,
+            policy_id="imdb-datasets-non-commercial",
+            policy_digest="sha256:" + ("5" * 64),
+            decision_policy_version="source-scoped-hierarchy-fallback-v1",
+            decided_by="community-identity-spark-v2",
+        )
 
 
 def test_referent_kind_compatibility_normalizes_within_domain_only() -> None:

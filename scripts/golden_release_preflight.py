@@ -22,7 +22,7 @@ import yaml
 
 from video_media_catalog.catalog_source_policy import CATALOG_SOURCE_POLICY_DIGEST
 from video_media_catalog.temporal.activities.golden import (
-    _incremental_identity_source_run_ids,
+    _identity_source_run_ids,
     _read_ref_json,
     _validate_preflight_documents,
     _validated_reused_identity_policy_compatibility,
@@ -292,7 +292,7 @@ def evaluate_runtime_input(
             for state in result.source_run_states
             if state.identity_spine
         )
-        incremental_run_ids = _incremental_identity_source_run_ids(
+        identity_run_ids = _identity_source_run_ids(
             input_data,
             result,
         )
@@ -302,7 +302,9 @@ def evaluate_runtime_input(
             detail=(
                 f"sourcePolicy={result.source_policy_digest}; "
                 f"identitySources={','.join(identity_sources)}; "
-                f"incrementalIdentityRuns={len(incremental_run_ids)}; "
+                f"identityMode={input_data.identity_mode.value}; "
+                f"{input_data.identity_mode.value}IdentityRuns="
+                f"{len(identity_run_ids)}; "
                 "identityExecutorProfile="
                 f"{input_data.env.build_executor_instances}x"
                 f"{input_data.env.build_executor_cores}c/"

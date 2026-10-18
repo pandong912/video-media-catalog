@@ -16,6 +16,7 @@ from video_media_catalog.gold_freshness import (
     scope_release_freshness_policy,
 )
 from video_media_catalog.temporal.activities.golden import (
+    _identity_source_run_ids,
     _incremental_identity_source_run_ids,
 )
 from video_media_catalog.temporal.activities.golden import (
@@ -27,6 +28,7 @@ from video_media_catalog.temporal.golden_models import (
     FreshnessOverrideInput,
     GoldenBuildEnv,
     GoldenBuildInput,
+    GoldenIdentityMode,
     GoldenSourceFreshnessStatus,
     GoldenSourceRunState,
     GoldenSourceRunStatus,
@@ -352,6 +354,79 @@ def test_preflight_accepts_enabled_source_identity_intent() -> None:
     assert _incremental_identity_source_run_ids(input_data, result) == tuple(
         sorted((_run(1), *input_data.tmdb_source_run_ids))
     )
+
+
+def test_preflight_full_identity_uses_fresh_generation_and_all_spine_sources() -> None:
+    baseline_input = _with_source_states(_input())
+    input_data = replace(
+        baseline_input,
+        identity_generation_id="pure-source-2026-09-r2",
+        identity_mode=GoldenIdentityMode.FULL,
+        source_run_states=tuple(
+            replace(
+                state,
+                identity_spine=True,
+                materialization=True,
+                gold_contribution=True,
+            )
+            if state.source_product_id
+            in {
+                "imdb-non-commercial-datasets",
+                "tvmaze-public-api",
+            }
+            else state
+            for state in baseline_input.source_run_states
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+    baseline["identityGenerationId"] = baseline_input.identity_generation_id
+    baseline_manifest = _baseline_identity_manifest(
+        identity_generation_id=baseline_input.identity_generation_id,
+        source_run_ids=input_data.baseline_identity_source_run_ids,
+    )
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        baseline_identity_manifest=baseline_manifest,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    expected_identity_runs = tuple(
+        sorted(
+            (
+                input_data.baseline_source_run_ids[0],
+                input_data.baseline_source_run_ids[1],
+                *input_data.tmdb_source_run_ids,
+            )
+        )
+    )
+    assert input_data.baseline_identity_run_id not in result.all_snapshot_run_ids
+    assert set(result.all_snapshot_run_ids) == {
+        *input_data.baseline_source_run_ids,
+        *input_data.tmdb_source_run_ids,
+    }
+    assert _identity_source_run_ids(input_data, result) == expected_identity_runs
+
+
+def test_preflight_full_identity_rejects_reusing_populated_generation() -> None:
+    input_data = replace(
+        _with_source_states(_input()),
+        identity_mode=GoldenIdentityMode.FULL,
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="requires a fresh Identity generation",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
 
 
 def test_preflight_accepts_reference_only_musicbrainz_source_state() -> None:

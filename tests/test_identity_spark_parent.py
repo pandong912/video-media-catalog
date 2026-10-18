@@ -242,3 +242,236 @@ def test_parent_join_accepts_checkpointed_memberships(
     assert ambiguous.resolution_mode == "CONFLICT_PARENT_AMBIGUOUS"
     assert ambiguous.max_parent_membership_candidate_count == 2
     assert ambiguous.parent_entity_key is None
+
+
+@pytest.mark.spark
+def test_imdb_episode_without_any_ordinal_uses_source_scoped_fallback(
+    spark: SparkSession,
+) -> None:
+    children = spark.createDataFrame(
+        [
+            ("imdb-title", f"tt000000{index}", "EDITORIAL_WORK")
+            for index in range(1, 11)
+        ],
+        (
+            "subject_namespace_id STRING, subject_source_id STRING, "
+            "subject_referent_kind STRING"
+        ),
+    )
+    parent_ids = {
+        1: "tt9000001",
+        2: "tt9000001",
+        3: "tt9000001",
+        4: "tt9000001",
+        5: "tt9000005",
+        6: "tt9000006",
+        7: "tt9000007",
+        8: "tt9000008",
+        9: "tt9000009",
+        10: "tt9000010",
+    }
+    relationships = spark.createDataFrame(
+        [
+            (
+                "sha256:" + f"{index:064x}",
+                "imdb-title",
+                f"tt000000{index}",
+                "EDITORIAL_WORK",
+                "PART_OF_SERIES",
+                "imdb-title",
+                parent_ids[index],
+                "EDITORIAL_WORK",
+                '{"seasonNumber":1}' if index == 3 else "{}",
+            )
+            for index in range(1, 7)
+        ]
+        + [
+            (
+                "sha256:" + f"{70:064x}",
+                "imdb-title",
+                "tt0000007",
+                "EDITORIAL_WORK",
+                "PART_OF_SERIES",
+                "imdb-title",
+                parent_ids[7],
+                "EDITORIAL_WORK",
+                "{}",
+            ),
+            (
+                "sha256:" + f"{71:064x}",
+                "imdb-title",
+                "tt0000007",
+                "EDITORIAL_WORK",
+                "PART_OF_SEASON",
+                "imdb-title",
+                parent_ids[7],
+                "EDITORIAL_WORK",
+                '{"episodeNumber":4}',
+            ),
+            *[
+                (
+                    "sha256:" + f"{assertion:064x}",
+                    "imdb-title",
+                    "tt0000008",
+                    "EDITORIAL_WORK",
+                    "PART_OF_SERIES",
+                    "imdb-title",
+                    parent_ids[8],
+                    "EDITORIAL_WORK",
+                    "{}",
+                )
+                for assertion in (80, 81)
+            ],
+            (
+                "sha256:" + f"{90:064x}",
+                "imdb-title",
+                "tt0000009",
+                "EDITORIAL_WORK",
+                "PART_OF_SERIES",
+                "imdb-title",
+                parent_ids[9],
+                "EDITORIAL_WORK",
+                '{"seasonNumber":null,"episodeNumber":null,"ordinal":null}',
+            ),
+            (
+                "sha256:" + f"{100:064x}",
+                "imdb-title",
+                "tt00000010",
+                "EDITORIAL_WORK",
+                "PART_OF_SERIES",
+                "imdb-title",
+                parent_ids[10],
+                "EDITORIAL_WORK",
+                '{"episodeNumber":""}',
+            ),
+        ],
+        (
+            "assertion_id STRING, subject_namespace_id STRING, "
+            "subject_source_id STRING, subject_referent_kind STRING, "
+            "predicate STRING, object_namespace_id STRING, "
+            "object_source_id STRING, object_referent_kind STRING, "
+            "qualifiers_json STRING"
+        ),
+    )
+    fields = spark.createDataFrame(
+        [
+            (
+                "sha256:" + f"{index + 10:064x}",
+                "imdb-title",
+                "tt0000004",
+                "EDITORIAL_WORK",
+                "episode_number",
+                f'"{index}"',
+            )
+            for index in (1, 2)
+        ],
+        (
+            "assertion_id STRING, subject_namespace_id STRING, "
+            "subject_source_id STRING, subject_referent_kind STRING, "
+            "predicate STRING, value_json STRING"
+        ),
+    )
+    type_groups = spark.createDataFrame(
+        [
+            ("imdb-title", parent_id, "EDITORIAL_WORK", ["TV_SERIES"])
+            for parent_id in sorted(set(parent_ids.values()))
+        ],
+        (
+            "subject_namespace_id STRING, subject_source_id STRING, "
+            "subject_referent_kind STRING, entity_types ARRAY<STRING>"
+        ),
+    )
+    parent_memberships = spark.createDataFrame(
+        [
+            (
+                "imdb-title",
+                "tt9000001",
+                "EDITORIAL_WORK",
+                "sha256:" + ("a" * 64),
+                "sha256:" + ("b" * 64),
+            ),
+            (
+                "imdb-title",
+                "tt9000006",
+                "EDITORIAL_WORK",
+                "sha256:" + ("c" * 64),
+                "sha256:" + ("d" * 64),
+            ),
+            (
+                "imdb-title",
+                "tt9000006",
+                "EDITORIAL_WORK",
+                "sha256:" + ("e" * 64),
+                "sha256:" + ("f" * 64),
+            ),
+            (
+                "imdb-title",
+                "tt9000007",
+                "EDITORIAL_WORK",
+                "sha256:" + ("7" * 64),
+                "sha256:" + ("8" * 64),
+            ),
+            (
+                "imdb-title",
+                "tt9000008",
+                "EDITORIAL_WORK",
+                "sha256:" + ("9" * 64),
+                "sha256:" + ("0" * 64),
+            ),
+            (
+                "imdb-title",
+                "tt9000009",
+                "EDITORIAL_WORK",
+                "sha256:" + ("1" * 64),
+                "sha256:" + ("2" * 64),
+            ),
+            (
+                "imdb-title",
+                "tt9000010",
+                "EDITORIAL_WORK",
+                "sha256:" + ("3" * 64),
+                "sha256:" + ("4" * 64),
+            ),
+        ],
+        (
+            "source_namespace_id STRING, source_id STRING, "
+            "source_referent_kind STRING, entity_key STRING, "
+            "membership_key STRING"
+        ),
+    )
+    candidates = spark.createDataFrame(
+        [],
+        (
+            "subject_namespace_id STRING, subject_source_id STRING, "
+            "subject_referent_kind STRING, candidate_entity_key STRING"
+        ),
+    )
+
+    rows = {
+        row.subject_source_id: row
+        for row in build_parent_constrained_work(
+            children=children,
+            relationship_assertions=relationships,
+            field_assertions=fields,
+            type_groups=type_groups,
+            parent_memberships=parent_memberships,
+            candidate_links=candidates,
+            child_level=EntityLevel.EPISODE,
+        ).collect()
+    }
+
+    first = rows["tt0000001"]
+    second = rows["tt0000002"]
+    assert first.resolution_mode == second.resolution_mode == "BOOTSTRAP"
+    assert first.source_scoped_fallback and second.source_scoped_fallback
+    assert first.parent_choice_count == second.parent_choice_count == 1
+    assert first.component_id != second.component_id
+    assert rows["tt0000003"].resolution_mode == "CONFLICT_PARENT_ORDINAL"
+    assert rows["tt0000004"].resolution_mode == "CONFLICT_PARENT_ORDINAL"
+    assert rows["tt0000005"].resolution_mode == "CONFLICT_PARENT_UNRESOLVED"
+    assert rows["tt0000006"].resolution_mode == "CONFLICT_PARENT_AMBIGUOUS"
+    assert rows["tt0000007"].resolution_mode == "CONFLICT_PARENT_ORDINAL"
+    assert rows["tt0000008"].resolution_mode == "CONFLICT_PARENT_ORDINAL"
+    assert rows["tt0000009"].resolution_mode == "BOOTSTRAP"
+    assert rows["tt0000009"].source_scoped_fallback
+    assert rows["tt00000010"].resolution_mode == "CONFLICT_PARENT_ORDINAL"

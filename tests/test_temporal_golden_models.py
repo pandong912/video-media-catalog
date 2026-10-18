@@ -316,6 +316,85 @@ def test_preflight_pins_explicit_source_run_and_freshness_states() -> None:
     )
 
 
+def test_preflight_accepts_tmdb_runs_closed_in_the_incremental_baseline() -> None:
+    base = _with_source_states(_input())
+    music_run = _run(30)
+    baseline_identity_source_run_ids = tuple(
+        sorted(
+            (
+                *base.baseline_identity_source_run_ids,
+                *base.tmdb_source_run_ids,
+            )
+        )
+    )
+    identity_manifest = _baseline_identity_manifest(
+        identity_generation_id=base.identity_generation_id,
+        source_run_ids=baseline_identity_source_run_ids,
+    )
+    input_data = replace(
+        base,
+        baseline_source_run_ids=tuple(
+            sorted((*base.baseline_source_run_ids, *base.tmdb_source_run_ids))
+        ),
+        baseline_identity_run_id=str(identity_manifest["runId"]),
+        baseline_identity_source_run_ids=baseline_identity_source_run_ids,
+        supplemental_source_run_ids=(music_run,),
+        source_watermarks={
+            **base.source_watermarks,
+            "musicbrainz-core-dump": "music-pilot-r1",
+        },
+        source_run_states=(
+            *base.source_run_states,
+            GoldenSourceRunState(
+                source_product_id="musicbrainz-core-dump",
+                run_ids=(music_run,),
+                run_status=GoldenSourceRunStatus.COMMITTED,
+                freshness_status=GoldenSourceFreshnessStatus.PASS,
+                watermark="music-pilot-r1",
+                identity_spine=True,
+                materialization=False,
+                gold_contribution=True,
+            ),
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    result = _validate_preflight_documents(
+        input_data,
+        baseline=baseline,
+        baseline_identity_manifest=identity_manifest,
+        tmdb_summary=tmdb,
+        planned_at="2026-10-09T00:00:00Z",
+    )
+
+    assert result.tmdb_source_run_ids == input_data.tmdb_source_run_ids
+    assert set(input_data.tmdb_source_run_ids) < set(result.all_snapshot_run_ids)
+    assert _incremental_identity_source_run_ids(input_data, result) == (music_run,)
+
+
+def test_preflight_rejects_a_partially_baseline_pinned_tmdb_cohort() -> None:
+    base = _with_source_states(_input())
+    input_data = replace(
+        base,
+        baseline_source_run_ids=(
+            *base.baseline_source_run_ids,
+            base.tmdb_source_run_ids[0],
+        ),
+    )
+    baseline, tmdb = _documents(input_data)
+
+    with pytest.raises(
+        NonRetryableGoldenBuildError,
+        match="entirely baseline-pinned or entirely delta-pinned",
+    ):
+        _validate_preflight_documents(
+            input_data,
+            baseline=baseline,
+            tmdb_summary=tmdb,
+            planned_at="2026-10-09T00:00:00Z",
+        )
+
+
 def test_preflight_accepts_enabled_source_identity_intent() -> None:
     base = _with_source_states(_input())
     input_data = replace(

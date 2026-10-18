@@ -932,18 +932,24 @@ def _validate_preflight_documents(
         input_data.baseline_identity_run_id,
         label="baseline Identity run ID",
     )
+    baseline_source_set = set(baseline_sources)
+    tmdb_run_set = set(tmdb_runs)
+    tmdb_baseline_overlap = baseline_source_set & tmdb_run_set
+    if tmdb_baseline_overlap and tmdb_baseline_overlap != tmdb_run_set:
+        raise NonRetryableGoldenBuildError(
+            "TMDB source runs must be entirely baseline-pinned or entirely delta-pinned"
+        )
     overlap = (
-        (set(baseline_sources) & set(tmdb_runs))
-        | (set(baseline_sources) & set(supplemental_runs))
+        (baseline_source_set & set(supplemental_runs))
         | (set(tmdb_runs) & set(supplemental_runs))
         | (
             {identity_run}
-            & (set(baseline_sources) | set(tmdb_runs) | set(supplemental_runs))
+            & (baseline_source_set | tmdb_run_set | set(supplemental_runs))
         )
     )
     if overlap:
         raise NonRetryableGoldenBuildError(
-            "baseline, TMDB, supplemental, and Identity run IDs must not overlap"
+            "baseline/TMDB, supplemental, and Identity run IDs must not overlap"
         )
     expected_baseline_runs = set(baseline_sources) | {identity_run}
     if baseline.get("schemaVersion") != "2.0":

@@ -30,6 +30,7 @@ from video_media_catalog.gold_search_index import (
     RESEARCH_READ_ALIAS,
     GoldIndexBuildManifest,
     GoldIndexValidationReceipt,
+    gold_index_config_identity,
     validate_gold_index_contents,
     validate_gold_index_mapping,
 )
@@ -618,32 +619,51 @@ def _read_json(
     return value
 
 
-@activity.defn(name="SubmitGoldIndexBuildJob")
-def submit_gold_index_build_job(
-    input_data: GoldIndexProjectionInput,
-    completed_at: str,
-) -> GoldIndexJobResult:
-    _validate_input(input_data)
-    manifest = _job_manifest(input_data, completed_at=completed_at)
-    api = _KubernetesApi()
-    job_name = str(manifest["metadata"]["name"])
-    api.assert_no_other_active_builder(
-        namespace=input_data.env.kubernetes_namespace,
-        expected_name=job_name,
-    )
-    api.create_or_get_job(manifest)
-    _wait_for_job(
-        api,
-        namespace=input_data.env.kubernetes_namespace,
-        name=job_name,
-    )
+def _discover_optional_ref(
+    store: BoundedObjectStore,
+    *,
+    uri: str,
+    media_type: str,
+) -> ObjectRef | None:
+    from botocore.exceptions import ClientError
 
-    store = BoundedObjectStore(region=input_data.env.aws_region)
-    result_ref = _discover_ref(
-        store,
-        uri=_result_uri(input_data),
-        media_type=INDEX_JOB_RESULT_MEDIA_TYPE,
+    try:
+        return _discover_ref(store, uri=uri, media_type=media_type)
+    except ClientError as exc:
+        error = exc.response.get("Error", {})
+        code = str(error.get("Code") or "")
+        status = int(
+            exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") or 0
+        )
+        if code in {"404", "NoSuchKey", "NotFound"} or status == 404:
+            return None
+        raise
+
+
+def _load_job_result(
+    input_data: GoldIndexProjectionInput,
+    store: BoundedObjectStore,
+    *,
+    job_name: str,
+    optional: bool,
+) -> GoldIndexJobResult | None:
+    result_uri = _result_uri(input_data)
+    result_ref = (
+        _discover_optional_ref(
+            store,
+            uri=result_uri,
+            media_type=INDEX_JOB_RESULT_MEDIA_TYPE,
+        )
+        if optional
+        else _discover_ref(
+            store,
+            uri=result_uri,
+            media_type=INDEX_JOB_RESULT_MEDIA_TYPE,
+        )
     )
+    if result_ref is None:
+        return None
+
     result = _read_json(store, result_ref)
     if result.get("activationStatus") != "NOT_ACTIVATED":
         raise ApplicationError(
@@ -668,12 +688,28 @@ def submit_gold_index_build_job(
             "Gold index build does not match the pinned release plan",
             non_retryable=True,
         )
+    if build.release_commit != _object_ref(input_data.release_commit):
+        raise ApplicationError(
+            "Gold index build does not match the pinned release commit",
+            non_retryable=True,
+        )
     _require_current_source_policy(build)
-    if build.config_identity.image_digest != _image_digest(
-        input_data.env.builder_image
+    env = input_data.env
+    expected_config = gold_index_config_identity(
+        read_alias=RESEARCH_READ_ALIAS,
+        index_prefix=RESEARCH_INDEX_PREFIX,
+        shards=env.shards,
+        replicas=env.replicas,
+        bulk_chunk_size=env.bulk_chunk_size,
+        bulk_max_chunk_bytes=env.bulk_max_chunk_bytes,
+        image_digest=_image_digest(env.builder_image),
+    )
+    if (
+        build.config_identity != expected_config
+        or build.config_digest != expected_config.digest
     ):
         raise ApplicationError(
-            "Gold index build does not match the pinned image",
+            "Gold index build does not match the pinned index configuration",
             non_retryable=True,
         )
     return GoldIndexJobResult(
@@ -681,6 +717,50 @@ def submit_gold_index_build_job(
         result_object=_payload(result_ref),
         build_manifest=_payload(build_ref),
     )
+
+
+@activity.defn(name="SubmitGoldIndexBuildJob")
+def submit_gold_index_build_job(
+    input_data: GoldIndexProjectionInput,
+    completed_at: str,
+) -> GoldIndexJobResult:
+    _validate_input(input_data)
+    job_name = _job_name(input_data)
+    store = BoundedObjectStore(region=input_data.env.aws_region)
+    # completed_at changes on replay, so a successful Job's pod-template digest
+    # cannot be reused directly. Immutable result/build evidence is reusable only
+    # after every release, source-policy, and index-configuration pin is closed.
+    existing = _load_job_result(
+        input_data,
+        store,
+        job_name=job_name,
+        optional=True,
+    )
+    if existing is not None:
+        return existing
+
+    manifest = _job_manifest(input_data, completed_at=completed_at)
+    api = _KubernetesApi()
+    api.assert_no_other_active_builder(
+        namespace=input_data.env.kubernetes_namespace,
+        expected_name=job_name,
+    )
+    api.create_or_get_job(manifest)
+    _wait_for_job(
+        api,
+        namespace=input_data.env.kubernetes_namespace,
+        name=job_name,
+    )
+
+    loaded = _load_job_result(
+        input_data,
+        store,
+        job_name=job_name,
+        optional=False,
+    )
+    if loaded is None:
+        raise RuntimeError("Gold index Job completed without a result")
+    return loaded
 
 
 def _close(client: Any) -> None:

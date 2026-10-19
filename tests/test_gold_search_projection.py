@@ -174,6 +174,17 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
                 "resolution_status": "SELECTED",
                 **_lineage_fields(1002, source_path="/runtime"),
             },
+            {
+                "predicate": "status",
+                "value_json": None,
+                "qualifiers_json": "{}",
+                "resolution_status": "CONFLICTED",
+                **_wikidata_lineage_fields(
+                    0,
+                    source_path="/claims/P31/0/mainsnak/datavalue/value",
+                ),
+                "selected_assertion_id": None,
+            },
         ],
         "identifiers": [
             {
@@ -312,6 +323,10 @@ def test_gold_projection_is_bounded_and_locale_aware() -> None:
         '"Ended"',
         '"Running"',
     ]
+    assert all(
+        item["assertionId"] != ("sha256:" + f"{0:064x}")
+        for item in document["winningAssertions"]
+    )
 
 
 def test_materialization_evidence_intersects_canonical_predicates() -> None:

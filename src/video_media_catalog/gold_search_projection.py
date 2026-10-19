@@ -524,26 +524,30 @@ def project_gold_entity(
         field_lineage = _lineage(field)
         register_lineage(field_lineage)
         assertion_ids = _assertion_ids(field)
-        parsed = json.loads(field["value_json"])
         predicate = str(field["predicate"])
-        qualifiers = json.loads(field["qualifiers_json"])
+        resolution_status = str(field["resolution_status"])
+        raw_value_json = field.get("value_json")
+        value_json = None if raw_value_json is None else str(raw_value_json)
+        parsed = None if value_json is None else json.loads(value_json)
+        qualifiers_json = str(field["qualifiers_json"])
+        qualifiers = json.loads(qualifiers_json)
         if not isinstance(qualifiers, dict):
             raise ValueError("Gold field qualifiers must be a JSON object")
         register_reference_candidate(
             assertion_ids,
             kind="FIELD",
             predicate=predicate,
-            value_json=str(field["value_json"]),
+            value_json=value_json,
             value_text=parsed if isinstance(parsed, str) else None,
-            qualifiers_json=str(field["qualifiers_json"]),
-            resolution_status=str(field["resolution_status"]),
+            qualifiers_json=qualifiers_json,
+            resolution_status=resolution_status,
         )
-        if field.get("resolution_status") not in {"SELECTED", "SET"}:
+        if resolution_status not in {"SELECTED", "SET"}:
             continue
+        if value_json is None:
+            raise ValueError("resolved Gold field requires a value")
         selected = field.get("selected_assertion_id")
-        winner_ids = (
-            (selected,) if field["resolution_status"] == "SELECTED" else assertion_ids
-        )
+        winner_ids = (selected,) if resolution_status == "SELECTED" else assertion_ids
         if not all(isinstance(item, str) for item in winner_ids):
             raise ValueError("selected Gold field has invalid assertion lineage")
         field_lineage_by_id = {item.assertion_id: item for item in field_lineage}
@@ -553,9 +557,9 @@ def project_gold_entity(
         selected_field_values[predicate].append(
             {
                 "value": parsed,
-                "valueJson": str(field["value_json"]),
-                "qualifiersJson": str(field["qualifiers_json"]),
-                "resolutionStatus": str(field["resolution_status"]),
+                "valueJson": value_json,
+                "qualifiersJson": qualifiers_json,
+                "resolutionStatus": resolution_status,
                 "sourceProductIds": sorted(
                     {field_lineage_by_id[item].source_product_id for item in winner_ids}
                 ),

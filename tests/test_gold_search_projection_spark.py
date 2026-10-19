@@ -140,7 +140,21 @@ def test_distributed_gold_search_projection(spark: SparkSession) -> None:
             "selected_assertion_id": "sha256:" + ("f" * 64),
             "assertion_ids_json": '["sha256:' + ("f" * 64) + '"]',
             "trace_json": _trace("sha256:" + ("f" * 64), "/name"),
-        }
+        },
+        {
+            "resolution_key": "sha256:" + ("3" * 64),
+            "release_plan_id": plan_id,
+            "entity_key": entity_key,
+            "predicate": "status",
+            "scope_hash": "sha256:" + ("4" * 64),
+            "value_type": "STRING",
+            "value_json": None,
+            "qualifiers_json": "{}",
+            "resolution_status": "WITHHELD",
+            "selected_assertion_id": None,
+            "assertion_ids_json": '["sha256:' + ("5" * 64) + '"]',
+            "trace_json": _trace("sha256:" + ("5" * 64), "/status"),
+        },
     ]
     rows["community_gold_identifier"] = [
         {

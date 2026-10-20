@@ -60,6 +60,9 @@ _LEARNING_REFERENCE_DOMAINS = frozenset(
     {ReferenceDomain.LEARNING, ReferenceDomain.INSTRUCTION}
 )
 _MUSIC_REFERENCE_DOMAINS = frozenset({ReferenceDomain.MUSIC})
+_MUSIC_SOURCE_PRODUCTS = frozenset(
+    {"musicbrainz-core-dump", "wikidata-music-reference"}
+)
 
 _SPORTS_FIELD_PREDICATES = frozenset(
     {
@@ -1106,6 +1109,11 @@ def project_gold_entity(
         domains.add("ANIMATION")
     if _content_type(entity_kind) is not None:
         domains.add("FILM_TV")
+    # Identity resolution may merge a domain-specific Music entity into a
+    # canonical PERSON, ORGANIZATION, or WORK. Preserve the Music slice from
+    # authoritative source lineage instead of relying only on entity_kind.
+    if source_products & _MUSIC_SOURCE_PRODUCTS:
+        domains.add("MUSIC")
     if reference_concept is not None:
         domains.update(
             domain.value

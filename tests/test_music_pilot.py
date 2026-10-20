@@ -801,6 +801,53 @@ def _project_recording_coordinate(
     )
 
 
+@pytest.mark.parametrize(
+    "source_product_id",
+    ["musicbrainz-core-dump", "wikidata-music-reference"],
+)
+def test_music_domain_survives_identity_merge_into_canonical_person(
+    source_product_id: str,
+) -> None:
+    assertion_id = "sha256:" + ("7" * 64)
+    document = project_gold_entity(
+        {
+            "entity_key": _entity_key("michael-jackson"),
+            "entity_level": "AGENT",
+            "entity_kind": "PERSON",
+            "status": "ACTIVE",
+            "release_plan_id": "sha256:" + ("8" * 64),
+            "source_node_count": 2,
+            "fields": [
+                {
+                    "predicate": "title",
+                    "value_json": canonical_json("Michael Jackson"),
+                    "qualifiers_json": canonical_json(
+                        {"language": "en", "titleRole": "PRIMARY"}
+                    ),
+                    "resolution_status": "SELECTED",
+                    "selected_assertion_id": assertion_id,
+                    "assertion_ids_json": canonical_json([assertion_id]),
+                    "trace_json": _trace(
+                        assertion_id,
+                        source_product_id=source_product_id,
+                        source_record_id="f27ec8db-af05-4f36-916e-3d57f91ecf5e",
+                        source_path="/name",
+                    ),
+                }
+            ],
+            "identifiers": [],
+            "relations": [],
+            "relation_summary": [],
+            "conflict_count": 0,
+            "conflicts": [],
+        }
+    )
+
+    assert document["displayName"] == "Michael Jackson"
+    assert document["entityKind"] == "PERSON"
+    assert document["domains"] == ["MUSIC"]
+
+
 def test_real_authority_facts_generate_music_gold_match_fields() -> None:
     _cohort, musicbrainz, wikidata, _profile = _pilot_material()
     exact_documents = [

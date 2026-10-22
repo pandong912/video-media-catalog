@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "2.0.0",
+  "objectRefId": "018f47c2-4a3b-7a10-8a11-000000000013",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "dataPlaneBindingId": "018f47c2-4a3b-7a10-8a11-000000000003",
+  "dataPlaneId": "018f47c2-4a3b-7a10-8a11-000000000004",
+  "provider": "ALIBABA_OSS",
+  "uri": "oss://video-world-fixtures/execution/fixtures/object-ref.json",
+  "objectKey": "execution/fixtures/object-ref.json",
+  "format": "JSON",
+  "mediaType": "application/json",
+  "checksum": "7bc7957938233600aea3ae189c9d2d6af3343c03951b8336b71e8f6ea2fad6f5",
+  "sizeBytes": 128,
+  "etag": "standalone-etag",
+  "versionToken": "standalone-version-1",
+  "schemaDigest": "d30df95c01faa85a6ad1e2e8b2cc8c0a16658c19a6a427f20bd55ef48bc923e9",
+  "encryptionContextDigest": "36ec5661379829161af913ac91de2871d391097c92ab21f1ba2c7bfffb5ec774",
+  "createdAt": "2026-10-22T00:00:00Z",
+  "identityDigest": "53a3a00755cc45f7e3c4cfd84cc693b453dd109f1bf10e5d625b631e52f9b422"
+}

@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "receipt-set.v1.schema.json",
+  "title": "Video World Execution Receipt Set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "executionPlanId",
+    "planDigest",
+    "receipts",
+    "createdAt",
+    "semanticDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "executionPlanId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "planDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "receipts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000000,
+      "items": {
+        "$ref": "#/$defs/receiptEntry"
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "semanticDigest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$comment": "semanticDigest uses canonical tuple v1 over receiptSetHashProjection. The projection excludes semanticDigest, createdAt, and receipt-set transport identity.",
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/receiptSetHashProjection",
+    "excluded": [
+      "semanticDigest",
+      "createdAt",
+      "receiptSetBytesChecksum",
+      "receiptSetEtag",
+      "receiptSetVersionToken"
+    ]
+  },
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "receiptEntry": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/executedReceipt"
+        },
+        {
+          "$ref": "#/$defs/reusedReceipt"
+        }
+      ]
+    },
+    "executedReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bindingKind",
+        "partitionOrdinal",
+        "executionPartitionId",
+        "executionAttemptId",
+        "receiptId",
+        "resultKind",
+        "resultDigest",
+        "receiptSemanticDigest"
+      ],
+      "properties": {
+        "bindingKind": {
+          "const": "EXECUTED"
+        },
+        "partitionOrdinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999
+        },
+        "executionPartitionId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "executionAttemptId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "resultKind": {
+          "enum": ["WORLD_STAGED", "HUMAN_DECISION", "EXTERNAL_AUTHORITY"]
+        },
+        "resultDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receiptSemanticDigest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "reusedReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bindingKind",
+        "partitionOrdinal",
+        "executionPartitionId",
+        "sourcePlanId",
+        "sourcePartitionId",
+        "sourceReceiptTenantId",
+        "sourceReceiptId",
+        "resultKind",
+        "resultDigest",
+        "sourceReceiptSemanticDigest",
+        "reuseBindingId",
+        "reuseBindingDigest"
+      ],
+      "properties": {
+        "bindingKind": {
+          "const": "REUSED"
+        },
+        "partitionOrdinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999
+        },
+        "executionPartitionId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "sourcePlanId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "sourcePartitionId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "sourceReceiptTenantId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "sourceReceiptId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "resultKind": {
+          "enum": ["WORLD_STAGED", "HUMAN_DECISION", "EXTERNAL_AUTHORITY"]
+        },
+        "resultDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceReceiptSemanticDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reuseBindingId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "reuseBindingDigest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "receiptSetHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "tenantId",
+        "executionPlanId",
+        "planDigest",
+        "receiptProjectionDigests"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0.0"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "executionPlanId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "planDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receiptProjectionDigests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    }
+  }
+}

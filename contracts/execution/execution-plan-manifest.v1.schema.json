@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-plan-manifest.v1.schema.json",
+  "title": "Video World Execution Plan Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "projectId",
+    "executionPlanId",
+    "planRevision",
+    "planRequestDigest",
+    "planDigest",
+    "planningInputManifestDigest",
+    "partitions",
+    "dependencyDigests",
+    "barrierDigests",
+    "coverageDigest",
+    "createdAt",
+    "semanticDigest"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "tenantId": {"$ref": "#/$defs/uuidV7"},
+    "projectId": {"$ref": "#/$defs/uuidV7"},
+    "executionPlanId": {"$ref": "#/$defs/uuidV7"},
+    "planRevision": {"type": "integer", "minimum": 1},
+    "planRequestDigest": {"$ref": "#/$defs/sha256"},
+    "planDigest": {"$ref": "#/$defs/sha256"},
+    "planningInputManifestDigest": {"$ref": "#/$defs/sha256"},
+    "partitions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000000,
+      "items": {"$ref": "#/$defs/partition"}
+    },
+    "dependencyDigests": {
+      "type": "array",
+      "maxItems": 10000000,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "barrierDigests": {
+      "type": "array",
+      "maxItems": 1000000,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "coverageDigest": {"$ref": "#/$defs/sha256"},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "semanticDigest": {"$ref": "#/$defs/sha256"}
+  },
+  "$comment": "The pre-dispatch plan graph is separate from the post-execution root receipt closure. planDigest, coverageDigest, and semanticDigest use canonical tuple v1 and exclude transport identity.",
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-plan-hash-projection": {
+    "$ref": "#/$defs/planHashProjection",
+    "excluded": ["executionPlanId", "planDigest", "planManifestBytesChecksum", "planManifestEtag", "planManifestVersionToken"]
+  },
+  "x-hash-projection": {
+    "$ref": "#/$defs/planManifestHashProjection",
+    "excluded": ["semanticDigest", "createdAt", "planManifestBytesChecksum", "planManifestEtag", "planManifestVersionToken"]
+  },
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "partition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executionPartitionId",
+        "partitionOrdinal",
+        "partitionKey",
+        "executionStage",
+        "planRequestDigest",
+        "workloadDigest",
+        "executionProfileDigest",
+        "inputProjectionDigest",
+        "coverageStart",
+        "coverageEnd",
+        "requiredForCompletion",
+        "estimatedInputBytes",
+        "estimatedOutputBytes"
+      ],
+      "properties": {
+        "executionPartitionId": {"$ref": "#/$defs/uuidV7"},
+        "partitionOrdinal": {"type": "integer", "minimum": 0, "maximum": 999999},
+        "partitionKey": {"type": "string", "minLength": 1, "maxLength": 255},
+        "executionStage": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+        "planRequestDigest": {"$ref": "#/$defs/sha256"},
+        "workloadDigest": {"$ref": "#/$defs/sha256"},
+        "executionProfileDigest": {"$ref": "#/$defs/sha256"},
+        "inputProjectionDigest": {"$ref": "#/$defs/sha256"},
+        "coverageStart": {"type": "integer", "minimum": 0},
+        "coverageEnd": {"type": "integer", "minimum": 1},
+        "requiredForCompletion": {"type": "boolean"},
+        "estimatedInputBytes": {"type": "integer", "minimum": 0, "maximum": 1125899906842624},
+        "estimatedOutputBytes": {"type": "integer", "minimum": 0, "maximum": 1125899906842624}
+      }
+    },
+    "planManifestHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "tenantId",
+        "projectId",
+        "executionPlanId",
+        "planRevision",
+        "planRequestDigest",
+        "planDigest",
+        "planningInputManifestDigest",
+        "partitionProjectionDigests",
+        "dependencyDigests",
+        "barrierDigests",
+        "coverageDigest"
+      ],
+      "properties": {
+        "schemaVersion": {"const": "1.0.0"},
+        "tenantId": {"$ref": "#/$defs/uuidV7"},
+        "projectId": {"$ref": "#/$defs/uuidV7"},
+        "executionPlanId": {"$ref": "#/$defs/uuidV7"},
+        "planRevision": {"type": "integer", "minimum": 1},
+        "planRequestDigest": {"$ref": "#/$defs/sha256"},
+        "planDigest": {"$ref": "#/$defs/sha256"},
+        "planningInputManifestDigest": {"$ref": "#/$defs/sha256"},
+        "partitionProjectionDigests": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sha256"}},
+        "dependencyDigests": {"type": "array", "items": {"$ref": "#/$defs/sha256"}},
+        "barrierDigests": {"type": "array", "items": {"$ref": "#/$defs/sha256"}},
+        "coverageDigest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "planHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planRequestDigest",
+        "planningInputManifestDigest",
+        "partitionProjectionDigests",
+        "dependencyDigests",
+        "barrierDigests",
+        "coverageDigest"
+      ],
+      "properties": {
+        "planRequestDigest": {"$ref": "#/$defs/sha256"},
+        "planningInputManifestDigest": {"$ref": "#/$defs/sha256"},
+        "partitionProjectionDigests": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sha256"}},
+        "dependencyDigests": {"type": "array", "items": {"$ref": "#/$defs/sha256"}},
+        "barrierDigests": {"type": "array", "items": {"$ref": "#/$defs/sha256"}},
+        "coverageDigest": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

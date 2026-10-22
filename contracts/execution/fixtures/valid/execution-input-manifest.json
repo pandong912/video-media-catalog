@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "sourceRequestId": "018f47c2-4a3b-7a10-8a11-000000000006",
+  "executionPlanId": "018f47c2-4a3b-7a10-8a11-000000000007",
+  "planRevision": 1,
+  "planRequestDigest": "84f464123497aabc85c3b273eed339f5e092a69941ef6da5a895ce54d41cc41c",
+  "executionPartitionId": "018f47c2-4a3b-7a10-8a11-000000000008",
+  "partitionOrdinal": 0,
+  "partitionDigest": "5a6f1898599fff8dc4797ef2f13797a9b42b2de4d18b7c4a79cc7932bba7b26a",
+  "sourceAuthorityDigest": "4f2c5fb795a1c83cbb9a8ee01398a7c442522a4afee9ce0ac4c67e86732f0b8f",
+  "inputs": [
+    {
+      "ordinal": 0,
+      "role": "PRIMARY_INPUT",
+      "object": {
+        "schemaVersion": "2.0.0",
+        "objectRefId": "018f47c2-4a3b-7a10-8a11-000000000005",
+        "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+        "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+        "dataPlaneBindingId": "018f47c2-4a3b-7a10-8a11-000000000003",
+        "dataPlaneId": "018f47c2-4a3b-7a10-8a11-000000000004",
+        "provider": "AWS_S3",
+        "uri": "s3://video-world-fixtures/execution/inputs/part-00000.json",
+        "objectKey": "execution/inputs/part-00000.json",
+        "format": "JSON",
+        "mediaType": "application/json",
+        "checksum": "0acccfe52941f1a9a17860f2168cc9510c36a9e76c976486c1a9714b6bd7665e",
+        "sizeBytes": 128,
+        "etag": "fixture-etag",
+        "versionToken": "fixture-version-1",
+        "schemaDigest": "31e71d0311d349631521500081160df9846a3d16473e21f9e3b02d6c975dae5a",
+        "encryptionContextDigest": "36ec5661379829161af913ac91de2871d391097c92ab21f1ba2c7bfffb5ec774",
+        "createdAt": "2026-10-22T00:00:00Z",
+        "identityDigest": "fb60b3af4b9f8ff17d56375637f54bac20490f4edf9e700fb4d4f14fe99b1bbb"
+      },
+      "contentSemanticDigest": "6dc737c77c2eedcf642498d832c3df89fb001468dddd8b2565a4353754971df1",
+      "recordCount": 1
+    }
+  ],
+  "totalRecordCount": 1,
+  "createdAt": "2026-10-22T00:00:00Z",
+  "semanticDigest": "e1c25255a4cdb3ccbbe992e83a7d901961805fc587ce0f90f35bd943745c69f9"
+}

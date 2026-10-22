@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0.0",
+  "receiptId": "018f47c2-4a3b-7a10-8a11-00000000000a",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "executionAttemptId": "018f47c2-4a3b-7a10-8a11-000000000009",
+  "executionPlanId": "018f47c2-4a3b-7a10-8a11-000000000007",
+  "executionPartitionId": "018f47c2-4a3b-7a10-8a11-000000000008",
+  "planDigest": "ba90481906b36a9379513456cfd23627c7d84d13a6e4990c6d09502cdf529dbc",
+  "inputManifestDigest": "e1c25255a4cdb3ccbbe992e83a7d901961805fc587ce0f90f35bd943745c69f9",
+  "producerDigest": "11cd42b5cbcb0fc2c0935f275b58d26dfea1994c839c6186a76bdf1fe310c4d8",
+  "result": {
+    "kind": "WORLD_STAGED",
+    "objects": [
+      {
+        "schemaVersion": "2.0.0",
+        "objectRefId": "018f47c2-4a3b-7a10-8a11-00000000000b",
+        "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+        "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+        "dataPlaneBindingId": "018f47c2-4a3b-7a10-8a11-000000000003",
+        "dataPlaneId": "018f47c2-4a3b-7a10-8a11-000000000004",
+        "provider": "ALIBABA_OSS",
+        "uri": "oss://video-world-fixtures/execution/results/part-00000.json",
+        "objectKey": "execution/results/part-00000.json",
+        "format": "JSON",
+        "mediaType": "application/json",
+        "checksum": "5c35586ddece9522ed38515beed976b376a838a8025a8cebbe91b4ec30480f69",
+        "sizeBytes": 256,
+        "etag": "result-etag",
+        "versionToken": "result-version-1",
+        "schemaDigest": "0db08be56afb935c4ead04578ad95e62bc66ba6a155cfd6249836fb22d7ef5ea",
+        "encryptionContextDigest": "36ec5661379829161af913ac91de2871d391097c92ab21f1ba2c7bfffb5ec774",
+        "createdAt": "2026-10-22T00:00:02Z",
+        "identityDigest": "835fe84cbe0f1fd85a8049923d2b30bedbd052336f624a7283561212b00b676e"
+      }
+    ],
+    "outputDigest": "18f56184742516fe4db54587af27f5467dbcbef76a10f9640381f0b83eb3e8a3",
+    "schemaDigest": "0db08be56afb935c4ead04578ad95e62bc66ba6a155cfd6249836fb22d7ef5ea",
+    "recordCount": 1,
+    "byteCount": 256,
+    "resultDigest": "214b9fdfda12ecbbc3aa9e6905ce0b46660c03c8f40eb87b21f393b2aa6b34b7"
+  },
+  "producedAt": "2026-10-22T00:00:03Z",
+  "recordedAt": "2026-10-22T00:00:04Z",
+  "semanticDigest": "da2077d2c69534990330a3456bfa702a671dc2e10a593904cb88c70029472a98"
+}

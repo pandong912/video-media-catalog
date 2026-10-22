@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "executionPlanId": "018f47c2-4a3b-7a10-8a11-000000000007",
+  "planRevision": 1,
+  "planRequestDigest": "84f464123497aabc85c3b273eed339f5e092a69941ef6da5a895ce54d41cc41c",
+  "planDigest": "ba90481906b36a9379513456cfd23627c7d84d13a6e4990c6d09502cdf529dbc",
+  "planningInputManifestDigest": "b7df166155e28ed511d0be6d51715f78d8e74e39dafb838ae117791183981f9c",
+  "partitions": [
+    {
+      "executionPartitionId": "018f47c2-4a3b-7a10-8a11-000000000008",
+      "partitionOrdinal": 0,
+      "partitionKey": "part-00000",
+      "executionStage": "MEDIA_ANALYSIS",
+      "planRequestDigest": "84f464123497aabc85c3b273eed339f5e092a69941ef6da5a895ce54d41cc41c",
+      "workloadDigest": "5a6f1898599fff8dc4797ef2f13797a9b42b2de4d18b7c4a79cc7932bba7b26a",
+      "executionProfileDigest": "577c62d359549814327855831f7733bd4916b24c52ddcd63c7a1bbb60b8e9c26",
+      "inputProjectionDigest": "e8b52eed5570943f3b6e9ced6c4f8a8846bfe460fc86fbd9a3aeda51efea0e71",
+      "coverageStart": 0,
+      "coverageEnd": 1,
+      "requiredForCompletion": true,
+      "estimatedInputBytes": 128,
+      "estimatedOutputBytes": 256
+    }
+  ],
+  "dependencyDigests": [],
+  "barrierDigests": [],
+  "coverageDigest": "3c16b383b2807801c9a7029a63574b1b192221e84d53900012890fe67fd603e6",
+  "createdAt": "2026-10-22T00:00:01Z",
+  "semanticDigest": "305241b55eec5852385baedd37ff09298506e5397c1389442eb4b9982677e975"
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "receiptId": "018f47c2-4a3b-7a10-8a11-00000000000a",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "executionAttemptId": "018f47c2-4a3b-7a10-8a11-000000000009",
+  "executionPlanId": "018f47c2-4a3b-7a10-8a11-000000000007",
+  "executionPartitionId": "018f47c2-4a3b-7a10-8a11-000000000008",
+  "planDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "inputManifestDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "producerDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+  "result": {
+    "kind": "HUMAN_DECISION",
+    "workItemId": "018f47c2-4a3b-7a10-8a11-00000000000b",
+    "finalRevision": 1,
+    "decision": "APPROVED",
+    "actorAuthorityDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rubricDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "artifactFactBindingDigests": [],
+    "resultDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+    "authorityKind": "EXTERNAL_SYSTEM"
+  },
+  "producedAt": "2026-10-22T00:00:03Z",
+  "recordedAt": "2026-10-22T00:00:04Z",
+  "semanticDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

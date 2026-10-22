@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "1.0.0",
+  "sourceRepository": "video-world-platform",
+  "sourceCommit": "65a4234710d3e151e773a503938b8663af5d82ad",
+  "sourcePath": "contracts/execution",
+  "sourceContractReadmeSha256": "cffa32baae0c9f9d78fa36b29d58d791847b1f90b729153bd0e554e6e0c68201",
+  "sourceFixtureGeneratorSha256": "3b043fc50ee917cd2daea56e605fa78c9ea6daf1bb9a0de9d615e41871f5f966",
+  "sourceCanonicalDigestImplementationSha256": "bbe5d2d1e9f3f98286406814c3ccf0bfeb59f54016974c4263fc43e165eeec32",
+  "files": [
+    {
+      "path": "execution-input-manifest.v1.schema.json",
+      "kind": "SCHEMA",
+      "sha256": "900f2e32e8fcdf732372925e62992c9a56536dc66cff27f02202dba0d173ca59"
+    },
+    {
+      "path": "execution-plan-manifest.v1.schema.json",
+      "kind": "SCHEMA",
+      "sha256": "a18619105b4b9d8e0d90bab5762d2a38c174c4c5e1a7b8f5605cccb77a762d1e"
+    },
+    {
+      "path": "execution-plan-request.v1.schema.json",
+      "kind": "SCHEMA",
+      "sha256": "cfd985f9b7227813f4847499d15df204744d887c6b9067e604745115aa820c13"
+    },
+    {
+      "path": "object-ref-v2.v2.schema.json",
+      "kind": "SCHEMA",
+      "sha256": "a0863dd2d1cc9cc4d4ed93b7746f3e009a6ae6a3987b3adb72f160bdca78ccaf"
+    },
+    {
+      "path": "partition-receipt.v1.schema.json",
+      "kind": "SCHEMA",
+      "sha256": "3a447d9cfc7a1b6579d58e30dd5ed413d926961c5b69c69cf4907508339edd82"
+    },
+    {
+      "path": "receipt-set.v1.schema.json",
+      "kind": "SCHEMA",
+      "sha256": "25c530535091e2430b6b6376a53d35f659659faf7acf7baf3d74c60be1c47335"
+    },
+    {
+      "path": "root-manifest.v1.schema.json",
+      "kind": "SCHEMA",
+      "sha256": "5e0252e63e595f7260675afe3e89b80622e336967a3af52443dcea60560fc50f"
+    },
+    {
+      "path": "fixtures/valid/execution-input-manifest.json",
+      "kind": "VALID_FIXTURE",
+      "sha256": "98345d40c15593cc4a8100d3903b30e176568a675af185dcdd288f3262902268"
+    },
+    {
+      "path": "fixtures/valid/execution-plan-manifest.json",
+      "kind": "VALID_FIXTURE",
+      "sha256": "6fa9d6032d9beb19f55f18f95c9d28e2e2abc51ef3256c871c773cd8d25b9e56"
+    },
+    {
+      "path": "fixtures/valid/execution-plan-request.json",
+      "kind": "VALID_FIXTURE",
+      "sha256": "482a53bfaf3c78bd20de66a73eb5386e466e5c154a6537a3e281d53493cef293"
+    },
+    {
+      "path": "fixtures/valid/object-ref-v2.json",
+      "kind": "VALID_FIXTURE",
+      "sha256": "0cbde43ce7e900932b01bdd9988a418951275a2375cc757a5dbe93c2224493c6"
+    },
+    {
+      "path": "fixtures/valid/partition-receipt.json",
+      "kind": "VALID_FIXTURE",
+      "sha256": "b68bc19db2427d1928fd866428b71e3394dd1cc2f95bcfcd13b8b43ff54ae510"
+    },
+    {
+      "path": "fixtures/valid/receipt-set.json",
+      "kind": "VALID_FIXTURE",
+      "sha256": "91dca780322bd60475021526a38f3a5662a76cfc39bb04f9b7bbbacd7226fa09"
+    },
+    {
+      "path": "fixtures/valid/root-manifest.json",
+      "kind": "VALID_FIXTURE",
+      "sha256": "a8324b47250c3077a9201063140b59a1db71d35e1755468b13828f43f857fe83"
+    },
+    {
+      "path": "fixtures/invalid/execution-input-manifest.json",
+      "kind": "INVALID_FIXTURE",
+      "sha256": "9517d756790b04a6432bcf68a8e2baab7e8cd22418c614f36f3ccac453056851"
+    },
+    {
+      "path": "fixtures/invalid/execution-plan-manifest.json",
+      "kind": "INVALID_FIXTURE",
+      "sha256": "484f94492180bf70078f060991afbe7e7b489b5c9f730ebbdf22aaa7760c5c4c"
+    },
+    {
+      "path": "fixtures/invalid/execution-plan-request.json",
+      "kind": "INVALID_FIXTURE",
+      "sha256": "6d9b42a02c5db4dc234d83c7477e76e0026a6e7a7922011f64867dcd785b292b"
+    },
+    {
+      "path": "fixtures/invalid/object-ref-v2.json",
+      "kind": "INVALID_FIXTURE",
+      "sha256": "65f1c11fd46a0d43a89b23fdf7594d0136d11227133b1bbdc929b149e091fdff"
+    },
+    {
+      "path": "fixtures/invalid/partition-receipt.json",
+      "kind": "INVALID_FIXTURE",
+      "sha256": "a5e4799e228f22761835e6ad314fe45b71b5f5186b0be50c72f1b63c8ff0cc5b"
+    },
+    {
+      "path": "fixtures/invalid/receipt-set.json",
+      "kind": "INVALID_FIXTURE",
+      "sha256": "1e45315d8a598177d800ed7d9cf611e1db81645de9abcabf5d1fade49b4d664a"
+    },
+    {
+      "path": "fixtures/invalid/root-manifest.json",
+      "kind": "INVALID_FIXTURE",
+      "sha256": "5e5889b7312e2ae1709e08c49ae8eb316c10d757b92a7ac3a7e9771e65de72bd"
+    },
+    {
+      "path": "canonical-tuple-v1.golden.json",
+      "kind": "GOLDEN_VECTOR",
+      "sha256": "22a11fd073472a2d2c7f90488321f98fab749adf51fff5f5f5a726371e35f746"
+    }
+  ],
+  "provenanceLimitations": [
+    {
+      "id": "SOURCE_CONTRACTS_NOT_IN_SOURCE_COMMIT",
+      "detail": "The vendored contracts and pinned supporting README, fixture generator, and canonical digest implementation state are not fully represented by sourceCommit. That commit alone cannot reconstruct this capture; the 22 per-file and three source-evidence SHA-256 values above are the byte-level lock."
+    }
+  ]
+}

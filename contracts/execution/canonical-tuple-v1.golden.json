@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "video.world.canonical-tuple.golden.v1",
+  "algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "vectors": [
+    {
+      "name": "empty-tuple",
+      "fields": [],
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "one-empty-field",
+      "fields": [
+        ""
+      ],
+      "digest": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119"
+    },
+    {
+      "name": "boundary-ab-c",
+      "fields": [
+        "ab",
+        "c"
+      ],
+      "digest": "f2939f903016e5bb29b1e4a61cdbd376220ca03a24180b39995f2d50f2e0a647"
+    },
+    {
+      "name": "boundary-a-bc",
+      "fields": [
+        "a",
+        "bc"
+      ],
+      "digest": "b534ce16ac9c8b36823f39a395ce8e0e3c7ad9605b82b5444f18cadacd217a5d"
+    },
+    {
+      "name": "unicode",
+      "fields": [
+        "世界",
+        "🙂",
+        "é"
+      ],
+      "digest": "9dd8fa1db0c6cf596d728e8d5a72aa84a34a49d36ea3e247c23a2b1e44874fd4"
+    }
+  ]
+}

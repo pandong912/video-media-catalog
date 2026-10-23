@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "video.world.data-plane-runtime-binding.v1",
+  "runtimeBindingId": "018f47c2-4a3b-7a10-8a11-000000000015",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "dataPlaneBindingId": "018f47c2-4a3b-7a10-8a11-000000000003",
+  "dataPlaneId": "018f47c2-4a3b-7a10-8a11-000000000004",
+  "objectProvider": "ALIBABA_OSS",
+  "runtimeProvider": "ALIYUN_EMR_SERVERLESS",
+  "runtimeRegion": "cn-hangzhou",
+  "workloadIdentityKind": "ALIYUN_RAM_ROLE",
+  "workloadIdentityRef": "acs:ram::1234567890123456:role/video-world-execution",
+  "workloadIdentityDigest": "291130dddf89e6c87133685decfe25d0604e2ac30ffe5b87e9775c69d326bb3e",
+  "executionProfileDigest": "577c62d359549814327855831f7733bd4916b24c52ddcd63c7a1bbb60b8e9c26",
+  "exactVersionOnly": false,
+  "state": "ACTIVE",
+  "revision": 1,
+  "createdAt": "2026-10-23T00:00:00Z",
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "bindingDigest": "5767c5a4dd23689b605c889c9a64be72d1811086e887cc4df8bde91042356541"
+}

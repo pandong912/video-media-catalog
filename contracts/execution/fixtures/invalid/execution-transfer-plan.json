@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "video.world.execution-transfer-plan.v1",
+  "transferPlanId": "018f47c2-4a3b-7a10-8a11-000000000016",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "executionPlanId": "018f47c2-4a3b-7a10-8a11-000000000007",
+  "executionPartitionId": "018f47c2-4a3b-7a10-8a11-000000000008",
+  "sourceProvider": "AWS_S3",
+  "targetProvider": "AWS_S3",
+  "sourceObjectClosureDigest": "b2910608dcdef0db7e18beafc6268b91a8f341f3eb32f246497cda1c6908c5c3",
+  "targetInputClosureDigest": "e9b3f16519872c84ac83e93de5c250aab2b1584c62385ff531a12289b296a973",
+  "transferProfileDigest": "109d0de2245331990a461a412e5fbc34de59fd64fbaf94b142296f65ddb8a68b",
+  "workloadIdentityDigest": "e105415cb7a4830bcd66f31c8a2142d0a56891f88210e7a7e80d10a54a29d7ab",
+  "transferReceiptTenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "transferReceiptId": "018f47c2-4a3b-7a10-8a11-000000000017",
+  "transferReceiptSemanticDigest": "f22609ed9bf37cf0f17d443cc8322115243fdd94cfa7d85e95b41e9c13e8a2e3",
+  "state": "VALIDATED",
+  "validatedAt": "2026-10-23T00:00:01Z",
+  "transferDigest": "5039c5c0138a3f990fb5353daa966ab8585f2b4fd77dd113e361ec3ace4c2b2c"
+}

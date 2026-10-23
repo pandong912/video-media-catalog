@@ -8,6 +8,11 @@ GOLDEN_EMR_TASK_QUEUE = "vw-media-catalog-golden-emr-v1"
 GOLD_INDEX_WORKFLOW_TASK_QUEUE = "vw-media-catalog-gold-index-v1"
 GOLD_INDEX_LAUNCHER_TASK_QUEUE = "vw-media-catalog-gold-index-launcher-v1"
 GOLD_INDEX_VALIDATOR_TASK_QUEUE = "vw-media-catalog-gold-index-validator-v1"
+CATALOG_EXECUTION_WORKFLOW_TASK_QUEUE = "vw-media-catalog-execution-v1"
+CATALOG_EXECUTION_AWS_TASK_QUEUE = "vw-media-catalog-execution-aws-emr-v1"
+CATALOG_EXECUTION_ALIYUN_TASK_QUEUE = (
+    "vw-media-catalog-execution-aliyun-emr-serverless-v1"
+)
 
 WORKFLOW_TYPE_TMDB_PIPELINE = "TmdbCaptureSilverWorkflow"
 WORKFLOW_TYPE_EIDR_PUBLIC_RESEARCH = "EidrPublicResearchWorkflow"
@@ -18,6 +23,7 @@ WORKFLOW_TYPE_GOLD_INDEX_RESTORE = "GoldIndexRestoreWorkflow"
 WORKFLOW_TYPE_RESEARCH_DOMAIN = "ResearchDomainWorkflow"
 WORKFLOW_TYPE_RESEARCH_CAPTURE = "ResearchCaptureWorkflow"
 WORKFLOW_TYPE_RESEARCH_SILVER = "ResearchSilverWorkflow"
+WORKFLOW_TYPE_CATALOG_EXECUTION = "CatalogExecutionWorkflowV1"
 
 SCHEDULE_DAILY_CHANGES = "tmdb-daily-changes-v1"
 SCHEDULE_MONTHLY_INVENTORY = "tmdb-monthly-inventory-v1"

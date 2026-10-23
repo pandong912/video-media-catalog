@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalog-execution-result.v1.schema.json",
+  "title": "Catalog cross-namespace execution result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "tenantId",
+    "projectId",
+    "executionPlanId",
+    "executionPartitionId",
+    "executionAttemptId",
+    "authorityId",
+    "terminalState",
+    "completedAt",
+    "resultDigest"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "video.world.catalog-execution-workflow.v1"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "projectId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionPlanId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionPartitionId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionAttemptId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "authorityId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "terminalState": {
+      "enum": [
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "authorityResultDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "partitionReceiptObject": {
+      "$ref": "object-ref-v2.v2.schema.json"
+    },
+    "partitionReceiptSemanticDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "failureCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resultDigest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "terminalState": {
+            "const": "SUCCEEDED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "authorityResultDigest",
+          "partitionReceiptObject",
+          "partitionReceiptSemanticDigest"
+        ],
+        "not": {
+          "required": [
+            "failureCode"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "failureCode"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "authorityResultDigest"
+              ]
+            },
+            {
+              "required": [
+                "partitionReceiptObject"
+              ]
+            },
+            {
+              "required": [
+                "partitionReceiptSemanticDigest"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "catalogExecutionResultHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "tenantId",
+        "projectId",
+        "executionPlanId",
+        "executionPartitionId",
+        "executionAttemptId",
+        "authorityId",
+        "terminalState",
+        "completedAt"
+      ],
+      "properties": {
+        "contractVersion": {
+          "type": "string"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "projectId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionPlanId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionPartitionId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionAttemptId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "authorityId": {
+          "type": "string"
+        },
+        "terminalState": {
+          "type": "string"
+        },
+        "authorityResultDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "partitionReceiptObjectIdentityDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "partitionReceiptSemanticDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "failureCode": {
+          "type": "string"
+        },
+        "completedAt": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/catalogExecutionResultHashProjection",
+    "domain": "video.world.catalog-execution-result.hash-projection.v1",
+    "excluded": [
+      "resultDigest"
+    ]
+  }
+}

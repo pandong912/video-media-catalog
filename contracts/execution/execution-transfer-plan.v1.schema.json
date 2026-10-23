@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-transfer-plan.v1.schema.json",
+  "title": "Explicit cross-provider transfer plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "transferPlanId",
+    "tenantId",
+    "projectId",
+    "executionPlanId",
+    "executionPartitionId",
+    "sourceProvider",
+    "targetProvider",
+    "sourceObjectClosureDigest",
+    "targetInputClosureDigest",
+    "transferProfileDigest",
+    "workloadIdentityDigest",
+    "state",
+    "transferDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "video.world.execution-transfer-plan.v1"
+    },
+    "transferPlanId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "projectId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionPlanId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionPartitionId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "sourceProvider": {
+      "$ref": "#/$defs/provider"
+    },
+    "targetProvider": {
+      "$ref": "#/$defs/provider"
+    },
+    "sourceObjectClosureDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "targetInputClosureDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "transferProfileDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "workloadIdentityDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "transferReceiptTenantId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "transferReceiptId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "transferReceiptSemanticDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "state": {
+      "enum": [
+        "PLANNED",
+        "RUNNING",
+        "VALIDATED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "transferDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "validatedAt": {
+      "$ref": "#/$defs/instant"
+    }
+  },
+  "allOf": [
+    {
+      "not": {
+        "properties": {
+          "sourceProvider": {
+            "const": "AWS_S3"
+          },
+          "targetProvider": {
+            "const": "AWS_S3"
+          }
+        },
+        "required": [
+          "sourceProvider",
+          "targetProvider"
+        ]
+      }
+    },
+    {
+      "not": {
+        "properties": {
+          "sourceProvider": {
+            "const": "ALIBABA_OSS"
+          },
+          "targetProvider": {
+            "const": "ALIBABA_OSS"
+          }
+        },
+        "required": [
+          "sourceProvider",
+          "targetProvider"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "VALIDATED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "transferReceiptTenantId",
+          "transferReceiptId",
+          "transferReceiptSemanticDigest",
+          "validatedAt"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "transferReceiptTenantId"
+              ]
+            },
+            {
+              "required": [
+                "transferReceiptId"
+              ]
+            },
+            {
+              "required": [
+                "transferReceiptSemanticDigest"
+              ]
+            },
+            {
+              "required": [
+                "validatedAt"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "provider": {
+      "enum": [
+        "AWS_S3",
+        "ALIBABA_OSS"
+      ]
+    },
+    "instant": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "executionTransferPlanHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenantId",
+        "projectId",
+        "executionPlanId",
+        "executionPartitionId",
+        "sourceProvider",
+        "targetProvider",
+        "sourceObjectClosureDigest",
+        "targetInputClosureDigest",
+        "transferProfileDigest",
+        "workloadIdentityDigest",
+        "state"
+      ],
+      "properties": {
+        "tenantId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "projectId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionPlanId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionPartitionId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "sourceProvider": {
+          "$ref": "#/$defs/provider"
+        },
+        "targetProvider": {
+          "$ref": "#/$defs/provider"
+        },
+        "sourceObjectClosureDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "targetInputClosureDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "transferProfileDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "workloadIdentityDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "transferReceiptTenantId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "transferReceiptId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "transferReceiptSemanticDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "state": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/executionTransferPlanHashProjection",
+    "domain": "video.world.execution-transfer-plan.v1",
+    "excluded": [
+      "schemaVersion",
+      "transferPlanId",
+      "transferDigest",
+      "validatedAt"
+    ]
+  }
+}

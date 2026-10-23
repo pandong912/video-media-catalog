@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "video.world.execution-backend-profile.v1",
+  "executionProfileDigest": "577c62d359549814327855831f7733bd4916b24c52ddcd63c7a1bbb60b8e9c26",
+  "profileKey": "spark-aliyun-production",
+  "profileRevision": 1,
+  "backendKind": "SPARK_SERVERLESS",
+  "backendProvider": "ALIYUN_EMR_SERVERLESS",
+  "backendFlavor": "emr-serverless-spark-3.5",
+  "terminalResultKind": "WORLD_STAGED",
+  "terminalSemantics": {
+    "pendingStates": [
+      "CANCEL_REQUESTED",
+      "SCHEDULED",
+      "SUBMITTED"
+    ],
+    "runningStates": [
+      "RUNNING"
+    ],
+    "successfulStates": [
+      "SUCCEEDED"
+    ],
+    "failedStates": [
+      "FAILED",
+      "TIMED_OUT"
+    ],
+    "cancelledStates": [
+      "CANCELLED"
+    ],
+    "cancelRequestedState": "CANCEL_REQUESTED"
+  },
+  "capabilities": [
+    "BATCH_COMPUTE",
+    "DISTRIBUTED_SPARK",
+    "CANCELLATION",
+    "EXACT_VERSION_INPUT",
+    "CHECKPOINT"
+  ],
+  "directlyReadableProviders": [
+    "ALIBABA_OSS"
+  ],
+  "workloadIdentityDigest": "291130dddf89e6c87133685decfe25d0604e2ac30ffe5b87e9775c69d326bb3e",
+  "profileConfigDigest": "0ed8fc378d6065572c9cfd60adcc054d69f6f821b22e541d9a1544ddd3b5cc5c",
+  "maximumSubmitAttempts": 10,
+  "retryableAfterIndeterminateDispatch": true,
+  "profileState": "ACTIVE",
+  "createdAt": "2026-10-23T00:00:00Z",
+  "descriptorDigest": "c2ad6c93de040d832e10470a4c2c4ca274e6974e7ba0b32e6c3845af907611d4"
+}

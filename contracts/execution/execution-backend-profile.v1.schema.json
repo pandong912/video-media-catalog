@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-backend-profile.v1.schema.json",
+  "title": "Unified execution backend profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "executionProfileDigest",
+    "profileKey",
+    "profileRevision",
+    "backendKind",
+    "backendProvider",
+    "backendFlavor",
+    "terminalResultKind",
+    "terminalSemantics",
+    "capabilities",
+    "directlyReadableProviders",
+    "workloadIdentityDigest",
+    "profileConfigDigest",
+    "maximumSubmitAttempts",
+    "retryableAfterIndeterminateDispatch",
+    "profileState",
+    "createdAt",
+    "descriptorDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "video.world.execution-backend-profile.v1"
+    },
+    "executionProfileDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "profileKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._/-]{0,127}$"
+    },
+    "profileRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "backendKind": {
+      "enum": [
+        "KUBERNETES_JOB",
+        "RESIDENT_RAY",
+        "SPARK_SERVERLESS",
+        "CONTROL",
+        "HUMAN_WORK_ITEM",
+        "EXTERNAL_WORKFLOW"
+      ]
+    },
+    "backendProvider": {
+      "enum": [
+        "KUBERNETES",
+        "RESIDENT_RAY",
+        "AWS_EMR_SERVERLESS",
+        "ALIYUN_EMR_SERVERLESS",
+        "PLATFORM_CONTROL",
+        "HUMAN_AUTHORITY",
+        "TEMPORAL_CATALOG"
+      ]
+    },
+    "backendFlavor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "terminalResultKind": {
+      "enum": [
+        "WORLD_STAGED",
+        "HUMAN_DECISION",
+        "EXTERNAL_AUTHORITY"
+      ]
+    },
+    "terminalSemantics": {
+      "$ref": "#/$defs/terminalSemantics"
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "BATCH_COMPUTE",
+          "LOW_LATENCY_INFERENCE",
+          "DISTRIBUTED_SPARK",
+          "CONTROL_OPERATION",
+          "HUMAN_DECISION",
+          "EXTERNAL_WORKFLOW",
+          "CANCELLATION",
+          "EXACT_VERSION_INPUT",
+          "CHECKPOINT",
+          "CALLBACK_OBSERVATION"
+        ]
+      }
+    },
+    "directlyReadableProviders": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "AWS_S3",
+          "ALIBABA_OSS"
+        ]
+      }
+    },
+    "workloadIdentityDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "profileConfigDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "maximumSubmitAttempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "retryableAfterIndeterminateDispatch": {
+      "type": "boolean"
+    },
+    "profileState": {
+      "enum": [
+        "ACTIVE",
+        "RETIRED"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "retiredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "descriptorDigest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profileState": {
+            "const": "RETIRED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "retiredAt"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "retiredAt"
+          ]
+        }
+      }
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "backendKind": {
+              "const": "KUBERNETES_JOB"
+            },
+            "backendProvider": {
+              "const": "KUBERNETES"
+            }
+          }
+        },
+        {
+          "properties": {
+            "backendKind": {
+              "const": "RESIDENT_RAY"
+            },
+            "backendProvider": {
+              "const": "RESIDENT_RAY"
+            }
+          }
+        },
+        {
+          "properties": {
+            "backendKind": {
+              "const": "SPARK_SERVERLESS"
+            },
+            "backendProvider": {
+              "enum": [
+                "AWS_EMR_SERVERLESS",
+                "ALIYUN_EMR_SERVERLESS"
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "backendKind": {
+              "const": "CONTROL"
+            },
+            "backendProvider": {
+              "const": "PLATFORM_CONTROL"
+            }
+          }
+        },
+        {
+          "properties": {
+            "backendKind": {
+              "const": "HUMAN_WORK_ITEM"
+            },
+            "backendProvider": {
+              "const": "HUMAN_AUTHORITY"
+            }
+          }
+        },
+        {
+          "properties": {
+            "backendKind": {
+              "const": "EXTERNAL_WORKFLOW"
+            },
+            "backendProvider": {
+              "const": "TEMPORAL_CATALOG"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "if": {
+        "properties": {
+          "backendKind": {
+            "const": "HUMAN_WORK_ITEM"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "terminalResultKind": {
+            "const": "HUMAN_DECISION"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "backendKind": {
+            "enum": [
+              "EXTERNAL_WORKFLOW",
+              "CONTROL"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "terminalResultKind": {
+            "const": "EXTERNAL_AUTHORITY"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "backendKind": {
+            "enum": [
+              "KUBERNETES_JOB",
+              "RESIDENT_RAY",
+              "SPARK_SERVERLESS"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "terminalResultKind": {
+            "const": "WORLD_STAGED"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stateArray": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+      }
+    },
+    "terminalSemantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pendingStates",
+        "runningStates",
+        "successfulStates",
+        "failedStates",
+        "cancelledStates",
+        "cancelRequestedState"
+      ],
+      "properties": {
+        "pendingStates": {
+          "$ref": "#/$defs/stateArray"
+        },
+        "runningStates": {
+          "$ref": "#/$defs/stateArray"
+        },
+        "successfulStates": {
+          "$ref": "#/$defs/stateArray"
+        },
+        "failedStates": {
+          "$ref": "#/$defs/stateArray"
+        },
+        "cancelledStates": {
+          "$ref": "#/$defs/stateArray"
+        },
+        "cancelRequestedState": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+        }
+      }
+    },
+    "executionBackendDescriptorHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backendKind",
+        "backendProvider",
+        "profileKey",
+        "backendFlavor",
+        "terminalResultKind",
+        "maximumSubmitAttempts",
+        "retryableAfterIndeterminateDispatch",
+        "capabilities",
+        "directlyReadableProviders",
+        "terminalSemantics"
+      ],
+      "properties": {
+        "backendKind": {
+          "type": "string"
+        },
+        "backendProvider": {
+          "type": "string"
+        },
+        "profileKey": {
+          "type": "string"
+        },
+        "backendFlavor": {
+          "type": "string"
+        },
+        "terminalResultKind": {
+          "type": "string"
+        },
+        "maximumSubmitAttempts": {
+          "type": "integer"
+        },
+        "retryableAfterIndeterminateDispatch": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "type": "array"
+        },
+        "directlyReadableProviders": {
+          "type": "array"
+        },
+        "terminalSemantics": {
+          "$ref": "#/$defs/terminalSemantics"
+        }
+      }
+    }
+  },
+  "x-canonical-order": {
+    "capabilities": "Java enum declaration order",
+    "directlyReadableProviders": "Java enum declaration order",
+    "terminalSemantics.*States": "UTF-8 lexical order"
+  },
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/executionBackendDescriptorHashProjection",
+    "domain": "video.world.execution-backend-descriptor.v1",
+    "excluded": [
+      "schemaVersion",
+      "executionProfileDigest",
+      "profileRevision",
+      "workloadIdentityDigest",
+      "profileConfigDigest",
+      "profileState",
+      "createdAt",
+      "retiredAt",
+      "descriptorDigest"
+    ]
+  }
+}

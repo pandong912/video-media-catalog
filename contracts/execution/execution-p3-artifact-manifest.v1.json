@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "video.world.execution-p3-artifact-manifest.v1",
+  "lockBodyDigestAlgorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "lockBody": {
+    "authority": "PLATFORM",
+    "p3ContractVersion": "video.world.execution-contracts.p3.v1",
+    "status": "PLANNED",
+    "claimsRuntimeActivation": false,
+    "platformProvenance": {
+      "p0Commit": "056ad4cf9d7cae3e47db693f815b7537a1949b45",
+      "p1Commit": "f254356030713d5baac642dcba9580d1fd1e4c72",
+      "p2ContractVersion": "video.world.execution-contracts.p2.v1",
+      "p2ArtifactLockDigest": "3d728f8ca7c9e029702acdc2d22921b69a72034f02db6e72fe5132755101d09f"
+    },
+    "artifacts": [
+      {
+        "sourcePath": "contracts/execution/catalog-execution-request.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "508da2430309b301fa72a8317d3caaff66466acd1d6f872a115d200e7f595528",
+        "byteLength": 3405
+      },
+      {
+        "sourcePath": "contracts/execution/catalog-execution-result.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "5395352aace8ffa94bfb0bc1fd626d3e948a51cd1239ce3f7a730306bada0383",
+        "byteLength": 4264
+      },
+      {
+        "sourcePath": "contracts/execution/data-plane-runtime-binding.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "3dc4e30b2d91296829952d2503f0fffe3a074aaa1e22bd588211631aab6cc638",
+        "byteLength": 9054
+      },
+      {
+        "sourcePath": "contracts/execution/execution-backend-profile.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "5a86c8f6289d33ecc9de7c2166a2697052abf5c4e6aaaeeae8308b53bf4e50b8",
+        "byteLength": 9009
+      },
+      {
+        "sourcePath": "contracts/execution/execution-transfer-plan.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "2b8a64118bca4a3adf6574a4f00654fd459c5666bf66639f291e9990e24fe702",
+        "byteLength": 5580
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/catalog-execution-request.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "e4ed47c1f4129d52e8207cdc78de977e08721a10fd2e6421b3a41818dafcaf9e",
+        "byteLength": 2055
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/catalog-execution-result.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "8286f1e467c250b76b84f24038d900f38f858b3f56cdae3c38b3977f8e0ae92d",
+        "byteLength": 2004
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/data-plane-runtime-binding.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "3e2dd6bdbabfe6bafc0df2fc72312d9504883e5bad904c5e3accddc139247936",
+        "byteLength": 1024
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/execution-backend-profile.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "d30a6c3426257802b7ef334a000aab6ecae648d7785c47030889161864ec18d9",
+        "byteLength": 1396
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/execution-transfer-plan.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "13af2fa425e45cfc6c914be197e74bdb39bf3ced9ac3e9b5b6381b11ec14465b",
+        "byteLength": 1196
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/catalog-execution-request.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "067ae799fea575992b6a7e8e6fdf8725140db023ac3732640acefe15b86412d5",
+        "byteLength": 3154
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/catalog-execution-result.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "f4997213f981ed8faced03ef3a98ef7780303f6ae004ff6a5bb8fe6c85100b1f",
+        "byteLength": 2007
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/data-plane-runtime-binding.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "5667d5dca641d0b56e49b6e383f0da2246c83a5d786804f4e14787a7235a5182",
+        "byteLength": 1023
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/execution-backend-profile.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "f7b2a682973c01387a0d93bc994d2332567a17dd2b0f67a78823e5857b1cb56e",
+        "byteLength": 1394
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/execution-transfer-plan.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "edb651f15cc323b0b7380f2b255c567c19eb4b6541f09be8658e9743c1aa2051",
+        "byteLength": 1201
+      }
+    ]
+  },
+  "lockBodyDigest": "3b2135ee9ec4102bcbb2a035d1375d14615be904f247e7e3b1ac941c11f467a3"
+}

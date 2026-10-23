@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote, unquote, urlsplit
 
+from video_media_catalog.execution_contracts import ObjectProvider, ObjectRefV2
 from video_media_catalog.models import Checksum, ObjectRef
 from video_media_catalog.storage import (
     ImmutableObjectConflictError,
@@ -42,6 +43,29 @@ class MaterializedObject:
 @dataclass(frozen=True)
 class UploadResult:
     object_ref: ObjectRef
+    reused: bool
+
+
+@dataclass(frozen=True)
+class ObjectRefV2WriteTarget:
+    object_ref_id: str
+    tenant_id: str
+    project_id: str
+    data_plane_binding_id: str
+    data_plane_id: str
+    provider: ObjectProvider
+    uri: str
+    object_key: str
+    format: str
+    media_type: str
+    schema_digest: str | None
+    encryption_context_digest: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class ObjectRefV2UploadResult:
+    object_ref: ObjectRefV2
     reused: bool
 
 
@@ -223,6 +247,35 @@ class S3Location:
     @property
     def uri(self) -> str:
         return f"s3://{self.bucket}/{quote(self.key, safe='/=:@!$&()*+,;~-._')}"
+
+
+@dataclass(frozen=True)
+class OssLocation:
+    bucket: str
+    key: str
+
+    @classmethod
+    def parse(cls, uri: str) -> OssLocation:
+        parsed = urlsplit(uri)
+        if (
+            parsed.scheme != "oss"
+            or not parsed.netloc
+            or not parsed.path.lstrip("/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+            or parsed.password is not None
+            or "%" in parsed.path
+        ):
+            raise ObjectStoreError(
+                "INVALID_OSS_URI",
+                "OSS URI must be oss://bucket/key without credentials or query",
+            )
+        return cls(parsed.netloc, parsed.path.lstrip("/"))
+
+    @property
+    def uri(self) -> str:
+        return f"oss://{self.bucket}/{self.key}"
 
 
 class BoundedObjectStore:
@@ -876,3 +929,359 @@ class BoundedObjectStore:
             object_version=response.get("VersionId"),
             created_at=_timestamp(response.get("LastModified")),
         )
+
+
+class ExactObjectStoreV2:
+    """Exact-version S3/OSS operations for ObjectRef v2."""
+
+    def __init__(
+        self,
+        *,
+        s3_client: Any | None = None,
+        oss_client: Any | None = None,
+        aws_region: str | None = None,
+    ) -> None:
+        if s3_client is None and aws_region is not None:
+            import boto3
+
+            s3_client = boto3.client("s3", region_name=aws_region)
+        self.s3_client = s3_client
+        self.oss_client = oss_client
+
+    def verify(
+        self,
+        object_ref: ObjectRefV2,
+        *,
+        max_bytes: int,
+    ) -> ObjectRefV2:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        response = self._head(object_ref)
+        self._verify_metadata(object_ref, response, max_bytes=max_bytes)
+        return object_ref
+
+    def download(
+        self,
+        object_ref: ObjectRefV2,
+        destination: Path,
+        *,
+        max_bytes: int,
+    ) -> MaterializedObject:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        response = self._get(object_ref)
+        self._verify_metadata(object_ref, response, max_bytes=max_bytes)
+        body = response.get("Body") or response.get("body")
+        if body is None or not hasattr(body, "read"):
+            raise ObjectStoreError(
+                "OBJECT_DOWNLOAD_FAILED",
+                "provider response has no readable body",
+            )
+        temporary: Path | None = None
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                suffix=".download",
+                delete=False,
+            ) as writer:
+                temporary = Path(writer.name)
+                while chunk := body.read(TRANSFER_CHUNK_BYTES):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ObjectStoreError(
+                            "OBJECT_TOO_LARGE",
+                            "provider object exceeds configured limit",
+                        )
+                    digest.update(chunk)
+                    writer.write(chunk)
+                writer.flush()
+                os.fsync(writer.fileno())
+            actual = digest.hexdigest()
+            if size != object_ref.size_bytes or actual != object_ref.checksum:
+                raise ObjectStoreError(
+                    "OBJECT_CHECKSUM_MISMATCH",
+                    "downloaded bytes differ from exact ObjectRef v2",
+                )
+            os.replace(temporary, destination)
+            temporary = None
+            return MaterializedObject(destination, size, actual)
+        finally:
+            body.close()
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def publish_bytes(
+        self,
+        payload: bytes,
+        target: ObjectRefV2WriteTarget,
+        *,
+        max_bytes: int,
+    ) -> ObjectRefV2UploadResult:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        if not payload or len(payload) > max_bytes:
+            raise ObjectStoreError(
+                "OBJECT_TOO_LARGE",
+                "ObjectRef v2 payload must be non-empty and within its limit",
+            )
+        checksum = hashlib.sha256(payload).hexdigest()
+        reused = False
+        try:
+            response = self._put(payload, target, checksum=checksum)
+        except Exception as exc:
+            if not BoundedObjectStore._is_precondition_failure(exc):
+                raise
+            reused = True
+            response = self._head_target(target)
+        version_token = self._version(response)
+        etag = _etag(response.get("ETag") or response.get("etag"))
+        if not version_token or not etag:
+            raise ObjectStoreError(
+                "IMMUTABLE_METADATA_REQUIRED",
+                "ObjectRef v2 publication requires exact version and ETag",
+            )
+        reference = ObjectRefV2.create(
+            object_ref_id=target.object_ref_id,
+            tenant_id=target.tenant_id,
+            project_id=target.project_id,
+            data_plane_binding_id=target.data_plane_binding_id,
+            data_plane_id=target.data_plane_id,
+            provider=target.provider,
+            uri=target.uri,
+            object_key=target.object_key,
+            format=target.format,  # type: ignore[arg-type]
+            media_type=target.media_type,
+            checksum=checksum,
+            size_bytes=len(payload),
+            etag=etag,
+            version_token=version_token,
+            schema_digest=target.schema_digest,
+            encryption_context_digest=target.encryption_context_digest,
+            created_at=target.created_at,
+        )
+        verified = self._head(reference)
+        self._verify_metadata(reference, verified, max_bytes=max_bytes)
+        return ObjectRefV2UploadResult(reference, reused)
+
+    def _head(self, object_ref: ObjectRefV2) -> dict[str, Any]:
+        if object_ref.provider == "AWS_S3":
+            if self.s3_client is None:
+                raise ObjectStoreError(
+                    "PROVIDER_CLIENT_UNAVAILABLE",
+                    "AWS S3 client is not configured",
+                )
+            location = S3Location.parse(object_ref.uri)
+            return dict(
+                self.s3_client.head_object(
+                    Bucket=location.bucket,
+                    Key=location.key,
+                    VersionId=object_ref.version_token,
+                    ChecksumMode="ENABLED",
+                )
+            )
+        if self.oss_client is None:
+            raise ObjectStoreError(
+                "PROVIDER_CLIENT_UNAVAILABLE",
+                "Alibaba OSS client is not configured",
+            )
+        location = OssLocation.parse(object_ref.uri)
+        return dict(
+            self.oss_client.head_object(
+                bucket=location.bucket,
+                key=location.key,
+                version_id=object_ref.version_token,
+            )
+        )
+
+    def _get(self, object_ref: ObjectRefV2) -> dict[str, Any]:
+        if object_ref.provider == "AWS_S3":
+            if self.s3_client is None:
+                raise ObjectStoreError(
+                    "PROVIDER_CLIENT_UNAVAILABLE",
+                    "AWS S3 client is not configured",
+                )
+            location = S3Location.parse(object_ref.uri)
+            return dict(
+                self.s3_client.get_object(
+                    Bucket=location.bucket,
+                    Key=location.key,
+                    VersionId=object_ref.version_token,
+                    ChecksumMode="ENABLED",
+                    IfMatch=f'"{_etag(object_ref.etag)}"',
+                )
+            )
+        if self.oss_client is None:
+            raise ObjectStoreError(
+                "PROVIDER_CLIENT_UNAVAILABLE",
+                "Alibaba OSS client is not configured",
+            )
+        location = OssLocation.parse(object_ref.uri)
+        return dict(
+            self.oss_client.get_object(
+                bucket=location.bucket,
+                key=location.key,
+                version_id=object_ref.version_token,
+                if_match=object_ref.etag,
+            )
+        )
+
+    def _put(
+        self,
+        payload: bytes,
+        target: ObjectRefV2WriteTarget,
+        *,
+        checksum: str,
+    ) -> dict[str, Any]:
+        if target.provider == "AWS_S3":
+            if self.s3_client is None:
+                raise ObjectStoreError(
+                    "PROVIDER_CLIENT_UNAVAILABLE",
+                    "AWS S3 client is not configured",
+                )
+            location = S3Location.parse(target.uri)
+            if location.key != target.object_key:
+                raise ObjectStoreError(
+                    "OBJECT_KEY_MISMATCH",
+                    "target URI does not bind objectKey",
+                )
+            response = dict(
+                self.s3_client.put_object(
+                    Bucket=location.bucket,
+                    Key=location.key,
+                    Body=payload,
+                    ContentLength=len(payload),
+                    ContentType=target.media_type,
+                    Metadata={"sha256": checksum},
+                    ChecksumSHA256=_native_sha256(checksum),
+                    IfNoneMatch="*",
+                )
+            )
+            head_request: dict[str, Any] = {
+                "Bucket": location.bucket,
+                "Key": location.key,
+                "ChecksumMode": "ENABLED",
+            }
+            if response.get("VersionId"):
+                head_request["VersionId"] = response["VersionId"]
+            return {**response, **dict(self.s3_client.head_object(**head_request))}
+        if self.oss_client is None:
+            raise ObjectStoreError(
+                "PROVIDER_CLIENT_UNAVAILABLE",
+                "Alibaba OSS client is not configured",
+            )
+        location = OssLocation.parse(target.uri)
+        if location.key != target.object_key:
+            raise ObjectStoreError(
+                "OBJECT_KEY_MISMATCH",
+                "target URI does not bind objectKey",
+            )
+        response = dict(
+            self.oss_client.put_object(
+                bucket=location.bucket,
+                key=location.key,
+                data=payload,
+                content_type=target.media_type,
+                metadata={"sha256": checksum},
+                forbid_overwrite=True,
+            )
+        )
+        version = self._version(response)
+        return {
+            **response,
+            **dict(
+                self.oss_client.head_object(
+                    bucket=location.bucket,
+                    key=location.key,
+                    version_id=version,
+                )
+            ),
+        }
+
+    def _head_target(self, target: ObjectRefV2WriteTarget) -> dict[str, Any]:
+        if target.provider == "AWS_S3":
+            if self.s3_client is None:
+                raise ObjectStoreError(
+                    "PROVIDER_CLIENT_UNAVAILABLE",
+                    "AWS S3 client is not configured",
+                )
+            location = S3Location.parse(target.uri)
+            return dict(
+                self.s3_client.head_object(
+                    Bucket=location.bucket,
+                    Key=location.key,
+                    ChecksumMode="ENABLED",
+                )
+            )
+        if self.oss_client is None:
+            raise ObjectStoreError(
+                "PROVIDER_CLIENT_UNAVAILABLE",
+                "Alibaba OSS client is not configured",
+            )
+        location = OssLocation.parse(target.uri)
+        return dict(
+            self.oss_client.head_object(
+                bucket=location.bucket,
+                key=location.key,
+                version_id=None,
+            )
+        )
+
+    @staticmethod
+    def _version(response: dict[str, Any]) -> str:
+        return str(
+            response.get("VersionId")
+            or response.get("versionId")
+            or response.get("version_id")
+            or ""
+        )
+
+    @classmethod
+    def _verify_metadata(
+        cls,
+        expected: ObjectRefV2,
+        response: dict[str, Any],
+        *,
+        max_bytes: int,
+    ) -> None:
+        size = int(response.get("ContentLength", response.get("content_length", -1)))
+        if size != expected.size_bytes:
+            raise ObjectStoreError(
+                "OBJECT_SIZE_MISMATCH",
+                "provider size differs from exact ObjectRef v2",
+            )
+        if size > max_bytes:
+            raise ObjectStoreError(
+                "OBJECT_TOO_LARGE",
+                "provider object exceeds configured limit",
+            )
+        if cls._version(response) != expected.version_token:
+            raise ObjectStoreError(
+                "OBJECT_VERSION_MISMATCH",
+                "provider version differs from exact ObjectRef v2",
+            )
+        if _etag(response.get("ETag") or response.get("etag")) != _etag(expected.etag):
+            raise ObjectStoreError(
+                "OBJECT_ETAG_MISMATCH",
+                "provider ETag differs from exact ObjectRef v2",
+            )
+        metadata = response.get("Metadata") or response.get("metadata") or {}
+        native = response.get("ChecksumSHA256") or response.get("checksum_sha256")
+        if native and expected.provider == "AWS_S3":
+            matches = str(native) == _native_sha256(expected.checksum)
+        else:
+            actual = (
+                metadata.get("sha256")
+                or metadata.get("x-oss-meta-sha256")
+                or response.get("sha256")
+            )
+            matches = str(actual or "").lower() == expected.checksum
+        if not matches:
+            raise ObjectStoreError(
+                "OBJECT_CHECKSUM_MISMATCH",
+                "provider checksum differs from exact ObjectRef v2",
+            )

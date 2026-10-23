@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "2.0.0",
+  "objectRefId": "018f47c2-4a3b-7a10-8a11-000000000005",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "dataPlaneBindingId": "018f47c2-4a3b-7a10-8a11-000000000003",
+  "dataPlaneId": "018f47c2-4a3b-7a10-8a11-000000000004",
+  "provider": "AWS_S3",
+  "uri": "s3://user:secret@example.invalid/execution/input.json?credential=secret",
+  "objectKey": "../input.json",
+  "format": "JSON",
+  "mediaType": "application/json",
+  "checksum": "not-a-sha256",
+  "sizeBytes": 0,
+  "etag": "",
+  "versionToken": "latest",
+  "schemaDigest": null,
+  "encryptionContextDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "identityDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "createdAt": "2026-10-22T00:00:00Z"
+}

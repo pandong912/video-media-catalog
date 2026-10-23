@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "sourceRequestId": "018f47c2-4a3b-7a10-8a11-000000000006",
+  "sourceAuthorityDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "inputs": [],
+  "totalRecordCount": -1,
+  "createdAt": "not-a-date",
+  "semanticDigest": "self"
+}

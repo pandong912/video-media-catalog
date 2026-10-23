@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-input-manifest.v1.schema.json",
+  "title": "Video World Execution Input Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "projectId",
+    "sourceRequestId",
+    "executionPlanId",
+    "planRevision",
+    "planRequestDigest",
+    "executionPartitionId",
+    "partitionOrdinal",
+    "partitionDigest",
+    "sourceAuthorityDigest",
+    "inputs",
+    "totalRecordCount",
+    "createdAt",
+    "semanticDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "projectId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "sourceRequestId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "executionPlanId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "planRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "planRequestDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "executionPartitionId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "partitionOrdinal": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 999999
+    },
+    "partitionDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sourceAuthorityDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000000,
+      "items": {
+        "$ref": "#/$defs/input"
+      }
+    },
+    "totalRecordCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "semanticDigest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$comment": "semanticDigest uses canonical tuple v1 over inputManifestHashProjection. Plan and partition identity are mandatory dispatch coordinates; execution attempt identity is supplied separately by dispatch authority. The projection excludes semanticDigest, createdAt, and the serialized manifest ObjectRef.",
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/inputManifestHashProjection",
+    "excluded": ["semanticDigest", "createdAt", "manifestObjectRef"]
+  },
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "role", "object", "contentSemanticDigest", "recordCount"],
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+        },
+        "object": {
+          "$ref": "object-ref-v2.v2.schema.json"
+        },
+        "contentSemanticDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "recordCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        }
+      }
+    },
+    "inputManifestHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "tenantId",
+        "projectId",
+        "sourceRequestId",
+        "executionPlanId",
+        "planRevision",
+        "planRequestDigest",
+        "executionPartitionId",
+        "partitionOrdinal",
+        "partitionDigest",
+        "sourceAuthorityDigest",
+        "inputProjectionDigests",
+        "totalRecordCount"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0.0"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "projectId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "sourceRequestId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "executionPlanId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "planRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "planRequestDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "executionPartitionId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "partitionOrdinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999
+        },
+        "partitionDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceAuthorityDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "inputProjectionDigests": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "totalRecordCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

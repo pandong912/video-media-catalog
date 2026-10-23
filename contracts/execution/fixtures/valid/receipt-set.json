@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "executionPlanId": "018f47c2-4a3b-7a10-8a11-000000000007",
+  "planDigest": "ba90481906b36a9379513456cfd23627c7d84d13a6e4990c6d09502cdf529dbc",
+  "receipts": [
+    {
+      "bindingKind": "EXECUTED",
+      "partitionOrdinal": 0,
+      "executionPartitionId": "018f47c2-4a3b-7a10-8a11-000000000008",
+      "executionAttemptId": "018f47c2-4a3b-7a10-8a11-000000000009",
+      "receiptId": "018f47c2-4a3b-7a10-8a11-00000000000a",
+      "resultKind": "WORLD_STAGED",
+      "resultDigest": "214b9fdfda12ecbbc3aa9e6905ce0b46660c03c8f40eb87b21f393b2aa6b34b7",
+      "receiptSemanticDigest": "da2077d2c69534990330a3456bfa702a671dc2e10a593904cb88c70029472a98"
+    },
+    {
+      "bindingKind": "REUSED",
+      "partitionOrdinal": 1,
+      "executionPartitionId": "018f47c2-4a3b-7a10-8a11-00000000000c",
+      "sourcePlanId": "018f47c2-4a3b-7a10-8a11-00000000000d",
+      "sourcePartitionId": "018f47c2-4a3b-7a10-8a11-00000000000e",
+      "sourceReceiptTenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+      "sourceReceiptId": "018f47c2-4a3b-7a10-8a11-00000000000f",
+      "resultKind": "HUMAN_DECISION",
+      "resultDigest": "a72f5b81849d566a1f69af76844811b4b13c3e780615295d0a207c6ec325641b",
+      "sourceReceiptSemanticDigest": "dcb58493bb7ca2b7099c933bae0ebd32b3ab7662dba4788bda02daacb31a9441",
+      "reuseBindingId": "018f47c2-4a3b-7a10-8a11-000000000010",
+      "reuseBindingDigest": "a7258933307fdf5b129d2f47a2e9a35248c2522ac4ba26bd0b7784af435e9c6d"
+    }
+  ],
+  "createdAt": "2026-10-22T00:00:05Z",
+  "semanticDigest": "8df79f88dfa78edb10c655f0db505d11278f411503a47e0f9c59c77d4db810da"
+}

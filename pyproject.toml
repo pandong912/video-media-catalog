@@ -76,6 +76,7 @@ packages = ["src/video_media_catalog"]
 "contracts/catalog/research-predicate-registry.v1.json" = "video_media_catalog/contracts/research-predicate-registry.v1.json"
 "contracts/catalog/global-reference-ontology.v1.json" = "video_media_catalog/contracts/global-reference-ontology.v1.json"
 "contracts/catalog/global-reference-release.v1.schema.json" = "video_media_catalog/contracts/global-reference-release.v1.schema.json"
+"contracts/execution" = "video_media_catalog/contracts/execution"
 
 [tool.pytest.ini_options]
 addopts = "-ra"

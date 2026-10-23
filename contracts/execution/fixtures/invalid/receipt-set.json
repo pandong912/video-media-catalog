@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0.0",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "executionPlanId": "018f47c2-4a3b-7a10-8a11-000000000007",
+  "planDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "receipts": [
+    {
+      "bindingKind": "EXECUTED",
+      "partitionOrdinal": 0,
+      "executionPartitionId": "018f47c2-4a3b-7a10-8a11-000000000008",
+      "executionAttemptId": "018f47c2-4a3b-7a10-8a11-000000000009",
+      "receiptId": "018f47c2-4a3b-7a10-8a11-00000000000a",
+      "resultKind": "WORLD_STAGED",
+      "resultDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+      "receiptSemanticDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "sourcePlanId": "018f47c2-4a3b-7a10-8a11-00000000000c"
+    }
+  ],
+  "createdAt": "2026-10-22T00:00:05Z",
+  "semanticDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

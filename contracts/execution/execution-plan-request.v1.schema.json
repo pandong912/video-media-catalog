@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-plan-request.v1.schema.json",
+  "title": "Video World Execution Plan Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "projectId",
+    "sourceKind",
+    "sourceIdentity",
+    "sourceRevision",
+    "inputManifestSemanticDigest",
+    "executionStage",
+    "capability",
+    "partitionPolicy",
+    "partitionPolicyDigest",
+    "plannerKey",
+    "plannerVersion",
+    "plannerReleaseDigest",
+    "executionProfileDigest",
+    "outputSchemaDigest",
+    "modelDigest",
+    "configDigest",
+    "policyDigest",
+    "rightsFenceDigest",
+    "denylistFenceDigest",
+    "derivativeFenceDigest",
+    "backendEligibilityDigest",
+    "dataPlaneEligibilityDigest",
+    "retryPolicyDigest",
+    "checkpointPolicyDigest",
+    "reducerContractDigest",
+    "priorityClass",
+    "costBudgetDigest",
+    "finalizationMode",
+    "planRequestDigest"
+  ],
+  "dependentRequired": {
+    "replacesPlanRevision": ["replanReason"],
+    "replanReason": ["replacesPlanRevision"]
+  },
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "tenantId": {"$ref": "#/$defs/uuidV7"},
+    "projectId": {"$ref": "#/$defs/uuidV7"},
+    "sourceKind": {
+      "enum": [
+        "ASSET_VERSION",
+        "PROCESSING_ORDER",
+        "DATASET_REVISION",
+        "PRODUCTION_PROJECT",
+        "OPERATOR_RUN"
+      ]
+    },
+    "sourceIdentity": {"$ref": "#/$defs/uuidV7"},
+    "sourceRevision": {"type": "integer", "minimum": 1},
+    "inputManifestSemanticDigest": {"$ref": "#/$defs/sha256"},
+    "executionStage": {"$ref": "#/$defs/token"},
+    "capability": {"$ref": "#/$defs/token"},
+    "partitionPolicy": {"$ref": "#/$defs/token"},
+    "partitionPolicyDigest": {"$ref": "#/$defs/sha256"},
+    "plannerKey": {"type": "string", "minLength": 1, "maxLength": 128},
+    "plannerVersion": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$"
+    },
+    "plannerReleaseDigest": {"$ref": "#/$defs/sha256"},
+    "executionProfileDigest": {"$ref": "#/$defs/sha256"},
+    "outputSchemaDigest": {"$ref": "#/$defs/sha256"},
+    "modelDigest": {"$ref": "#/$defs/sha256"},
+    "configDigest": {"$ref": "#/$defs/sha256"},
+    "policyDigest": {"$ref": "#/$defs/sha256"},
+    "rightsFenceDigest": {"$ref": "#/$defs/sha256"},
+    "denylistFenceDigest": {"$ref": "#/$defs/sha256"},
+    "derivativeFenceDigest": {"$ref": "#/$defs/sha256"},
+    "backendEligibilityDigest": {"$ref": "#/$defs/sha256"},
+    "dataPlaneEligibilityDigest": {"$ref": "#/$defs/sha256"},
+    "retryPolicyDigest": {"$ref": "#/$defs/sha256"},
+    "checkpointPolicyDigest": {"$ref": "#/$defs/sha256"},
+    "reducerContractDigest": {"$ref": "#/$defs/sha256"},
+    "priorityClass": {"enum": ["BULK", "STANDARD", "INTERACTIVE", "CRITICAL"]},
+    "costBudgetDigest": {"$ref": "#/$defs/sha256"},
+    "finalizationMode": {
+      "enum": ["WORLD_COMMIT_LAST", "EXTERNAL_AUTHORITY_ONLY", "RECEIPT_ONLY"]
+    },
+    "replacesPlanRevision": {"type": "integer", "minimum": 1},
+    "replanReason": {"$ref": "#/$defs/token"},
+    "planRequestDigest": {"$ref": "#/$defs/sha256"}
+  },
+  "$comment": "planRequestDigest uses canonical tuple v1 over every semantic compiler input in planRequestHashProjection. inputManifestSemanticDigest identifies the immutable upstream planning inventory, not the downstream per-partition execution input manifest, avoiding a digest cycle. Generated IDs, timestamps, mutable lifecycle fields, and planRequestDigest itself are excluded.",
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/planRequestHashProjection",
+    "excluded": [
+      "planRequestDigest",
+      "sourceRequestId",
+      "executionWaveId",
+      "executionPlanId",
+      "createdAt",
+      "updatedAt"
+    ]
+  },
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "planRequestHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "tenantId",
+        "projectId",
+        "sourceKind",
+        "sourceIdentity",
+        "sourceRevision",
+        "inputManifestSemanticDigest",
+        "executionStage",
+        "capability",
+        "partitionPolicy",
+        "partitionPolicyDigest",
+        "plannerKey",
+        "plannerVersion",
+        "plannerReleaseDigest",
+        "executionProfileDigest",
+        "outputSchemaDigest",
+        "modelDigest",
+        "configDigest",
+        "policyDigest",
+        "rightsFenceDigest",
+        "denylistFenceDigest",
+        "derivativeFenceDigest",
+        "backendEligibilityDigest",
+        "dataPlaneEligibilityDigest",
+        "retryPolicyDigest",
+        "checkpointPolicyDigest",
+        "reducerContractDigest",
+        "priorityClass",
+        "costBudgetDigest",
+        "finalizationMode"
+      ],
+      "dependentRequired": {
+        "replacesPlanRevision": ["replanReason"],
+        "replanReason": ["replacesPlanRevision"]
+      },
+      "properties": {
+        "schemaVersion": {"const": "1.0.0"},
+        "tenantId": {"$ref": "#/$defs/uuidV7"},
+        "projectId": {"$ref": "#/$defs/uuidV7"},
+        "sourceKind": {
+          "enum": [
+            "ASSET_VERSION",
+            "PROCESSING_ORDER",
+            "DATASET_REVISION",
+            "PRODUCTION_PROJECT",
+            "OPERATOR_RUN"
+          ]
+        },
+        "sourceIdentity": {"$ref": "#/$defs/uuidV7"},
+        "sourceRevision": {"type": "integer", "minimum": 1},
+        "inputManifestSemanticDigest": {"$ref": "#/$defs/sha256"},
+        "executionStage": {"$ref": "#/$defs/token"},
+        "capability": {"$ref": "#/$defs/token"},
+        "partitionPolicy": {"$ref": "#/$defs/token"},
+        "partitionPolicyDigest": {"$ref": "#/$defs/sha256"},
+        "plannerKey": {"type": "string", "minLength": 1, "maxLength": 128},
+        "plannerVersion": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$"
+        },
+        "plannerReleaseDigest": {"$ref": "#/$defs/sha256"},
+        "executionProfileDigest": {"$ref": "#/$defs/sha256"},
+        "outputSchemaDigest": {"$ref": "#/$defs/sha256"},
+        "modelDigest": {"$ref": "#/$defs/sha256"},
+        "configDigest": {"$ref": "#/$defs/sha256"},
+        "policyDigest": {"$ref": "#/$defs/sha256"},
+        "rightsFenceDigest": {"$ref": "#/$defs/sha256"},
+        "denylistFenceDigest": {"$ref": "#/$defs/sha256"},
+        "derivativeFenceDigest": {"$ref": "#/$defs/sha256"},
+        "backendEligibilityDigest": {"$ref": "#/$defs/sha256"},
+        "dataPlaneEligibilityDigest": {"$ref": "#/$defs/sha256"},
+        "retryPolicyDigest": {"$ref": "#/$defs/sha256"},
+        "checkpointPolicyDigest": {"$ref": "#/$defs/sha256"},
+        "reducerContractDigest": {"$ref": "#/$defs/sha256"},
+        "priorityClass": {
+          "enum": ["BULK", "STANDARD", "INTERACTIVE", "CRITICAL"]
+        },
+        "costBudgetDigest": {"$ref": "#/$defs/sha256"},
+        "finalizationMode": {
+          "enum": ["WORLD_COMMIT_LAST", "EXTERNAL_AUTHORITY_ONLY", "RECEIPT_ONLY"]
+        },
+        "replacesPlanRevision": {"type": "integer", "minimum": 1},
+        "replanReason": {"$ref": "#/$defs/token"}
+      }
+    }
+  }
+}

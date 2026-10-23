@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "object-ref-v2.v2.schema.json",
+  "title": "Video World ObjectRef v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "objectRefId",
+    "tenantId",
+    "projectId",
+    "dataPlaneBindingId",
+    "dataPlaneId",
+    "provider",
+    "uri",
+    "objectKey",
+    "format",
+    "mediaType",
+    "checksum",
+    "sizeBytes",
+    "etag",
+    "versionToken",
+    "schemaDigest",
+    "encryptionContextDigest",
+    "identityDigest",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0.0"
+    },
+    "objectRefId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "projectId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "dataPlaneBindingId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "dataPlaneId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "provider": {
+      "enum": ["AWS_S3", "ALIBABA_OSS"]
+    },
+    "uri": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "objectKey": {
+      "$ref": "#/$defs/objectKey"
+    },
+    "format": {
+      "enum": ["BYTES", "JSON", "JSONL", "PARQUET", "PROTOBUF", "OTHER"]
+    },
+    "mediaType": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$"
+    },
+    "checksum": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sizeBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1125899906842624
+    },
+    "etag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "versionToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?![Ll][Aa][Tt][Ee][Ss][Tt]$)(?![Nn][Uu][Ll][Ll]$)(?![Cc][Uu][Rr][Rr][Ee][Nn][Tt]$)(?![Hh][Ee][Aa][Dd]$)(?![Mm][Uu][Tt][Aa][Bb][Ll][Ee]$)(?![Uu][Nn][Vv][Ee][Rr][Ss][Ii][Oo][Nn][Ee][Dd]$)(?![Nn][Oo][Nn][Ee]$)[^\\s\\\\?#\\u0000-\\u001f\\u007f]+$"
+    },
+    "schemaDigest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "encryptionContextDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "identityDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "BYTES"
+          }
+        },
+        "required": ["format"]
+      },
+      "then": {
+        "properties": {
+          "schemaDigest": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "schemaDigest": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provider": {"const": "AWS_S3"}
+        },
+        "required": ["provider"]
+      },
+      "then": {
+        "properties": {
+          "uri": {
+            "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[\\\\%?#\\u0000-\\u001f\\u007f]).+$"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "uri": {
+            "pattern": "^oss://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[\\\\%?#\\u0000-\\u001f\\u007f]).+$"
+          }
+        }
+      }
+    }
+  ],
+  "$comment": "identityDigest uses canonical tuple v1 over objectRefHashProjection. The URI must be credential-free and its raw key must exactly equal objectKey; model and database constraints enforce the cross-field equality. The projection excludes objectRefId, identityDigest, and createdAt.",
+  "x-uri-object-key-binding": {
+    "rule": "uri.rawPath == '/' + objectKey",
+    "forbiddenUriComponents": ["userinfo", "port", "query", "fragment"]
+  },
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/objectRefHashProjection",
+    "excluded": ["objectRefId", "identityDigest", "createdAt"]
+  },
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "objectKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[\\\\%?#\\u0000-\\u001f\\u007f]).+$"
+    },
+    "objectRefHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "tenantId",
+        "projectId",
+        "dataPlaneBindingId",
+        "dataPlaneId",
+        "provider",
+        "uri",
+        "objectKey",
+        "format",
+        "mediaType",
+        "checksum",
+        "sizeBytes",
+        "etag",
+        "versionToken",
+        "schemaDigest",
+        "encryptionContextDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "2.0.0"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "projectId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "dataPlaneBindingId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "dataPlaneId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "provider": {
+          "enum": ["AWS_S3", "ALIBABA_OSS"]
+        },
+        "uri": {
+          "type": "string"
+        },
+        "objectKey": {
+          "$ref": "#/$defs/objectKey"
+        },
+        "format": {
+          "enum": ["BYTES", "JSON", "JSONL", "PARQUET", "PROTOBUF", "OTHER"]
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "checksum": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sizeBytes": {
+          "type": "integer"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "versionToken": {
+          "type": "string"
+        },
+        "schemaDigest": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "encryptionContextDigest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

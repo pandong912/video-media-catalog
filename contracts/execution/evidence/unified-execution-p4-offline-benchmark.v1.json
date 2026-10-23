@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "video.world.execution-p4-offline-benchmark-evidence.v1",
+  "environmentClass": "LOCAL_OFFLINE",
+  "synthetic": true,
+  "claimsProductionSlo": false,
+  "sourceCommit": "2236a8f4a165e258dfb67a01c69408742999f905",
+  "seed": 20261024,
+  "reproductionCommand": "python3 tools/execution_p4_offline_benchmark.py --output readiness/evidence/unified-execution-p4-offline-benchmark.v1.json",
+  "host": {
+    "pythonVersion": "3.14.5",
+    "operatingSystem": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "processorCount": 12
+  },
+  "cases": [
+    {
+      "name": "LONG_MEDIA_SKEW",
+      "parameters": {
+        "seed": 20261024
+      },
+      "result": {
+        "inputDigest": "9bcb4c37299b4cfe26d0ba975c10840a6e118e8cf66f7d2768b6783d4871ac1f",
+        "itemCount": 50000,
+        "workerCount": 64,
+        "minimumAssignedUnits": 3091988,
+        "medianAssignedUnits": 3092988,
+        "maximumAssignedUnits": 18084485,
+        "maximumToMedianPpm": 5846930
+      },
+      "elapsedNanoseconds": 20093708,
+      "unitsPerSecond": 2488341
+    },
+    {
+      "name": "SMALL_FILE_INVENTORY",
+      "parameters": {
+        "seed": 20261024
+      },
+      "result": {
+        "fileCount": 2000,
+        "payloadBytesPerFile": 256,
+        "totalPayloadBytes": 512000,
+        "inventoryDigest": "100e8448ab13b0093f78b3df3dd47252055b650c1559afb7e5956ebb61b28923"
+      },
+      "elapsedNanoseconds": 1097286666,
+      "unitsPerSecond": 1822
+    },
+    {
+      "name": "DIGEST_THROUGHPUT",
+      "parameters": {
+        "seed": 20261024
+      },
+      "result": {
+        "blockCount": 100000,
+        "inputBytesPerBlock": 1024,
+        "totalInputBytes": 102400000,
+        "resultDigest": "11cadc47c102af4ad88e4b96bd72d9f707ee0e6c1dc3c1eb424c19779a0ad91b"
+      },
+      "elapsedNanoseconds": 107085291,
+      "unitsPerSecond": 933835
+    }
+  ],
+  "generatedAt": "2026-10-23T16:46:30Z",
+  "evidenceDigest": "8289c55c210f68ed1399796e4c5a706db7907d172bc71c848903a7a25dfa2781"
+}

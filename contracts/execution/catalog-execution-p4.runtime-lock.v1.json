@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "video.media-catalog.execution-p4-runtime-lock.v1",
+  "status": "MANIFEST_SYNCED_PLANNED",
+  "runtimeActivationAllowed": false,
+  "platformProvenance": {
+    "repository": "video-world-platform",
+    "branch": "feat/unified-execution-p4-20261024",
+    "observedHeadCommit": "2236a8f4a165e258dfb67a01c69408742999f905",
+    "p4ArtifactCommit": null,
+    "p4CommitReceipt": null,
+    "p4ArtifactsPresentInObservedCommit": false
+  },
+  "p4Manifest": {
+    "path": "contracts/execution/execution-p4-artifact-manifest.v1.json",
+    "present": true,
+    "sha256": "a88550b9de2db92eba4934e5f7d365e418a83ab1d45828cf993c0a813589dbed",
+    "byteLength": 4343,
+    "lockBodyDigest": "614a6867d0818a57e3a302f8c94fa7d8ffb98dcc7eb2e6781e15b2215cfc3189",
+    "contractVersion": "video.world.execution-contracts.p4.v1",
+    "status": "PLANNED",
+    "claimsRuntimeActivation": false,
+    "claimsProductionSlo": false,
+    "sourceCommit": null,
+    "publicationReceipt": null,
+    "requiredForActivation": true
+  },
+  "platformP4ContractAllowlist": {
+    "artifactCount": 14,
+    "allowedManifestLockBodyDigests": [
+      "614a6867d0818a57e3a302f8c94fa7d8ffb98dcc7eb2e6781e15b2215cfc3189"
+    ],
+    "admissionDecisionSchemaSha256": "b4dec69aecadc0927419e51d20fccefa0d3790373d9d1ad240e3e6064b45b21a",
+    "costEstimatorVersionSchemaSha256": "a9aeea936f23bfcc8527cfca340fbef47ede46ca48a4dda412814c884308fdef",
+    "costObservationSchemaSha256": "ef629727140ab4d640df797b8b2ce0a918d6d0ed1e794f903d8d517c9d68fbbc",
+    "operationsEvidenceSchemaSha256": "62350c07e19402bce5d2a384ea9b80a66bbe884bd7bfe4eae905f23274ee16bb",
+    "offlineBenchmarkSchemaSha256": "5d814ce50386dae2312a53dc562bdef74ec7f75bbb5d1ce243c54ca5c49880b5",
+    "platformCostObservationAuthority": true,
+    "catalogMayFabricatePlatformCostObservation": false
+  },
+  "catalogP4Capabilities": {
+    "observedCostEvidence": "IMPLEMENTED_LOCAL",
+    "observedResourceEvidence": "IMPLEMENTED_LOCAL",
+    "heartbeatCheckpoint": "IMPLEMENTED_LOCAL",
+    "orphanReconcile": "IMPLEMENTED_LOCAL",
+    "cancelRollback": "IMPLEMENTED_LOCAL",
+    "failureInjection": "SYNTHETIC_LOCAL_ONLY",
+    "historyReplay": "IMPLEMENTED_LOCAL",
+    "disasterRecovery": "RUNBOOK_ONLY_UNTIL_LIVE_CREDENTIALS"
+  },
+  "syntheticLocalEvidence": {
+    "path": "readiness/evidence/catalog-execution-p4-synthetic-local.v1.json",
+    "sha256": "1844f58cae5f92d23e6f028cd3b7c92d675227695e1516c2edb45ee5661af10f",
+    "byteLength": 510,
+    "semanticDigest": "51ed88ca32d06b66941a49a3a0a72f8504dc9828835dc338f934360c466a599b",
+    "scope": "SYNTHETIC_LOCAL",
+    "productionSloClaimed": false
+  },
+  "authorityBoundary": {
+    "icebergCommitLastPreserved": true,
+    "workflowMayCommitIceberg": false,
+    "backendMayPublishCatalogRelease": false,
+    "catalogMayWritePlatformDatabase": false,
+    "platformMayWriteCatalogDatabase": false
+  },
+  "activationReceipt": null,
+  "productionSloClaimAllowed": false,
+  "claimsRuntimeActivation": false
+}

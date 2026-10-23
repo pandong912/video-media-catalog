@@ -12,6 +12,11 @@ from test_catalog_execution_contracts import _input
 from video_media_catalog.execution_contracts import (
     CatalogBackendCompletionReceipt,
     ObjectRefV2,
+    canonical_json_bytes,
+)
+from video_media_catalog.execution_p4 import (
+    ObservedCostEvidence,
+    ObservedResourceEvidence,
 )
 from video_media_catalog.object_store import ObjectRefV2UploadResult
 from video_media_catalog.spark_backend import (
@@ -122,6 +127,70 @@ def test_completion_activity_writes_bounded_external_receipt(
     assert result.result_kind == "EXTERNAL_AUTHORITY"
     assert result.completion_receipt_digest == receipt.semantic_digest
     assert result.completion_receipt.version_token == "receipt-version-1"
+
+
+def test_completion_receipt_summary_binds_resource_and_cost_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_data = _input()
+    prepared = PreparedCatalogExecution(input_data, "stable-token", "stable-job")
+    identity = SparkBackendIdentity(
+        provider="AWS_EMR_SERVERLESS",
+        application_id="app-1",
+        job_run_id="job-1",
+    )
+    resource = ObservedResourceEvidence.create(
+        scope="PROVIDER_OBSERVED",
+        provider=identity.provider,
+        duration_milliseconds=5_000,
+        complete=False,
+    )
+    cost = ObservedCostEvidence.create(
+        scope="PROVIDER_OBSERVED",
+        provider=identity.provider,
+        status="PROVIDER_REPORTED",
+        resource_evidence_digest=resource.evidence_digest,
+        amount_micros=1_250_000,
+        currency="USD",
+    )
+    observation = SparkBackendObservation(
+        identity=identity,
+        provider_state="SUCCESS",
+        outcome="SUCCESS",
+        state_details="completed",
+        observed_at="2026-10-23T00:10:00Z",
+        resource_evidence_digest=resource.evidence_digest,
+        cost_evidence_digest=cost.evidence_digest,
+    )
+    store = ReceiptStore()
+    monkeypatch.setattr(catalog_execution, "_store", lambda _prepared: store)
+
+    result = catalog_execution.write_catalog_completion_receipt(
+        prepared,
+        identity,
+        observation,
+    )
+    receipt = CatalogBackendCompletionReceipt.model_validate_json(store.payload)
+    expected_summary = {
+        "applicationId": identity.application_id,
+        "costEvidenceDigest": cost.evidence_digest,
+        "jobRunId": identity.job_run_id,
+        "observationEvidenceDigest": observation.evidence_digest,
+        "outcome": observation.outcome,
+        "provider": identity.provider,
+        "providerState": observation.provider_state,
+        "resourceEvidenceDigest": resource.evidence_digest,
+        "stateDetails": observation.state_details,
+    }
+
+    assert (
+        receipt.summary_digest
+        == hashlib.sha256(
+            canonical_json_bytes(expected_summary, newline=True)
+        ).hexdigest()
+    )
+    assert result.resource_evidence_digest == resource.evidence_digest
+    assert result.cost_evidence_digest == cost.evidence_digest
 
 
 def test_backend_observation_rejects_unbounded_completion_details() -> None:

@@ -20,6 +20,12 @@ from video_media_catalog.execution_contracts import (
     canonical_semantic_digest,
     validate_execution_data_locality,
 )
+from video_media_catalog.execution_p4 import (
+    AuditEvent,
+    CatalogExecutionHooks,
+    MetricSample,
+    NoopCatalogExecutionHooks,
+)
 from video_media_catalog.object_store import (
     ExactObjectStoreV2,
     ObjectRefV2WriteTarget,
@@ -31,6 +37,7 @@ from video_media_catalog.spark_backend import (
     SparkBackendIdentity,
     SparkBackendObservation,
     SparkCancelReceipt,
+    SparkReconcileResult,
     SparkSubmitRequest,
 )
 from video_media_catalog.temporal.catalog_execution_models import (
@@ -44,6 +51,7 @@ from video_media_catalog.temporal.catalog_execution_models import (
 )
 
 _LOCK_NAME = "catalog-execution-p3.runtime-lock.v1.json"
+_P4_LOCK_NAME = "catalog-execution-p4.runtime-lock.v1.json"
 _MAX_COMPLETION_RECEIPT_BYTES = 256 * 1024
 
 
@@ -55,22 +63,62 @@ def _non_retryable(message: str) -> ApplicationError:
     )
 
 
-def _runtime_lock_path() -> Path:
-    source = (
-        Path(__file__).resolve().parents[4] / "contracts" / "execution" / _LOCK_NAME
-    )
+def _runtime_lock_path(name: str = _LOCK_NAME) -> Path:
+    source = Path(__file__).resolve().parents[4] / "contracts" / "execution" / name
     if source.is_file():
         return source
     packaged = resources.files("video_media_catalog").joinpath(
         "contracts",
         "execution",
-        _LOCK_NAME,
+        name,
     )
     return Path(str(packaged))
 
 
 def load_catalog_execution_runtime_lock() -> dict[str, Any]:
     return json.loads(_runtime_lock_path().read_text(encoding="utf-8"))
+
+
+def load_catalog_execution_p4_runtime_lock() -> dict[str, Any]:
+    return json.loads(_runtime_lock_path(_P4_LOCK_NAME).read_text(encoding="utf-8"))
+
+
+def validate_catalog_execution_p4_runtime(lock: dict[str, Any]) -> None:
+    if lock.get("productionSloClaimAllowed") is not False:
+        raise _non_retryable("Catalog P4 cannot claim a production SLO")
+    manifest = lock.get("p4Manifest", {})
+    if not isinstance(manifest, dict) or manifest.get("present") is not True:
+        raise _non_retryable(
+            "Platform P4 manifest is not pinned and production activation "
+            "remains disabled"
+        )
+    allowlist = lock.get("platformP4ContractAllowlist")
+    allowed_digest_values = (
+        allowlist.get("allowedManifestLockBodyDigests", ())
+        if isinstance(allowlist, dict)
+        else ()
+    )
+    allowed_digests = (
+        set(allowed_digest_values)
+        if isinstance(allowed_digest_values, (list, tuple))
+        else set()
+    )
+    if (
+        manifest.get("contractVersion") != "video.world.execution-contracts.p4.v1"
+        or manifest.get("status") != "PLANNED"
+        or manifest.get("claimsRuntimeActivation") is not False
+        or manifest.get("claimsProductionSlo") is not False
+        or manifest.get("lockBodyDigest") not in allowed_digests
+    ):
+        raise _non_retryable("Platform P4 contract manifest is not allowlisted")
+    if (
+        lock.get("status") != "ACTIVE"
+        or lock.get("runtimeActivationAllowed") is not True
+        or lock.get("claimsRuntimeActivation") is not True
+    ):
+        raise _non_retryable(
+            "Platform P4 manifest is pinned but production activation remains disabled"
+        )
 
 
 def validate_catalog_execution_runtime(
@@ -156,6 +204,7 @@ def validate_catalog_execution_shape(input_data: CatalogExecutionInput) -> None:
 def prepare_catalog_execution(
     input_data: CatalogExecutionInput,
 ) -> PreparedCatalogExecution:
+    validate_catalog_execution_p4_runtime(load_catalog_execution_p4_runtime_lock())
     lock = load_catalog_execution_runtime_lock()
     validate_catalog_execution_runtime(input_data, lock)
     validate_catalog_execution_shape(input_data)
@@ -178,6 +227,53 @@ def _load_factory(variable: str) -> Any:
     return getattr(importlib.import_module(module_name), function_name)
 
 
+def _hooks() -> CatalogExecutionHooks:
+    if not os.environ.get("CATALOG_EXECUTION_HOOK_FACTORY"):
+        return NoopCatalogExecutionHooks()
+    hooks = _load_factory("CATALOG_EXECUTION_HOOK_FACTORY")()
+    if not hasattr(hooks, "record_metric") or not hasattr(hooks, "record_audit"):
+        raise RuntimeError("Catalog execution hook factory returned an invalid hook")
+    return hooks
+
+
+def _labels(prepared: PreparedCatalogExecution) -> tuple[tuple[str, str], ...]:
+    profile = prepared.input.provider_profile
+    return (
+        ("backend", profile.backend_kind),
+        ("cloud", profile.cloud_provider),
+        ("profile", profile.profile_key),
+    )
+
+
+def _record(
+    prepared: PreparedCatalogExecution,
+    *,
+    metric: str,
+    value: int,
+    event_type: str,
+    outcome: str,
+    backend_job_id: str | None = None,
+    evidence_digest: str | None = None,
+) -> None:
+    hooks = _hooks()
+    hooks.record_metric(
+        MetricSample(
+            name=metric,
+            value=value,
+            labels=_labels(prepared),
+        )
+    )
+    hooks.record_audit(
+        AuditEvent(
+            event_type=event_type,
+            outcome=outcome,
+            execution_attempt_id=prepared.input.execution_attempt_id,
+            backend_job_id=backend_job_id,
+            evidence_digest=evidence_digest,
+        )
+    )
+
+
 def _backend(prepared: PreparedCatalogExecution) -> SparkBackendAdapter:
     profile = prepared.input.provider_profile
     if profile.backend_kind == "AWS_EMR_SERVERLESS":
@@ -196,6 +292,47 @@ def _store(prepared: PreparedCatalogExecution) -> ExactObjectStoreV2:
         return ExactObjectStoreV2(aws_region=profile.region)
     client = _load_factory("CATALOG_ALIYUN_OSS_CLIENT_FACTORY")(profile)
     return ExactObjectStoreV2(oss_client=client)
+
+
+def _heartbeat_identity(
+    prepared: PreparedCatalogExecution,
+) -> SparkBackendIdentity | None:
+    if not activity.in_activity():
+        return None
+    heartbeat_details = getattr(activity.info(), "heartbeat_details", ())
+    if isinstance(heartbeat_details, dict):
+        heartbeat_details = (heartbeat_details,)
+    for details in reversed(tuple(heartbeat_details)):
+        if (
+            isinstance(details, dict)
+            and details.get("phase") == "catalog-spark-submitted"
+            and details.get("clientToken") == prepared.client_token
+            and details.get("provider") == prepared.input.provider_profile.backend_kind
+        ):
+            return SparkBackendIdentity(
+                provider=details["provider"],
+                application_id=details["applicationId"],
+                job_run_id=details["jobRunId"],
+                job_run_arn=details.get("jobRunArn"),
+            )
+    return None
+
+
+def _heartbeat_submitted(
+    prepared: PreparedCatalogExecution,
+    identity: SparkBackendIdentity,
+) -> None:
+    if activity.in_activity():
+        activity.heartbeat(
+            {
+                "phase": "catalog-spark-submitted",
+                "clientToken": prepared.client_token,
+                "provider": identity.provider,
+                "applicationId": identity.application_id,
+                "jobRunId": identity.job_run_id,
+                "jobRunArn": identity.job_run_arn,
+            }
+        )
 
 
 @activity.defn(name="SubmitCatalogSparkV1")
@@ -217,16 +354,75 @@ def submit_catalog_spark(
         max_attempts=spec.max_attempts,
         log_uri=spec.log_uri,
     )
-    identity = _backend(prepared).submit(request)
+    backend = _backend(prepared)
+    identity = _heartbeat_identity(prepared)
+    if identity is not None:
+        reconciled = backend.reconcile(identity)
+        _heartbeat_submitted(prepared, reconciled.identity)
+        _record(
+            prepared,
+            metric="catalog_execution_submit_resumed_total",
+            value=1,
+            event_type="SUBMIT_RESUMED",
+            outcome=reconciled.disposition,
+            backend_job_id=identity.job_run_id,
+            evidence_digest=reconciled.reconcile_digest,
+        )
+        return reconciled.identity
+    identity = backend.submit(request)
+    _heartbeat_submitted(prepared, identity)
+    _record(
+        prepared,
+        metric="catalog_execution_submit_total",
+        value=1,
+        event_type="SUBMIT",
+        outcome="ACCEPTED",
+        backend_job_id=identity.job_run_id,
+    )
+    return identity
+
+
+@activity.defn(name="ReconcileCatalogSparkV1")
+def reconcile_catalog_spark(
+    prepared: PreparedCatalogExecution,
+    identity: SparkBackendIdentity,
+) -> SparkReconcileResult:
+    provider_result = _backend(prepared).reconcile(identity)
+    provider_observation = provider_result.observation
+    result = SparkReconcileResult.create(
+        SparkBackendObservation(
+            identity=provider_observation.identity,
+            provider_state=provider_observation.provider_state,
+            outcome=provider_observation.outcome,
+            state_details=provider_observation.state_details,
+            observed_at=provider_observation.observed_at,
+            resource_evidence_digest=(
+                provider_observation.bound_resource_evidence_digest
+            ),
+            cost_evidence_digest=provider_observation.bound_cost_evidence_digest,
+        )
+    )
     if activity.in_activity():
         activity.heartbeat(
             {
+                "phase": "catalog-spark-reconciled",
                 "provider": identity.provider,
                 "applicationId": identity.application_id,
                 "jobRunId": identity.job_run_id,
+                "disposition": result.disposition,
+                "reconcileDigest": result.reconcile_digest,
             }
         )
-    return identity
+    _record(
+        prepared,
+        metric="catalog_execution_reconcile_total",
+        value=1,
+        event_type="ORPHAN_RECONCILE",
+        outcome=result.disposition,
+        backend_job_id=identity.job_run_id,
+        evidence_digest=result.reconcile_digest,
+    )
+    return result
 
 
 @activity.defn(name="ObserveCatalogSparkV1")
@@ -238,12 +434,50 @@ def observe_catalog_spark(
     if activity.in_activity():
         activity.heartbeat(
             {
+                "phase": "catalog-spark-observed",
                 "provider": identity.provider,
                 "applicationId": identity.application_id,
                 "jobRunId": identity.job_run_id,
                 "state": observation.provider_state,
+                "evidenceDigest": observation.evidence_digest,
             }
         )
+    _record(
+        prepared,
+        metric="catalog_execution_observe_total",
+        value=1,
+        event_type="OBSERVE",
+        outcome=observation.outcome,
+        backend_job_id=identity.job_run_id,
+        evidence_digest=observation.evidence_digest,
+    )
+    if observation.resource_evidence is not None:
+        hooks = _hooks()
+        for name, value in (
+            (
+                "catalog_execution_duration_milliseconds",
+                observation.resource_evidence.duration_milliseconds,
+            ),
+            (
+                "catalog_execution_input_bytes",
+                observation.resource_evidence.input_bytes,
+            ),
+            (
+                "catalog_execution_output_bytes",
+                observation.resource_evidence.output_bytes,
+            ),
+            (
+                "catalog_execution_shuffle_read_bytes",
+                observation.resource_evidence.shuffle_read_bytes,
+            ),
+            (
+                "catalog_execution_shuffle_write_bytes",
+                observation.resource_evidence.shuffle_write_bytes,
+            ),
+        ):
+            hooks.record_metric(
+                MetricSample(name=name, value=value, labels=_labels(prepared))
+            )
     # Provider SDK payloads can contain datetimes and other non-JSON values.
     # Keep Workflow history bounded and provider-neutral.
     return SparkBackendObservation(
@@ -252,6 +486,8 @@ def observe_catalog_spark(
         outcome=observation.outcome,
         state_details=observation.state_details,
         observed_at=observation.observed_at,
+        resource_evidence_digest=observation.bound_resource_evidence_digest,
+        cost_evidence_digest=observation.bound_cost_evidence_digest,
     )
 
 
@@ -261,7 +497,16 @@ def cancel_catalog_spark(
     identity: SparkBackendIdentity,
     reason: str,
 ) -> SparkCancelReceipt:
-    return _backend(prepared).cancel(identity, reason=reason)
+    receipt = _backend(prepared).cancel(identity, reason=reason)
+    _record(
+        prepared,
+        metric="catalog_execution_cancel_total",
+        value=1,
+        event_type="CANCEL",
+        outcome=receipt.provider_state,
+        backend_job_id=identity.job_run_id,
+    )
+    return receipt
 
 
 @activity.defn(name="WriteCatalogCompletionReceiptV1")
@@ -276,10 +521,13 @@ def write_catalog_completion_receipt(
         raise _non_retryable("terminal observation must carry provider time")
     summary = {
         "applicationId": identity.application_id,
+        "costEvidenceDigest": (observation.bound_cost_evidence_digest or None),
         "jobRunId": identity.job_run_id,
+        "observationEvidenceDigest": observation.evidence_digest,
         "outcome": observation.outcome,
         "provider": identity.provider,
         "providerState": observation.provider_state,
+        "resourceEvidenceDigest": (observation.bound_resource_evidence_digest or None),
         "stateDetails": observation.state_details,
     }
     summary_bytes = canonical_json_bytes(summary, newline=True)
@@ -334,10 +582,22 @@ def write_catalog_completion_receipt(
             _MAX_COMPLETION_RECEIPT_BYTES,
         ),
     )
-    return CatalogExecutionResult(
+    result = CatalogExecutionResult(
         state=observation.outcome,
         backend_application_id=identity.application_id,
         backend_job_id=identity.job_run_id,
         completion_receipt=ObjectRefV2Payload.from_contract(published.object_ref),
         completion_receipt_digest=receipt.semantic_digest,
+        resource_evidence_digest=(observation.bound_resource_evidence_digest or None),
+        cost_evidence_digest=(observation.bound_cost_evidence_digest or None),
     )
+    _record(
+        prepared,
+        metric="catalog_execution_completion_receipt_total",
+        value=1,
+        event_type="COMPLETION_RECEIPT",
+        outcome=observation.outcome,
+        backend_job_id=identity.job_run_id,
+        evidence_digest=receipt.semantic_digest,
+    )
+    return result

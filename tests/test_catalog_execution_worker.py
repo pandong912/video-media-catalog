@@ -32,6 +32,7 @@ def test_worker_roles_register_stable_least_privilege_queues() -> None:
         activity.__temporal_activity_definition.name for activity in aws["activities"]
     } == {
         "SubmitCatalogSparkV1",
+        "ReconcileCatalogSparkV1",
         "ObserveCatalogSparkV1",
         "CancelCatalogSparkV1",
     }

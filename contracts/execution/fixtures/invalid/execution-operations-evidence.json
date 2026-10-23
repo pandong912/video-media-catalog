@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "video.world.execution-operations-evidence.v1",
+  "evidenceKind": "RECOVERY_DRILL",
+  "evidenceId": "018f47c2-4a3b-7a10-8a11-00000000001d",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "drillKind": "DATABASE_RESTORE",
+  "drillState": "PASSED",
+  "environment": "local-offline",
+  "sourceSnapshotDigest": "3eedf8842c271279c74d32a5ef66c91155765e8aeee40b313df94c59c184bb44",
+  "targetBuildDigest": "16988ccf48003a0882ed9ba808d075bbd4607b1a950c1f7d2087ff5bc89c4d08",
+  "productionSloClaimed": true,
+  "reproductionCommand": "python3 tools/execution_p4_offline_benchmark.py --check",
+  "startedAt": "2026-10-24T00:00:00Z",
+  "completedAt": "2026-10-24T00:00:03Z",
+  "evidenceDigest": "a165fd8a456ba25bcbb55c591fba06f9a00c4c1ebaf5810a392bdfa1941c1c08"
+}

@@ -16,13 +16,26 @@ CONTRACTS = ROOT / "contracts/execution"
 LOCK = CONTRACTS / "platform-execution-contracts.v1.lock.json"
 P3_MANIFEST = CONTRACTS / "execution-p3-artifact-manifest.v1.json"
 P3_RUNTIME_LOCK = CONTRACTS / "catalog-execution-p3.runtime-lock.v1.json"
+P4_MANIFEST = CONTRACTS / "execution-p4-artifact-manifest.v1.json"
+P4_RUNTIME_LOCK = CONTRACTS / "catalog-execution-p4.runtime-lock.v1.json"
+P4_OFFLINE_EVIDENCE = (
+    CONTRACTS / "evidence/unified-execution-p4-offline-benchmark.v1.json"
+)
 
 SCHEMA_FIXTURES = {
     "catalog-execution-request.v1.schema.json": "catalog-execution-request.json",
     "catalog-execution-result.v1.schema.json": "catalog-execution-result.json",
     "data-plane-runtime-binding.v1.schema.json": "data-plane-runtime-binding.json",
+    "execution-admission-decision.v1.schema.json": "execution-admission-decision.json",
     "execution-backend-profile.v1.schema.json": "execution-backend-profile.json",
+    "execution-cost-estimator-version.v1.schema.json": (
+        "execution-cost-estimator-version.json"
+    ),
+    "execution-cost-observation.v1.schema.json": "execution-cost-observation.json",
     "execution-input-manifest.v1.schema.json": "execution-input-manifest.json",
+    "execution-operations-evidence.v1.schema.json": (
+        "execution-operations-evidence.json"
+    ),
     "execution-plan-manifest.v1.schema.json": "execution-plan-manifest.json",
     "execution-plan-request.v1.schema.json": "execution-plan-request.json",
     "execution-transfer-plan.v1.schema.json": "execution-transfer-plan.json",
@@ -106,8 +119,15 @@ def test_vendored_bytes_match_platform_source_lock() -> None:
         Path(entry["sourcePath"]).relative_to("contracts/execution").as_posix()
         for entry in _json(P3_MANIFEST)["lockBody"]["artifacts"]
     }
+    p4_paths = {
+        Path(entry["sourcePath"]).relative_to("contracts/execution").as_posix()
+        for entry in _json(P4_MANIFEST)["lockBody"]["artifacts"]
+        if entry["sourcePath"].startswith("contracts/execution/")
+    }
     assert locked_paths.isdisjoint(p3_paths)
-    assert locked_paths | p3_paths == vendored_paths
+    assert locked_paths.isdisjoint(p4_paths)
+    assert p3_paths.isdisjoint(p4_paths)
+    assert locked_paths | p3_paths | p4_paths == vendored_paths
 
 
 def test_p3_manifest_locks_exact_artifacts_and_published_allowlists() -> None:
@@ -202,6 +222,121 @@ def test_p3_manifest_locks_exact_artifacts_and_published_allowlists() -> None:
     assert profile_lock["catalogOwnedActivationReceipt"] is None
 
 
+def test_p4_manifest_locks_exact_artifacts_without_activation_or_slo_claims() -> None:
+    manifest_bytes = P4_MANIFEST.read_bytes()
+    manifest = json.loads(manifest_bytes)
+    body = manifest["lockBody"]
+    runtime_lock = _json(P4_RUNTIME_LOCK)
+    artifacts = body["artifacts"]
+    source_paths = [entry["sourcePath"] for entry in artifacts]
+
+    assert manifest["schemaVersion"] == (
+        "video.world.execution-p4-artifact-manifest.v1"
+    )
+    assert body["p4ContractVersion"] == "video.world.execution-contracts.p4.v1"
+    assert body["status"] == "PLANNED"
+    assert body["claimsRuntimeActivation"] is False
+    assert body["claimsProductionSlo"] is False
+    assert len(artifacts) == 14
+    assert source_paths == sorted(source_paths)
+
+    provenance = body["platformProvenance"]
+    projection = [
+        "video.world.execution-p4-artifact-lock-body.v1",
+        body["authority"],
+        body["p4ContractVersion"],
+        body["status"],
+        str(body["claimsRuntimeActivation"]).lower(),
+        str(body["claimsProductionSlo"]).lower(),
+        provenance["p3Commit"],
+        provenance["p3ContractVersion"],
+        provenance["p3ArtifactLockDigest"],
+        str(len(artifacts)),
+    ]
+    artifact_digests: dict[str, str] = {}
+    for entry in artifacts:
+        source_path = entry["sourcePath"]
+        if source_path.startswith("contracts/execution/"):
+            relative = Path(source_path).relative_to("contracts/execution")
+            payload = (CONTRACTS / relative).read_bytes()
+            artifact_digests[relative.as_posix()] = entry["sha256"]
+        else:
+            assert source_path == (
+                "readiness/evidence/unified-execution-p4-offline-benchmark.v1.json"
+            )
+            payload = P4_OFFLINE_EVIDENCE.read_bytes()
+        assert len(payload) == entry["byteLength"]
+        assert hashlib.sha256(payload).hexdigest() == entry["sha256"]
+        projection.extend(
+            [
+                source_path,
+                entry["kind"],
+                entry["sha256"],
+                str(entry["byteLength"]),
+            ]
+        )
+    assert canonical_tuple_sha256(projection) == manifest["lockBodyDigest"]
+
+    pinned_manifest = runtime_lock["p4Manifest"]
+    assert pinned_manifest["present"] is True
+    assert pinned_manifest["sha256"] == hashlib.sha256(manifest_bytes).hexdigest()
+    assert pinned_manifest["byteLength"] == len(manifest_bytes)
+    assert pinned_manifest["lockBodyDigest"] == manifest["lockBodyDigest"]
+    assert pinned_manifest["sourceCommit"] is None
+    assert pinned_manifest["publicationReceipt"] is None
+    assert runtime_lock["runtimeActivationAllowed"] is False
+    assert runtime_lock["activationReceipt"] is None
+    assert runtime_lock["claimsRuntimeActivation"] is False
+    assert runtime_lock["productionSloClaimAllowed"] is False
+
+    allowlist = runtime_lock["platformP4ContractAllowlist"]
+    assert allowlist["allowedManifestLockBodyDigests"] == [manifest["lockBodyDigest"]]
+    assert allowlist["artifactCount"] == len(artifacts)
+    assert (
+        allowlist["costObservationSchemaSha256"]
+        == artifact_digests["execution-cost-observation.v1.schema.json"]
+    )
+    assert (
+        allowlist["operationsEvidenceSchemaSha256"]
+        == artifact_digests["execution-operations-evidence.v1.schema.json"]
+    )
+    assert allowlist["platformCostObservationAuthority"] is True
+    assert allowlist["catalogMayFabricatePlatformCostObservation"] is False
+
+
+def test_p4_cost_digest_and_offline_evidence_are_portable_and_non_production() -> None:
+    cost = _json(CONTRACTS / "fixtures/valid/execution-cost-observation.json")
+    assert cost["observationDigest"] == canonical_tuple_sha256(
+        [
+            "video.world.execution-cost-observation.v1",
+            cost["schemaVersion"],
+            cost["tenantId"],
+            cost["projectId"],
+            cost["receiptId"],
+            cost["executionAttemptId"],
+            cost["executionStage"],
+            cost["backendKind"],
+            cost["backendProvider"],
+            str(cost["estimatedCostMicros"]),
+            str(cost["observedCostMicros"]),
+            cost["receiptDigest"],
+            cost["observedAt"],
+        ]
+    )
+
+    schema = _json(CONTRACTS / "execution-p4-offline-benchmark-evidence.v1.schema.json")
+    Draft202012Validator.check_schema(schema)
+    evidence = _json(P4_OFFLINE_EVIDENCE)
+    validator = Draft202012Validator(
+        schema,
+        format_checker=FormatChecker(),
+    )
+    assert list(validator.iter_errors(evidence)) == []
+    assert evidence["environmentClass"] == "LOCAL_OFFLINE"
+    assert evidence["synthetic"] is True
+    assert evidence["claimsProductionSlo"] is False
+
+
 def test_p0_lock_only_remaining_issue_is_untracked_source_provenance() -> None:
     lock = _json(LOCK)
     issue_ids = {issue["id"] for issue in lock["provenanceLimitations"]}
@@ -270,8 +405,20 @@ def test_wheel_force_includes_the_complete_execution_contract_tree() -> None:
         "catalog-execution-p3.runtime-lock.v1.json"
     ) in projected_members
     assert (
+        "video_media_catalog/contracts/execution/"
+        "catalog-execution-p4.runtime-lock.v1.json"
+    ) in projected_members
+    assert (
         "video_media_catalog/contracts/execution/execution-p3-artifact-manifest.v1.json"
     ) in projected_members
+    assert (
+        "video_media_catalog/contracts/execution/execution-p4-artifact-manifest.v1.json"
+        in projected_members
+    )
+    assert (
+        "video_media_catalog/contracts/execution/evidence/"
+        "unified-execution-p4-offline-benchmark.v1.json" in projected_members
+    )
     assert len(_json(LOCK)["files"]) == 22
     for schema_name, fixture_name in SCHEMA_FIXTURES.items():
         assert (

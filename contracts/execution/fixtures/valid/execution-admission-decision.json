@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "video.world.execution-admission-decision.v1",
+  "admissionDecisionId": "018f47c2-4a3b-7a10-8a11-00000000001c",
+  "admissionRequestId": "018f47c2-4a3b-7a10-8a11-00000000001b",
+  "executionAttemptId": "018f47c2-4a3b-7a10-8a11-000000000009",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "executionStage": "PROBE",
+  "backendKind": "KUBERNETES_JOB",
+  "backendProvider": "KUBERNETES",
+  "endpointKey": "model/probe-v1",
+  "estimatedCostMicros": 1000,
+  "requiredCapacityMilli": 500,
+  "fairness": {
+    "tenant": {
+      "weight": 100,
+      "guaranteedSharePpm": 100000,
+      "maximumSharePpm": 900000,
+      "currentSharePpm": 100000
+    },
+    "project": {
+      "weight": 100,
+      "guaranteedSharePpm": 100000,
+      "maximumSharePpm": 900000,
+      "currentSharePpm": 100000
+    },
+    "stage": {
+      "weight": 100,
+      "guaranteedSharePpm": 100000,
+      "maximumSharePpm": 900000,
+      "currentSharePpm": 100000
+    },
+    "backend": {
+      "weight": 100,
+      "guaranteedSharePpm": 100000,
+      "maximumSharePpm": 900000,
+      "currentSharePpm": 100000
+    },
+    "provider": {
+      "weight": 100,
+      "guaranteedSharePpm": 100000,
+      "maximumSharePpm": 900000,
+      "currentSharePpm": 100000
+    }
+  },
+  "budgetLimitMicros": 10000,
+  "budgetReservedBeforeMicros": 2000,
+  "endpointTokensBeforeMilli": 1000,
+  "endpointTokensAfterMilli": 900,
+  "kueueCapacityEvidence": {
+    "clusterQueue": "world-gpu",
+    "localQueue": "world-probe",
+    "resourceFlavor": "gpu-a10",
+    "nominalCapacityMilli": 1000,
+    "availableCapacityMilli": 1000,
+    "borrowedCapacityMilli": 0,
+    "borrowingLimitMilli": 500,
+    "pendingWorkloads": 0,
+    "observedAt": "2026-10-24T00:00:00Z",
+    "evidenceDigest": "0bacf4ac4a7f15085e822eda1b6cadc89cf173f67edb116fe93bf31a064a1a16"
+  },
+  "capacityEvidenceDigest": "0bacf4ac4a7f15085e822eda1b6cadc89cf173f67edb116fe93bf31a064a1a16",
+  "decisionState": "GRANTED",
+  "reasonCode": "GRANTED",
+  "virtualFinish": 5000050000,
+  "budgetReservedAfterMicros": 3000,
+  "requestDigest": "4fed9af51a7de3f0161d56ae5ce464b81212cc3352b2fa1ff7fef97597825b4a",
+  "requestedAt": "2026-10-24T00:00:00Z",
+  "decidedAt": "2026-10-24T00:00:01Z",
+  "decisionDigest": "156207efbc4754c3b18e96725063171c286ff612fc059a4deb7d304aefd47357"
+}

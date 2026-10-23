@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-operations-evidence.v1.schema.json",
+  "title": "Unified execution P4 operations evidence v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/orphanEvidence"
+    },
+    {
+      "$ref": "#/$defs/historyReplayEvidence"
+    },
+    {
+      "$ref": "#/$defs/recoveryDrillEvidence"
+    }
+  ],
+  "$defs": {
+    "baseProperties": {
+      "schemaVersion": {
+        "const": "video.world.execution-operations-evidence.v1"
+      },
+      "evidenceId": {
+        "$ref": "#/$defs/uuidV7"
+      },
+      "tenantId": {
+        "$ref": "#/$defs/uuidV7"
+      },
+      "projectId": {
+        "$ref": "#/$defs/uuidV7"
+      },
+      "evidenceDigest": {
+        "$ref": "#/$defs/digest"
+      }
+    },
+    "orphanEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "evidenceKind",
+        "evidenceId",
+        "tenantId",
+        "projectId",
+        "executionAttemptId",
+        "orphanKind",
+        "orphanState",
+        "reconcileAction",
+        "caseDigest",
+        "evidenceDigest",
+        "detectedAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/baseProperties/schemaVersion"
+        },
+        "evidenceKind": {
+          "const": "ORPHAN_CASE"
+        },
+        "evidenceId": {
+          "$ref": "#/$defs/baseProperties/evidenceId"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/baseProperties/tenantId"
+        },
+        "projectId": {
+          "$ref": "#/$defs/baseProperties/projectId"
+        },
+        "executionAttemptId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "orphanKind": {
+          "enum": [
+            "ACTIVE_WITHOUT_BACKEND",
+            "BACKEND_WITHOUT_ACTIVE_ATTEMPT",
+            "TERMINAL_WITHOUT_CAPACITY_RELEASE",
+            "RECEIPT_WITHOUT_OUTCOME",
+            "OUTBOX_WITHOUT_CAUSAL_AUTHORITY"
+          ]
+        },
+        "orphanState": {
+          "enum": [
+            "OPEN",
+            "RECONCILE_REQUESTED",
+            "RECONCILED",
+            "IGNORED"
+          ]
+        },
+        "reconcileAction": {
+          "enum": [
+            "OBSERVE_BACKEND",
+            "RELEASE_CAPACITY",
+            "VALIDATE_RECEIPT",
+            "REDRIVE_OUTBOX",
+            "FAIL_CLOSED",
+            "NONE"
+          ]
+        },
+        "caseDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "evidenceDigest": {
+          "$ref": "#/$defs/baseProperties/evidenceDigest"
+        },
+        "detectedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reconciledAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "historyReplayEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "evidenceKind",
+        "evidenceId",
+        "tenantId",
+        "projectId",
+        "workflowType",
+        "workflowId",
+        "workflowRunId",
+        "historyDigest",
+        "workerBuildId",
+        "replayedEventCount",
+        "replayState",
+        "evidenceDigest",
+        "replayedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/baseProperties/schemaVersion"
+        },
+        "evidenceKind": {
+          "const": "HISTORY_REPLAY"
+        },
+        "evidenceId": {
+          "$ref": "#/$defs/baseProperties/evidenceId"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/baseProperties/tenantId"
+        },
+        "projectId": {
+          "$ref": "#/$defs/baseProperties/projectId"
+        },
+        "workflowType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "workflowId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "workflowRunId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "historyDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "workerBuildId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "replayedEventCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "replayState": {
+          "enum": [
+            "PASSED",
+            "FAILED"
+          ]
+        },
+        "failureCode": {
+          "$ref": "#/$defs/upperToken"
+        },
+        "evidenceDigest": {
+          "$ref": "#/$defs/baseProperties/evidenceDigest"
+        },
+        "replayedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "replayState": {
+                "const": "FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "failureCode"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "failureCode"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "recoveryDrillEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "evidenceKind",
+        "evidenceId",
+        "tenantId",
+        "projectId",
+        "drillKind",
+        "drillState",
+        "environment",
+        "sourceSnapshotDigest",
+        "targetBuildDigest",
+        "productionSloClaimed",
+        "reproductionCommand",
+        "evidenceDigest",
+        "startedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/baseProperties/schemaVersion"
+        },
+        "evidenceKind": {
+          "const": "RECOVERY_DRILL"
+        },
+        "evidenceId": {
+          "$ref": "#/$defs/baseProperties/evidenceId"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/baseProperties/tenantId"
+        },
+        "projectId": {
+          "$ref": "#/$defs/baseProperties/projectId"
+        },
+        "drillKind": {
+          "enum": [
+            "HISTORY_REPLAY",
+            "DATABASE_RESTORE",
+            "WORKER_ROLLBACK",
+            "ESTIMATOR_ROLLBACK"
+          ]
+        },
+        "drillState": {
+          "enum": [
+            "PLANNED",
+            "RUNNING",
+            "PASSED",
+            "FAILED",
+            "ROLLED_BACK"
+          ]
+        },
+        "environment": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._/-]{0,63}$"
+        },
+        "sourceSnapshotDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "targetBuildDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "rollbackEstimatorVersionId": {
+          "$ref": "#/$defs/uuidV7"
+        },
+        "productionSloClaimed": {
+          "const": false
+        },
+        "reproductionCommand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceDigest": {
+          "$ref": "#/$defs/baseProperties/evidenceDigest"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "drillKind": {
+                "const": "ESTIMATOR_ROLLBACK"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "rollbackEstimatorVersionId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "drillState": {
+                "enum": [
+                  "PASSED",
+                  "FAILED",
+                  "ROLLED_BACK"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "completedAt"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "completedAt"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "upperToken": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    }
+  }
+}

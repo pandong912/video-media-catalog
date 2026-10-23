@@ -57,6 +57,8 @@ _UUID_V7_PATTERN = (
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 _TOKEN_PATTERN = r"^[A-Z][A-Z0-9_]{0,63}$"
 _PLANNER_VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
+_PROFILE_KEY = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_REGION = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$")
 _MEDIA_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/"
     r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$"
@@ -1498,5 +1500,451 @@ class RootManifest(ExecutionContractModel):
             result_digest=result_digest,
             result_objects=canonical_objects,
             created_at=created_at,
+            semantic_digest=semantic_digest,
+        )
+
+
+CloudProvider = Literal["AWS", "ALIYUN"]
+SparkBackendKind = Literal[
+    "AWS_EMR_SERVERLESS",
+    "ALIYUN_EMR_SERVERLESS_SPARK",
+]
+ExecutionPlanKind = Literal["EXECUTION", "TRANSFER"]
+
+CATALOG_PROVIDER_PROFILE_SCHEMA_VERSION = "1.0.0"
+CATALOG_TRANSFER_PLAN_SCHEMA_VERSION = "1.0.0"
+CATALOG_COMPLETION_RECEIPT_SCHEMA_VERSION = "1.0.0"
+CATALOG_COMPLETION_RECEIPT_MEDIA_TYPE = (
+    "application/vnd.video-media-catalog.execution-completion-receipt.v1+json"
+)
+
+
+class WorkloadIdentityBinding(ExecutionContractModel):
+    """Credential-free reference to one cloud workload identity."""
+
+    cloud_provider: CloudProvider
+    identity_reference: str
+    subject_digest: Sha256Hex
+    audience: str
+    semantic_digest: Sha256Hex
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> WorkloadIdentityBinding:
+        reference = _require_bounded_text(
+            self.identity_reference,
+            label="identityReference",
+            maximum=512,
+        )
+        audience = _require_bounded_text(
+            self.audience,
+            label="audience",
+            maximum=255,
+        )
+        if any(marker in reference.casefold() for marker in ("secret", "token=", "?")):
+            raise ValueError("identityReference must not contain credentials")
+        if self.cloud_provider == "AWS":
+            aws_role = r"arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+"
+            if re.fullmatch(aws_role, reference) is None:
+                raise ValueError("AWS workload identity must be an IAM role ARN")
+        elif (
+            re.fullmatch(
+                r"acs:ram::[0-9]{6,32}:role/[A-Za-z0-9+=,.@_/-]+",
+                reference,
+            )
+            is None
+        ):
+            raise ValueError("ALIYUN workload identity must be a RAM role ARN")
+        _ = audience
+        if not hmac.compare_digest(
+            self.semantic_digest,
+            self.computed_semantic_digest(),
+        ):
+            raise ValueError("workload identity semanticDigest does not match")
+        return self
+
+    def computed_semantic_digest(self) -> str:
+        return canonical_semantic_digest(
+            "video.media-catalog.workload-identity-binding.v1",
+            self.cloud_provider,
+            self.identity_reference,
+            self.subject_digest,
+            self.audience,
+        )
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        cloud_provider: CloudProvider,
+        identity_reference: str,
+        subject_digest: str,
+        audience: str,
+    ) -> WorkloadIdentityBinding:
+        semantic_digest = canonical_semantic_digest(
+            "video.media-catalog.workload-identity-binding.v1",
+            cloud_provider,
+            identity_reference,
+            subject_digest,
+            audience,
+        )
+        return cls(
+            cloud_provider=cloud_provider,
+            identity_reference=identity_reference,
+            subject_digest=subject_digest,
+            audience=audience,
+            semantic_digest=semantic_digest,
+        )
+
+
+class SparkProviderProfile(ExecutionContractModel):
+    """Pinned provider/runtime profile; it contains no credentials."""
+
+    schema_version: Literal["1.0.0"]
+    profile_key: str
+    cloud_provider: CloudProvider
+    object_provider: ObjectProvider
+    backend_kind: SparkBackendKind
+    region: str
+    application_id: str
+    workload_identity: WorkloadIdentityBinding
+    max_input_bytes: Annotated[int, Field(strict=True, ge=1, le=_MAX_OBJECT_BYTES)]
+    max_output_bytes: Annotated[int, Field(strict=True, ge=1, le=_MAX_OBJECT_BYTES)]
+    transfer_only: Annotated[bool, Field(strict=True)]
+    profile_digest: Sha256Hex
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> SparkProviderProfile:
+        if _PROFILE_KEY.fullmatch(self.profile_key) is None:
+            raise ValueError("profileKey is not canonical")
+        if _REGION.fullmatch(self.region) is None:
+            raise ValueError("region is not canonical")
+        _require_bounded_text(
+            self.application_id,
+            label="applicationId",
+            maximum=255,
+        )
+        expected = {
+            "AWS": ("AWS_S3", "AWS_EMR_SERVERLESS"),
+            "ALIYUN": ("ALIBABA_OSS", "ALIYUN_EMR_SERVERLESS_SPARK"),
+        }[self.cloud_provider]
+        if (self.object_provider, self.backend_kind) != expected:
+            raise ValueError(
+                "cloudProvider, objectProvider, and backendKind must agree"
+            )
+        if self.workload_identity.cloud_provider != self.cloud_provider:
+            raise ValueError("workload identity provider must match profile")
+        if not hmac.compare_digest(
+            self.profile_digest,
+            self.computed_profile_digest(),
+        ):
+            raise ValueError("profileDigest does not match provider profile")
+        return self
+
+    def computed_profile_digest(self) -> str:
+        return canonical_semantic_digest(
+            "video.media-catalog.spark-provider-profile.v1",
+            self.schema_version,
+            self.profile_key,
+            self.cloud_provider,
+            self.object_provider,
+            self.backend_kind,
+            self.region,
+            self.application_id,
+            self.workload_identity.semantic_digest,
+            str(self.max_input_bytes),
+            str(self.max_output_bytes),
+            str(self.transfer_only).lower(),
+        )
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        profile_key: str,
+        cloud_provider: CloudProvider,
+        object_provider: ObjectProvider,
+        backend_kind: SparkBackendKind,
+        region: str,
+        application_id: str,
+        workload_identity: WorkloadIdentityBinding,
+        max_input_bytes: int,
+        max_output_bytes: int,
+        transfer_only: bool = False,
+    ) -> SparkProviderProfile:
+        profile_digest = canonical_semantic_digest(
+            "video.media-catalog.spark-provider-profile.v1",
+            CATALOG_PROVIDER_PROFILE_SCHEMA_VERSION,
+            profile_key,
+            cloud_provider,
+            object_provider,
+            backend_kind,
+            region,
+            application_id,
+            workload_identity.semantic_digest,
+            str(max_input_bytes),
+            str(max_output_bytes),
+            str(transfer_only).lower(),
+        )
+        return cls(
+            schema_version=CATALOG_PROVIDER_PROFILE_SCHEMA_VERSION,
+            profile_key=profile_key,
+            cloud_provider=cloud_provider,
+            object_provider=object_provider,
+            backend_kind=backend_kind,
+            region=region,
+            application_id=application_id,
+            workload_identity=workload_identity,
+            max_input_bytes=max_input_bytes,
+            max_output_bytes=max_output_bytes,
+            transfer_only=transfer_only,
+            profile_digest=profile_digest,
+        )
+
+
+class TransferPlanBinding(ExecutionContractModel):
+    """Explicit authorization for one cross-cloud transfer plan."""
+
+    schema_version: Literal["1.0.0"]
+    plan_kind: Literal["TRANSFER"]
+    transfer_plan_id: UuidV7
+    transfer_plan_digest: Sha256Hex
+    source_provider: CloudProvider
+    destination_provider: CloudProvider
+    source_object_identity_digests: Annotated[
+        tuple[Sha256Hex, ...],
+        Field(min_length=1, max_length=10_000),
+    ]
+    destination_prefix: str
+    semantic_digest: Sha256Hex
+
+    @model_validator(mode="after")
+    def validate_transfer(self) -> TransferPlanBinding:
+        if self.source_provider == self.destination_provider:
+            raise ValueError("TRANSFER plan must cross cloud providers")
+        if len(set(self.source_object_identity_digests)) != len(
+            self.source_object_identity_digests
+        ):
+            raise ValueError("TRANSFER source identities must be unique")
+        scheme = "s3" if self.destination_provider == "AWS" else "oss"
+        parsed = urlsplit(self.destination_prefix)
+        if (
+            parsed.scheme != scheme
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "destinationPrefix must be a credential-free destination URI"
+            )
+        if not hmac.compare_digest(
+            self.semantic_digest,
+            self.computed_semantic_digest(),
+        ):
+            raise ValueError("TRANSFER semanticDigest does not match")
+        return self
+
+    def computed_semantic_digest(self) -> str:
+        return canonical_semantic_digest(
+            "video.media-catalog.transfer-plan-binding.v1",
+            self.schema_version,
+            self.plan_kind,
+            self.transfer_plan_id,
+            self.transfer_plan_digest,
+            self.source_provider,
+            self.destination_provider,
+            str(len(self.source_object_identity_digests)),
+            *self.source_object_identity_digests,
+            self.destination_prefix,
+        )
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        transfer_plan_id: str,
+        transfer_plan_digest: str,
+        source_provider: CloudProvider,
+        destination_provider: CloudProvider,
+        source_object_identity_digests: Iterable[str],
+        destination_prefix: str,
+    ) -> TransferPlanBinding:
+        identities = tuple(source_object_identity_digests)
+        semantic_digest = canonical_semantic_digest(
+            "video.media-catalog.transfer-plan-binding.v1",
+            CATALOG_TRANSFER_PLAN_SCHEMA_VERSION,
+            "TRANSFER",
+            transfer_plan_id,
+            transfer_plan_digest,
+            source_provider,
+            destination_provider,
+            str(len(identities)),
+            *identities,
+            destination_prefix,
+        )
+        return cls(
+            schema_version=CATALOG_TRANSFER_PLAN_SCHEMA_VERSION,
+            plan_kind="TRANSFER",
+            transfer_plan_id=transfer_plan_id,
+            transfer_plan_digest=transfer_plan_digest,
+            source_provider=source_provider,
+            destination_provider=destination_provider,
+            source_object_identity_digests=identities,
+            destination_prefix=destination_prefix,
+            semantic_digest=semantic_digest,
+        )
+
+
+def object_ref_cloud_provider(reference: ObjectRefV2) -> CloudProvider:
+    return "AWS" if reference.provider == "AWS_S3" else "ALIYUN"
+
+
+def validate_execution_data_locality(
+    *,
+    profile: SparkProviderProfile,
+    input_objects: Iterable[ObjectRefV2],
+    plan_kind: ExecutionPlanKind,
+    transfer_plan: TransferPlanBinding | None,
+) -> tuple[ObjectRefV2, ...]:
+    """Fail closed unless execution is data-local or an explicit TRANSFER."""
+
+    objects = tuple(input_objects)
+    if not objects:
+        raise ValueError("execution requires at least one input ObjectRef v2")
+    identities = tuple(item.identity_digest for item in objects)
+    if len(set(identities)) != len(identities):
+        raise ValueError("input ObjectRef v2 identities must be unique")
+    input_clouds = {object_ref_cloud_provider(item) for item in objects}
+    if plan_kind == "EXECUTION":
+        if transfer_plan is not None or profile.transfer_only:
+            raise ValueError("ordinary execution cannot carry a TRANSFER binding")
+        if input_clouds != {profile.cloud_provider}:
+            raise ValueError("cross-cloud execution requires an explicit TRANSFER plan")
+        return objects
+    if transfer_plan is None:
+        raise ValueError("TRANSFER execution requires a transfer plan binding")
+    if (
+        not profile.transfer_only
+        or transfer_plan.destination_provider != profile.cloud_provider
+        or input_clouds != {transfer_plan.source_provider}
+        or identities != transfer_plan.source_object_identity_digests
+    ):
+        raise ValueError("TRANSFER plan does not bind the exact source and profile")
+    return objects
+
+
+class CatalogBackendCompletionReceipt(ExecutionContractModel):
+    """Bounded external-authority evidence returned to Platform."""
+
+    schema_version: Literal["1.0.0"]
+    tenant_id: UuidV7
+    project_id: UuidV7
+    execution_plan_id: UuidV7
+    execution_partition_id: UuidV7
+    execution_attempt_id: UuidV7
+    provider_profile_digest: Sha256Hex
+    backend_kind: SparkBackendKind
+    backend_application_id: str
+    backend_job_id: str
+    terminal_state: Literal["SUCCESS", "FAILED", "CANCELLED"]
+    result_kind: Literal["EXTERNAL_AUTHORITY"]
+    authority_result_digest: Sha256Hex
+    summary_digest: Sha256Hex
+    observed_at: InstantText
+    semantic_digest: Sha256Hex
+
+    @model_validator(mode="after")
+    def validate_receipt(self) -> CatalogBackendCompletionReceipt:
+        _require_bounded_text(
+            self.backend_application_id,
+            label="backendApplicationId",
+            maximum=255,
+        )
+        _require_bounded_text(
+            self.backend_job_id,
+            label="backendJobId",
+            maximum=255,
+        )
+        if not hmac.compare_digest(
+            self.semantic_digest,
+            self.computed_semantic_digest(),
+        ):
+            raise ValueError("completion receipt semanticDigest does not match")
+        return self
+
+    def computed_semantic_digest(self) -> str:
+        return canonical_semantic_digest(
+            "video.media-catalog.backend-completion-receipt.v1",
+            self.schema_version,
+            self.tenant_id,
+            self.project_id,
+            self.execution_plan_id,
+            self.execution_partition_id,
+            self.execution_attempt_id,
+            self.provider_profile_digest,
+            self.backend_kind,
+            self.backend_application_id,
+            self.backend_job_id,
+            self.terminal_state,
+            self.result_kind,
+            self.authority_result_digest,
+            self.summary_digest,
+            self.observed_at,
+        )
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        tenant_id: str,
+        project_id: str,
+        execution_plan_id: str,
+        execution_partition_id: str,
+        execution_attempt_id: str,
+        provider_profile_digest: str,
+        backend_kind: SparkBackendKind,
+        backend_application_id: str,
+        backend_job_id: str,
+        terminal_state: Literal["SUCCESS", "FAILED", "CANCELLED"],
+        authority_result_digest: str,
+        summary_digest: str,
+        observed_at: str | datetime,
+    ) -> CatalogBackendCompletionReceipt:
+        canonical_observed_at = _canonical_instant(observed_at)
+        semantic_digest = canonical_semantic_digest(
+            "video.media-catalog.backend-completion-receipt.v1",
+            CATALOG_COMPLETION_RECEIPT_SCHEMA_VERSION,
+            tenant_id,
+            project_id,
+            execution_plan_id,
+            execution_partition_id,
+            execution_attempt_id,
+            provider_profile_digest,
+            backend_kind,
+            backend_application_id,
+            backend_job_id,
+            terminal_state,
+            "EXTERNAL_AUTHORITY",
+            authority_result_digest,
+            summary_digest,
+            canonical_observed_at,
+        )
+        return cls(
+            schema_version=CATALOG_COMPLETION_RECEIPT_SCHEMA_VERSION,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            execution_plan_id=execution_plan_id,
+            execution_partition_id=execution_partition_id,
+            execution_attempt_id=execution_attempt_id,
+            provider_profile_digest=provider_profile_digest,
+            backend_kind=backend_kind,
+            backend_application_id=backend_application_id,
+            backend_job_id=backend_job_id,
+            terminal_state=terminal_state,
+            result_kind="EXTERNAL_AUTHORITY",
+            authority_result_digest=authority_result_digest,
+            summary_digest=summary_digest,
+            observed_at=canonical_observed_at,
             semantic_digest=semantic_digest,
         )

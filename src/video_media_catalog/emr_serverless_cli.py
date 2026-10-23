@@ -11,10 +11,12 @@ from collections.abc import Callable, Sequence
 from contextlib import suppress
 from typing import Any
 
-_RUNNABLE_APPLICATION_STATES = {"CREATED", "STARTED", "STOPPED"}
-_SUCCESS_STATES = {"SUCCESS"}
-_FAILURE_STATES = {"FAILED", "CANCELLED"}
-_TERMINAL_STATES = _SUCCESS_STATES | _FAILURE_STATES
+from video_media_catalog.spark_backend import (
+    AwsEmrServerlessSparkBackend,
+    SparkBackendIdentity,
+    SparkSubmitRequest,
+)
+
 _CLIENT_TOKEN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _GIB_RESOURCE = re.compile(r"^([1-9][0-9]*)[gG]i?[bB]?$")
 # EMR Serverless worker memory is discrete per vCPU; heap+overhead must fit.
@@ -185,39 +187,6 @@ def _validate(parsed: argparse.Namespace) -> None:
     )
 
 
-def _applications(client: Any) -> list[dict[str, Any]]:
-    applications: list[dict[str, Any]] = []
-    request: dict[str, Any] = {}
-    while True:
-        response = client.list_applications(**request)
-        applications.extend(response.get("applications", []))
-        token = response.get("nextToken")
-        if not token:
-            return applications
-        request["nextToken"] = token
-
-
-def _application_id(client: Any, name: str) -> str:
-    applications = _applications(client)
-    matches = [
-        application
-        for application in applications
-        if application.get("name") == name
-        and application.get("state") in _RUNNABLE_APPLICATION_STATES
-    ]
-    if len(matches) != 1:
-        states = sorted(
-            str(application.get("state"))
-            for application in applications
-            if application.get("name") == name
-        )
-        raise RuntimeError(
-            f"expected exactly one runnable EMR Serverless application named "
-            f"{name!r}; found {len(matches)} (states={states})"
-        )
-    return str(matches[0]["id"])
-
-
 def _spark_submit_parameters(parsed: argparse.Namespace) -> str:
     python = "/opt/video-media-catalog/.venv/bin/python"
     speculation_enabled = bool(getattr(parsed, "enable_speculation", False))
@@ -334,49 +303,46 @@ def run(
         if progress_callback is not None:
             progress_callback(event)
 
-    application_id = _application_id(client, parsed.application_name)
-    request: dict[str, Any] = {
-        "applicationId": application_id,
-        "clientToken": parsed.client_token,
-        "executionRoleArn": parsed.execution_role_arn,
-        "executionTimeoutMinutes": parsed.execution_timeout_minutes,
-        "jobDriver": {
-            "sparkSubmit": {
-                "entryPoint": parsed.entry_point,
-                "entryPointArguments": _entry_point_arguments(parsed),
-                "sparkSubmitParameters": _spark_submit_parameters(parsed),
-            }
-        },
-        "name": parsed.job_name,
-        "configurationOverrides": {
-            "monitoringConfiguration": {
-                "s3MonitoringConfiguration": {"logUri": parsed.log_uri}
-            }
-        },
-        "retryPolicy": {"maxAttempts": parsed.max_attempts},
-    }
+    backend = AwsEmrServerlessSparkBackend(client)
+    application_id = backend.resolve_application_id(parsed.application_name)
+    submit_request = SparkSubmitRequest(
+        provider="AWS_EMR_SERVERLESS",
+        application_id=application_id,
+        workload_identity_reference=parsed.execution_role_arn,
+        client_token=parsed.client_token,
+        job_name=parsed.job_name,
+        entry_point=parsed.entry_point,
+        entry_point_arguments=tuple(_entry_point_arguments(parsed)),
+        spark_submit_parameters=_spark_submit_parameters(parsed),
+        execution_timeout_minutes=parsed.execution_timeout_minutes,
+        max_attempts=parsed.max_attempts,
+        log_uri=parsed.log_uri,
+    )
 
-    job_run_id: str | None = None
+    identity: SparkBackendIdentity | None = None
     terminal = False
     try:
         if resume_job_run_id is None:
-            started = client.start_job_run(**request)
-            job_run_id = str(started["jobRunId"])
+            identity = backend.submit(submit_request)
             _progress(
                 {
                     "applicationId": application_id,
                     "event": "submitted",
-                    "jobRunArn": started.get("arn"),
-                    "jobRunId": job_run_id,
+                    "jobRunArn": identity.job_run_arn,
+                    "jobRunId": identity.job_run_id,
                 }
             )
         else:
-            job_run_id = resume_job_run_id
+            identity = SparkBackendIdentity(
+                provider="AWS_EMR_SERVERLESS",
+                application_id=application_id,
+                job_run_id=resume_job_run_id,
+            )
             _progress(
                 {
                     "applicationId": application_id,
                     "event": "resumed",
-                    "jobRunId": job_run_id,
+                    "jobRunId": identity.job_run_id,
                 }
             )
 
@@ -384,22 +350,18 @@ def run(
         while True:
             if should_cancel is not None and should_cancel():
                 raise RuntimeError(
-                    f"EMR Serverless job {job_run_id} cancelled by caller"
+                    f"EMR Serverless job {identity.job_run_id} cancelled by caller"
                 )
-            response = client.get_job_run(
-                applicationId=application_id,
-                jobRunId=job_run_id,
-            )
-            job_run = response["jobRun"]
-            state = str(job_run["state"])
+            observation = backend.observe(identity)
+            state = observation.provider_state
             if state != previous_state:
                 _progress(
                     {
                         "applicationId": application_id,
                         "event": "state",
-                        "jobRunId": job_run_id,
+                        "jobRunId": identity.job_run_id,
                         "state": state,
-                        "stateDetails": job_run.get("stateDetails"),
+                        "stateDetails": observation.state_details or None,
                     }
                 )
                 previous_state = state
@@ -411,26 +373,26 @@ def run(
                     {
                         "applicationId": application_id,
                         "event": "poll",
-                        "jobRunId": job_run_id,
+                        "jobRunId": identity.job_run_id,
                         "state": state,
-                        "stateDetails": job_run.get("stateDetails"),
+                        "stateDetails": observation.state_details or None,
                     }
                 )
-            if state in _TERMINAL_STATES:
+            if observation.terminal:
                 terminal = True
-                if state in _SUCCESS_STATES:
-                    return job_run
+                if observation.outcome == "SUCCESS":
+                    return observation.raw
                 raise RuntimeError(
-                    f"EMR Serverless job {job_run_id} ended in {state}: "
-                    f"{job_run.get('stateDetails') or 'no state details'}"
+                    f"EMR Serverless job {identity.job_run_id} ended in {state}: "
+                    f"{observation.state_details or 'no state details'}"
                 )
             sleep(parsed.poll_seconds)
     finally:
-        if job_run_id is not None and not terminal:
+        if identity is not None and not terminal:
             with suppress(Exception):
-                client.cancel_job_run(
-                    applicationId=application_id,
-                    jobRunId=job_run_id,
+                backend.cancel(
+                    identity,
+                    reason="CLI polling stopped before terminal observation",
                 )
 
 

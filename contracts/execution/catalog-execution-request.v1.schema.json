@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalog-execution-request.v1.schema.json",
+  "title": "Catalog cross-namespace execution request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "tenantId",
+    "projectId",
+    "executionPlanId",
+    "executionPartitionId",
+    "executionAttemptId",
+    "executionStage",
+    "workloadDigest",
+    "executionProfileDigest",
+    "dispatchSpecDigest",
+    "inputs",
+    "requestDigest"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "video.world.catalog-execution-workflow.v1"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "projectId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionPlanId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionPartitionId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionAttemptId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "executionStage": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "workloadDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "executionProfileDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "dispatchSpecDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "$ref": "object-ref-v2.v2.schema.json"
+      }
+    },
+    "transferPlanBinding": {
+      "$ref": "execution-transfer-plan.v1.schema.json"
+    },
+    "requestDigest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "catalogExecutionRequestHashProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "tenantId",
+        "projectId",
+        "executionPlanId",
+        "executionPartitionId",
+        "executionAttemptId",
+        "executionStage",
+        "workloadDigest",
+        "executionProfileDigest",
+        "dispatchSpecDigest",
+        "inputs"
+      ],
+      "properties": {
+        "contractVersion": {
+          "type": "string"
+        },
+        "tenantId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "projectId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionPlanId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionPartitionId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionAttemptId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "executionStage": {
+          "type": "string"
+        },
+        "workloadDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "executionProfileDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "dispatchSpecDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "inputs": {
+          "type": "array"
+        },
+        "transferPlanBinding": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "x-canonical-order": {
+    "inputs": "ascending ObjectRef v2 identityDigest"
+  },
+  "x-hash-algorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "x-hash-projection": {
+    "$ref": "#/$defs/catalogExecutionRequestHashProjection",
+    "domain": "video.world.catalog-execution-request.hash-projection.v1",
+    "excluded": [
+      "requestDigest"
+    ]
+  }
+}

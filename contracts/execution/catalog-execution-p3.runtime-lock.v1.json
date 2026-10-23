@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "video.media-catalog.execution-p3-runtime-lock.v1",
+  "status": "MANIFEST_PUBLISHED",
+  "runtimeActivationAllowed": false,
+  "platformProvenance": {
+    "repository": "video-world-platform",
+    "branch": "feat/unified-execution-p3-20261023",
+    "observedHeadCommit": "62c8805f40632c8233b1163fe2a6b037d6ce2b28",
+    "p3ArtifactCommit": null,
+    "p3CommitReceipt": null,
+    "p3ArtifactsPresentInObservedCommit": false,
+    "p2ArtifactManifest": {
+      "path": "contracts/execution/execution-p2-artifact-manifest.v1.json",
+      "sha256": "dbeed9ad45fbf281827d5d3661bcfc9a04b25a19e5a81654759c8f83742a3458",
+      "byteLength": 1356
+    }
+  },
+  "p3Manifest": {
+    "path": "contracts/execution/execution-p3-artifact-manifest.v1.json",
+    "present": true,
+    "sha256": "e8877d7ff06c2d5e12228dd30c1e0ee015cda9b74b46dc52147806d27877e7f8",
+    "byteLength": 4567,
+    "lockBodyDigest": "3b2135ee9ec4102bcbb2a035d1375d14615be904f247e7e3b1ac941c11f467a3",
+    "contractVersion": "video.world.execution-contracts.p3.v1",
+    "status": "PLANNED",
+    "claimsRuntimeActivation": false,
+    "sourceCommit": null,
+    "publicationReceipt": null,
+    "requiredForActivation": true
+  },
+  "crossNamespaceContract": {
+    "sourceNamespace": "video-world-platform",
+    "targetNamespace": "vw-media-catalog-research",
+    "workflowType": "CatalogExecutionWorkflowV1",
+    "taskQueue": "vw-media-catalog-execution-v1",
+    "contractVersion": "video.world.catalog-execution-workflow.v1",
+    "catalogRuntimeContractVersion": "video.media-catalog.execution.p3.v1",
+    "requestSchemaSha256": "508da2430309b301fa72a8317d3caaff66466acd1d6f872a115d200e7f595528",
+    "resultSchemaSha256": "5395352aace8ffa94bfb0bc1fd626d3e948a51cd1239ce3f7a730306bada0383",
+    "allowedPlatformContractDigests": [
+      "3b2135ee9ec4102bcbb2a035d1375d14615be904f247e7e3b1ac941c11f467a3"
+    ]
+  },
+  "providerProfiles": {
+    "profileSchemaSha256": "5a86c8f6289d33ecc9de7c2166a2697052abf5c4e6aaaeeae8308b53bf4e50b8",
+    "runtimeBindingSchemaSha256": "3dc4e30b2d91296829952d2503f0fffe3a074aaa1e22bd588211631aab6cc638",
+    "transferPlanSchemaSha256": "2b8a64118bca4a3adf6574a4f00654fd459c5666bf66639f291e9990e24fe702",
+    "allowlistScope": "PLATFORM_MANIFEST_FIXTURE_REFERENCES",
+    "allowedProfileDigests": [
+      "93c4bae1291829005dc81769b6e0587de702f050d9e56f8615fa37023f686c83",
+      "577c62d359549814327855831f7733bd4916b24c52ddcd63c7a1bbb60b8e9c26",
+      "109d0de2245331990a461a412e5fbc34de59fd64fbaf94b142296f65ddb8a68b"
+    ],
+    "catalogOwnedRuntimeProfileDigests": [],
+    "catalogOwnedActivationReceipt": null,
+    "requireExactObjectVersion": true,
+    "requireSha256": true,
+    "implicitCrossCloudTransferAllowed": false
+  },
+  "databaseBoundary": {
+    "catalogMayWritePlatformDatabase": false,
+    "platformMayWriteCatalogDatabase": false
+  },
+  "activationReceipt": null,
+  "claimsRuntimeActivation": false
+}

@@ -37,6 +37,7 @@ video-media-catalog-golden-temporal-worker = "video_media_catalog.temporal.golde
 video-media-catalog-golden-temporal-admin = "video_media_catalog.temporal.golden_admin_cli:main"
 video-media-catalog-gold-index-temporal-worker = "video_media_catalog.temporal.gold_index_worker:main"
 video-media-catalog-gold-index-temporal-admin = "video_media_catalog.temporal.gold_index_admin_cli:main"
+video-media-catalog-execution-temporal-worker = "video_media_catalog.temporal.catalog_execution_worker:main"
 video-media-catalog-source-registry = "video_media_catalog.source_registry_cli:main"
 video-media-catalog-community-spark = "video_media_catalog.community_cli:main"
 video-media-catalog-research-silver = "video_media_catalog.research_silver_cli:main"

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from temporalio.worker import Replayer
 
+from video_media_catalog.temporal.workflows.catalog_execution import (
+    CatalogExecutionWorkflowV1,
+)
 from video_media_catalog.temporal.workflows.eidr_public_research import (
     EidrPublicResearchWorkflow,
 )
@@ -32,6 +35,7 @@ def test_workflow_definition_is_replay_safe() -> None:
             ResearchDomainWorkflow,
             GoldIndexGcWorkflow,
             GoldIndexRestoreWorkflow,
+            CatalogExecutionWorkflowV1,
         ]
     )
     assert replayer is not None

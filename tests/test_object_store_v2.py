@@ -121,6 +121,16 @@ def test_v2_verify_and_download_require_exact_version_and_sha256(
         store.verify(changed, max_bytes=1_024)
     assert raised.value.code == "OBJECT_VERSION_MISMATCH"
 
+    changed = reference.model_copy(update={"etag": "wrong-etag"})
+    with pytest.raises(ObjectStoreError) as raised:
+        store.verify(changed, max_bytes=1_024)
+    assert raised.value.code == "OBJECT_ETAG_MISMATCH"
+
+    changed = reference.model_copy(update={"checksum": "0" * 64})
+    with pytest.raises(ObjectStoreError) as raised:
+        store.verify(changed, max_bytes=1_024)
+    assert raised.value.code == "OBJECT_CHECKSUM_MISMATCH"
+
 
 @pytest.mark.parametrize(
     ("provider", "uri", "etag", "version"),

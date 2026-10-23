@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "video.world.execution-cost-estimator-version.v1",
+  "estimatorVersionId": "018f47c2-4a3b-7a10-8a11-00000000001a",
+  "executionStage": "PROBE",
+  "backendKind": "KUBERNETES_JOB",
+  "backendProvider": "KUBERNETES",
+  "version": 2,
+  "state": "ACTIVE",
+  "multiplierPpm": 1100000,
+  "sampleCount": 3,
+  "acceptedSampleCount": 3,
+  "outlierSampleCount": 0,
+  "sampleSetDigest": "e25c922ffe3796422a4f93220654a343f1dbaf2946f6a76b0130f5ac5a246be0",
+  "policyDigest": "a3eaff61d429b690652b3c2567999a27e1e999f3731a262b4595cd5b18021303",
+  "createdAt": "2026-10-24T00:00:01Z",
+  "modelDigest": "b34656e863fa5788afa6be493e74084591d8fcb90aa1ba22667a9d3f4c319fcf"
+}

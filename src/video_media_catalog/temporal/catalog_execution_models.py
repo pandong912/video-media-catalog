@@ -12,6 +12,11 @@ from video_media_catalog.execution_contracts import (
     SparkProviderProfile,
     TransferPlanBinding,
     WorkloadIdentityBinding,
+    canonical_semantic_digest,
+)
+from video_media_catalog.spark_backend import (
+    SparkBackendIdentity,
+    SparkBackendObservation,
 )
 
 CATALOG_EXECUTION_CONTRACT = "video.media-catalog.execution.p3.v1"
@@ -246,8 +251,10 @@ class CatalogExecutionStatus:
     state: Literal[
         "PREPARING",
         "SUBMITTING",
+        "RECONCILING",
         "RUNNING",
         "CANCELLING",
+        "ROLLING_BACK",
         "SUCCESS",
         "FAILED",
         "CANCELLED",
@@ -256,6 +263,107 @@ class CatalogExecutionStatus:
     cancel_requested: bool
     backend_job_id: str | None
     provider_state: str | None
+    reconcile_count: int = 0
+    rollback_requested: bool = False
+    checkpoint_digest: str | None = None
+    resource_evidence_digest: str | None = None
+    cost_evidence_digest: str | None = None
+
+
+@dataclass(frozen=True)
+class CatalogExecutionRecoveryCheckpoint:
+    schema_version: Literal["video.media-catalog.execution-checkpoint.p4.v1"]
+    provider: Literal[
+        "AWS_EMR_SERVERLESS",
+        "ALIYUN_EMR_SERVERLESS_SPARK",
+    ]
+    backend_application_id: str
+    backend_job_id: str
+    observation_count: int
+    provider_state: str
+    observation_evidence_digest: str
+    resource_evidence_digest: str | None
+    cost_evidence_digest: str | None
+    cancel_requested: bool
+    rollback_requested: bool
+    checkpoint_digest: str
+
+    def __post_init__(self) -> None:
+        if self.observation_count < 0:
+            raise ValueError("observation_count must be non-negative")
+        _bounded(self.backend_application_id, "backend_application_id", 255)
+        _bounded(self.backend_job_id, "backend_job_id", 255)
+        _bounded(self.provider_state, "provider_state", 64)
+        _sha(self.observation_evidence_digest, "observation_evidence_digest")
+        for label, digest in (
+            ("resource_evidence_digest", self.resource_evidence_digest),
+            ("cost_evidence_digest", self.cost_evidence_digest),
+        ):
+            if digest is not None:
+                _sha(digest, label)
+        _sha(self.checkpoint_digest, "checkpoint_digest")
+        if self.checkpoint_digest != self.computed_digest():
+            raise ValueError("checkpoint_digest does not match")
+
+    def computed_digest(self) -> str:
+        return canonical_semantic_digest(
+            "video.media-catalog.execution-recovery-checkpoint.p4.v1",
+            self.schema_version,
+            self.provider,
+            self.backend_application_id,
+            self.backend_job_id,
+            str(self.observation_count),
+            self.provider_state,
+            self.observation_evidence_digest,
+            self.resource_evidence_digest or "",
+            self.cost_evidence_digest or "",
+            str(self.cancel_requested).lower(),
+            str(self.rollback_requested).lower(),
+        )
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        identity: SparkBackendIdentity,
+        observation: SparkBackendObservation,
+        observation_count: int,
+        cancel_requested: bool,
+        rollback_requested: bool,
+    ) -> CatalogExecutionRecoveryCheckpoint:
+        schema_version = "video.media-catalog.execution-checkpoint.p4.v1"
+        resource_digest = observation.bound_resource_evidence_digest or None
+        cost_digest = observation.bound_cost_evidence_digest or None
+        fields = (
+            schema_version,
+            identity.provider,
+            identity.application_id,
+            identity.job_run_id,
+            str(observation_count),
+            observation.provider_state,
+            observation.evidence_digest,
+            resource_digest or "",
+            cost_digest or "",
+            str(cancel_requested).lower(),
+            str(rollback_requested).lower(),
+        )
+        return cls(
+            schema_version=schema_version,
+            provider=identity.provider,
+            backend_application_id=identity.application_id,
+            backend_job_id=identity.job_run_id,
+            observation_count=observation_count,
+            provider_state=observation.provider_state,
+            observation_evidence_digest=observation.evidence_digest,
+            resource_evidence_digest=resource_digest,
+            cost_evidence_digest=cost_digest,
+            cancel_requested=cancel_requested,
+            rollback_requested=rollback_requested,
+            checkpoint_digest=canonical_semantic_digest(
+                "video.media-catalog.execution-recovery-checkpoint.p4.v1",
+                *fields,
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -266,6 +374,9 @@ class CatalogExecutionResult:
     completion_receipt: ObjectRefV2Payload
     completion_receipt_digest: str
     result_kind: Literal["EXTERNAL_AUTHORITY"] = "EXTERNAL_AUTHORITY"
+    resource_evidence_digest: str | None = None
+    cost_evidence_digest: str | None = None
+    recovery_checkpoint: CatalogExecutionRecoveryCheckpoint | None = None
 
 
 def catalog_execution_workflow_id(input_data: CatalogExecutionInput) -> str:

@@ -13,6 +13,7 @@ from video_media_catalog.spark_backend import (
     SparkBackendIdentity,
     SparkBackendObservation,
     SparkCancelReceipt,
+    SparkReconcileResult,
 )
 from video_media_catalog.temporal.catalog_execution_models import (
     CatalogExecutionInput,
@@ -49,6 +50,19 @@ async def _success_case() -> None:
             provider="AWS_EMR_SERVERLESS",
             application_id="app-1",
             job_run_id="job-1",
+        )
+
+    @activity.defn(name="ReconcileCatalogSparkV1")
+    async def reconcile(
+        _prepared: PreparedCatalogExecution,
+        identity: SparkBackendIdentity,
+    ) -> SparkReconcileResult:
+        return SparkReconcileResult.create(
+            SparkBackendObservation(
+                identity=identity,
+                provider_state="RUNNING",
+                outcome="RUNNING",
+            )
         )
 
     @activity.defn(name="ObserveCatalogSparkV1")
@@ -98,7 +112,7 @@ async def _success_case() -> None:
         Worker(
             env.client,
             task_queue=CATALOG_EXECUTION_AWS_TASK_QUEUE,
-            activities=[submit, observe, cancel],
+            activities=[submit, reconcile, observe, cancel],
         ),
     ):
         workflow_id = catalog_execution_workflow_id(input_data)
@@ -113,10 +127,14 @@ async def _success_case() -> None:
         status = await handle.query(CatalogExecutionWorkflowV1.status)
         assert status.state == "RUNNING"
         assert status.backend_job_id == "job-1"
+        checkpoint = await handle.query(CatalogExecutionWorkflowV1.recovery_checkpoint)
+        assert checkpoint is not None
+        assert checkpoint.backend_job_id == "job-1"
         release_observation.set()
         result = await handle.result()
         assert result.state == "SUCCESS"
         assert result.result_kind == "EXTERNAL_AUTHORITY"
+        assert result.recovery_checkpoint is not None
         history = await handle.fetch_history()
 
     await Replayer(workflows=[CatalogExecutionWorkflowV1]).replay_workflow(history)
@@ -146,6 +164,19 @@ async def _cancel_case() -> None:
             provider="AWS_EMR_SERVERLESS",
             application_id="app-1",
             job_run_id="job-1",
+        )
+
+    @activity.defn(name="ReconcileCatalogSparkV1")
+    async def reconcile(
+        _prepared: PreparedCatalogExecution,
+        identity: SparkBackendIdentity,
+    ) -> SparkReconcileResult:
+        return SparkReconcileResult.create(
+            SparkBackendObservation(
+                identity=identity,
+                provider_state="RUNNING",
+                outcome="RUNNING",
+            )
         )
 
     @activity.defn(name="ObserveCatalogSparkV1")
@@ -202,7 +233,7 @@ async def _cancel_case() -> None:
         Worker(
             env.client,
             task_queue=CATALOG_EXECUTION_AWS_TASK_QUEUE,
-            activities=[submit, observe, cancel],
+            activities=[submit, reconcile, observe, cancel],
         ),
     ):
         handle = await env.client.start_workflow(

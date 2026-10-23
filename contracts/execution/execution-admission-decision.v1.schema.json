@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-admission-decision.v1.schema.json",
+  "title": "Unified execution hierarchical admission decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "admissionDecisionId",
+    "admissionRequestId",
+    "executionAttemptId",
+    "tenantId",
+    "projectId",
+    "executionStage",
+    "backendKind",
+    "backendProvider",
+    "endpointKey",
+    "estimatedCostMicros",
+    "requiredCapacityMilli",
+    "fairness",
+    "budgetLimitMicros",
+    "budgetReservedBeforeMicros",
+    "endpointTokensBeforeMilli",
+    "endpointTokensAfterMilli",
+    "capacityEvidenceDigest",
+    "decisionState",
+    "reasonCode",
+    "virtualFinish",
+    "budgetReservedAfterMicros",
+    "requestDigest",
+    "decisionDigest",
+    "requestedAt",
+    "decidedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "video.world.execution-admission-decision.v1"
+    },
+    "admissionDecisionId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "admissionRequestId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "executionAttemptId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "projectId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "executionStage": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "backendKind": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "backendProvider": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "endpointKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]{0,254}$"
+    },
+    "estimatedCostMicros": {
+      "$ref": "#/$defs/nonNegativeBounded"
+    },
+    "requiredCapacityMilli": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000000000
+    },
+    "fairness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant",
+        "project",
+        "stage",
+        "backend",
+        "provider"
+      ],
+      "properties": {
+        "tenant": {
+          "$ref": "#/$defs/fairnessLevel"
+        },
+        "project": {
+          "$ref": "#/$defs/fairnessLevel"
+        },
+        "stage": {
+          "$ref": "#/$defs/fairnessLevel"
+        },
+        "backend": {
+          "$ref": "#/$defs/fairnessLevel"
+        },
+        "provider": {
+          "$ref": "#/$defs/fairnessLevel"
+        }
+      }
+    },
+    "budgetLimitMicros": {
+      "$ref": "#/$defs/nonNegativeBounded"
+    },
+    "budgetReservedBeforeMicros": {
+      "$ref": "#/$defs/nonNegativeBounded"
+    },
+    "endpointTokensBeforeMilli": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000
+    },
+    "endpointTokensAfterMilli": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000
+    },
+    "kueueCapacityEvidence": {
+      "$ref": "#/$defs/kueueCapacityEvidence"
+    },
+    "capacityEvidenceDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "decisionState": {
+      "enum": [
+        "GRANTED",
+        "DEFERRED",
+        "DENIED"
+      ]
+    },
+    "reasonCode": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "virtualFinish": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "budgetReservedAfterMicros": {
+      "$ref": "#/$defs/nonNegativeBounded"
+    },
+    "requestDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "decisionDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "requestedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "decidedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "backendKind": {
+            "enum": [
+              "KUBERNETES",
+              "KUBERNETES_JOB"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "kueueCapacityEvidence"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "upperToken": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "ppm": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "nonNegativeBounded": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000000
+    },
+    "fairnessLevel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "weight",
+        "guaranteedSharePpm",
+        "maximumSharePpm",
+        "currentSharePpm"
+      ],
+      "properties": {
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "guaranteedSharePpm": {
+          "$ref": "#/$defs/ppm"
+        },
+        "maximumSharePpm": {
+          "$ref": "#/$defs/ppm"
+        },
+        "currentSharePpm": {
+          "$ref": "#/$defs/ppm"
+        }
+      }
+    },
+    "kueueCapacityEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clusterQueue",
+        "localQueue",
+        "resourceFlavor",
+        "nominalCapacityMilli",
+        "availableCapacityMilli",
+        "borrowedCapacityMilli",
+        "borrowingLimitMilli",
+        "pendingWorkloads",
+        "observedAt",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "clusterQueue": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]{0,127}$"
+        },
+        "localQueue": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]{0,127}$"
+        },
+        "resourceFlavor": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]{0,127}$"
+        },
+        "nominalCapacityMilli": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "availableCapacityMilli": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "borrowedCapacityMilli": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "borrowingLimitMilli": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "pendingWorkloads": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000000
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "evidenceDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "video.world.execution-p4-artifact-manifest.v1",
+  "lockBodyDigestAlgorithm": "video.world.canonical-tuple.sha256-length-delimited-utf8.v1",
+  "lockBody": {
+    "authority": "PLATFORM",
+    "p4ContractVersion": "video.world.execution-contracts.p4.v1",
+    "status": "PLANNED",
+    "claimsRuntimeActivation": false,
+    "claimsProductionSlo": false,
+    "platformProvenance": {
+      "p3Commit": "2236a8f4a165e258dfb67a01c69408742999f905",
+      "p3ContractVersion": "video.world.execution-contracts.p3.v1",
+      "p3ArtifactLockDigest": "3b2135ee9ec4102bcbb2a035d1375d14615be904f247e7e3b1ac941c11f467a3"
+    },
+    "artifacts": [
+      {
+        "sourcePath": "contracts/execution/execution-admission-decision.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "b4dec69aecadc0927419e51d20fccefa0d3790373d9d1ad240e3e6064b45b21a",
+        "byteLength": 6595
+      },
+      {
+        "sourcePath": "contracts/execution/execution-cost-estimator-version.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "a9aeea936f23bfcc8527cfca340fbef47ede46ca48a4dda412814c884308fdef",
+        "byteLength": 2840
+      },
+      {
+        "sourcePath": "contracts/execution/execution-cost-observation.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "ef629727140ab4d640df797b8b2ce0a918d6d0ed1e794f903d8d517c9d68fbbc",
+        "byteLength": 1922
+      },
+      {
+        "sourcePath": "contracts/execution/execution-operations-evidence.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "62350c07e19402bce5d2a384ea9b80a66bbe884bd7bfe4eae905f23274ee16bb",
+        "byteLength": 8587
+      },
+      {
+        "sourcePath": "contracts/execution/execution-p4-offline-benchmark-evidence.v1.schema.json",
+        "kind": "JSON_SCHEMA",
+        "sha256": "5d814ce50386dae2312a53dc562bdef74ec7f75bbb5d1ce243c54ca5c49880b5",
+        "byteLength": 3142
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/execution-admission-decision.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "312ae26f71390b647e6247f2d78297d7f92fb1f420f641f83ba87f81c6723c71",
+        "byteLength": 1932
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/execution-cost-estimator-version.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "45c35e5e3a3b1cbedfc5a1adf6bfcd73a39022657729d615202468f3e35785a0",
+        "byteLength": 675
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/execution-cost-observation.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "dc3afd1ef3844a12fd5b5a1fd5eb4b8d37962d17af2fc830c3e3e79c13197c70",
+        "byteLength": 733
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/invalid/execution-operations-evidence.json",
+        "kind": "INVALID_FIXTURE",
+        "sha256": "d4675c8e87ea8d71809c765efb8c66a5776d93aae0f7477d6675124cb6cc6905",
+        "byteLength": 835
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/execution-admission-decision.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "2ced528331b9866e0b36fff42c9bd4358116040d5c8f80f1981bb9db3854efc8",
+        "byteLength": 2357
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/execution-cost-estimator-version.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "e57c10f3e096462206ebd8a961e3790d436ff9c354dffa8cebb90b7c9abb65ed",
+        "byteLength": 675
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/execution-cost-observation.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "6c52cb273d07c5ee7a12d8b87cde565de5d0920d1e31cf66d586ba562d1a801f",
+        "byteLength": 736
+      },
+      {
+        "sourcePath": "contracts/execution/fixtures/valid/execution-operations-evidence.json",
+        "kind": "VALID_FIXTURE",
+        "sha256": "f698f6c7493eb3436fce078d847c7e3b3c49c20c8db8dfbc2c3a1e86855b6ca1",
+        "byteLength": 836
+      },
+      {
+        "sourcePath": "readiness/evidence/unified-execution-p4-offline-benchmark.v1.json",
+        "kind": "OFFLINE_EVIDENCE",
+        "sha256": "a8abd1622771df325dc29cdf57fd157ccb9d4296e6e6a45c3369c270e4cd7421",
+        "byteLength": 2009
+      }
+    ]
+  },
+  "lockBodyDigest": "614a6867d0818a57e3a302f8c94fa7d8ffb98dcc7eb2e6781e15b2215cfc3189"
+}

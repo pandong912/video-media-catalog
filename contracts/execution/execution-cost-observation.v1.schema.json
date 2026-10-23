@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-cost-observation.v1.schema.json",
+  "title": "Unified execution observed cost companion v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "costObservationId",
+    "tenantId",
+    "projectId",
+    "receiptId",
+    "executionAttemptId",
+    "executionStage",
+    "backendKind",
+    "backendProvider",
+    "estimatedCostMicros",
+    "observedCostMicros",
+    "receiptDigest",
+    "observedAt",
+    "observationDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "video.world.execution-cost-observation.v1"
+    },
+    "costObservationId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "tenantId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "projectId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "receiptId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "executionAttemptId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "executionStage": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "backendKind": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "backendProvider": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "estimatedCostMicros": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000000000000
+    },
+    "observedCostMicros": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000000
+    },
+    "receiptDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "observationDigest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "upperToken": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    }
+  }
+}

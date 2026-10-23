@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "video.media-catalog.synthetic-local-performance-evidence.p4.v1",
+  "scope": "SYNTHETIC_LOCAL",
+  "datasetKind": "DETERMINISTIC_FIXTURE",
+  "fileCount": 8,
+  "totalBytes": 1127360,
+  "smallFileThresholdBytes": 1024,
+  "smallFileCount": 4,
+  "maxToMedianSizeRatioBps": 20480000,
+  "syntheticDurationMilliseconds": 1000,
+  "syntheticThroughputBytesPerSecond": 1127360,
+  "productionSloClaimed": false,
+  "evidenceDigest": "51ed88ca32d06b66941a49a3a0a72f8504dc9828835dc338f934360c466a599b"
+}

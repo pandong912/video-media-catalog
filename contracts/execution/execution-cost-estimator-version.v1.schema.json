@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-cost-estimator-version.v1.schema.json",
+  "title": "Unified execution versioned cost estimator v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "estimatorVersionId",
+    "executionStage",
+    "backendKind",
+    "backendProvider",
+    "version",
+    "state",
+    "multiplierPpm",
+    "sampleCount",
+    "acceptedSampleCount",
+    "outlierSampleCount",
+    "sampleSetDigest",
+    "policyDigest",
+    "modelDigest",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "video.world.execution-cost-estimator-version.v1"
+    },
+    "estimatorVersionId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "executionStage": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "backendKind": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "backendProvider": {
+      "$ref": "#/$defs/upperToken"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parentVersionId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "rollbackOfVersionId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "state": {
+      "enum": [
+        "CANDIDATE",
+        "ACTIVE",
+        "SUPERSEDED",
+        "ROLLED_BACK"
+      ]
+    },
+    "multiplierPpm": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000000
+    },
+    "sampleCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "acceptedSampleCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "outlierSampleCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "sampleSetDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "policyDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "modelDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "parentVersionId"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "parentVersionId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "rollbackOfVersionId"
+        ]
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "const": "ACTIVE"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "upperToken": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    }
+  }
+}

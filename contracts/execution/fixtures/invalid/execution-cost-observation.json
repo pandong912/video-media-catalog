@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "video.world.execution-cost-observation.v1",
+  "costObservationId": "018f47c2-4a3b-7a10-8a11-000000000019",
+  "tenantId": "018f47c2-4a3b-7a10-8a11-000000000001",
+  "projectId": "018f47c2-4a3b-7a10-8a11-000000000002",
+  "receiptId": "018f47c2-4a3b-7a10-8a11-00000000000a",
+  "executionAttemptId": "018f47c2-4a3b-7a10-8a11-000000000009",
+  "executionStage": "PROBE",
+  "backendKind": "KUBERNETES_JOB",
+  "backendProvider": "KUBERNETES",
+  "estimatedCostMicros": 0,
+  "observedCostMicros": 1100,
+  "receiptDigest": "c6c5ea500a98ae62fd4aeba247fbc95b09173253e0d027cd171f402dc8d06be3",
+  "observedAt": "2026-10-24T00:00:00Z",
+  "observationDigest": "cab044a8fbc438305d1f143edf7bffaef8cdd1b96d88e646006ea61c29e926ad"
+}

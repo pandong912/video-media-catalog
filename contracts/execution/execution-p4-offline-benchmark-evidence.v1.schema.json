@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-p4-offline-benchmark-evidence.v1.schema.json",
+  "title": "Unified execution P4 local offline benchmark evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "environmentClass",
+    "synthetic",
+    "claimsProductionSlo",
+    "sourceCommit",
+    "seed",
+    "reproductionCommand",
+    "host",
+    "cases",
+    "generatedAt",
+    "evidenceDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "video.world.execution-p4-offline-benchmark-evidence.v1"
+    },
+    "environmentClass": {
+      "const": "LOCAL_OFFLINE"
+    },
+    "synthetic": {
+      "const": true
+    },
+    "claimsProductionSlo": {
+      "const": false
+    },
+    "sourceCommit": {
+      "const": "2236a8f4a165e258dfb67a01c69408742999f905"
+    },
+    "seed": {
+      "const": 20261024
+    },
+    "reproductionCommand": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pythonVersion",
+        "operatingSystem",
+        "machine",
+        "processorCount"
+      ],
+      "properties": {
+        "pythonVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operatingSystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "machine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "processorCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/benchmarkCase"
+        },
+        {
+          "$ref": "#/$defs/benchmarkCase"
+        },
+        {
+          "$ref": "#/$defs/benchmarkCase"
+        }
+      ],
+      "items": false
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidenceDigest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "benchmarkCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "parameters",
+        "result",
+        "elapsedNanoseconds",
+        "unitsPerSecond"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "LONG_MEDIA_SKEW",
+            "SMALL_FILE_INVENTORY",
+            "DIGEST_THROUGHPUT"
+          ]
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "seed"
+          ],
+          "properties": {
+            "seed": {
+              "const": 20261024
+            }
+          }
+        },
+        "result": {
+          "type": "object",
+          "minProperties": 4
+        },
+        "elapsedNanoseconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unitsPerSecond": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
